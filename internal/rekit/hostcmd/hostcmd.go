@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 )
@@ -381,6 +382,9 @@ func PublishLiveSoakAcceptanceReceipt(path string, result sessionhost.LiveSoakAc
 }
 
 func ValidateAdapterFlag(liveAcceptance bool, pack, adapterPath string) error {
+	if err := packidentity.Validate(pack); err != nil {
+		return err
+	}
 	adapterPath = strings.TrimSpace(adapterPath)
 	if adapterPath != "" && !liveAcceptance {
 		return fmt.Errorf("-adapter is supported only by -live-acceptance")

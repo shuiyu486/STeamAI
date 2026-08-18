@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
@@ -467,8 +468,8 @@ func noteFixtureWithStateRoot(t *testing.T, stateDir string) (repoRoot, caseRoot
 	root := t.TempDir()
 	repoRoot = filepath.Join(root, "repo")
 	caseRoot = filepath.Join(root, "case")
-	pack = "vmp-re"
-	writeNoteText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), "id: vmp-re\n")
+	pack = defaults.DefaultPack
+	writeNoteText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), "id: binary-re\n")
 	stateRoot := filepath.Join(caseRoot, stateDir)
 	writeNoteText(t, filepath.Join(stateRoot, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"note-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
 	writeNoteText(t, filepath.Join(stateRoot, "board.json"), `{"lanes":[{"id":"main"}]}`)

@@ -11,10 +11,9 @@ import (
 func TestCurrentPackControlWritesAreAcceptedRecoveryGenerations(t *testing.T) {
 	repo := testRepoRoot(t)
 	packs := []struct{ pack, lane string }{
-		{"_template", "feature-analysis"}, {defaults.DefaultPack, "feature-analysis-case"}, {"web-security", "feature-analysis"},
+		{"_template", "feature-analysis"}, {defaults.DefaultPack, "binary-analysis-case"}, {"web-security", "feature-analysis"},
 		{"malware-analysis", "sample-analysis-case"}, {"vuln-research", "vuln-analysis-case"}, {"ctf", "challenge-analysis-case"},
 		{"unpack-pe", "unpack-analysis-case"}, {"ollvm", "obfuscation-analysis-case"}, {"android-native", "native-analysis-case"},
-		{"generic-binary-re", "binary-analysis-case"},
 	}
 	for _, fixture := range packs {
 		t.Run(fixture.pack, func(t *testing.T) {

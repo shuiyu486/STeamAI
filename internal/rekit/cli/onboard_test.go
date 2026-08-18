@@ -190,8 +190,8 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 }
 
 func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
-	caseRoot := filepath.Join(t.TempDir(), "vmp-onboard-case")
-	base := []string{"-Command", "onboard", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-ProjectName", "vmp-journey", "-Goal", "opaque default-pack goal", "-Actor", "operator", "-Executor", "executor-a", "-InitialLane", "feature-analysis-live-check"}
+	caseRoot := filepath.Join(t.TempDir(), "binary-re-onboard-case")
+	base := []string{"-Command", "onboard", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-ProjectName", "binary-re-journey", "-Goal", "opaque default-pack goal", "-Actor", "operator", "-Executor", "executor-a", "-InitialLane", "binary-analysis-live-check"}
 	var out bytes.Buffer
 	var onboard onboardCLIPlan
 	if err := Run(append(append([]string{}, base...), "-WhatIf", "-Format", "json"), &out); err != nil {
@@ -206,7 +206,7 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 	}
 
 	statusArgs := []string{"-Command", "status", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json"}
-	selectedStatusArgs := append(append([]string{}, statusArgs...), "-Lane", "feature-analysis-live-check")
+	selectedStatusArgs := append(append([]string{}, statusArgs...), "-Lane", "binary-analysis-live-check")
 	var status struct {
 		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 	}
@@ -240,7 +240,7 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 		t.Fatalf("default-pack status omitted start runbook: %+v", status.MissionControlRunbook)
 	}
 	startRequest := status.MissionControlRunbook.Quickstart.CurrentDriverRequest
-	if startRequest == nil || startRequest.Lane != "feature-analysis-live-check" || startRequest.Label != "analysis-live-check" {
+	if startRequest == nil || startRequest.Lane != "binary-analysis-live-check" || startRequest.Label != "live-check" {
 		t.Fatalf("default-pack status did not emit the exact round-trip start route: %+v", startRequest)
 	}
 	startInvocation, err := commands.ParsePublicInvocation(startRequest.Command)
@@ -250,7 +250,7 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 	wantStartInvocation, err := commands.NewPublicInvocation(
 		commands.Start,
 		"-Target", caseRoot,
-		"analysis-live-check",
+		"live-check",
 		"-Executor", "executor-a",
 		"-Actor", "operator",
 		"-WhatIf",
@@ -286,7 +286,7 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lanePath, err := projectstate.Join(caseRoot, "lanes", "feature-analysis-live-check", "lane.json")
+	lanePath, err := projectstate.Join(caseRoot, "lanes", "binary-analysis-live-check", "lane.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,17 +295,21 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	var lane struct {
-		ID                 string `json:"id"`
-		Type               string `json:"type"`
-		Name               string `json:"name"`
-		CurrentExecutor    string `json:"currentExecutor"`
-		ExecutorGeneration int    `json:"executorGeneration"`
+		ID                 string   `json:"id"`
+		Type               string   `json:"type"`
+		Name               string   `json:"name"`
+		CurrentExecutor    string   `json:"currentExecutor"`
+		ExecutorGeneration int      `json:"executorGeneration"`
+		ReadOnly           []string `json:"readOnly"`
 	}
 	if err := json.Unmarshal(laneBytes, &lane); err != nil {
 		t.Fatal(err)
 	}
-	if lane.ID != "feature-analysis-live-check" || lane.Type != "feature-analysis" || lane.Name != "analysis-live-check" || lane.CurrentExecutor != "executor-a" || lane.ExecutorGeneration != 1 {
+	if lane.ID != "binary-analysis-live-check" || lane.Type != "binary-analysis" || lane.Name != "live-check" || lane.CurrentExecutor != "executor-a" || lane.ExecutorGeneration != 1 {
 		t.Fatalf("default-pack initial lane did not preserve exact identity and owner: %+v", lane)
+	}
+	if strings.Join(lane.ReadOnly, ",") != "references/binary-re/**,.steamai/facts/**" {
+		t.Fatalf("default-pack current lane did not project read-only state to .steamai: %+v", lane.ReadOnly)
 	}
 
 	out.Reset()
@@ -322,21 +326,21 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 		t.Fatalf("default-pack status omitted post-start runbook: %+v", status.MissionControlRunbook)
 	}
 	current := status.MissionControlRunbook.Quickstart.CurrentDriverRequest
-	if current == nil || current.Lane != "feature-analysis-live-check" || !strings.Contains(current.Command, "-Lane feature-analysis-live-check") || !strings.Contains(current.Command, "-Executor executor-a -ExpectedExecutorGeneration 1") {
+	if current == nil || current.Lane != "binary-analysis-live-check" || !strings.Contains(current.Command, "-Lane binary-analysis-live-check") || !strings.Contains(current.Command, "-Executor executor-a -ExpectedExecutorGeneration 1") {
 		t.Fatalf("default-pack status did not focus the owned initial feature lane after exact lane creation: %+v", current)
 	}
 	if current.Source == "committedMissionIntent" || strings.Contains(current.Command, "/steamai start ") {
 		t.Fatalf("default-pack status repeated committed mission-intent bootstrap after exact lane creation: %+v", current)
 	}
 
-	loop := runCurrentLoopResult(t, []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2", "-Lane", "feature-analysis-live-check", "-WhatIf", "-Format", "json"})
+	loop := runCurrentLoopResult(t, []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2", "-Lane", "binary-analysis-live-check", "-WhatIf", "-Format", "json"})
 	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil || loop.ExpectedCurrentLoopPlanSHA256 == "" {
 		t.Fatalf("default-pack current-loop preview omitted the owned member dispatch: %+v", loop)
 	}
 	memberPlan := loop.InitialCurrentStep.MemberExecution
 	appliedLoop := runCurrentLoopResult(t, []string{
 		"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2",
-		"-Lane", "feature-analysis-live-check",
+		"-Lane", "binary-analysis-live-check",
 		"-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256,
 		"-ExpectedCurrentLoopPlanSha256", loop.ExpectedCurrentLoopPlanSHA256,
 		"-Apply", "-Format", "json",

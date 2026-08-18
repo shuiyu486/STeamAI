@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 )
 
 const (
@@ -95,6 +96,9 @@ func BuildWithExecutable(repoRoot, pack, executable string) (Plan, error) {
 		return Plan{}, err
 	}
 	pack = strings.TrimSpace(pack)
+	if err := packidentity.Validate(pack); err != nil {
+		return Plan{}, err
+	}
 	if pack == "" || filepath.IsAbs(pack) || strings.ContainsAny(pack, `/\\`) || pack == "." || pack == ".." || strings.Contains(pack, "..") {
 		return Plan{}, fmt.Errorf("invalid STeamAI bundle pack: %s", pack)
 	}
@@ -256,8 +260,19 @@ func ValidateManifestData(data []byte, expectedManifestSHA256, expectedPack stri
 	if manifest.SchemaVersion != SchemaVersion || manifest.Kind != Kind || manifest.Layout != Layout || manifest.GOOS != runtime.GOOS || manifest.GOARCH != runtime.GOARCH || manifest.AssetRoot != "." || manifest.PacksRoot != "packs" {
 		return Manifest{}, fmt.Errorf("STeamAI bundle manifest identity or platform is invalid")
 	}
-	if expectedPack = strings.TrimSpace(expectedPack); expectedPack != "" && manifest.Pack != expectedPack {
-		return Manifest{}, fmt.Errorf("STeamAI bundle pack does not match project metadata: %s", manifest.Pack)
+	if expectedPack = strings.TrimSpace(expectedPack); expectedPack != "" {
+		if err := packidentity.Validate(expectedPack); err != nil {
+			return Manifest{}, err
+		}
+		if manifest.Pack != expectedPack {
+			if err := packidentity.Validate(manifest.Pack); err != nil {
+				return Manifest{}, err
+			}
+			return Manifest{}, fmt.Errorf("STeamAI bundle pack does not match project metadata: %s", manifest.Pack)
+		}
+	}
+	if err := packidentity.Validate(manifest.Pack); err != nil {
+		return Manifest{}, err
 	}
 	if err := validateArtifactSet(manifest.Files, manifest.Pack); err != nil {
 		return Manifest{}, err

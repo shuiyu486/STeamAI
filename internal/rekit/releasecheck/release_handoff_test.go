@@ -177,11 +177,11 @@ func TestReleaseHandoffImplementationPathClassification(t *testing.T) {
 		{path: "docs/release-readiness.md", want: false},
 		{path: "rekit/tests/README.md", want: false},
 		{path: "common/policies/README.md", want: false},
-		{path: "packs/vmp-re/policies/README.md", want: false},
+		{path: "packs/binary-re/policies/README.md", want: false},
 		{path: "internal/rekit/releasecheck/release_handoff.go", want: true},
 		{path: "cmd/rekit/main.go", want: true},
 		{path: ".claude/skills/rekit/SKILL.md", want: true},
-		{path: "packs/vmp-re/tooling/catalog.yml", want: true},
+		{path: "packs/binary-re/tooling/catalog.yml", want: true},
 		{path: "go.mod", want: true},
 	} {
 		t.Run(strings.ReplaceAll(fixture.path, "/", "_"), func(t *testing.T) {
@@ -2830,10 +2830,10 @@ func releaseHandoffReviewArtifactProofContains(items []ReleaseHandoffPackMemoryC
 func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 	t.Helper()
 	inventory := handoff.PackMaturity
-	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
+	if inventory.Total != 9 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
 		t.Fatalf("unexpected pack maturity inventory: %+v", inventory)
 	}
-	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 8 {
+	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 7 {
 		t.Fatalf("unexpected maturity counts: %+v", inventory.MaturityCounts)
 	}
 	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" {

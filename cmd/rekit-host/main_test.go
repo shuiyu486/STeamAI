@@ -64,7 +64,7 @@ func TestPublishLiveSoakAcceptanceReceiptPersistsPublishedState(t *testing.T) {
 	}
 }
 
-func TestValidateAdapterFlagIsolatedToVMPRELiveAcceptance(t *testing.T) {
+func TestValidateAdapterFlagIsolatedToBinaryRELiveAcceptance(t *testing.T) {
 	adapter := filepath.Join(t.TempDir(), "rekit-adapter-host.exe")
 	for name, test := range map[string]struct {
 		live    bool
@@ -72,12 +72,12 @@ func TestValidateAdapterFlagIsolatedToVMPRELiveAcceptance(t *testing.T) {
 		adapter string
 		wantErr string
 	}{
-		"vmp default requires adapter":  {live: true, wantErr: "requires -adapter"},
-		"vmp explicit requires adapter": {live: true, pack: "vmp-re", wantErr: "requires -adapter"},
-		"vmp accepts adapter":           {live: true, pack: "vmp-re", adapter: adapter},
-		"cross pack omits adapter":      {live: true, pack: "web-security"},
-		"cross pack may bind adapter":   {live: true, pack: "web-security", adapter: adapter},
-		"daily rejects adapter":         {adapter: adapter, wantErr: "only by -live-acceptance"},
+		"binary default requires adapter":  {live: true, wantErr: "requires -adapter"},
+		"binary explicit requires adapter": {live: true, pack: "binary-re", wantErr: "requires -adapter"},
+		"binary accepts adapter":           {live: true, pack: "binary-re", adapter: adapter},
+		"cross pack omits adapter":         {live: true, pack: "web-security"},
+		"cross pack may bind adapter":      {live: true, pack: "web-security", adapter: adapter},
+		"daily rejects adapter":            {adapter: adapter, wantErr: "only by -live-acceptance"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := hostcmd.ValidateAdapterFlag(test.live, test.pack, test.adapter)

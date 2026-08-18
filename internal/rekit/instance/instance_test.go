@@ -118,7 +118,7 @@ func TestReadScalarFileStripsSimpleQuotes(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "templateRoot: \"C:\\kit\"\ntemplatePack: 'vmp-re'\nprojectName: demo\n"
+	content := "templateRoot: \"C:\\kit\"\ntemplatePack: 'binary-re'\nprojectName: demo\n"
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "instance.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

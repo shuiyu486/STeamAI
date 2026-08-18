@@ -9,6 +9,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
@@ -78,7 +79,11 @@ func Read(target string) (Instance, error) {
 		if err != nil {
 			return Instance{}, err
 		}
-		return Instance{CaseRoot: caseRoot, InstancePath: legacyPath, Source: "legacy", StateDir: StateDirRekit, TemplateRoot: values["templateRoot"], TemplatePack: valueOr(values["templatePack"], defaults.DefaultPack), ProjectName: projectName(caseRoot), ProjectRoot: valueOr(values["currentProjectPath"], caseRoot)}, nil
+		templatePack := valueOr(values["templatePack"], defaults.DefaultPack)
+		if err := packidentity.Validate(templatePack); err != nil {
+			return Instance{}, fmt.Errorf("read legacy case pack identity: %w", err)
+		}
+		return Instance{CaseRoot: caseRoot, InstancePath: legacyPath, Source: "legacy", StateDir: StateDirRekit, TemplateRoot: values["templateRoot"], TemplatePack: templatePack, ProjectName: projectName(caseRoot), ProjectRoot: valueOr(values["currentProjectPath"], caseRoot)}, nil
 	}
 	return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: "missing", StateDir: root.Dir, TemplatePack: defaults.DefaultPack, ProjectName: projectName(caseRoot), ProjectRoot: caseRoot}, nil
 }
@@ -121,6 +126,10 @@ func readInstance(caseRoot, instancePath, source, stateDir string) (Instance, er
 	if err != nil {
 		return Instance{}, err
 	}
+	templatePack := valueOr(values["templatePack"], defaults.DefaultPack)
+	if err := packidentity.Validate(templatePack); err != nil {
+		return Instance{}, fmt.Errorf("read case pack identity: %w", err)
+	}
 	bundleManifest := strings.TrimSpace(values["bundleManifest"])
 	if schemaVersion >= 2 {
 		if values["templateRoot"] == "" || filepath.IsAbs(filepath.FromSlash(values["templateRoot"])) || values["projectRoot"] == "" || filepath.IsAbs(filepath.FromSlash(values["projectRoot"])) || values["bundleRoot"] == "" || filepath.IsAbs(filepath.FromSlash(values["bundleRoot"])) {
@@ -135,7 +144,7 @@ func readInstance(caseRoot, instancePath, source, stateDir string) (Instance, er
 		}
 		bundleManifest = cleanManifest
 	}
-	return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: source, StateDir: stateDir, SchemaVersion: schemaVersion, Mode: strings.TrimSpace(values["mode"]), TemplateRoot: templateRoot, BundleRoot: bundleRoot, BundleManifest: bundleManifest, BundleManifestSHA256: strings.ToLower(strings.TrimSpace(values["bundleManifestSHA256"])), TemplatePack: valueOr(values["templatePack"], defaults.DefaultPack), ProjectName: valueOr(values["projectName"], projectName(caseRoot)), ProjectRoot: projectRoot}, nil
+	return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: source, StateDir: stateDir, SchemaVersion: schemaVersion, Mode: strings.TrimSpace(values["mode"]), TemplateRoot: templateRoot, BundleRoot: bundleRoot, BundleManifest: bundleManifest, BundleManifestSHA256: strings.ToLower(strings.TrimSpace(values["bundleManifestSHA256"])), TemplatePack: templatePack, ProjectName: valueOr(values["projectName"], projectName(caseRoot)), ProjectRoot: projectRoot}, nil
 }
 
 func (i Instance) Moved() bool {
@@ -170,6 +179,9 @@ func AssertAttached(target, repoRoot, pack string) (Instance, error) {
 }
 
 func assertAttached(target, repoRoot, pack string) (Instance, error) {
+	if err := packidentity.Validate(pack); err != nil {
+		return Instance{}, err
+	}
 	caseRoot, err := filepath.Abs(target)
 	if err != nil {
 		return Instance{}, err

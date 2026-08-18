@@ -1019,7 +1019,7 @@ func TestSerializedDifferentLaneTakeoversPreserveBothBoardOwners(t *testing.T) {
 	for _, lane := range b.Lanes {
 		owners[lane.ID] = lane.CurrentExecutor
 	}
-	if owners["devirt-main"] != "executor-main-two" || owners["feature-feature-other"] != "executor-other-two" {
+	if owners["devirt-main"] != "executor-main-two" || owners["binary-analysis-feature-other"] != "executor-other-two" {
 		t.Fatalf("board lost a serialized lane takeover: %+v", owners)
 	}
 }

@@ -1,6 +1,6 @@
 param(
   [string]$WorkRoot = 'C:\AI\m_projects\RE\_dryrun_cases',
-  [string]$Pack = 'vmp-re'
+  [string]$Pack = 'binary-re'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -126,7 +126,7 @@ try {
   Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"plan-subagents-$suffix",'-Apply') | Out-Null
 
   $go = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType','feature-analysis','-Items','alpha,beta gamma','-ItemsPerAgent','2','-MaxParallel','7') | ConvertFrom-Json
-  $packet = Assert-PlanPacket -Result $go -Route 'vmp-re:lane-feature-analysis' -Items 3 -Shards 2
+  $packet = Assert-PlanPacket -Result $go -Route 'binary-re:lane-feature-analysis' -Items 3 -Shards 2
   if ([int]$packet.shardPolicy.targetItemsPerAgent -ne 2 -or [int]$packet.shardPolicy.maxParallel -ne 7) { throw "unexpected shard policy: $($packet | ConvertTo-Json -Depth 10)" }
   if ((@($packet.shards)[0].items -join ',') -ne 'alpha,beta' -or (@($packet.shards)[1].items -join ',') -ne 'gamma') { throw "unexpected shards: $($packet | ConvertTo-Json -Depth 10)" }
   if ([string]$packet.ownerBinding.targetLane -ne 'devirt-main' -or [string]$packet.ownerBinding.bindingMode -eq '') { throw "missing owner binding: $($packet | ConvertTo-Json -Depth 20)" }
@@ -143,8 +143,8 @@ try {
   Write-Utf8File -Path $itemsFile -Text "one`ntwo;three"
   $guard = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack',$Pack,'-ItemsFile',$itemsFile) -AllowedExitCodes @(1)
   Assert-ContainsText -Text $guard -Expected 'unless -ReviewOutputDir' -Label 'go plan out-of-case guard'
-  $outCase = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack',$Pack,'-Route','vmp-re:bounded-review','-ItemsFile',$itemsFile,'-ReviewOutputDir',$outRoot) | ConvertFrom-Json
-  $outPacket = Assert-PlanPacket -Result $outCase -Route 'vmp-re:bounded-review' -Items 3 -Shards 1
+  $outCase = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack',$Pack,'-Route','binary-re:bounded-review','-ItemsFile',$itemsFile,'-ReviewOutputDir',$outRoot) | ConvertFrom-Json
+  $outPacket = Assert-PlanPacket -Result $outCase -Route 'binary-re:bounded-review' -Items 3 -Shards 1
   if ([string]$outPacket.input.itemsFile -ne $itemsFile) { throw "itemsFile was not preserved: $($outPacket | ConvertTo-Json -Depth 10)" }
   Assert-ContainsText -Text ([string](@($outPacket.shardHandoffs)[0].reviewerIntakeCommands.previewCommand)) -Expected 'reviewer intake requires an attached rekit case' -Label 'out-of-case reviewer intake preview disabled'
   Assert-ContainsText -Text ((@($outPacket.shardHandoffs)[0].reviewerIntakeCommands.blockedOutputs -join ';')) -Expected 'out-of-case plan packets must not be presented as immediately runnable reviewer intake commands' -Label 'out-of-case reviewer intake blocked output'

@@ -75,13 +75,14 @@ function Assert-PackRow {
     [Parameter(Mandatory=$true)][string]$Maturity,
     [Parameter(Mandatory=$true)][string]$Authority,
     [Parameter(Mandatory=$true)][string]$Managed,
-    [Parameter(Mandatory=$true)][string]$Tooling
+    [Parameter(Mandatory=$true)][string]$Tooling,
+    [string]$Routes = '2'
   )
   $line = @($Text -split "`r?`n" | Where-Object { $_ -like "$Pack`t*" })
   if ($line.Count -ne 1) { throw "expected one row for $Pack; output:`n$Text" }
   $cols = @([string]$line[0] -split "`t")
   if ($cols.Count -lt 10) { throw "pack row has too few columns for ${Pack}: $($line[0])" }
-  if ($cols[1] -ne $Maturity -or $cols[2] -ne 'ok' -or $cols[3] -ne '1' -or $cols[4] -ne '2' -or $cols[5] -ne $Managed -or $cols[6] -ne $Tooling -or $cols[7] -ne $Authority) {
+  if ($cols[1] -ne $Maturity -or $cols[2] -ne 'ok' -or $cols[3] -ne '1' -or $cols[4] -ne $Routes -or $cols[5] -ne $Managed -or $cols[6] -ne $Tooling -or $cols[7] -ne $Authority) {
     throw "unexpected row for ${Pack}: $($line[0])"
   }
 }
@@ -109,7 +110,9 @@ function Assert-PackJson {
     [Parameter(Mandatory=$true)][string]$Maturity,
     [Parameter(Mandatory=$true)][string]$Authority,
     [Parameter(Mandatory=$true)][int]$Managed,
-    [Parameter(Mandatory=$true)][int]$Tooling
+    [Parameter(Mandatory=$true)][int]$Tooling,
+    [int]$HeavyToolGates = 7,
+    [string]$GateActions = 'debug,dump,full-trace,inject,network,patch,symex'
   )
   if ([string]$Inventory.command -ne 'packs' -or [int]$Inventory.schemaVersion -ne 1 -or [bool]$Inventory.isMutation -or [int]$Inventory.packCount -ne @($Inventory.packs).Count) {
     throw "unexpected packs JSON envelope: $($Inventory | ConvertTo-Json -Depth 20)"
@@ -118,7 +121,7 @@ function Assert-PackJson {
   if ($rows.Count -ne 1) { throw "expected one JSON row for ${Pack}: $($Inventory | ConvertTo-Json -Depth 20)" }
   $row = $rows[0]
   $gateActions = @($row.heavyToolGateActions | ForEach-Object { [string]$_ }) -join ','
-  if ([string]$row.maturity -ne $Maturity -or -not [bool]$row.schemaValid -or [string]$row.defaultAuthorityLane -ne $Authority -or [int]$row.managedFiles -ne $Managed -or [int]$row.toolingFiles -ne $Tooling -or [int]$row.heavyToolGates -ne 7 -or $gateActions -ne 'debug,dump,full-trace,inject,network,patch,symex') {
+  if ([string]$row.maturity -ne $Maturity -or -not [bool]$row.schemaValid -or [string]$row.defaultAuthorityLane -ne $Authority -or [int]$row.managedFiles -ne $Managed -or [int]$row.toolingFiles -ne $Tooling -or [int]$row.heavyToolGates -ne $HeavyToolGates -or $gateActions -ne $GateActions) {
     throw "unexpected JSON row for ${Pack}: $($row | ConvertTo-Json -Depth 20)"
   }
 }
@@ -135,7 +138,7 @@ function Assert-StatusJson {
     throw "status JSON roots are incomplete: $($Status | ConvertTo-Json -Depth 20)"
   }
   if ($Mode -eq 'kit') {
-    if ($null -ne $Status.case -or $null -eq $Status.manifest -or [string]$Status.pack -ne 'vmp-re' -or [int]$Status.manifest.managedFiles -ne 7 -or [int]$Status.manifest.promoteFiles -ne 7 -or [int]$Status.manifest.toolingFiles -ne 12) {
+    if ($null -ne $Status.case -or $null -eq $Status.manifest -or [string]$Status.pack -ne 'binary-re' -or [int]$Status.manifest.managedFiles -ne 11 -or [int]$Status.manifest.promoteFiles -ne 11 -or [int]$Status.manifest.toolingFiles -ne 14) {
       throw "unexpected kit status JSON: $($Status | ConvertTo-Json -Depth 20)"
     }
   }
@@ -299,7 +302,7 @@ $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO
 foreach ($out in @($goOut,$psOut,$facadeOut)) {
   if ($out -notlike "pack`t*") { throw "packs output missing header:`n$out" }
   Assert-PackRow -Text $out -Pack '_template' -Maturity 'template' -Authority 'main' -Managed '4' -Tooling '2'
-  Assert-PackRow -Text $out -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed '7' -Tooling '12'
+  Assert-PackRow -Text $out -Pack 'binary-re' -Maturity 'mature' -Authority 'devirt-main' -Managed '11' -Tooling '14' -Routes '3'
   Assert-PackRow -Text $out -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
@@ -307,15 +310,16 @@ foreach ($out in @($goOut,$psOut,$facadeOut)) {
   Assert-PackRow -Text $out -Pack 'unpack-pe' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'ollvm' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'android-native' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $out -Pack 'generic-binary-re' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+  Assert-NotContainsText -Text $out -Unexpected "vmp-re`t" -Label 'retired vmp pack inventory'
+  Assert-NotContainsText -Text $out -Unexpected "generic-binary-re`t" -Label 'retired generic pack inventory'
 }
 
 $goJson = Invoke-GoRekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
 $psJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
 $facadeJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
 foreach ($json in @($goJson,$psJson,$facadeJson)) {
-  Assert-PackJson -Inventory $json -Pack '_template' -Maturity 'template' -Authority 'main' -Managed 4 -Tooling 2
-  Assert-PackJson -Inventory $json -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 7 -Tooling 12
+  Assert-PackJson -Inventory $json -Pack '_template' -Maturity 'template' -Authority 'main' -Managed 4 -Tooling 2 -HeavyToolGates 8 -GateActions 'debug,dump,full-trace,inject,inspect,network,patch,symex'
+  Assert-PackJson -Inventory $json -Pack 'binary-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 11 -Tooling 14 -HeavyToolGates 8 -GateActions 'debug,dump,full-trace,inject,inspect,network,patch,symex'
   Assert-PackJson -Inventory $json -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
@@ -323,7 +327,9 @@ foreach ($json in @($goJson,$psJson,$facadeJson)) {
   Assert-PackJson -Inventory $json -Pack 'unpack-pe' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'ollvm' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'android-native' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
-  Assert-PackJson -Inventory $json -Pack 'generic-binary-re' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
+  foreach ($retired in @('vmp-re','generic-binary-re')) {
+    if (@($json.packs | Where-Object { [string]$_.id -eq $retired }).Count -ne 0) { throw "retired pack appeared in inventory: $retired" }
+  }
 }
 
 $transientPacks = @()

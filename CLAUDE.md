@@ -34,7 +34,7 @@
 
 ## 当前推进原则
 
-当前已批准路线是 `steamai-product-optimization-v1`，Batch 830～833 严格串行；Batch 830 已完成，当前只实施 Batch 831，fresh 验证后依次解锁。保持 source-clone-first，Go + Claude Code 是预期依赖，不做 installer。canonical repository/clone 使用 `shuiyu486/STeamAI`；Go module/internal `rekit`、legacy `/rekit` / `.rekit` 暂保留兼容。完成态只认 Git-local machine receipt 和本地 tracking ref；远程 CI、跨平台 runtime E2E 仅作专项证据，cross-compile 不等于运行证据。
+当前已批准路线是 `steamai-product-optimization-v1`，Batch 830～833 严格串行；Batch 830～831 已完成，当前只实施 Batch 832，fresh 验证后再解锁 Batch 833。保持 source-clone-first，Go + Claude Code 是预期依赖，不做 installer。canonical repository/clone 使用 `shuiyu486/STeamAI`；Go module/internal `rekit`、legacy `/rekit` / `.rekit` 暂保留兼容。完成态只认 Git-local machine receipt 和本地 tracking ref；远程 CI、跨平台 runtime E2E 仅作专项证据，cross-compile 不等于运行证据。
 
 保持 PowerShell-free/Go-native；禁止新增 PowerShell runtime logic。避免单字段 contract/inventory/metadata 微批次，把支撑改动并入产品闭环。PowerShell replacement/removal 有 Go-native 替代、文档和验证时可继续；公共入口删除门禁不完整则升级。
 

@@ -148,48 +148,41 @@ func TestReleaseCatalogInvariants(t *testing.T) {
 
 func TestGoRuntimeDefaultPackInvariants(t *testing.T) {
 	repo := repoRoot(t)
-	defaultPackPackage := "internal/rekit/defaults"
-	defaultPackFile := filepath.ToSlash(filepath.Join(repo, defaultPackPackage, "defaults.go"))
-	manifestFile := filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "manifest.go"))
-	allowedLiteralTestFiles := map[string]bool{
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "adapterhost", "authorized_run_test.go")):   true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "gate", "gate_test.go")):                    true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "instance", "instance_test.go")):            true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "note", "note_test.go")):                    true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "manifest_test.go")):            true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "release_invariants_test.go")):  true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "releasecheck", "release_handoff_test.go")): true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "cli", "cli_test.go")):                      true,
-		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "cli", "gate_profile_test.go")):             true,
+	policyFile := filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "packidentity", "policy.go"))
+	policyText := string(readFile(t, policyFile))
+	for _, required := range []string{
+		`Canonical = "binary-re"`,
+		`RetiredGeneric = "generic-binary-re"`,
+		`RetiredVMP     = "vmp-re"`,
+		`RetiredGeneric: {}`,
+		`RetiredVMP:     {}`,
+	} {
+		if !strings.Contains(policyText, required) {
+			t.Fatalf("pack identity policy missing %q", required)
+		}
 	}
-	goFiles := listGoFiles(t, filepath.Join(repo, "internal", "rekit"))
-	for _, path := range goFiles {
-		text := string(readFile(t, path))
-		if !strings.Contains(text, "vmp-re") {
+
+	defaultsFile := "internal/rekit/defaults/defaults.go"
+	defaultsText := readRepoText(t, repo, defaultsFile)
+	assertTextContains(t, defaultsText, `internal/rekit/packidentity`, defaultsFile+" policy import")
+	assertTextContains(t, defaultsText, `const DefaultPack = packidentity.Canonical`, defaultsFile+" canonical default")
+
+	for _, path := range listGoFiles(t, filepath.Join(repo, "internal", "rekit")) {
+		if strings.HasSuffix(path, "_test.go") {
 			continue
 		}
 		slash := filepath.ToSlash(path)
-		if strings.HasSuffix(path, "_test.go") {
-			if !allowedLiteralTestFiles[slash] {
-				t.Fatalf("unexpected test literal vmp-re outside explicit pack fixtures: %s", slash)
-			}
+		if slash == policyFile {
 			continue
 		}
-		switch slash {
-		case defaultPackFile:
-			if !strings.Contains(text, `const DefaultPack = "vmp-re"`) || strings.Count(text, `"vmp-re"`) != 1 {
-				t.Fatalf("%s must define exactly one default pack literal", slash)
+		text := string(readFile(t, path))
+		for _, literal := range []string{`"binary-re"`, `"generic-binary-re"`, `"vmp-re"`} {
+			if strings.Contains(text, literal) {
+				t.Fatalf("production pack identity literal %s must stay centralized in internal/rekit/packidentity: %s", literal, slash)
 			}
-		case manifestFile:
-			for i, line := range strings.Split(text, "\n") {
-				if strings.Contains(line, "vmp-re") && !manifestNonVMPGuardLiteral(line) {
-					t.Fatalf("manifest guard file has unexpected vmp-re literal at line %d: %s", i+1, line)
-				}
-			}
-		default:
-			t.Fatalf("Go runtime default pack literal must stay centralized in %s: %s", defaultPackPackage, slash)
 		}
 	}
+
 	for _, productionFile := range []string{
 		"internal/rekit/cli/cli.go",
 		"internal/rekit/instance/instance.go",
@@ -200,21 +193,6 @@ func TestGoRuntimeDefaultPackInvariants(t *testing.T) {
 		assertTextContains(t, text, `internal/rekit/defaults`, productionFile+" default pack import")
 		assertTextContains(t, text, `defaults.DefaultPack`, productionFile+" default pack reference")
 	}
-}
-
-func manifestNonVMPGuardLiteral(line string) bool {
-	for _, allowed := range []string{
-		"implicit vmp-re fallback is not allowed",
-		"non-vmp pack declares vmp-re path",
-		"non-vmp pack declares vmp-re authority path",
-		"non-vmp pack declares vmp-re workstream default",
-		`(^|/)vmp-re(/|$)`,
-	} {
-		if strings.Contains(line, allowed) {
-			return true
-		}
-	}
-	return false
 }
 
 func TestReleaseSkeletonPackSmokeDiscoveryInvariants(t *testing.T) {
@@ -229,7 +207,7 @@ func TestReleaseSkeletonPackSmokeDiscoveryInvariants(t *testing.T) {
 	assertSameStringSet(t, "skeleton manifests", skeletonPacks, "pack smoke wrappers", wrapperPacks)
 	assertSameStringSet(t, "skeleton manifests", skeletonPacks, "pack smoke matrix entries", matrixPacks)
 
-	for _, nonSkeleton := range []string{"_template", "vmp-re"} {
+	for _, nonSkeleton := range []string{"_template", "binary-re", "generic-binary-re", "vmp-re"} {
 		if catalogPacks[nonSkeleton] || wrapperPacks[nonSkeleton] || matrixPacks[nonSkeleton] {
 			t.Fatalf("non-skeleton pack %s must not be in skeleton smoke sets: catalog=%v wrappers=%v matrix=%v", nonSkeleton, catalogPacks[nonSkeleton], wrapperPacks[nonSkeleton], matrixPacks[nonSkeleton])
 		}
@@ -378,14 +356,14 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 		}
 	}
 	for path, phrase := range map[string]string{
-		"docs/orchestration-plan.md":                              "既无本次显式用户确认、也无有效 deterministic grant 时，不执行外部副作用",
-		"common/policies/agent-team.md":                           "strict validated `.rekit/lanes/<lane>/autonomy.json` 与覆盖本次 action",
-		"common/policies/tool-adapters.md":                        "`pending-gate=true`，`authorized-gate=false`",
-		"packs/_template/references/template/agent-team.md":       "`gate -Apply` 只记录 `pending-gate` 或 `authorized-gate` decision，不执行动作",
-		"packs/_template/references/template/toolchain-router.md": "`pending-gate` 对应 `true`，`authorized-gate` 对应 `false`",
-		"packs/vmp-re/policies/verification.overlay.md":           "Go runtime 已强制 gate action/profile preflight 与 request decision 写入边界",
-		"packs/vmp-re/references/vmp-re/toolchain-router.md":      "lane packet 只表达授权意图",
-		"rekit/tests/README.md":                                   "WhatIf 和 Apply 都不 append authority/confirmed",
+		"docs/orchestration-plan.md":                               "既无本次显式用户确认、也无有效 deterministic grant 时，不执行外部副作用",
+		"common/policies/agent-team.md":                            "strict validated `.rekit/lanes/<lane>/autonomy.json` 与覆盖本次 action",
+		"common/policies/tool-adapters.md":                         "`pending-gate=true`，`authorized-gate=false`",
+		"packs/_template/references/template/agent-team.md":        "`gate -Apply` 只记录 `pending-gate` 或 `authorized-gate` decision，不执行动作",
+		"packs/_template/references/template/toolchain-router.md":  "`pending-gate` 对应 `true`，`authorized-gate` 对应 `false`",
+		"packs/binary-re/policies/verification.overlay.md":         "Go runtime 已强制 gate action/profile preflight 与 request decision 写入边界",
+		"packs/binary-re/references/binary-re/toolchain-router.md": "lane packet 只表达授权意图",
+		"rekit/tests/README.md":                                    "WhatIf 和 Apply 都不 append authority/confirmed",
 	} {
 		assertTextContains(t, currentDocs[path], phrase, path+" deterministic heavy-action authorization")
 	}

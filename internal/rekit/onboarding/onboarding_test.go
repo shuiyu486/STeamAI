@@ -338,7 +338,7 @@ func TestDefaultPackInitialLaneUsesStartRoundTrip(t *testing.T) {
 	repo := testRepoRoot(t)
 	opt := testOptions(filepath.Join(t.TempDir(), "vmp-round-trip"))
 	opt.Pack = defaults.DefaultPack
-	opt.InitialLane = "feature-analysis-live-check"
+	opt.InitialLane = "binary-analysis-live-check"
 	plan, err := Preview(repo, opt)
 	if err != nil {
 		t.Fatal(err)
@@ -348,8 +348,8 @@ func TestDefaultPackInitialLaneUsesStartRoundTrip(t *testing.T) {
 	}
 
 	opt.InitialLane = "feature-live-check"
-	if _, err := Preview(repo, opt); err != nil {
-		t.Fatalf("legacy canonical feature lane should remain accepted: %v", err)
+	if _, err := Preview(repo, opt); err == nil || !strings.Contains(err.Error(), `default start lane type "binary-analysis"`) {
+		t.Fatalf("non-default feature lane was accepted by binary-re: %v", err)
 	}
 }
 
@@ -454,10 +454,9 @@ func TestFreshApplyRejectsSourceDriftWithoutWriting(t *testing.T) {
 func TestAllPackPreviewsSatisfyRecoveryContract(t *testing.T) {
 	repo := testRepoRoot(t)
 	packs := []struct{ pack, lane string }{
-		{"_template", "feature-analysis"}, {defaults.DefaultPack, "feature-analysis-case"}, {"web-security", "feature-analysis"},
+		{"_template", "feature-analysis"}, {defaults.DefaultPack, "binary-analysis-case"}, {"web-security", "feature-analysis"},
 		{"malware-analysis", "sample-analysis-case"}, {"vuln-research", "vuln-analysis-case"}, {"ctf", "challenge-analysis-case"},
 		{"unpack-pe", "unpack-analysis-case"}, {"ollvm", "obfuscation-analysis-case"}, {"android-native", "native-analysis-case"},
-		{"generic-binary-re", "binary-analysis-case"},
 	}
 	for _, fixture := range packs {
 		t.Run(fixture.pack, func(t *testing.T) {
@@ -468,38 +467,6 @@ func TestAllPackPreviewsSatisfyRecoveryContract(t *testing.T) {
 			}
 		})
 	}
-}
-
-func onboardingSnapshot(t *testing.T, root string) map[string][]byte {
-	t.Helper()
-	files := map[string][]byte{}
-	if err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("snapshot rejects symlink: %s", path)
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("snapshot rejects non-regular file: %s", path)
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		files[filepath.ToSlash(rel)] = content
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	return files
 }
 
 func copyOnboardingRepoFixture(t *testing.T) string {

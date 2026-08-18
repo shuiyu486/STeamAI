@@ -1,6 +1,6 @@
 param(
   [string]$WorkRoot = 'C:\AI\m_projects\RE\_dryrun_cases',
-  [string]$Pack = 'vmp-re'
+  [string]$Pack = 'binary-re'
 )
 
 $ErrorActionPreference = 'Stop'

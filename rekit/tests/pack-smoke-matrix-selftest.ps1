@@ -40,18 +40,18 @@ function Assert-ContainsText {
 }
 
 $discoveryText = Invoke-MatrixSelftest -Arguments @('-DiscoveryOnly')
-Assert-ContainsText -Text $discoveryText.output -Expected 'pack smoke discovery ok (8 skeleton packs)' -Label 'discovery text'
+Assert-ContainsText -Text $discoveryText.output -Expected 'pack smoke discovery ok (7 skeleton packs)' -Label 'discovery text'
 Assert-ContainsText -Text $discoveryText.output -Expected 'excluded from skeleton smoke matrix:' -Label 'discovery excluded text'
 
 $discoveryJson = (Invoke-MatrixSelftest -Arguments @('-DiscoveryOnly','-Format','json')).output | ConvertFrom-Json
-if ([string]$discoveryJson.command -ne 'pack-smoke-discovery' -or [bool]$discoveryJson.isMutation -or -not [bool]$discoveryJson.ok -or [int]$discoveryJson.expectedSkeletonPackCount -ne 8 -or [int]$discoveryJson.matrixPackCount -ne 8) {
+if ([string]$discoveryJson.command -ne 'pack-smoke-discovery' -or [bool]$discoveryJson.isMutation -or -not [bool]$discoveryJson.ok -or [int]$discoveryJson.expectedSkeletonPackCount -ne 7 -or [int]$discoveryJson.matrixPackCount -ne 7) {
   throw "unexpected discovery JSON: $($discoveryJson | ConvertTo-Json -Depth 20)"
 }
 foreach ($field in @('missingSmokePacks','extraMatrixPacks','orphanWrapperPacks','missingScriptPacks')) {
   if (@($discoveryJson.$field).Count -ne 0) { throw "unexpected discovery $field rows: $($discoveryJson | ConvertTo-Json -Depth 20)" }
 }
 
-$matrixJson = (Invoke-MatrixSelftest -Arguments @('-WorkRoot',$WorkRoot,'-Packs','web-security,generic-binary-re','-Format','json')).output | ConvertFrom-Json
+$matrixJson = (Invoke-MatrixSelftest -Arguments @('-WorkRoot',$WorkRoot,'-Packs','web-security,malware-analysis','-Format','json')).output | ConvertFrom-Json
 if ([string]$matrixJson.command -ne 'pack-smoke-matrix' -or [bool]$matrixJson.isMutation -or -not [bool]$matrixJson.ok -or [int]$matrixJson.packCount -ne 2 -or [int]$matrixJson.failedCount -ne 0 -or @($matrixJson.results).Count -ne 2) {
   throw "unexpected matrix JSON: $($matrixJson | ConvertTo-Json -Depth 20)"
 }
@@ -66,9 +66,9 @@ if (-not [bool]$dedupJson.ok -or [int]$dedupJson.packCount -ne 1 -or @($dedupJso
   throw "unexpected dedup matrix JSON: $($dedupJson | ConvertTo-Json -Depth 20)"
 }
 
-$text = Invoke-MatrixSelftest -Arguments @('-WorkRoot',$WorkRoot,'-Packs','web-security,generic-binary-re')
+$text = Invoke-MatrixSelftest -Arguments @('-WorkRoot',$WorkRoot,'-Packs','web-security,malware-analysis')
 Assert-ContainsText -Text $text.output -Expected 'pack smoke matrix running: web-security' -Label 'matrix text running'
-Assert-ContainsText -Text $text.output -Expected 'generic-binary-re pack smoke ok' -Label 'matrix text smoke output'
+Assert-ContainsText -Text $text.output -Expected 'malware-analysis pack smoke ok' -Label 'matrix text smoke output'
 Assert-ContainsText -Text $text.output -Expected 'pack smoke matrix ok (2 packs)' -Label 'matrix text summary'
 
 $unknown = Invoke-MatrixSelftest -Arguments @('-Packs','does-not-exist') -AllowedExitCodes @(1)

@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 )
 
 type vmpAuthorizedFixture struct {
@@ -24,6 +25,31 @@ type vmpAuthorizedFixture struct {
 	gateEventID string
 	dispatch    gate.AdapterExecutionDispatchResult
 	options     Options
+}
+
+func TestAuthorizedAdapterPackIdentityPolicy(t *testing.T) {
+	for _, retired := range []string{packidentity.RetiredGeneric, packidentity.RetiredVMP} {
+		t.Run(retired, func(t *testing.T) {
+			opt := AuthorizedRunOptions{Pack: retired}
+			if _, err := RunAuthorizedGate(opt); err == nil || !packidentity.IsMigrationRequired(err) {
+				t.Fatalf("RunAuthorizedGate error = %v, want typed migration requirement", err)
+			}
+			if _, _, err := RunAuthorizedGateProcess(filepath.Join(t.TempDir(), "missing-adapter"), opt, time.Second); err == nil || !packidentity.IsMigrationRequired(err) {
+				t.Fatalf("RunAuthorizedGateProcess error = %v, want typed migration requirement before executable access", err)
+			}
+			if _, err := RunVMPIDAIndexChild(VMPIDAIndexChildOptions{Pack: retired}); err == nil || !packidentity.IsMigrationRequired(err) {
+				t.Fatalf("RunVMPIDAIndexChild error = %v, want typed migration requirement", err)
+			}
+		})
+	}
+
+	const unknown = "does-not-exist"
+	if _, err := RunAuthorizedGate(AuthorizedRunOptions{Pack: unknown}); err == nil || packidentity.IsMigrationRequired(err) {
+		t.Fatalf("unknown RunAuthorizedGate error = %v, want ordinary adapter rejection", err)
+	}
+	if _, err := RunVMPIDAIndexChild(VMPIDAIndexChildOptions{Pack: unknown}); err == nil || packidentity.IsMigrationRequired(err) {
+		t.Fatalf("unknown RunVMPIDAIndexChild error = %v, want ordinary adapter rejection", err)
+	}
 }
 
 func newVMPAuthorizedFixture(t *testing.T, recordDispatch bool) vmpAuthorizedFixture {
@@ -36,8 +62,8 @@ func newVMPAuthorizedFixtureWithStateRoot(t *testing.T, recordDispatch bool, sta
 	root := t.TempDir()
 	repoRoot := filepath.Join(root, "repo")
 	caseRoot := filepath.Join(root, "case")
-	writeHostFile(t, filepath.Join(repoRoot, "packs", "vmp-re", "manifest.yml"), `schemaVersion: 1
-name: vmp-re
+	writeHostFile(t, filepath.Join(repoRoot, "packs", "binary-re", "manifest.yml"), `schemaVersion: 1
+name: binary-re
 version: 0.2.0
 description: VMP IDA adapter fixture
 maturity: mature
@@ -46,7 +72,7 @@ templateFiles: []
 localNeverOverwrite: []
 managedBlock:
   file: CLAUDE.local.md
-  blockId: vmp-re:router
+  blockId: binary-re:router
   source: CLAUDE.local.snippet.md
 syncPolicy:
   managedFiles: overwrite-with-backup
@@ -100,8 +126,8 @@ budgets:
   defaultMarkdown: 16384
 `)
 	sentinel := filepath.ToSlash(filepath.Join(root, "catalog-entry-must-not-run"))
-	writeHostFile(t, filepath.Join(repoRoot, "packs", "vmp-re", "tooling", "catalog.yml"), `schemaVersion: 1
-pack: vmp-re
+	writeHostFile(t, filepath.Join(repoRoot, "packs", "binary-re", "tooling", "catalog.yml"), `schemaVersion: 1
+pack: binary-re
 purpose: VMP IDA adapter fixture
 
 tools:
@@ -112,7 +138,7 @@ tools:
     sideEffects: filesystem-read,bounded-packet-write
     gateActions: inspect
 `)
-	writeHostFile(t, filepath.Join(caseRoot, stateDir, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \"vmp-re\"\nprojectName: \"vmp-adapter-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
+	writeHostFile(t, filepath.Join(caseRoot, stateDir, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \"binary-re\"\nprojectName: \"vmp-adapter-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
 	writeHostFile(t, filepath.Join(caseRoot, stateDir, "board.json"), `{"lanes":[{"id":"main","status":"open","workspace":"workspace/main","currentExecutor":"executor-vmp","executorGeneration":1}]}`)
 	writeHostFile(t, filepath.Join(caseRoot, stateDir, "lanes", "main", "lane.json"), `{
   "schemaVersion": 1,
@@ -149,7 +175,7 @@ tools:
 	profilePlan, err := autonomy.PreviewProvision(autonomy.ProfileProvisionOptions{
 		RepoRoot: repoRoot,
 		CaseRoot: caseRoot,
-		Pack:     "vmp-re",
+		Pack:     "binary-re",
 		Lane:     "main",
 		Profile: autonomy.Profile{
 			SchemaVersion: 1, ProfileID: "generated-vmp-ida-main", Lane: "main", Mode: autonomy.ModePreauthorized,
@@ -168,7 +194,7 @@ tools:
 	if _, err := autonomy.ApplyProfilePlan(profilePlan, profilePlan.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	authorized, err := gate.Apply(repoRoot, caseRoot, "vmp-re", gate.Options{
+	authorized, err := gate.Apply(repoRoot, caseRoot, "binary-re", gate.Options{
 		Action: "inspect", Lane: "main", Actor: "vmp-test", Subject: "inspect existing IDA indexes",
 		TargetRef: preview.RequestPath, RuntimeSeconds: 10, DiskMB: 4, Requests: 1,
 		OutputPaths: outputRoot, StopConditions: "scope-drift,source-drift,output-exceeds-bounded-evidence-packet",
@@ -183,16 +209,16 @@ tools:
 			AdapterID: VMPIDAIndexAdapterID, Executor: "executor-vmp", ExpectedExecutorGeneration: 1,
 			AdapterHarness: adapterHarness, AdapterSession: "vmp-session-1", Actor: "mission-commander",
 		}
-		dispatchPreview, err := gate.RecordAdapterExecutionDispatch(repoRoot, caseRoot, "vmp-re", dispatchOpt)
+		dispatchPreview, err := gate.RecordAdapterExecutionDispatch(repoRoot, caseRoot, "binary-re", dispatchOpt)
 		if err != nil {
 			t.Fatal(err)
 		}
 		dispatchOpt.ExpectedAdapterExecutionDispatchBindingSHA256 = dispatchPreview.BindingSHA256
-		fixture.dispatch, err = gate.RecordAdapterExecutionDispatch(repoRoot, caseRoot, "vmp-re", dispatchOpt)
+		fixture.dispatch, err = gate.RecordAdapterExecutionDispatch(repoRoot, caseRoot, "binary-re", dispatchOpt)
 		if err != nil || !fixture.dispatch.Applied {
 			t.Fatalf("record VMP dispatch: %+v err=%v", fixture.dispatch, err)
 		}
-		fixture.options = Options{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "vmp-re", GateEventID: authorized.EventID, ExpectedDispatchSHA256: fixture.dispatch.DispatchSHA256}
+		fixture.options = Options{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "binary-re", GateEventID: authorized.EventID, ExpectedDispatchSHA256: fixture.dispatch.DispatchSHA256}
 	}
 	return fixture
 }
@@ -225,7 +251,7 @@ func childOptionsForFixture(
 	dispatch, _, dispatchSHA, _, err := gate.ReadCurrentAdapterExecutionDispatch(
 		fixture.repoRoot,
 		fixture.caseRoot,
-		"vmp-re",
+		"binary-re",
 		fixture.gateEventID,
 	)
 	if err != nil {
@@ -234,7 +260,7 @@ func childOptionsForFixture(
 	return VMPIDAIndexChildOptions{
 		RepoRoot:                   fixture.repoRoot,
 		CaseRoot:                   fixture.caseRoot,
-		Pack:                       "vmp-re",
+		Pack:                       "binary-re",
 		GateEventID:                fixture.gateEventID,
 		ExpectedDispatchSHA256:     dispatchSHA,
 		AdapterSession:             dispatch.Owner.AdapterSession,
@@ -270,7 +296,7 @@ func TestRunVMPIDAIndexReusesDurableAttemptRuntimeStart(t *testing.T) {
 	dispatch, dispatchPath, dispatchSHA, _, err := gate.ReadCurrentAdapterExecutionDispatch(
 		fixture.repoRoot,
 		fixture.caseRoot,
-		"vmp-re",
+		"binary-re",
 		fixture.gateEventID,
 	)
 	if err != nil {
@@ -341,7 +367,7 @@ func TestRunVMPIDAIndexRejectsProfileHashDriftAndExpiryBeforeChild(t *testing.T)
 
 func TestRunVMPIDAIndexRejectsWrongRequestTargetAndCandidate(t *testing.T) {
 	fixture := newVMPAuthorizedFixture(t, true)
-	dispatch, path, sha, _, err := gate.ReadCurrentAdapterExecutionDispatch(fixture.repoRoot, fixture.caseRoot, "vmp-re", fixture.gateEventID)
+	dispatch, path, sha, _, err := gate.ReadCurrentAdapterExecutionDispatch(fixture.repoRoot, fixture.caseRoot, "binary-re", fixture.gateEventID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +458,7 @@ func TestRunAuthorizedGateTerminalReportReplaysWithoutChild(t *testing.T) {
 	fixture := newVMPAuthorizedFixture(t, false)
 	launches := 0
 	opt := AuthorizedRunOptions{
-		RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "vmp-re", GateEventID: fixture.gateEventID,
+		RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "binary-re", GateEventID: fixture.gateEventID,
 		ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json", AdapterSession: "vmp-parent-session", Actor: "mission-commander",
 		testHooks: &hostTestHooks{runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
 			launches++
@@ -469,7 +495,7 @@ func authorizedRunOptionsForFixture(
 ) AuthorizedRunOptions {
 	return AuthorizedRunOptions{
 		RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot,
-		Pack: "vmp-re", GateEventID: fixture.gateEventID,
+		Pack: "binary-re", GateEventID: fixture.gateEventID,
 		ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json",
 		AdapterSession:      "vmp-parent-session", Actor: "mission-commander",
 		testHooks: hooks,
@@ -678,7 +704,7 @@ func TestRunAuthorizedGateRejectsFailureReportWithoutParentLaunchProof(t *testin
 	opt := authorizedRunOptionsForFixture(fixture, &hostTestHooks{})
 	opt.AdapterSession = "vmp-session-1"
 	dispatch, dispatchPath, dispatchSHA, _, err := gate.ReadCurrentAdapterExecutionDispatch(
-		fixture.repoRoot, fixture.caseRoot, "vmp-re", fixture.gateEventID,
+		fixture.repoRoot, fixture.caseRoot, "binary-re", fixture.gateEventID,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -809,7 +835,7 @@ func TestRunAuthorizedGateClosesOrphanAfterOwnerAndCatalogDrift(t *testing.T) {
   "createdAt": "2026-08-10T00:00:00Z",
   "updatedAt": "2026-08-10T00:00:00Z"
 }`)
-	catalogPath := filepath.Join(fixture.repoRoot, "packs", "vmp-re", "tooling", "catalog.yml")
+	catalogPath := filepath.Join(fixture.repoRoot, "packs", "binary-re", "tooling", "catalog.yml")
 	catalog, err := os.ReadFile(catalogPath)
 	if err != nil {
 		t.Fatal(err)
@@ -864,7 +890,7 @@ func TestRunAuthorizedGateRecordsChildTerminalFailuresAndReplaysWithoutChild(t *
 			fixture := newVMPAuthorizedFixture(t, false)
 			launches := 0
 			opt := AuthorizedRunOptions{
-				RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "vmp-re", GateEventID: fixture.gateEventID,
+				RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "binary-re", GateEventID: fixture.gateEventID,
 				ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json", AdapterSession: "vmp-parent-session", Actor: "mission-commander",
 				testHooks: &hostTestHooks{runVMPIDAChild: func(VMPIDAIndexChildOptions) ([]byte, int, error) {
 					launches++
@@ -947,7 +973,7 @@ func TestRunAuthorizedGateResumesFailureReportWithoutLosingExitStatus(t *testing
 				},
 			}
 			opt := AuthorizedRunOptions{
-				RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "vmp-re", GateEventID: fixture.gateEventID,
+				RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "binary-re", GateEventID: fixture.gateEventID,
 				ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json", AdapterSession: "vmp-parent-session", Actor: "mission-commander",
 				testHooks: hooks,
 			}
@@ -992,7 +1018,7 @@ func TestRunAuthorizedGateRejectsReceiptExitStatusDifferentFromReport(t *testing
 		t.Fatalf("failure report cutpoint error=%v", err)
 	}
 	dispatch, _, _, _, err := gate.ReadCurrentAdapterExecutionDispatch(
-		fixture.repoRoot, fixture.caseRoot, "vmp-re", fixture.gateEventID,
+		fixture.repoRoot, fixture.caseRoot, "binary-re", fixture.gateEventID,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1009,14 +1035,14 @@ func TestRunAuthorizedGateRejectsReceiptExitStatusDifferentFromReport(t *testing
 		Actor:                      "mission-commander",
 	}
 	preview, err := gate.RecordAdapterExecutionReceipt(
-		fixture.repoRoot, fixture.caseRoot, "vmp-re", receiptOpt,
+		fixture.repoRoot, fixture.caseRoot, "binary-re", receiptOpt,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	receiptOpt.ExpectedAdapterExecutionBindingSHA256 = preview.BindingSHA256
 	if _, err := gate.RecordAdapterExecutionReceipt(
-		fixture.repoRoot, fixture.caseRoot, "vmp-re", receiptOpt,
+		fixture.repoRoot, fixture.caseRoot, "binary-re", receiptOpt,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -1085,7 +1111,7 @@ func TestRunAuthorizedGateResumesEvidenceLifecycleWithoutRelaunchingChild(t *tes
 			opt := AuthorizedRunOptions{
 				RepoRoot:            fixture.repoRoot,
 				CaseRoot:            fixture.caseRoot,
-				Pack:                "vmp-re",
+				Pack:                "binary-re",
 				GateEventID:         fixture.gateEventID,
 				ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json",
 				AdapterSession:      "vmp-parent-session",
@@ -1122,7 +1148,7 @@ func TestRunAuthorizedGateRejectsTakeoverAfterObservation(t *testing.T) {
 	fixture := newVMPAuthorizedFixture(t, false)
 	launches := 0
 	opt := AuthorizedRunOptions{
-		RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "vmp-re", GateEventID: fixture.gateEventID,
+		RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "binary-re", GateEventID: fixture.gateEventID,
 		ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json", AdapterSession: "vmp-parent-session", Actor: "mission-commander",
 		testHooks: &hostTestHooks{
 			runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
@@ -1163,7 +1189,7 @@ func TestRunAuthorizedGateRevokeFailureKeepsTerminalReplayable(t *testing.T) {
 	launches := 0
 	profilePath := filepath.Join(fixture.caseRoot, ".rekit", "lanes", "main", "autonomy.json")
 	opt := AuthorizedRunOptions{
-		RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "vmp-re", GateEventID: fixture.gateEventID,
+		RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "binary-re", GateEventID: fixture.gateEventID,
 		ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json", AdapterSession: "vmp-parent-session", Actor: "mission-commander",
 		testHooks: &hostTestHooks{
 			runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
@@ -1201,7 +1227,7 @@ func TestRunAuthorizedGateRejectsReceiptBoundPacketTampering(t *testing.T) {
 	opt := AuthorizedRunOptions{
 		RepoRoot:            fixture.repoRoot,
 		CaseRoot:            fixture.caseRoot,
-		Pack:                "vmp-re",
+		Pack:                "binary-re",
 		GateEventID:         fixture.gateEventID,
 		ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json",
 		AdapterSession:      "vmp-parent-session",
@@ -1575,7 +1601,7 @@ func TestRunVMPIDAIndexRejectsSourceDriftAndOutputCollision(t *testing.T) {
 		launches := 0
 		drifted := false
 		opt := AuthorizedRunOptions{
-			RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "vmp-re", GateEventID: fixture.gateEventID,
+			RepoRoot: fixture.repoRoot, CaseRoot: fixture.caseRoot, Pack: "binary-re", GateEventID: fixture.gateEventID,
 			ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json", AdapterSession: "vmp-parent-session", Actor: "mission-commander",
 			testHooks: &hostTestHooks{
 				runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
@@ -1633,7 +1659,7 @@ func TestRunVMPIDAIndexRejectsSourceDriftAndOutputCollision(t *testing.T) {
 
 func TestDecodeAuthorizedRunProcessResultRequiresStrictSingleJSON(t *testing.T) {
 	valid, err := json.Marshal(AuthorizedRunResult{
-		SchemaVersion: 1, Kind: "vmp-ida-index-authorized-run", Pack: "vmp-re",
+		SchemaVersion: 1, Kind: "vmp-ida-index-authorized-run", Pack: "binary-re",
 		GateEventID: "evt-gate", AdapterID: VMPIDAIndexAdapterID, AdapterSession: "session-1",
 		NoNetwork: true, NoNetworkBoundary: fixedChildNoNetworkCodepath, NoAuthority: true,
 	})

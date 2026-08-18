@@ -9,6 +9,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
@@ -207,6 +208,9 @@ func NewWithCwd(target, pack, cwdOverride string) (Context, error) {
 	packProvided := strings.TrimSpace(pack) != ""
 	if !packProvided {
 		pack = defaults.DefaultPack
+	}
+	if err := packidentity.Validate(pack); err != nil {
+		return Context{}, err
 	}
 	targetProvided := strings.TrimSpace(target) != ""
 	resolvedTarget := cwd

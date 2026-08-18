@@ -1,6 +1,6 @@
 param(
   [string]$WorkRoot = 'C:\AI\m_projects\RE\_dryrun_cases',
-  [string[]]$Packs = @('web-security','malware-analysis','vuln-research','ctf','unpack-pe','ollvm','android-native','generic-binary-re'),
+  [string[]]$Packs = @('web-security','malware-analysis','vuln-research','ctf','unpack-pe','ollvm','android-native'),
   [switch]$FailFast,
   [ValidateSet('text','json')][string]$Format = 'text',
   [switch]$DiscoveryOnly
@@ -19,7 +19,6 @@ $PackSmokeScripts = [ordered]@{
   'unpack-pe' = 'unpack-pe-pack-smoke.ps1'
   'ollvm' = 'ollvm-pack-smoke.ps1'
   'android-native' = 'android-native-pack-smoke.ps1'
-  'generic-binary-re' = 'generic-binary-re-pack-smoke.ps1'
 }
 
 function Expand-PackSmokeSelection {

@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1`。路线固定为四个有序阶段：先关闭真实产品闭环，再把 `vmp-re` 与 `generic-binary-re` 收敛为唯一 `binary-re`，随后实现 durable pause/resume/stop，最后把 VMP/IDA actual adapter 作为 `binary-re` capability 接入普通真实分析闭环。Batch 830 已完成，Batch 831 是唯一允许领取的下一批；后一阶段继续等待前一阶段 fresh 验证完成。
+当前路线是 `steamai-product-optimization-v1`。路线固定为四个有序阶段：先关闭真实产品闭环，再把 `vmp-re` 与 `generic-binary-re` 收敛为唯一 `binary-re`，随后实现 durable pause/resume/stop，最后把 VMP/IDA actual adapter 作为 `binary-re` capability 接入普通真实分析闭环。Batch 830 与 Batch 831 已完成，Batch 832 是唯一允许领取的下一批；后一阶段继续等待前一阶段 fresh 验证完成。
 
 产品获取方式保持 `source-clone-first`：canonical repository 是 `https://github.com/shuiyu486/STeamAI`，Go module `github.com/shuiyu486/re-context-kits` 暂作 compatibility identity。Go 与 Claude Code 是预期依赖；不实现 installer、portable ZIP、MSI、winget、下载站或自动更新。current 项目继续拒绝 PATH/外部 kit fallback，默认 quickstart 只保留 `cd <project> → claude → /steamai`。
 
@@ -15,45 +15,44 @@
 | 字段 | 当前值 |
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
-| 当前批次 | `Batch 830` core product closure |
+| 当前批次 | `Batch 831` binary-re convergence |
 | 状态 | `completed` |
-| 唯一允许领取 | `Batch 831` |
-| 上一批 | `Batch 829` GitHub repository identity migration 已完成并归档 |
-| 下一批 | `Batch 831` |
+| 唯一允许领取 | `Batch 832` |
+| 上一批 | `Batch 830` core product closure 已完成并归档 |
+| 下一批 | `Batch 832` |
 | canonical repository | `https://github.com/shuiyu486/STeamAI` |
 | 暂保留兼容身份 | Go module `github.com/shuiyu486/re-context-kits`、内部 `rekit` names、legacy `/rekit` / `.rekit` |
 
 ## 执行清单
 
 - [x] **Batch 830 — core product closure（completed）**：已关闭 Reviewer strict intake、ordinary-directory typed adoption、project-local promote、current `/steamai` public projection、release truth、actual adapter root binding 与可重定位 Identity v2，并完成受影响包、临时项目和真实 Claude 边界验证。
-- [ ] **Batch 831 — binary-re convergence（next）**：以成熟 `vmp-re` 为能力主体，吸收 generic recipes/task types/deny patterns，发布唯一 active `packs/binary-re`；不保留 alias、双写或自动迁移，旧身份只返回 typed migration-required。
-- [ ] **Batch 832 — durable execution control（locked）**：实现独立 control generation、append-only pause/resume/stop receipts、durable-first stop、late-result held ledger 与进程 actuation 分层；不把 control 当授权。
+- [x] **Batch 831 — binary-re convergence（completed）**：以成熟 `vmp-re` 为能力主体，吸收 generic recipes/task types/deny patterns，发布唯一 active `packs/binary-re`；不保留 alias、双写或自动迁移，旧身份只返回 typed `pack-migration-required`。
+- [ ] **Batch 832 — durable execution control（next）**：实现独立 control generation、append-only pause/resume/stop receipts、durable-first stop、late-result held ledger 与进程 actuation 分层；不把 control 当授权。
 - [ ] **Batch 833 — binary-re actual analysis（locked）**：把 VMP/IDA adapter 作为 `binary-re` capability 接入 ordinary daily、独立 evidence review 和 accepted-review 后绑定；用 harmless synthetic input 完成真实 E2E 与 terminal replay。
 - [ ] **路线收口**：每批完成本批 fresh gate、commit/push 与 post-push Git-local inspection并直接继续下一批；四阶段全部完成后再执行路线级完整 fresh tests、vet、module verify、release-check/status/packs/doctor、移动/复制 E2E、真实 Claude acceptance与临时计划/评估文档清理。
 
 ## 当前批次卡
 
-### Batch 830：core product closure
+### Batch 831：binary-re convergence
 
-**状态**：completed；Batch 831 已解锁为唯一允许领取的下一批。
+**状态**：completed；Batch 832 已解锁为唯一允许领取的下一批。
 
-**目标**：让自包含项目的 identity、复制/移动恢复、project-local promote、public projection、ordinary-directory adoption、release truth 与真实 Claude 日常路径在真实调用链上闭合，而不是只在合同或单点测试中成立。
+**目标**：把两个重叠二进制逆向 pack 收敛为唯一 active `binary-re`，保留成熟 VMP/IDA 能力并吸收通用 static triage、function/API behavior review、Agent Team routes 与 recipes；同时固定 source-clone-first 获取方式和 current project-local verified runtime 边界。
 
 **完成结果**：
 
-- current Identity v2 发布 stable project ID、logical `target="."` 与 exact project binding；project-local runtime 在 central source 删除后可复制、整体移动、exact replay并继续运行，旧 current v1 移动后明确 fail-closed；
-- project-local promote 以 attached project 的 verified delivery root 为 owner；decision/proof 写入固定在 active state root 的 `reviews/**`，pack-tree direct/physical alias、symlink 与 Windows junction 在第一笔副作用前拒绝；
-- current `/steamai` 与 legacy `/rekit` 只投影显式 typed structure，malformed slash command fail-closed，普通 prose 与 durable/source identity 不改写；
-- Reviewer strict namespace、ordinary-directory hash-bound adoption、release truth 与 actual adapter project-local root binding 同批闭合；
-- 真实 Claude gate 一次完成 member→独立 Reviewer reject→人工 correction→replacement member→独立 Reviewer accept→completion；重复 gate 的 generation 2 Reviewer 语义拒绝保持等待纠偏并正确清理，没有用重试伪造完成；
-- Identity/onboarding/self-contained relocation、promote no-reparse、public projection 与 CLI 产品链 focused/fresh tests 已通过；完成态 `release-check -Format json` inventory 返回 `ready=true`。最终本机 release minimum 只以冻结工作树上的 fresh machine receipt 为准。
+- 新增集中 `packidentity` policy，默认 pack 改为 `binary-re`；显式参数、attached metadata 与 embedded runtime bundle 中的 `vmp-re` / `generic-binary-re` 在写入或输出前返回 typed `pack-migration-required`，未知 pack 保持普通 missing/unknown 语义；
+- active inventory 只保留 `packs/binary-re`，成熟 VMP/IDA references、policies、tooling 与通用 static/function behavior recipes 合并到同一 manifest；旧 identity 不保留 alias、不双写、不自动迁移；
+- onboarding、manifest、instance、runtime、runtime bundle、host 与 adapter 入口统一执行 pack identity policy；`binary-analysis` lane label 往返和 `.steamai` / `.rekit` typed read-only path projection按 selected state root工作；
+- README、schema、façade默认值、smoke catalog与release说明固定 canonical clone URL、Go + Claude Code预期依赖和唯一 mature `binary-re`，current项目仍只运行project-local verified runtime bundle；
+- 受影响 Go packages fresh tests、catalog/inventory/discovery smoke、compatibility façade smoke与current `binary-re` hash-bound init→lane→review packet→ledger/gate→handoff dry-run均已通过。
 
 **完成边界**：
 
-- Batch 830 未提前修改 pack identity、注册 pause/resume/stop 或增加 Batch 833 普通 binary adapter surface；
-- 未新增 PowerShell runtime logic、installer、PATH fallback、authority/confirmed 或未授权 heavy action；
-- 本地 machine receipt、workflow definition 与 tracking ref 不等于 remote CI green 或 formal release；
-- Batch 830 在 Batch 831 真正开始时再由 canonical rotation 归档，不在完成提交中提前复制到 `docs/batch-history.md`。
+- Batch 831 未提前注册 pause/resume/stop control surface，也未增加 Batch 833 ordinary VMP/IDA actual adapter执行能力；
+- 未机械改名 Go module/internal `rekit`、legacy `/rekit` / `.rekit` 或历史事实，trusted recovery generations保持append-only；
+- 未新增 PowerShell runtime logic、installer、PATH fallback、authority/confirmed或未授权heavy action；
+- 本地focused gate与Git-local inspection不等于remote CI green或formal release；Batch 831在Batch 832真正开始时再由canonical rotation归档。
 
 ## 验证标准
 
@@ -80,5 +79,6 @@ git diff --check
 
 ## 路线变更记录
 
+- 2026-08-18：Batch 830归档；Batch 831完成唯一active `binary-re`、retired identity typed migration与source-clone-first收敛，解锁Batch 832 durable execution control。
 - 2026-08-17：基于真实源码、fresh tests、临时项目、真实 Claude member/Reviewer 与 actual adapter 复评，批准 `steamai-product-optimization-v1` 四阶段路线；明确 source-clone-first、无 installer、唯一 `binary-re`。
 - 2026-08-17：`steamai-repository-identity-v1` / Batch 829 完成后归档；canonical repository 保持 `shuiyu486/STeamAI`，Go/internal/legacy identity 继续兼容。

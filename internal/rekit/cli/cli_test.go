@@ -2266,7 +2266,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
 	}
 	activeRoute := status.ProjectHandoff.ActiveRoute
-	if !activeRoute.Present || activeRoute.Route != "steamai-product-optimization-v1" || !strings.HasPrefix(activeRoute.CurrentBatch, "Batch 830") || activeRoute.State != "completed" || activeRoute.ExclusiveClaim != "Batch 831" || !activeRoute.NextBatchUnlocked || !activeRoute.ProjectionConsistent {
+	if !activeRoute.Present || activeRoute.Route != "steamai-product-optimization-v1" || !strings.HasPrefix(activeRoute.CurrentBatch, "Batch 831") || activeRoute.State != "completed" || activeRoute.ExclusiveClaim != "Batch 832" || !activeRoute.NextBatchUnlocked || !activeRoute.ProjectionConsistent {
 		t.Fatalf("unexpected project handoff active route: %+v", activeRoute)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
@@ -2283,7 +2283,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("project handoff omitted latest batch remote gate detail: %+v", status.ProjectHandoff)
 	}
 	projectCurrent := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
-	if projectCurrent == nil || projectCurrent.ActionID != "latest-batch-next-action" || projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.State != "implementation-pending" || projectCurrent.Label != "Batch 830" {
+	if projectCurrent == nil || projectCurrent.ActionID != "latest-batch-next-action" || projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.State != "implementation-pending" || projectCurrent.Label != "Batch 831" {
 		t.Fatalf("completed active route did not expose the latest batch validation action: route=%+v current=%+v", activeRoute, projectCurrent)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
@@ -2616,7 +2616,7 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != defaults.DefaultPack || status.PackSource != "repo-default" || status.Case != nil {
 		t.Fatalf("unexpected default status JSON envelope: %+v", status)
 	}
-	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/"+defaults.DefaultPack+"/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 7 || status.Manifest.PromoteFiles != 7 || status.Manifest.ToolingFiles != 12 {
+	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/"+defaults.DefaultPack+"/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 11 || status.Manifest.PromoteFiles != 11 || status.Manifest.ToolingFiles != 14 {
 		t.Fatalf("unexpected default manifest summary: %+v", status.Manifest)
 	}
 
@@ -6123,8 +6123,8 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check signal detail：name=latest batch documentation detail=localValidationReady=",
 		"release-check signal detail：name=latest batch documentation detail=nextAction=",
 		"release-check signal detail：name=Go-native public surface detail=profileGroups readOnly=doctor,packs,release-check,status,validate",
-		"release-check pack maturity：summary=pack maturity inventory ok total=10",
-		"release-check pack gate：id=vmp-re maturity=mature schemaValid=true schemaVersion=1 heavyToolGates=8 actions=debug,dump,full-trace,inject,inspect,network,patch,symex",
+		"release-check pack maturity：summary=pack maturity inventory ok total=9",
+		"release-check pack gate：id=binary-re maturity=mature schemaValid=true schemaVersion=1 heavyToolGates=8 actions=debug,dump,full-trace,inject,inspect,network,patch,symex",
 		"release-check pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"release-check signal：name=pack-memory candidates ready=true summary=pack-memory candidate inventory ok",
 		"release-check signal detail：name=pack-memory candidates detail=openPacks=0 total=0 ready=true",
@@ -6434,10 +6434,10 @@ func assertReleaseHandoffSignalDetailContains(t *testing.T, handoff releasecheck
 func assertReleaseHandoffPackMaturity(t *testing.T, handoff releasecheck.ReleaseHandoff) {
 	t.Helper()
 	inventory := handoff.PackMaturity
-	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
+	if inventory.Total != 9 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
 		t.Fatalf("unexpected release handoff pack maturity inventory: %+v", inventory)
 	}
-	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 8 {
+	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 7 {
 		t.Fatalf("unexpected release handoff maturity counts: %+v", inventory.MaturityCounts)
 	}
 	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" {
@@ -6944,7 +6944,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"validationCommands=",
 		"migrationTargets=77 migrationValidationCommands=616",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
-		"release handoff: release handoff summary ok ready=true readFirst=1 signals=13 knownGaps=6 packMaturity=10 packMemoryCandidates=0",
+		"release handoff: release handoff summary ok ready=true readFirst=1 signals=13 knownGaps=6 packMaturity=9 packMemoryCandidates=0",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",
@@ -7018,7 +7018,7 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 	for _, expected := range []string{
 		"pack\tmaturity\tschema\tmanifestSchema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription",
 		"_template\ttemplate\tok\t1\t2\t4\t2\tmain\t0.1.0",
-		"vmp-re\tmature\tok\t1\t2\t7\t12\tdevirt-main\t0.2.0",
+		"binary-re\tmature\tok\t1\t3\t11\t14\tdevirt-main\t0.3.0",
 		"web-security\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
 		"malware-analysis\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
 		"vuln-research\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
@@ -7026,7 +7026,6 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 		"unpack-pe\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
 		"ollvm\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
 		"android-native\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
-		"generic-binary-re\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("packs output missing %q:\n%s", expected, text)
@@ -7038,11 +7037,11 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"packs：mutation=false count=10",
+		"packs：mutation=false count=9",
 		"packs pack：id=_template name=_template maturity=template schema=ok manifestSchema=1 managed=4 template=1 local=3 promote=4 tooling=2 prompts=0 routes=2 heavyToolGates=8 authority=main version=0.1.0",
-		"packs pack：id=vmp-re name=vmp-re maturity=mature schema=ok manifestSchema=1 managed=7 template=1 local=3 promote=7 tooling=12 prompts=4 routes=2 heavyToolGates=8 authority=devirt-main version=0.2.0",
-		"packs pack heavy action：id=vmp-re action=debug",
-		"packs pack heavy action：id=vmp-re action=symex",
+		"packs pack：id=binary-re name=binary-re maturity=mature schema=ok manifestSchema=1 managed=11 template=1 local=3 promote=11 tooling=14 prompts=4 routes=3 heavyToolGates=8 authority=devirt-main version=0.3.0",
+		"packs pack heavy action：id=binary-re action=debug",
+		"packs pack heavy action：id=binary-re action=symex",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("packs text missing %q:\n%s", expected, out.String())
@@ -7099,7 +7098,7 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	for _, pack := range inventory.Packs {
 		byID[pack.ID] = pack
 	}
-	if pack := byID[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 8 || strings.Join(pack.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" || pack.DefaultAuthorityLane != "devirt-main" {
+	if pack := byID[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.Error != "" || pack.ManagedFiles != 11 || pack.ToolingFiles != 14 || pack.SubagentRoutes != 3 || pack.HeavyToolGates != 8 || strings.Join(pack.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" || pack.DefaultAuthorityLane != "devirt-main" {
 		t.Fatalf("unexpected default pack JSON row: %+v", pack)
 	}
 	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
@@ -7122,9 +7121,6 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	}
 	if pack := byID["android-native"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected android-native JSON row: %+v", pack)
-	}
-	if pack := byID["generic-binary-re"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
-		t.Fatalf("unexpected generic-binary-re JSON row: %+v", pack)
 	}
 }
 
@@ -9135,7 +9131,7 @@ func TestRunLegacyCaseExplicitPackOverrideRemainsDiagnostic(t *testing.T) {
 	if err := Run([]string{
 		"-Command", "status",
 		"-Target", caseRoot,
-		"-Pack", "generic-binary-re",
+		"-Pack", "binary-re",
 		"-Format", "json",
 	}, &out); err != nil {
 		t.Fatal(err)
@@ -9153,7 +9149,7 @@ func TestRunLegacyCaseExplicitPackOverrideRemainsDiagnostic(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("legacy mismatched-pack status stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if status.Pack != "generic-binary-re" || status.PackSource != "explicit" || status.Case.TemplatePack != "_template" || status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, `explicit pack "generic-binary-re" differs from case metadata templatePack "_template"`) || !containsSubstring(status.Case.NextSteps, `/rekit status -Target "`+caseRoot+`" -Format text uses case metadata templatePack "_template"; keep explicit -Pack "generic-binary-re" only after confirming the override`) {
+	if status.Pack != "binary-re" || status.PackSource != "explicit" || status.Case.TemplatePack != "_template" || status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, `explicit pack "binary-re" differs from case metadata templatePack "_template"`) || !containsSubstring(status.Case.NextSteps, `/rekit status -Target "`+caseRoot+`" -Format text uses case metadata templatePack "_template"; keep explicit -Pack "binary-re" only after confirming the override`) {
 		t.Fatalf("unexpected legacy mismatched-pack status: %+v", status)
 	}
 }
@@ -9208,7 +9204,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	}
 
 	out.Reset()
-	err = Run([]string{"-Command", "status", "-Pack", "generic-binary-re", "-Format", "json"}, &out)
+	err = Run([]string{"-Command", "status", "-Pack", "binary-re", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "requested pack differs from project-local STeamAI bundle") {
 		t.Fatalf("current project mismatched-pack status error = %v, want manifest-bound pack rejection", err)
 	}
@@ -12324,14 +12320,14 @@ func TestRunHandoffFallsBackToDerivedLaneRoot(t *testing.T) {
 }
 
 func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/locks/lane-feature-login.lease", "")
 	before := snapshotFiles(t, caseRoot)
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var blocked struct {
@@ -12385,7 +12381,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	assertSnapshotEqual(t, before, afterBlocked)
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -12404,7 +12400,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var preview struct {
@@ -12440,7 +12436,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	assertWriteKind(t, preview.WouldWrites, "lane-event", "would-append-executor-takeover")
 
 	out.Reset()
-	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"executor action：blocked=true ready=false pendingGates=0 openInterventions=1 openDecisions=0", "executor requirements：reconcile=true pendingGate=false openDecision=false", "executor handoff：continue=`/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1` handoff=`/rekit handoff login`", "mission commander action queue：summary=total=3 unblocked=1 blocked=2 requiresReview=3 followUp=2 current=/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"", "mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1 -WhatIf`", "mission commander next action reason：run only after reconcile apply succeeds and the refreshed executor action remains ready", "mission commander next action boundary：reconcile apply only writes case-local intervention/lane/resume/checkpoint state"} {
@@ -12455,7 +12451,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	assertSnapshotEqual(t, before, afterPreview)
 
 	out.Reset()
-	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var reconciled struct {
@@ -12519,7 +12515,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Executor", "session-2", "-ExpectedExecutorGeneration", "1"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-Executor", "session-2", "-ExpectedExecutorGeneration", "1"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var cont struct {
@@ -12539,14 +12535,14 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 }
 
 func TestRunContinueBlocksPendingGateBeforeWrites(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/facts/requests.jsonl", `{"eventId":"evt-pending-debug","kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"workspace/features/feature-login","batchId":"batch-pending","gate":{"action":"debug","scope":"handler only","budget":"30s","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/features/feature-login/debug"],"triedLightSteps":["overview","static review"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-feature-login","reasons":["manual gate"]}}}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/locks/lane-feature-login.lease", "")
 	before := snapshotFiles(t, caseRoot)
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var blocked struct {
@@ -12593,7 +12589,7 @@ func TestRunContinueBlocksPendingGateBeforeWrites(t *testing.T) {
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -12698,14 +12694,14 @@ func TestRunContinuePrioritizesLaneGateBlockerWhilePreservingReviewerDispatch(t 
 }
 
 func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"feature-login","subject":"candidate alpha","summary":"needs decision","status":"open","target":"candidate-alpha","confidence":"high","evidenceRefs":["evidence/candidate.json"],"batchId":"batch-decision"}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/locks/lane-feature-login.lease", "")
 	before := snapshotFiles(t, caseRoot)
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var blocked struct {
@@ -12759,7 +12755,7 @@ func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -12778,14 +12774,14 @@ func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
 }
 
 func TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolution(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/facts/requests.jsonl", `{"eventId":"evt-pending-debug","kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"workspace/features/feature-login","batchId":"batch-pending","gate":{"action":"debug","scope":"handler only","budget":"30s","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/features/feature-login/debug"],"triedLightSteps":["overview","static review"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-feature-login","reasons":["manual gate"]}}}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"feature-login","subject":"candidate alpha","summary":"needs decision","status":"open","target":"candidate-alpha","confidence":"high","evidenceRefs":["evidence/candidate.json"],"batchId":"batch-decision"}`+"\n")
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var result struct {
@@ -12825,13 +12821,13 @@ func TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolutio
 	assertContinueWrite(t, result.Writes, ".rekit/facts/interventions.jsonl", "append")
 	assertWriteKind(t, result.Writes, "lane", "update-reconcile-state")
 
-	textCaseRoot := attachedCaseWithPack(t, "vmp-re")
+	textCaseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, textCaseRoot)
 	writeCaseFile(t, textCaseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n")
 	writeCaseFile(t, textCaseRoot, ".rekit/facts/requests.jsonl", `{"eventId":"evt-pending-debug","kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"workspace/features/feature-login","batchId":"batch-pending","gate":{"action":"debug","scope":"handler only","budget":"30s","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/features/feature-login/debug"],"triedLightSteps":["overview","static review"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-feature-login","reasons":["manual gate"]}}}`+"\n")
 	writeCaseFile(t, textCaseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"feature-login","subject":"candidate alpha","summary":"needs decision","status":"open","target":"candidate-alpha","confidence":"high","evidenceRefs":["evidence/candidate.json"],"batchId":"batch-decision"}`+"\n")
 	out.Reset()
-	if err := Run([]string{"-Command", "reconcile", "-Target", textCaseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "reconcile", "-Target", textCaseRoot, "-Pack", "binary-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -12853,7 +12849,7 @@ func TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolutio
 }
 
 func TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n"+`{"schemaVersion":1,"eventId":"evt-existing-resolution","kind":"intervention","lane":"feature-login","subject":"reconciled intervention: human correction","summary":"reconciled intervention: human correction","action":"reconcile","status":"resolved","resolvesEventId":"evt-human-stop","target":"workspace/features/feature-login","actor":"main-agent","executor":"session-2","reason":"accept user correction","time":"2026-01-02T03:04:05Z"}`+"\n")
 	beforeFacts, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
@@ -12862,7 +12858,7 @@ func TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState(t *test
 	}
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var replay struct {
@@ -12905,13 +12901,13 @@ func TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState(t *test
 }
 
 func TestRunReconcileApplyRejectsInvalidReplayBeforeWrites(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n"+`{"schemaVersion":1,"eventId":"evt-existing-resolution","kind":"intervention","lane":"feature-login","subject":"reconciled intervention: human correction","summary":"reconciled intervention: human correction","action":"reconcile","status":"resolved","resolvesEventId":"evt-human-stop","target":"workspace/features/feature-login","actor":"main-agent","executor":"session-other","reason":"accept user correction","time":"2026-01-02T03:04:05Z"}`+"\n")
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out)
+	err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "existing reconcile resolution executor differs") {
 		t.Fatalf("reconcile invalid replay error = %v\n%s", err, out.String())
 	}
@@ -12920,11 +12916,11 @@ func TestRunReconcileApplyRejectsInvalidReplayBeforeWrites(t *testing.T) {
 }
 
 func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	before := snapshotFiles(t, caseRoot)
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var result struct {
@@ -12996,10 +12992,10 @@ func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 }
 
 func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var result struct {
@@ -13091,7 +13087,7 @@ func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "-Format", "text", "login"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-Apply", "-Format", "text", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"工作线被 blocker 阻塞：feature-login reasons=open-decision", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "mission commander action queue：summary=total=4 unblocked=0 blocked=4 requiresReview=4 followUp=3 current=/rekit handoff login", "mission commander action queue current：state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff login`", "mission commander next action：state=needs-open-decision-review source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit note -Kind decision -Lane feature-login -Subject \"decision for candidate: authority candidate\"", "mission commander next action：state=needs-open-decision-review source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit note -Kind decision -Lane feature-login -Subject \"decision for decision: authority candidate\""} {
@@ -14155,20 +14151,20 @@ func TestRunGoReviewerDecisionE2ENoteOverviewHandoff(t *testing.T) {
 }
 
 func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing.T) {
-	const pack = "generic-binary-re"
+	const pack = "binary-re"
 	caseRoot := attachedCaseWithPack(t, pack)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", pack, "-Name", "sample", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	start := decodeStartResult(t, out.Bytes())
-	if !start.IsMutation || !start.Applied || start.Lane.ID != "binary-analysis-sample" || start.Lane.Type != "binary-analysis" || start.Lane.Workspace != "workspace/binary/binary-analysis-sample" {
+	if !start.IsMutation || !start.Applied || start.Lane.ID != "binary-analysis-sample" || start.Lane.Type != "binary-analysis" || start.Lane.Workspace != "captures/binary_analysis/binary-analysis-sample" {
 		t.Fatalf("unexpected generic binary start result: %+v", start)
 	}
-	assertStartWrite(t, start.Writes, ".rekit/lanes/main/lane.json", "create-lane")
+	assertStartWrite(t, start.Writes, ".rekit/lanes/devirt-main/lane.json", "create-lane")
 	assertStartWrite(t, start.Writes, ".rekit/lanes/binary-analysis-sample/lane.json", "create-lane")
 
-	writeCaseFile(t, caseRoot, "workspace/binary/binary-analysis-sample/packet.md", "# packet\n\ngeneric binary analysis packet\n")
+	writeCaseFile(t, caseRoot, "captures/binary_analysis/binary-analysis-sample/packet.md", "# packet\n\ngeneric binary analysis packet\n")
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", pack, "-TaskType", "binary-analysis", "-Items", "function-init,string-login", "-ItemsPerAgent", "1", "-MaxParallel", "2"}, &out); err != nil {
@@ -14179,7 +14175,7 @@ func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing
 		t.Fatalf("unexpected generic binary plan result: %+v", plan)
 	}
 	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
-	if packet.Route.ID != "generic-binary-re:binary-analysis" || packet.Observability.RouteDebug.SelectedBy != "taskType" || packet.ShardPolicy.TargetItemsPerAgent != 1 || packet.ShardPolicy.MaxParallel != 2 {
+	if packet.Route.ID != "binary-re:binary-analysis" || packet.Observability.RouteDebug.SelectedBy != "taskType" || packet.ShardPolicy.TargetItemsPerAgent != 1 || packet.ShardPolicy.MaxParallel != 2 {
 		t.Fatalf("unexpected generic binary dispatch packet: %+v", packet)
 	}
 	if packet.Observability.DispatchMode != "manual-main-agent" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.SpawnOwner != "main-agent" || !slices.Contains(packet.ReviewLoop.MainAgentOwns, "canonical-write") || !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") {
@@ -14187,7 +14183,7 @@ func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", "candidate", "-Lane", "binary-analysis-sample", "-Subject", "binary behavior candidate", "-Summary", "candidate awaiting bounded generic binary review", "-Actor", "binary-agent", "-Confidence", "high", "-Status", "open", "-Risk", "medium", "-TargetRef", "function-init", "-BatchId", "batch-pack-neutral", "-EvidenceRefs", "workspace/binary/binary-analysis-sample/packet.md"}, &out); err != nil {
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", "candidate", "-Lane", "binary-analysis-sample", "-Subject", "binary behavior candidate", "-Summary", "candidate awaiting bounded generic binary review", "-Actor", "binary-agent", "-Confidence", "high", "-Status", "open", "-Risk", "medium", "-TargetRef", "function-init", "-BatchId", "batch-pack-neutral", "-EvidenceRefs", "captures/binary_analysis/binary-analysis-sample/packet.md"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var candidate struct {
@@ -14246,7 +14242,7 @@ func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", "verification", "-Lane", "binary-analysis-sample", "-Subject", "bounded review target", "-Summary", "bounded reviewer accepted generic binary evidence", "-Actor", "reviewer-smoke", "-Verifier", "tool-review", "-Verdict", "accepted", "-TargetRef", "function-init", "-BatchId", "batch-pack-neutral", "-EvidenceRefs", "workspace/binary/binary-analysis-sample/packet.md"}, &out); err != nil {
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", "verification", "-Lane", "binary-analysis-sample", "-Subject", "bounded review target", "-Summary", "bounded reviewer accepted generic binary evidence", "-Actor", "reviewer-smoke", "-Verifier", "tool-review", "-Verdict", "accepted", "-TargetRef", "function-init", "-BatchId", "batch-pack-neutral", "-EvidenceRefs", "captures/binary_analysis/binary-analysis-sample/packet.md"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
@@ -14304,7 +14300,7 @@ func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
-	if !handoff.IsMutation || !handoff.Applied || handoff.Project || handoff.Lane == nil || handoff.Lane.ID != "binary-analysis-sample" || handoff.Lane.Workspace != "workspace/binary/binary-analysis-sample" {
+	if !handoff.IsMutation || !handoff.Applied || handoff.Project || handoff.Lane == nil || handoff.Lane.ID != "binary-analysis-sample" || handoff.Lane.Workspace != "captures/binary_analysis/binary-analysis-sample" {
 		t.Fatalf("unexpected generic binary handoff result: %+v", handoff)
 	}
 	latest := assertStartWrite(t, handoff.Writes, ".rekit/handovers/binary-analysis-sample-latest.md", "write-latest-lane-handoff")
@@ -14312,7 +14308,7 @@ func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：binary-analysis-sample", "执行 `/rekit continue binary-analysis-sample`", "workspace/binary/binary-analysis-sample/packet.md", "## verification", "verifier=tool-review", "## decision", "decision=accept", "## pending-gate", "action=debug", "scope=function behavior only"} {
+	for _, expected := range []string{"# rekit 工作线接手：binary-analysis-sample", "不要执行 `/rekit continue sample`", "captures/binary_analysis/binary-analysis-sample/packet.md", "## verification", "verifier=tool-review", "## decision", "decision=accept", "## pending-gate", "action=debug", "scope=function behavior only"} {
 		if !strings.Contains(string(handoffText), expected) {
 			t.Fatalf("generic binary handoff missing %q:\n%s", expected, string(handoffText))
 		}
@@ -14487,7 +14483,7 @@ func TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff(t *testing.T
 			t.Fatalf("web-security handoff missing %q:\n%s", expected, string(handoffText))
 		}
 	}
-	for _, forbidden := range []string{"generic-binary-re", "workspace/binary", "binary-analysis-sample", "references/template", "vmp-re"} {
+	for _, forbidden := range []string{"binary-re", "generic-binary-re", "vmp-re", "captures/binary_analysis", "binary-analysis-sample", "references/template"} {
 		if strings.Contains(string(handoffText), forbidden) {
 			t.Fatalf("web-security handoff leaked non-web token %q:\n%s", forbidden, string(handoffText))
 		}
@@ -14495,16 +14491,16 @@ func TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff(t *testing.T
 }
 
 func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	for _, tc := range []struct {
 		name string
 		args []string
 		want string
 	}{
-		{"no mode", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "login"}, "requires -WhatIf or -Apply"},
-		{"what-if apply", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "-Apply", "login"}, "cannot combine"},
-		{"create candidates", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-CreateCandidates", "login"}, "does not support -CreateCandidates"},
+		{"no mode", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "login"}, "requires -WhatIf or -Apply"},
+		{"what-if apply", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "-Apply", "login"}, "cannot combine"},
+		{"create candidates", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-CreateCandidates", "login"}, "does not support -CreateCandidates"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -14520,10 +14516,10 @@ func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
 }
 
 func TestRunContinueRequiresSelectorForMultipleOpenLanes(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	writeContinueFixture(t, caseRoot)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf"}, &out)
+	err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf"}, &out)
 	if err == nil {
 		t.Fatal("Run returned nil error")
 	}
@@ -14533,9 +14529,9 @@ func TestRunContinueRequiresSelectorForMultipleOpenLanes(t *testing.T) {
 }
 
 func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-TaskType", "feature-analysis", "-Items", "alpha,beta gamma", "-ItemsPerAgent", "2", "-MaxParallel", "7"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "binary-re", "-TaskType", "feature-analysis", "-Items", "alpha,beta gamma", "-ItemsPerAgent", "2", "-MaxParallel", "7"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	result := decodePlanSubagentsResult(t, out.Bytes())
@@ -14543,7 +14539,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		t.Fatalf("unexpected plan-subagents result: %+v", result)
 	}
 	packet := decodePlanSubagentsPacket(t, result.PacketPath)
-	if packet.Command != "plan-subagents" || packet.Route.ID != "vmp-re:lane-feature-analysis" || packet.ShardPolicy.TargetItemsPerAgent != 2 || packet.ShardPolicy.MaxParallel != 7 {
+	if packet.Command != "plan-subagents" || packet.Route.ID != "binary-re:lane-feature-analysis" || packet.ShardPolicy.TargetItemsPerAgent != 2 || packet.ShardPolicy.MaxParallel != 7 {
 		t.Fatalf("unexpected plan-subagents packet: %+v", packet)
 	}
 	if len(packet.Shards) != 2 || strings.Join(packet.Shards[0].Items, ",") != "alpha,beta" || strings.Join(packet.Shards[1].Items, ",") != "gamma" {
@@ -14552,7 +14548,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if result.Observability.DispatchMode != "manual-main-agent" || result.Observability.RouteDebug.SelectedBy != "taskType" || result.ReviewLoop.SpawnOwner != "main-agent" {
 		t.Fatalf("unexpected result observability: result=%+v", result)
 	}
-	if packet.Observability.DispatchMode != "manual-main-agent" || packet.Observability.RouteDebug.RouteID != "vmp-re:lane-feature-analysis" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.MergeOwner != "main-agent" {
+	if packet.Observability.DispatchMode != "manual-main-agent" || packet.Observability.RouteDebug.RouteID != "binary-re:lane-feature-analysis" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.MergeOwner != "main-agent" {
 		t.Fatalf("unexpected packet observability: %+v", packet)
 	}
 	if packet.OwnerBinding.TargetLane != "devirt-main" || packet.OwnerBinding.BindingMode == "" || packet.ShardHandoffs[0].OwnerBinding.TargetLane != "devirt-main" {
@@ -14629,7 +14625,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "binary-re", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -14680,9 +14676,9 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer result contract：shard=shard-01 format=single JSON object per shard",
 		"required=packetId,routeId,shardId,items,reviewerSession,decision,confidence,summary,evidenceRefs,risks,conflicts,recommendedVerdict,routeOutput decisions=accept,reject,defer,abandon,needs-more-evidence",
 		"plan-subagents reviewer result skeleton：shard=shard-01 packetId=packet-",
-		"routeId=vmp-re:lane-feature-analysis reviewerResultPath=",
+		"routeId=binary-re:lane-feature-analysis reviewerResultPath=",
 		"json={\"packetId\":\"packet-",
-		"\"routeId\":\"vmp-re:lane-feature-analysis\"",
+		"\"routeId\":\"binary-re:lane-feature-analysis\"",
 		"\"shardId\":\"shard-01\"",
 		"\"reviewerSession\":\"reviewer-session-id\"",
 		"\"evidenceRefs\":[\"packet-",
@@ -14718,14 +14714,14 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 }
 
 func TestRunPlanSubagentsUnknownTaskTypeReportsDefaultRoute(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-TaskType", "unknown-task", "-Items", "alpha"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "binary-re", "-TaskType", "unknown-task", "-Items", "alpha"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	result := decodePlanSubagentsResult(t, out.Bytes())
 	packet := decodePlanSubagentsPacket(t, result.PacketPath)
-	if packet.Route.ID != "vmp-re:bounded-review" || packet.Observability.RouteDebug.SelectedBy != "manifest-default" {
+	if packet.Route.ID != "binary-re:bounded-review" || packet.Observability.RouteDebug.SelectedBy != "manifest-default" {
 		t.Fatalf("unexpected fallback route observability: %+v", packet)
 	}
 }
@@ -14737,18 +14733,18 @@ func TestRunPlanSubagentsItemsFileAndOutOfCaseGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "plan-subagents", "-Target", target, "-Pack", "vmp-re", "-ItemsFile", itemsFile}, &out)
+	err := Run([]string{"-Command", "plan-subagents", "-Target", target, "-Pack", "binary-re", "-ItemsFile", itemsFile}, &out)
 	if err == nil || !strings.Contains(err.Error(), "unless -ReviewOutputDir") {
 		t.Fatalf("error = %v, want out-of-case guard", err)
 	}
 	out.Reset()
 	reviewRoot := filepath.Join(t.TempDir(), "review")
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", target, "-Pack", "vmp-re", "-Route", "vmp-re:bounded-review", "-ItemsFile", itemsFile, "-ReviewOutputDir", reviewRoot}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", target, "-Pack", "binary-re", "-Route", "binary-re:bounded-review", "-ItemsFile", itemsFile, "-ReviewOutputDir", reviewRoot}, &out); err != nil {
 		t.Fatal(err)
 	}
 	result := decodePlanSubagentsResult(t, out.Bytes())
 	packet := decodePlanSubagentsPacket(t, result.PacketPath)
-	if result.ItemCount != 3 || result.ShardCount != 1 || packet.Route.ID != "vmp-re:bounded-review" || packet.Input.ItemsFile == "" {
+	if result.ItemCount != 3 || result.ShardCount != 1 || packet.Route.ID != "binary-re:bounded-review" || packet.Input.ItemsFile == "" {
 		t.Fatalf("unexpected out-of-case plan: result=%+v packet=%+v", result, packet)
 	}
 	if !samePath(result.ReviewRoot, reviewRoot) {
@@ -14783,19 +14779,19 @@ func TestRunPlanSubagentsTemplatePackRoutes(t *testing.T) {
 }
 
 func TestRunPlanSubagentsRejectsDefaultArtifactEscape(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-Items", "alpha", "-PacketPath", filepath.Join(t.TempDir(), "packet.json")}, &out)
+	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "binary-re", "-Items", "alpha", "-PacketPath", filepath.Join(t.TempDir(), "packet.json")}, &out)
 	if err == nil || !strings.Contains(err.Error(), "packet path escapes review root") {
 		t.Fatalf("error = %v, want packet path containment guard", err)
 	}
 }
 
 func TestRunPlanSubagentsRejectsMutationFlags(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	for _, flag := range []string{"-Apply", "-WhatIf", "-CreateCandidates"} {
 		var out bytes.Buffer
-		err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", flag}, &out)
+		err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "binary-re", flag}, &out)
 		if err == nil || !strings.Contains(err.Error(), "only writes review artifacts") {
 			t.Fatalf("%s error = %v, want mutation flag guard", flag, err)
 		}
@@ -20971,7 +20967,7 @@ func TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue(t *t
 }
 
 func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "generic-binary-re")
+	caseRoot := attachedCaseWithPack(t, "binary-re")
 	for _, dir := range []string{".rekit/facts", ".rekit/lanes/main", "workspace/main/debug/session-1"} {
 		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
 			t.Fatal(err)
@@ -21001,7 +20997,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if err := Run([]string{
 		"-Command", "gate",
 		"-Target", caseRoot,
-		"-Pack", "generic-binary-re",
+		"-Pack", "binary-re",
 		"-Apply",
 		"-Action", "debug",
 		"-Lane", "main",
@@ -21022,14 +21018,14 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		EventID string `json:"eventId"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
-		t.Fatalf("authorized generic-binary-re gate stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("authorized binary-re gate stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if !applied.Applied || applied.EventID == "" {
-		t.Fatalf("unexpected generic-binary-re gate apply result: %+v", applied)
+		t.Fatalf("unexpected binary-re gate apply result: %+v", applied)
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "binary-re", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var contract struct {
@@ -21053,21 +21049,21 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"liveValidation"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
-		t.Fatalf("generic-binary-re adapter contract stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re adapter contract stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if contract.Kind != "adapter-execution-report-contract" || len(contract.LiveValidation.AdapterCandidates) != 1 {
-		t.Fatalf("generic-binary-re contract omitted concrete adapter candidate: %+v", contract)
+		t.Fatalf("binary-re contract omitted concrete adapter candidate: %+v", contract)
 	}
 	candidate := contract.LiveValidation.AdapterCandidates[0]
 	if candidate.ID != "dynamic-debug-or-writeback-action" || candidate.Status != "cautious" || candidate.ToolingCatalogPath != "tooling/catalog.yml" || !slices.Contains(candidate.GateActions, "debug") || !candidate.RecordOnlyAfterGate {
-		t.Fatalf("generic-binary-re adapter candidate identity drifted: %+v", candidate)
+		t.Fatalf("binary-re adapter candidate identity drifted: %+v", candidate)
 	}
 	if !strings.Contains(candidate.Entry, "dynamic-debug") || !strings.Contains(candidate.Purpose, "bounded debug") || !containsSubstring(candidate.SideEffects, "process execution") || !containsSubstring(candidate.ReportGuidance, "adapterId") || !containsSubstring(candidate.EvidenceGuidance, "ValidateArgs") || strings.Join(candidate.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
-		t.Fatalf("generic-binary-re adapter candidate omitted operational guidance: %+v", candidate)
+		t.Fatalf("binary-re adapter candidate omitted operational guidance: %+v", candidate)
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var status struct {
@@ -21076,17 +21072,17 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
-		t.Fatalf("generic-binary-re status stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re status stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if len(status.CaseMission.AuthorizedGateHandoffs) != 1 {
-		t.Fatalf("generic-binary-re status omitted authorized gate handoff: %+v", status.CaseMission)
+		t.Fatalf("binary-re status omitted authorized gate handoff: %+v", status.CaseMission)
 	}
 	statusLive := status.CaseMission.AuthorizedGateHandoffs[0].LiveValidation
 	if statusLive == nil || statusLive.SelectedAdapter == nil || statusLive.SelectedAdapter.ID != candidate.ID || !strings.Contains(statusLive.SelectedAdapter.Purpose, "bounded debug") || !containsSubstring(statusLive.SelectedAdapter.SideEffects, "process execution") || !containsSubstring(statusLive.SelectedAdapter.ReportGuidance, "adapterId") || !containsSubstring(statusLive.SelectedAdapter.EvidenceGuidance, "ValidateArgs") || strings.Join(statusLive.SelectedAdapter.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
-		t.Fatalf("generic-binary-re status handoff omitted selected adapter detail: %+v", statusLive)
+		t.Fatalf("binary-re status handoff omitted selected adapter detail: %+v", statusLive)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -21096,25 +21092,25 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"status case mission authorized gate selected adapter stop conditions：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action hints=timeout,unexpected-side-effect,scope-drift",
 	} {
 		if !strings.Contains(out.String(), expected) {
-			t.Fatalf("generic-binary-re status text omitted selected adapter handoff %q:\n%s", expected, out.String())
+			t.Fatalf("binary-re status text omitted selected adapter handoff %q:\n%s", expected, out.String())
 		}
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var overview struct {
 		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
-		t.Fatalf("generic-binary-re overview stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re overview stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if len(overview.AuthorizedGateAdapterHandoffs) != 1 || overview.AuthorizedGateAdapterHandoffs[0].LiveValidation == nil || overview.AuthorizedGateAdapterHandoffs[0].LiveValidation.SelectedAdapter == nil || overview.AuthorizedGateAdapterHandoffs[0].LiveValidation.SelectedAdapter.ID != candidate.ID || !containsSubstring(overview.AuthorizedGateAdapterHandoffs[0].LiveValidation.SelectedAdapter.EvidenceGuidance, "ValidateArgs") {
-		t.Fatalf("generic-binary-re overview omitted selected adapter detail: %+v", overview.AuthorizedGateAdapterHandoffs)
+		t.Fatalf("binary-re overview omitted selected adapter detail: %+v", overview.AuthorizedGateAdapterHandoffs)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -21122,12 +21118,12 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"overview authorized gate adapter selected adapter evidence guidance：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action guidance=",
 	} {
 		if !strings.Contains(out.String(), expected) {
-			t.Fatalf("generic-binary-re overview text omitted selected adapter handoff %q:\n%s", expected, out.String())
+			t.Fatalf("binary-re overview text omitted selected adapter handoff %q:\n%s", expected, out.String())
 		}
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "binary-re", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	text := out.String()
@@ -21143,23 +21139,23 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"gate adapter report selected adapter report guidance：id=dynamic-debug-or-writeback-action guidance=",
 	} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("generic-binary-re adapter contract text missing %q:\n%s", expected, text)
+			t.Fatalf("binary-re adapter contract text missing %q:\n%s", expected, text)
 		}
 	}
 	for _, expected := range []string{"bounded debug", "adapterId", "ValidateArgs"} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("generic-binary-re adapter contract text omitted %q:\n%s", expected, text)
+			t.Fatalf("binary-re adapter contract text omitted %q:\n%s", expected, text)
 		}
 	}
 
-	dispatchArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-GateEventId", applied.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", candidate.ID, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "generic-binary-session-1", "-Actor", "executor-1", "-Format", "json"}
+	dispatchArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "binary-re", "-GateEventId", applied.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", candidate.ID, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "generic-binary-session-1", "-Actor", "executor-1", "-Format", "json"}
 	out.Reset()
 	if err := Run(dispatchArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var dispatchPreview gate.AdapterExecutionDispatchResult
 	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil || dispatchPreview.BindingSHA256 == "" {
-		t.Fatalf("generic-binary-re dispatch preview incomplete: %+v err=%v", dispatchPreview, err)
+		t.Fatalf("binary-re dispatch preview incomplete: %+v err=%v", dispatchPreview, err)
 	}
 	out.Reset()
 	if err := Run(append(append([]string{}, dispatchArgs[:len(dispatchArgs)-2]...), "-ExpectedAdapterExecutionDispatchBindingSha256", dispatchPreview.BindingSHA256, "-Apply", "-Format", "json"), &out); err != nil {
@@ -21167,7 +21163,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	var dispatch gate.AdapterExecutionDispatchResult
 	if err := json.Unmarshal(out.Bytes(), &dispatch); err != nil || !dispatch.Applied {
-		t.Fatalf("generic-binary-re dispatch Apply incomplete: %+v err=%v", dispatch, err)
+		t.Fatalf("binary-re dispatch Apply incomplete: %+v err=%v", dispatch, err)
 	}
 
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
@@ -21184,7 +21180,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 }`)
 	beforeInvalidLiveStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var invalidLiveStatus struct {
@@ -21195,18 +21191,18 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &invalidLiveStatus); err != nil {
-		t.Fatalf("generic-binary-re invalid live status stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re invalid live status stdout is not JSON: %v\n%s", err, out.String())
 	}
 	invalidLiveHandoff := invalidLiveStatus.CaseMission.AuthorizedGateHandoffs[0]
 	if invalidLiveHandoff.ReportSummary == nil || invalidLiveHandoff.ReportSummary.State != "repair-adapter-report" || !invalidLiveHandoff.ReportSummary.ReportPresent || invalidLiveHandoff.ReportSummary.Valid || invalidLiveHandoff.ReportSummary.RecordReady || !invalidLiveHandoff.ReportSummary.RecordBlocked || !invalidLiveHandoff.ReportSummary.RequiresRepair || invalidLiveHandoff.ReportSummary.ValidationFailureCode != "boundary-marker-missing" || invalidLiveHandoff.ReportSummary.ValidationFailureStage != "boundary" || len(invalidLiveHandoff.LiveValidationRepairHints) != 1 || invalidLiveHandoff.LiveValidationRepairHints[0].RepairAction != "add-boundary-marker" || !invalidLiveHandoff.LiveValidationRepairHints[0].RerunValidation || len(invalidLiveHandoff.LiveValidationNextSteps) == 0 || invalidLiveHandoff.LiveValidationError != "" {
-		t.Fatalf("generic-binary-re invalid live status did not expose repair state: %+v", invalidLiveHandoff)
+		t.Fatalf("binary-re invalid live status did not expose repair state: %+v", invalidLiveHandoff)
 	}
 	if invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "repair-adapter-report" || invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command != "add-boundary-marker" || !invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.RequiresReview || len(invalidLiveStatus.CaseMission.MissionCommanderNextActions) == 0 || strings.Contains(invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "/rekit continue") {
-		t.Fatalf("generic-binary-re invalid sidecar repair did not become Mission Commander current action: %+v", invalidLiveStatus.CaseMission.MissionCommanderActionQueue)
+		t.Fatalf("binary-re invalid sidecar repair did not become Mission Commander current action: %+v", invalidLiveStatus.CaseMission.MissionCommanderActionQueue)
 	}
 	assertSnapshotEqual(t, beforeInvalidLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "main", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -21216,7 +21212,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"handoff authorized gate adapter live validation next step：eventId=" + applied.EventID,
 	} {
 		if !strings.Contains(out.String(), expected) {
-			t.Fatalf("generic-binary-re invalid handoff text omitted live repair %q:\n%s", expected, out.String())
+			t.Fatalf("binary-re invalid handoff text omitted live repair %q:\n%s", expected, out.String())
 		}
 	}
 
@@ -21233,7 +21229,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
   "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
   "summary": "Generic binary adapter completed bounded debug handoff"
 }`)
-	receiptArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-GateEventId", applied.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", candidate.ID, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "generic-binary-session-1", "-ExecutionExitStatus", "0", "-Actor", "executor-1", "-Format", "json"}
+	receiptArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "binary-re", "-GateEventId", applied.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", candidate.ID, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "generic-binary-session-1", "-ExecutionExitStatus", "0", "-Actor", "executor-1", "-Format", "json"}
 	out.Reset()
 	if err := Run(receiptArgs, &out); err != nil {
 		t.Fatal(err)
@@ -21244,10 +21240,10 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		ReceiptPath   string `json:"receiptPath"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &receiptPreview); err != nil {
-		t.Fatalf("generic-binary-re receipt preview stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re receipt preview stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if receiptPreview.Applied || receiptPreview.BindingSHA256 == "" || receiptPreview.ReceiptPath == "" {
-		t.Fatalf("generic-binary-re receipt preview is incomplete: %+v", receiptPreview)
+		t.Fatalf("binary-re receipt preview is incomplete: %+v", receiptPreview)
 	}
 	out.Reset()
 	receiptApplyArgs := append(append([]string{}, receiptArgs[:len(receiptArgs)-2]...), "-ExpectedAdapterExecutionBindingSha256", receiptPreview.BindingSHA256, "-Apply", "-Format", "json")
@@ -21260,14 +21256,14 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		ReceiptSHA256 string `json:"receiptSha256"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &receiptApply); err != nil {
-		t.Fatalf("generic-binary-re receipt apply stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re receipt apply stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if !receiptApply.Applied || receiptApply.ReceiptPath != receiptPreview.ReceiptPath || receiptApply.ReceiptSHA256 == "" {
-		t.Fatalf("generic-binary-re receipt apply is incomplete: %+v", receiptApply)
+		t.Fatalf("binary-re receipt apply is incomplete: %+v", receiptApply)
 	}
 	beforeLiveStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var liveStatus struct {
@@ -21277,32 +21273,32 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &liveStatus); err != nil {
-		t.Fatalf("generic-binary-re live status stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re live status stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if len(liveStatus.CaseMission.AuthorizedGateHandoffs) != 1 {
-		t.Fatalf("generic-binary-re live status omitted authorized gate handoff: %+v", liveStatus.CaseMission)
+		t.Fatalf("binary-re live status omitted authorized gate handoff: %+v", liveStatus.CaseMission)
 	}
 	liveHandoff := liveStatus.CaseMission.AuthorizedGateHandoffs[0]
 	if liveHandoff.ReportSummary == nil || liveHandoff.ReportSummary.State != "ready-to-record-evidence" || !liveHandoff.ReportSummary.ReportPresent || !liveHandoff.ReportSummary.Valid || !liveHandoff.ReportSummary.RecordReady || liveHandoff.ReportSummary.RecordBlocked || liveHandoff.ReportSummary.RequiresValidation || liveHandoff.ReportSummary.RequiresRepair || liveHandoff.ReportSummary.AdapterID != candidate.ID || liveHandoff.LiveValidation == nil || liveHandoff.LiveValidation.SelectedAdapter == nil || liveHandoff.LiveValidation.SelectedAdapter.ID != candidate.ID || liveHandoff.LiveValidationError != "" {
-		t.Fatalf("generic-binary-re live status did not promote valid sidecar to record-ready: %+v", liveHandoff)
+		t.Fatalf("binary-re live status did not promote valid sidecar to record-ready: %+v", liveHandoff)
 	}
 	if liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") || !liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.RequiresReview {
-		t.Fatalf("generic-binary-re valid sidecar record did not become review-owned Mission Commander current action: %+v", liveStatus.CaseMission.MissionCommanderActionQueue)
+		t.Fatalf("binary-re valid sidecar record did not become review-owned Mission Commander current action: %+v", liveStatus.CaseMission.MissionCommanderActionQueue)
 	}
 	assertSnapshotEqual(t, beforeLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	liveHandoffPreview := decodeHandoffResult(t, out.Bytes())
 	if len(liveHandoffPreview.AuthorizedGateAdapterHandoffs) != 1 || liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || !liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || !liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.Valid {
-		t.Fatalf("generic-binary-re handoff preview omitted live record-ready sidecar: %+v", liveHandoffPreview.AuthorizedGateAdapterHandoffs)
+		t.Fatalf("binary-re handoff preview omitted live record-ready sidecar: %+v", liveHandoffPreview.AuthorizedGateAdapterHandoffs)
 	}
 	if liveHandoffPreview.MissionCommanderActionQueue.CurrentAction == nil || liveHandoffPreview.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(liveHandoffPreview.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
-		t.Fatalf("generic-binary-re handoff queue omitted record-ready current action: %+v", liveHandoffPreview.MissionCommanderActionQueue)
+		t.Fatalf("binary-re handoff queue omitted record-ready current action: %+v", liveHandoffPreview.MissionCommanderActionQueue)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var liveContinue struct {
@@ -21312,13 +21308,13 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &liveContinue); err != nil {
-		t.Fatalf("generic-binary-re continue live snapshot stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re continue live snapshot stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if liveContinue.IsMutation || liveContinue.Applied || len(liveContinue.AuthorizedGateAdapterHandoffs) != 1 || liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || !liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || !liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.Valid {
-		t.Fatalf("generic-binary-re continue preview omitted live record-ready sidecar: %+v", liveContinue)
+		t.Fatalf("binary-re continue preview omitted live record-ready sidecar: %+v", liveContinue)
 	}
 	if liveContinue.MissionCommanderActionQueue.CurrentAction == nil || liveContinue.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(liveContinue.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
-		t.Fatalf("generic-binary-re continue queue omitted record-ready current action: %+v", liveContinue.MissionCommanderActionQueue)
+		t.Fatalf("binary-re continue queue omitted record-ready current action: %+v", liveContinue.MissionCommanderActionQueue)
 	}
 	assertSnapshotEqual(t, beforeLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	oldwd, err := os.Getwd()
@@ -21355,10 +21351,10 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"adapterContext"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
-		t.Fatalf("generic-binary-re adapter validation stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re adapter validation stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if !validation.Valid || !validation.ProvenanceValid || validation.IsMutation || validation.Applied || validation.RecordExpectedReportSHA256 == "" || validation.AdapterExecutionReceiptPath != receiptApply.ReceiptPath || validation.AdapterExecutionReceiptSHA256 != receiptApply.ReceiptSHA256 || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
-		t.Fatalf("generic-binary-re adapter validation omitted selected candidate context or hash-bound record handoff: %+v", validation)
+		t.Fatalf("binary-re adapter validation omitted selected candidate context or hash-bound record handoff: %+v", validation)
 	}
 
 	out.Reset()
@@ -21374,11 +21370,11 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"gate adapter report validation selected adapter evidence guidance：id=dynamic-debug-or-writeback-action guidance=",
 	} {
 		if !strings.Contains(validationText, expected) {
-			t.Fatalf("generic-binary-re adapter validation text missing %q:\n%s", expected, validationText)
+			t.Fatalf("binary-re adapter validation text missing %q:\n%s", expected, validationText)
 		}
 	}
 
-	recordArgs := []string{"-Command", "gate", "-Pack", "generic-binary-re", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-AdapterExecutionReceiptPath", validation.AdapterExecutionReceiptPath, "-ExpectedAdapterExecutionReceiptSha256", validation.AdapterExecutionReceiptSHA256, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-Actor", "executor-1", "-Format", "json"}
+	recordArgs := []string{"-Command", "gate", "-Pack", "binary-re", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-AdapterExecutionReceiptPath", validation.AdapterExecutionReceiptPath, "-ExpectedAdapterExecutionReceiptSha256", validation.AdapterExecutionReceiptSHA256, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-Actor", "executor-1", "-Format", "json"}
 	out.Reset()
 	if err := Run(recordArgs, &out); err != nil {
 		t.Fatal(err)
@@ -21397,13 +21393,13 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"executionEvidence"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
-		t.Fatalf("generic-binary-re adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re adapter evidence stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if !evidence.Applied || evidence.EventID == "" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != candidate.ID || evidence.ExecutionEvidence.Execution.AdapterContext == nil || evidence.ExecutionEvidence.Execution.AdapterContext.ID != candidate.ID {
-		t.Fatalf("generic-binary-re adapter evidence omitted selected candidate provenance: %+v", evidence)
+		t.Fatalf("binary-re adapter evidence omitted selected candidate provenance: %+v", evidence)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var recordedHandoffStatus struct {
@@ -21413,25 +21409,25 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &recordedHandoffStatus); err != nil {
-		t.Fatalf("generic-binary-re recorded handoff status stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re recorded handoff status stdout is not JSON: %v\n%s", err, out.String())
 	}
 	recordedHandoff := recordedHandoffStatus.CaseMission.AuthorizedGateHandoffs[0]
 	if recordedHandoff.ReportSummary == nil || recordedHandoff.ReportSummary.State != "evidence-already-recorded" || recordedHandoff.ReportSummary.RecordReady || !recordedHandoff.ReportSummary.RecordBlocked || recordedHandoff.ReportSummary.RequiresValidation || recordedHandoff.ReportSummary.CurrentAction != "/rekit handoff main" || len(recordedHandoff.LiveValidationNextSteps) != 2 || !strings.Contains(recordedHandoff.LiveValidationNextSteps[0], "do not record or replay") || recordedHandoff.LiveValidation == nil || recordedHandoff.LiveValidation.RecordCommand != "" || recordedHandoff.LiveValidation.CaseRelativeRecordCommand != "" || recordedHandoff.LiveValidation.ReplayBehavior != "" {
-		t.Fatalf("generic-binary-re recorded status still recommends duplicate record: %+v", recordedHandoff)
+		t.Fatalf("binary-re recorded status still recommends duplicate record: %+v", recordedHandoff)
 	}
 	if recordedHandoffStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || recordedHandoffStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source != "executionEvidenceReview" || strings.Contains(recordedHandoffStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
-		t.Fatalf("generic-binary-re recorded status did not deduplicate into evidence review: %+v", recordedHandoffStatus.CaseMission.MissionCommanderActionQueue)
+		t.Fatalf("binary-re recorded status did not deduplicate into evidence review: %+v", recordedHandoffStatus.CaseMission.MissionCommanderActionQueue)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	recordedHandoffPreview := decodeHandoffResult(t, out.Bytes())
 	if len(recordedHandoffPreview.AuthorizedGateAdapterHandoffs) != 1 || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.State != "evidence-already-recorded" || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation == nil || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation.RecordCommand != "" || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation.CaseRelativeRecordCommand != "" || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation.ReplayBehavior != "" {
-		t.Fatalf("generic-binary-re recorded handoff still recommends duplicate record: %+v", recordedHandoffPreview.AuthorizedGateAdapterHandoffs)
+		t.Fatalf("binary-re recorded handoff still recommends duplicate record: %+v", recordedHandoffPreview.AuthorizedGateAdapterHandoffs)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var recordedContinue struct {
@@ -21440,15 +21436,15 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &recordedContinue); err != nil {
-		t.Fatalf("generic-binary-re recorded continue stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re recorded continue stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if recordedContinue.IsMutation || recordedContinue.Applied || len(recordedContinue.AuthorizedGateAdapterHandoffs) != 1 || recordedContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || recordedContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.State != "evidence-already-recorded" || recordedContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation == nil || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation.RecordCommand != "" || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation.CaseRelativeRecordCommand != "" || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation.ReplayBehavior != "" {
-		t.Fatalf("generic-binary-re recorded continue still recommends duplicate record: %+v", recordedContinue)
+		t.Fatalf("binary-re recorded continue still recommends duplicate record: %+v", recordedContinue)
 	}
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re record evidence", evidence.ExecutionEvidence.Execution.AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re record evidence", evidence.ExecutionEvidence.Execution.AdapterContext, candidate.ID)
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var recordedStatus struct {
@@ -21459,17 +21455,17 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &recordedStatus); err != nil {
-		t.Fatalf("generic-binary-re recorded status stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re recorded status stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if recordedStatus.CaseMission.ExecutionEvidenceReviewCount != 1 || len(recordedStatus.CaseMission.ExecutionEvidenceReview) != 1 {
-		t.Fatalf("generic-binary-re status omitted execution evidence review: %+v", recordedStatus.CaseMission)
+		t.Fatalf("binary-re status omitted execution evidence review: %+v", recordedStatus.CaseMission)
 	}
 	statusEvidence := recordedStatus.CaseMission.ExecutionEvidenceReview[0]
 	if statusEvidence.EventID != evidence.EventID || statusEvidence.GateEventID != applied.EventID || statusEvidence.AdapterID != candidate.ID || statusEvidence.AdapterStatus != "succeeded" || statusEvidence.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" {
-		t.Fatalf("generic-binary-re status execution evidence identity drifted: %+v", statusEvidence)
+		t.Fatalf("binary-re status execution evidence identity drifted: %+v", statusEvidence)
 	}
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re status evidence", statusEvidence.AdapterContext, candidate.ID)
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re status summary", recordedStatus.CaseMission.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re status evidence", statusEvidence.AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re status summary", recordedStatus.CaseMission.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
 
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
   "schemaVersion": 1,
@@ -21484,7 +21480,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
   "summary": "Generic binary adapter produced a changed bounded sidecar"
 }`)
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var changedSidecarStatus struct {
@@ -21494,7 +21490,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &changedSidecarStatus); err != nil {
-		t.Fatalf("generic-binary-re changed sidecar status stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re changed sidecar status stdout is not JSON: %v\n%s", err, out.String())
 	}
 	var provenanceDriftCommand string
 	hasProvenanceDrift := slices.ContainsFunc(changedSidecarStatus.CaseMission.MissionCommanderActionQueue.BlockedActions, func(item missionCommanderNextActionItem) bool {
@@ -21505,7 +21501,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		return false
 	})
 	if len(changedSidecarStatus.CaseMission.AuthorizedGateHandoffs) != 1 || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.State != "blocked-by-adapter-execution-provenance-drift" || !changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.RecordBlocked || !hasProvenanceDrift {
-		t.Fatalf("generic-binary-re changed sidecar did not route immutable provenance drift closed: %+v", changedSidecarStatus.CaseMission)
+		t.Fatalf("binary-re changed sidecar did not route immutable provenance drift closed: %+v", changedSidecarStatus.CaseMission)
 	}
 	requestsPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
 	requestsBeforeRetry, err := os.ReadFile(requestsPath)
@@ -21514,23 +21510,23 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	out.Reset()
 	if err := Run(append(rekitCommandCLIArgs(t, provenanceDriftCommand), "-Target", caseRoot, "-Format", "json"), &out); err != nil {
-		t.Fatalf("generic-binary-re provenance drift WhatIf failed: %v", err)
+		t.Fatalf("binary-re provenance drift WhatIf failed: %v", err)
 	}
 	var retryPlan gate.Plan
 	if err := json.Unmarshal(out.Bytes(), &retryPlan); err != nil || retryPlan.EventPreview.EventID == applied.EventID || !strings.Contains(retryPlan.MissionCommanderAction.PrimaryCommand, "-Apply") {
-		t.Fatalf("generic-binary-re provenance retry preview did not produce a distinct Apply: %+v err=%v", retryPlan, err)
+		t.Fatalf("binary-re provenance retry preview did not produce a distinct Apply: %+v err=%v", retryPlan, err)
 	}
 	requestsAfterPreview, err := os.ReadFile(requestsPath)
 	if err != nil || !bytes.Equal(requestsBeforeRetry, requestsAfterPreview) {
-		t.Fatalf("generic-binary-re provenance retry preview mutated requests: err=%v", err)
+		t.Fatalf("binary-re provenance retry preview mutated requests: err=%v", err)
 	}
 	out.Reset()
 	if err := Run(append(rekitCommandCLIArgs(t, retryPlan.MissionCommanderAction.PrimaryCommand), "-Target", caseRoot, "-Format", "json"), &out); err != nil {
-		t.Fatalf("generic-binary-re provenance retry Apply failed: %v", err)
+		t.Fatalf("binary-re provenance retry Apply failed: %v", err)
 	}
 	var retryApplied gate.ApplyResult
 	if err := json.Unmarshal(out.Bytes(), &retryApplied); err != nil || !retryApplied.Applied || retryApplied.EventID == applied.EventID {
-		t.Fatalf("generic-binary-re provenance retry did not record a distinct gate: %+v err=%v", retryApplied, err)
+		t.Fatalf("binary-re provenance retry did not record a distinct gate: %+v err=%v", retryApplied, err)
 	}
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
   "schemaVersion": 1,
@@ -21547,7 +21543,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 }`)
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -21559,12 +21555,12 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"status case mission evidence adapter context stop conditions：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action hints=timeout,unexpected-side-effect,scope-drift",
 	} {
 		if !strings.Contains(out.String(), expected) {
-			t.Fatalf("generic-binary-re status text omitted recorded adapter context %q:\n%s", expected, out.String())
+			t.Fatalf("binary-re status text omitted recorded adapter context %q:\n%s", expected, out.String())
 		}
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var recordedOverview struct {
@@ -21572,16 +21568,16 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &recordedOverview); err != nil {
-		t.Fatalf("generic-binary-re recorded overview stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re recorded overview stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if len(recordedOverview.ExecutionEvidenceReview) != 1 {
-		t.Fatalf("generic-binary-re overview omitted execution evidence review: %+v", recordedOverview)
+		t.Fatalf("binary-re overview omitted execution evidence review: %+v", recordedOverview)
 	}
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re overview evidence", recordedOverview.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re overview summary", recordedOverview.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re overview evidence", recordedOverview.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re overview summary", recordedOverview.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
 
 	out.Reset()
-	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -21590,24 +21586,24 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"overview execution evidence adapter context evidence guidance：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action guidance=",
 	} {
 		if !strings.Contains(out.String(), expected) {
-			t.Fatalf("generic-binary-re overview text omitted recorded adapter context %q:\n%s", expected, out.String())
+			t.Fatalf("binary-re overview text omitted recorded adapter context %q:\n%s", expected, out.String())
 		}
 	}
 
 	beforeDurableFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var handoffApply handoffResult
 	if err := json.Unmarshal(out.Bytes(), &handoffApply); err != nil {
-		t.Fatalf("generic-binary-re handoff apply stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re handoff apply stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if !handoffApply.Applied || len(handoffApply.ExecutionEvidenceReview) != 1 {
-		t.Fatalf("generic-binary-re handoff apply omitted execution evidence review: %+v", handoffApply)
+		t.Fatalf("binary-re handoff apply omitted execution evidence review: %+v", handoffApply)
 	}
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re handoff apply evidence", handoffApply.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re handoff apply summary", handoffApply.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re handoff apply evidence", handoffApply.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re handoff apply summary", handoffApply.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
 	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -21623,7 +21619,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 			"adapter context stop conditions: timeout,unexpected-side-effect,scope-drift",
 		} {
 			if !strings.Contains(content, expected) {
-				t.Fatalf("generic-binary-re %s durable handoff omitted adapter context %q:\n%s", label, expected, content)
+				t.Fatalf("binary-re %s durable handoff omitted adapter context %q:\n%s", label, expected, content)
 			}
 		}
 	}
@@ -21636,17 +21632,17 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
 	}
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
-		t.Fatalf("generic-binary-re checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+		t.Fatalf("binary-re checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
 	}
 	if len(checkpoint.ExecutionEvidenceReview) != 1 {
-		t.Fatalf("generic-binary-re checkpoint omitted execution evidence review: %+v", checkpoint)
+		t.Fatalf("binary-re checkpoint omitted execution evidence review: %+v", checkpoint)
 	}
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re checkpoint evidence", checkpoint.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re checkpoint summary", checkpoint.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re checkpoint evidence", checkpoint.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re checkpoint summary", checkpoint.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
 	assertSnapshotEqual(t, beforeDurableFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "main", "-Target", caseRoot, "-Pack", "binary-re", "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continueApply struct {
@@ -21656,13 +21652,13 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
-		t.Fatalf("generic-binary-re continue apply stdout is not JSON: %v\n%s", err, out.String())
+		t.Fatalf("binary-re continue apply stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if !continueApply.Applied || continueApply.RunID == "" || len(continueApply.ExecutionEvidenceReview) != 1 {
-		t.Fatalf("generic-binary-re continue apply omitted execution evidence review: %+v", continueApply)
+		t.Fatalf("binary-re continue apply omitted execution evidence review: %+v", continueApply)
 	}
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re continue apply evidence", continueApply.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
-	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re continue apply summary", continueApply.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re continue apply evidence", continueApply.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "binary-re continue apply summary", continueApply.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
 	continueDigest, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "runs", continueApply.RunID, "digest.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -21674,16 +21670,16 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"adapter context stop conditions: timeout,unexpected-side-effect,scope-drift",
 	} {
 		if !strings.Contains(string(continueDigest), expected) {
-			t.Fatalf("generic-binary-re continue digest omitted adapter context %q:\n%s", expected, string(continueDigest))
+			t.Fatalf("binary-re continue digest omitted adapter context %q:\n%s", expected, string(continueDigest))
 		}
 	}
 	assertSnapshotEqual(t, beforeDurableFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
-		t.Fatalf("generic-binary-re adapter evidence wrote authority ledger or stat failed: %v", err)
+		t.Fatalf("binary-re adapter evidence wrote authority ledger or stat failed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
-		t.Fatalf("generic-binary-re adapter evidence wrote confirmed ledger or stat failed: %v", err)
+		t.Fatalf("binary-re adapter evidence wrote confirmed ledger or stat failed: %v", err)
 	}
 }
 
@@ -25814,7 +25810,7 @@ func writeContinueFixture(t *testing.T, caseRoot string) {
 			t.Fatal(err)
 		}
 	}
-	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"vmp-re","automationMode":"assist","defaultAuthorityLane":"devirt-main","lanes":[{"id":"devirt-main","type":"devirt-main","title":"VMProtect 脱壳主线","status":"open","authority":true,"workspace":"captures/devirt_main"},{"id":"feature-login","type":"feature-analysis","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login"}],"factsRoot":".rekit/facts"}`
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"binary-re","automationMode":"assist","defaultAuthorityLane":"devirt-main","lanes":[{"id":"devirt-main","type":"devirt-main","title":"VMProtect 脱壳主线","status":"open","authority":true,"workspace":"captures/devirt_main"},{"id":"feature-login","type":"feature-analysis","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login"}],"factsRoot":".rekit/facts"}`
 	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/devirt-main/lane.json", `{"schemaVersion":1,"id":"devirt-main","type":"devirt-main","title":"VMProtect 脱壳主线","status":"open","authority":true,"workspace":"captures/devirt_main","laneRoot":".rekit/lanes/devirt-main"}`)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"feature-login","type":"feature-analysis","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","laneRoot":".rekit/lanes/feature-login"}`)

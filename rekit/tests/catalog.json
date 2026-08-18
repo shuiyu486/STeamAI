@@ -180,18 +180,6 @@
       "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
     },
     {
-      "id": "generic-binary-re-pack-smoke",
-      "script": "generic-binary-re-pack-smoke.ps1",
-      "category": "pack-smoke",
-      "pack": "generic-binary-re",
-      "purpose": "Validate generic-binary-re skeleton doctor/init/plan-subagents/promote review/no-write coverage, plus Go package pack-neutral binary-analysis E2E coverage.",
-      "recommendedFor": ["generic-binary-re pack", "binary/function routes", "pack-neutral E2E", "non-feature lane"],
-      "supportsWorkRoot": true,
-      "supportsCaseRoot": false,
-      "riskBoundary": "No sample execution, debug, trace, dump, patch, database writeback, or authority writes; package E2E uses only temporary case-local .rekit/workspace/review/handoff state.",
-      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
-    },
-    {
       "id": "init-bootstrap-smoke",
       "script": "init-bootstrap-smoke.ps1",
       "category": "case-scaffold",
@@ -294,7 +282,7 @@
       "id": "agent-team-review-loop-smoke",
       "script": "agent-team-review-loop-smoke.ps1",
       "category": "agent-team",
-      "purpose": "Validate review packet to default note what-if/append, verification/decision/note-list/overview/handoff visibility loop, default note list text/JSON delegation, note no-fallback boundary, Go package reviewer/decision E2E coverage, generic-binary-re pack-neutral ledger E2E coverage, and web-security ledger E2E coverage.",
+      "purpose": "Validate review packet to default note what-if/append, verification/decision/note-list/overview/handoff visibility loop, default note list text/JSON delegation, note no-fallback boundary, Go package reviewer/decision E2E coverage, binary-re pack-neutral ledger E2E coverage, and web-security ledger E2E coverage.",
       "recommendedFor": ["review loop", "verification display", "decision display", "note append delegation", "note what-if delegation", "note list text delegation", "note list JSON delegation", "note no-fallback", "reviewer decision E2E", "pack-neutral E2E", "web-security E2E", "Go package E2E"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
@@ -324,11 +312,11 @@
       "relatedDocs": ["docs/agent-team-rollout-plan.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
     },
     {
-      "id": "generic-binary-agent-team-dryrun-smoke",
-      "script": "generic-binary-agent-team-dryrun-smoke.ps1",
+      "id": "binary-re-agent-team-dryrun-smoke",
+      "script": "binary-re-agent-team-dryrun-smoke.ps1",
       "category": "agent-team",
-      "purpose": "Validate a real temporary-case generic-binary-re Agent Team dry-run through facade init/start/plan-subagents/candidate/debug-gate/verification/decision/overview/handoff/doctor.",
-      "recommendedFor": ["generic-binary-re dry-run", "Agent Team real dry-run", "debug gate display", "pack-neutral E2E", "facade workstream flow"],
+      "purpose": "Validate a real temporary-case binary-re Agent Team dry-run through facade init/start/plan-subagents/candidate/debug-gate/verification/decision/overview/handoff/doctor.",
+      "recommendedFor": ["binary-re dry-run", "Agent Team real dry-run", "debug gate display", "pack-neutral E2E", "facade workstream flow"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
       "riskBoundary": "Temporary case only; no subagent spawn, sample execution, debug, trace, dump, patch, heavy-tool execution, or authority/confirmed write.",
@@ -404,7 +392,7 @@
       "id": "gate-parity-smoke",
       "script": "gate-parity-smoke.ps1",
       "category": "gate-ledger",
-      "purpose": "Validate default facade gate what-if no-write, default facade gate request write, retired gate fallback boundary, overview/note/handoff display parity, Go package gate/dispatch E2E coverage, generic-binary-re pack-neutral pending-gate E2E coverage, and web-security network gate E2E coverage.",
+      "purpose": "Validate default facade gate what-if no-write, default facade gate request write, retired gate fallback boundary, overview/note/handoff display parity, Go package gate/dispatch E2E coverage, binary-re pack-neutral pending-gate E2E coverage, and web-security network gate E2E coverage.",
       "recommendedFor": ["gate request", "gate what-if delegation", "gate apply delegation", "gate no-fallback", "pending-gate display", "ledger parity", "gate dispatch E2E", "pack-neutral E2E", "web-security network gate", "Go package E2E"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,

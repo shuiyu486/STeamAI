@@ -31,4 +31,4 @@
 
 - 新工具先进入 `tooling/catalog.yml` 的 `candidate`、`auxiliary` 或 `cautious` 状态。
 - 至少两个授权 case 重复出现的通用 PE unpacking 工作流规则，才考虑提升到 common policy 或 runtime。
-- 本 pack 的目的首先是验证多安全领域 pack 架构，不要复制 `vmp-re` 的领域细节或把具体样本、hash、dump、trace、patch 和 unpack result 写入模板。
+- 本 pack 的目的首先是验证多安全领域 pack 架构，不要复制 `binary-re` 的领域细节或把具体样本、hash、dump、trace、patch 和 unpack result 写入模板。

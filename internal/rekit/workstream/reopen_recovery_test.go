@@ -38,7 +38,7 @@ func TestReopenApplyRecoversExactPendingOperationIntent(t *testing.T) {
 	for _, target := range preview.EffectiveTargets {
 		targetIDs[target.Lane.ID] = true
 	}
-	if !targetIDs["feature-bootstrap"] {
+	if !targetIDs["binary-analysis-bootstrap"] {
 		t.Fatalf("compound reopen omitted requested feature target: %+v", preview.EffectiveTargets)
 	}
 	opt.ExpectedPreviewSHA256 = preview.ReopenPlanSHA256
@@ -257,14 +257,14 @@ func TestReopenApplyHistoricalReplayRejectsCurrentProjectionDrift(t *testing.T) 
 		path func(string) string
 	}{
 		{name: "lane", path: func(caseRoot string) string {
-			return filepath.Join(caseRoot, ".rekit", "lanes", "feature-bootstrap", "lane.json")
+			return filepath.Join(caseRoot, ".rekit", "lanes", "binary-analysis-bootstrap", "lane.json")
 		}},
 		{name: "board", path: func(caseRoot string) string { return filepath.Join(caseRoot, ".rekit", "board.json") }},
 		{name: "resume", path: func(caseRoot string) string {
-			return filepath.Join(caseRoot, ".rekit", "lanes", "feature-bootstrap", "prompts", "RESUME.md")
+			return filepath.Join(caseRoot, ".rekit", "lanes", "binary-analysis-bootstrap", "prompts", "RESUME.md")
 		}},
 		{name: "checkpoint", path: func(caseRoot string) string {
-			return filepath.Join(caseRoot, ".rekit", "lanes", "feature-bootstrap", "checkpoints", "latest.json")
+			return filepath.Join(caseRoot, ".rekit", "lanes", "binary-analysis-bootstrap", "checkpoints", "latest.json")
 		}},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -297,7 +297,7 @@ func TestReopenApplyHistoricalReplayRejectsCurrentProjectionDrift(t *testing.T) 
 				lanes := board["lanes"].([]any)
 				for _, item := range lanes {
 					lane := item.(map[string]any)
-					if lane["id"] == "feature-bootstrap" {
+					if lane["id"] == "binary-analysis-bootstrap" {
 						lane["updatedAt"] = "2099-01-01T00:00:00Z"
 					}
 				}

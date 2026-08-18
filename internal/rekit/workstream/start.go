@@ -951,6 +951,10 @@ func plannedLane(caseRoot string, laneType manifest.LaneType, id, name, now stri
 	if err != nil {
 		return Lane{}, err
 	}
+	readOnly, err := projectStatePaths(caseRoot, laneType.ReadOnly)
+	if err != nil {
+		return Lane{}, err
+	}
 	title := laneType.Title
 	if strings.TrimSpace(name) != "" {
 		title += ": " + name
@@ -966,12 +970,30 @@ func plannedLane(caseRoot string, laneType manifest.LaneType, id, name, now stri
 		Workspace:     relativePath(caseRoot, workspace),
 		LaneRoot:      relativePath(caseRoot, laneRoot),
 		CanWrite:      append([]string{}, laneType.CanWrite...),
-		ReadOnly:      append([]string{}, laneType.ReadOnly...),
+		ReadOnly:      readOnly,
 		Outputs:       append([]string{}, laneType.Outputs...),
 		Counters:      map[string]int{"observations": 0, "requests": 0, "candidates": 0, "publications": 0, "pendingUser": 0},
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}, nil
+}
+
+func projectStatePaths(caseRoot string, paths []string) ([]string, error) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	projected := make([]string, len(paths))
+	for index, path := range paths {
+		projected[index] = path
+		for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+			if path == stateDir || strings.HasPrefix(path, stateDir+"/") {
+				projected[index] = root.Dir + strings.TrimPrefix(path, stateDir)
+				break
+			}
+		}
+	}
+	return projected, nil
 }
 
 func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (string, error) {
@@ -1350,6 +1372,9 @@ func laneID(laneType, name string) string {
 func workstreamLabel(lane Lane) string {
 	if lane.Authority {
 		return "main"
+	}
+	if label, ok := laneid.Label(lane.Type, lane.ID); ok {
+		return label
 	}
 	if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
 		return name

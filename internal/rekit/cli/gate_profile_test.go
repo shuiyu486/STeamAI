@@ -38,10 +38,10 @@ func TestParseGateProfileFlags(t *testing.T) {
 }
 
 func TestRunGateManagedAutonomousPresetRequiresExplicitOptIn(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	var out bytes.Buffer
 	err := Run([]string{
-		"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re",
+		"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack,
 		"-ProvisionProfile", "-ProfilePreset", autonomy.ManagedAutonomousPresetV1, "-Lane", "main",
 	}, &out)
 	if err == nil || !strings.Contains(err.Error(), "requires explicit -ProfileExplicitOptIn") {
@@ -50,7 +50,7 @@ func TestRunGateManagedAutonomousPresetRequiresExplicitOptIn(t *testing.T) {
 }
 
 func TestRunGateManagedAutonomousPresetProvisionAndRevoke(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","status":"open","workspace":"workstreams/main/evidence"}]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","status":"open"}`+"\n")
 	defaultProfile, err := json.MarshalIndent(autonomy.DefaultProfile("main"), "", "  ")
@@ -62,7 +62,7 @@ func TestRunGateManagedAutonomousPresetProvisionAndRevoke(t *testing.T) {
 	writeCaseFile(t, caseRoot, autonomy.RelPath("main"), string(initialProfileBytes))
 	now := time.Now().UTC().Truncate(time.Second)
 	base := []string{
-		"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json",
+		"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json",
 		"-ProvisionProfile", "-ProfilePreset", autonomy.ManagedAutonomousPresetV1, "-ProfileExplicitOptIn",
 		"-Lane", "main", "-Action", "debug,dump", "-TargetRef", "sample-alpha,sample-beta",
 		"-RuntimeSeconds", "30", "-DiskMB", "8", "-Requests", "1",
@@ -110,7 +110,7 @@ func TestRunGateManagedAutonomousPresetProvisionAndRevoke(t *testing.T) {
 	}
 
 	out.Reset()
-	revoke := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json", "-RevokeProfile", "-Lane", "main"}
+	revoke := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json", "-RevokeProfile", "-Lane", "main"}
 	if err := Run(revoke, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestRunGateManagedAutonomousPresetProvisionAndRevoke(t *testing.T) {
 }
 
 func TestRunGateManagedAutonomousPresetUsesCurrentStateRoot(t *testing.T) {
-	caseRoot := attachedCaseWithStateDirAndPack(t, projectstate.CurrentDir, "vmp-re")
+	caseRoot := attachedCaseWithStateDirAndPack(t, projectstate.CurrentDir, defaults.DefaultPack)
 	writeCaseFile(t, caseRoot, ".steamai/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","status":"open"}`+"\n")
 	defaultProfile, err := json.MarshalIndent(autonomy.DefaultProfile("main"), "", "  ")
 	if err != nil {
@@ -147,7 +147,7 @@ func TestRunGateManagedAutonomousPresetUsesCurrentStateRoot(t *testing.T) {
 	profilePath := filepath.Join(caseRoot, filepath.FromSlash(profileRel))
 	now := time.Now().UTC().Truncate(time.Second)
 	base := []string{
-		"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json",
+		"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json",
 		"-ProvisionProfile", "-ProfilePreset", autonomy.ManagedAutonomousPresetV1, "-ProfileExplicitOptIn",
 		"-Lane", "main", "-Action", "debug", "-TargetRef", "sample-alpha",
 		"-RuntimeSeconds", "30", "-DiskMB", "8", "-Requests", "1",
@@ -192,7 +192,7 @@ func TestRunGateManagedAutonomousPresetUsesCurrentStateRoot(t *testing.T) {
 	}
 	out.Reset()
 	err = Run([]string{
-		"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json",
+		"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json",
 		"-RevokeProfile", "-Lane", "main",
 	}, &out)
 	if err == nil || !strings.Contains(err.Error(), "both .steamai and .rekit") {
@@ -204,7 +204,7 @@ func TestRunGateManagedAutonomousPresetUsesCurrentStateRoot(t *testing.T) {
 }
 
 func TestRunGateManagedAutonomousPresetFailsClosed(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","status":"open","workspace":"workstreams/main/evidence"}]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","status":"open"}`+"\n")
 	defaultProfile, err := json.MarshalIndent(autonomy.DefaultProfile("main"), "", "  ")
@@ -214,7 +214,7 @@ func TestRunGateManagedAutonomousPresetFailsClosed(t *testing.T) {
 	writeCaseFile(t, caseRoot, autonomy.RelPath("main"), string(append(defaultProfile, '\n')))
 	now := time.Now().UTC().Truncate(time.Second)
 	base := []string{
-		"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json",
+		"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json",
 		"-ProvisionProfile", "-ProfilePreset", autonomy.ManagedAutonomousPresetV1, "-ProfileExplicitOptIn",
 		"-Lane", "main", "-Action", "debug", "-TargetRef", "sample-alpha",
 		"-RuntimeSeconds", "30", "-DiskMB", "8", "-Requests", "1",
@@ -248,7 +248,7 @@ func TestRunGateManagedAutonomousPresetFailsClosed(t *testing.T) {
 }
 
 func TestRunGateManagedAutonomousNetworkRequiresExactExternalScope(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","status":"open","workspace":"workstreams/main/evidence"}]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","status":"open"}`+"\n")
 	defaultProfile, err := json.MarshalIndent(autonomy.DefaultProfile("main"), "", "  ")
@@ -259,7 +259,7 @@ func TestRunGateManagedAutonomousNetworkRequiresExactExternalScope(t *testing.T)
 	now := time.Now().UTC().Truncate(time.Second)
 	target := "https://fixture.invalid:443"
 	args := []string{
-		"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json",
+		"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json",
 		"-ProvisionProfile", "-ProfilePreset", autonomy.ManagedAutonomousPresetV1, "-ProfileExplicitOptIn",
 		"-ProfileExternalTargetScope", target,
 		"-Lane", "main", "-Action", "network", "-TargetRef", target,
@@ -280,14 +280,14 @@ func TestRunGateManagedAutonomousNetworkRequiresExactExternalScope(t *testing.T)
 }
 
 func TestRunGateManagedAutonomousPresetRejectsUnknownPreset(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	for name, args := range map[string][]string{
 		"unknown preset": {
-			"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re",
+			"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack,
 			"-ProvisionProfile", "-ProfilePreset", "unbounded", "-ProfileExplicitOptIn", "-Lane", "main",
 		},
 		"caller supplied managed id": {
-			"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re",
+			"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack,
 			"-ProvisionProfile", "-ProfilePreset", autonomy.ManagedAutonomousPresetV1, "-ProfileExplicitOptIn", "-ProfileId", "forged", "-Lane", "main",
 		},
 	} {
@@ -302,7 +302,7 @@ func TestRunGateManagedAutonomousPresetRejectsUnknownPreset(t *testing.T) {
 }
 
 func TestRunGateProfileProvisionAndRevoke(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","status":"open","workspace":"workstreams/main/evidence"}]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","status":"open"}`+"\n")
 	defaultProfile, err := json.MarshalIndent(autonomy.DefaultProfile("main"), "", "  ")
@@ -315,7 +315,7 @@ func TestRunGateProfileProvisionAndRevoke(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	requestPath := "tooling/ida-agent-bridge/requests/" + strings.Repeat("a", 64) + ".json"
 	base := []string{
-		"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json",
+		"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json",
 		"-ProvisionProfile", "-Lane", "main", "-Action", "inspect", "-TargetRef", requestPath,
 		"-ProfileId", "dpc04-main-inspect", "-ProfileGrantedBy", "user",
 		"-ProfileGrantedAt", now.Add(-time.Minute).Format(time.RFC3339),
@@ -362,7 +362,7 @@ func TestRunGateProfileProvisionAndRevoke(t *testing.T) {
 	}
 
 	out.Reset()
-	revoke := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re", "-Format", "json", "-RevokeProfile", "-Lane", "main"}
+	revoke := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json", "-RevokeProfile", "-Lane", "main"}
 	if err := Run(revoke, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func TestRunGateProfileProvisionAndRevoke(t *testing.T) {
 }
 
 func TestRunGateProfileProvisionAcceptsSelectedLaneWorkspaceName(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"feature-mission","status":"open","workspace":"captures/feature_analysis/feature-mission"}]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-mission/lane.json", `{"schemaVersion":1,"id":"feature-mission","status":"open"}`+"\n")
 	profile, err := gateProvisionProfile(runtime.Context{
@@ -415,7 +415,7 @@ func TestRunGateProfileProvisionRejectsCapabilitiesOutsideFixedVMPIDAContract(t 
 	now := time.Now().UTC().Truncate(time.Second)
 	validRequest := "tooling/ida-agent-bridge/requests/" + strings.Repeat("a", 64) + ".json"
 	valid := []string{
-		"-Command", "gate", "-Pack", "vmp-re", "-ProvisionProfile", "-Lane", "main",
+		"-Command", "gate", "-Pack", defaults.DefaultPack, "-ProvisionProfile", "-Lane", "main",
 		"-Action", "inspect", "-TargetRef", validRequest,
 		"-ProfileId", "dpc04-main-inspect", "-ProfileGrantedBy", "user",
 		"-ProfileGrantedAt", now.Add(-time.Minute).Format(time.RFC3339),
@@ -463,7 +463,7 @@ func TestRunGateProfileProvisionRejectsCapabilitiesOutsideFixedVMPIDAContract(t 
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			caseRoot := attachedCaseWithPack(t, "vmp-re")
+			caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 			writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","status":"open","workspace":"workstreams/main/evidence"}]}`+"\n")
 			writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","status":"open"}`+"\n")
 			args := append([]string{}, valid...)
@@ -503,7 +503,7 @@ func replaceGateProfileArg(args []string, name, value string) []string {
 }
 
 func TestRunGateProfileModeRejectsMixedModesAndUnboundFields(t *testing.T) {
-	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	caseRoot := attachedCaseWithPack(t, defaults.DefaultPack)
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","status":"open","workspace":"workstreams/main/evidence"}]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","status":"open"}`+"\n")
 	for name, args := range map[string][]string{
@@ -516,7 +516,7 @@ func TestRunGateProfileModeRejectsMixedModesAndUnboundFields(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
-			base := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "vmp-re"}
+			base := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", defaults.DefaultPack}
 			if err := Run(append(base, args...), &out); err == nil {
 				t.Fatalf("gate profile accepted incompatible args: %v", args)
 			}

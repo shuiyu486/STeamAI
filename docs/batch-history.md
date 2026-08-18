@@ -29,6 +29,16 @@
 
 ## 近期已完成批次与验证
 
+### Batch 830：core product closure
+
+状态：已完成。
+
+用户断点：自包含 current 项目的 identity、复制/移动恢复、project-local promote、public command 投影、ordinary-directory adoption、release truth 与真实 Claude member→Reviewer→correction→completion 尚未在同一真实产品链闭合，部分边界仍可能只停留在合同或单点测试。
+
+实现：current Identity v2 发布 stable project ID、logical `target="."` 与 exact project binding；project-local promote、review/lifecycle/cleanup proof 和 candidate hash 统一使用 anchored no-follow/no-reparse 语义；current `/steamai` 与 legacy `/rekit` 仅投影显式 typed structure，普通 prose 与 durable/source identity不改写。Reviewer strict namespace、ordinary-directory hash-bound adoption、release truth与actual adapter project-local root binding同批闭合。
+
+验证结果：Identity/onboarding/self-contained copy/move、旧current v1 relocation fail-closed、promote no-reparse、public projection与CLI产品链focused/fresh tests通过；Windows真实Claude gate完成member→独立Reviewer reject→人工correction→replacement member→独立Reviewer accept→completion，重复gate的语义拒绝保持等待纠偏且cleanup truth正确。完成证据只代表本机Git-local truth，不冒充remote CI green或formal release。
+
 ### Batch 829：GitHub repository identity migration
 
 状态：已完成。

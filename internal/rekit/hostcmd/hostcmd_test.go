@@ -8,8 +8,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 )
+
+func TestValidateAdapterFlagPackIdentityPolicy(t *testing.T) {
+	for _, retired := range []string{packidentity.RetiredGeneric, packidentity.RetiredVMP} {
+		err := ValidateAdapterFlag(false, retired, "")
+		if err == nil || !packidentity.IsMigrationRequired(err) {
+			t.Fatalf("ValidateAdapterFlag(%q) error = %v, want typed migration requirement", retired, err)
+		}
+	}
+	if err := ValidateAdapterFlag(false, "does-not-exist", ""); err != nil {
+		t.Fatalf("unknown pack must retain ordinary downstream semantics: %v", err)
+	}
+}
 
 func TestRunRecoveryAcceptsOnlyDailySafeFlagsAndNeverFallsThrough(t *testing.T) {
 	caseRoot := t.TempDir()

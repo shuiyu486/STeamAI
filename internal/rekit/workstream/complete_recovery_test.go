@@ -13,7 +13,7 @@ import (
 
 func TestCompleteApplyPendingIntentRevalidatesMainLastBlockers(t *testing.T) {
 	repoRoot, caseRoot := setupContinueCase(t, "")
-	featureLane, err := readLaneByID(caseRoot, "feature-bootstrap")
+	featureLane, err := readLaneByID(caseRoot, "binary-analysis-bootstrap")
 	if err != nil {
 		t.Fatal(err)
 	}

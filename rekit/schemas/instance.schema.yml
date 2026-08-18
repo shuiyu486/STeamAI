@@ -9,8 +9,8 @@ required:
 
 fields:
   schemaVersion: 当前为 1
-  templateRoot: re-context-kits 本地 clone 根目录
-  templatePack: 绑定的 pack 名称，例如 vmp-re
+  templateRoot: STeamAI 本地 source clone 根目录
+  templatePack: 绑定的 pack 名称，例如 binary-re
   projectName: case 名称
   projectRoot: case 根目录
   mode: 推荐为 case-local-shim

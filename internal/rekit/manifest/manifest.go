@@ -13,6 +13,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 )
 
 type LaneType struct {
@@ -135,6 +136,9 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	}
 	pack, err = normalizePackID(pack)
 	if err != nil {
+		return nil, err
+	}
+	if err := packidentity.Validate(pack); err != nil {
 		return nil, err
 	}
 	packRoot := filepath.Join(repo, "packs", filepath.FromSlash(pack))
@@ -517,7 +521,7 @@ func (m *Manifest) ValidateSchema() error {
 		return err
 	}
 	if len(m.ToolingCandidateSources) == 0 {
-		return fmt.Errorf("toolingCandidateSources must include at least one source; implicit vmp-re fallback is not allowed")
+		return fmt.Errorf("toolingCandidateSources must include at least one explicit source; implicit pack-specific fallback is not allowed")
 	}
 	if err := m.validateSourcePathList("toolingCandidateSources", m.ToolingCandidateSources); err != nil {
 		return err
@@ -582,8 +586,8 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("authorityFiles entry is not writable by default authority lane %s: %s", authority.ID, rel)
 		}
 	}
-	if !strings.EqualFold(m.Pack, defaults.DefaultPack) {
-		if err := m.validateNonVMPPaths(); err != nil {
+	if !strings.EqualFold(m.Pack, packidentity.Canonical) {
+		if err := m.validateNonBinaryREPaths(); err != nil {
 			return err
 		}
 	}
@@ -1078,7 +1082,7 @@ func (m *Manifest) LaneType(id string) (LaneType, error) {
 	return LaneType{}, fmt.Errorf("unknown lane type: %s", id)
 }
 
-func (m *Manifest) validateNonVMPPaths() error {
+func (m *Manifest) validateNonBinaryREPaths() error {
 	paths := []string{}
 	paths = append(paths, m.ManagedFiles...)
 	paths = append(paths, m.TemplateFiles...)
@@ -1093,26 +1097,26 @@ func (m *Manifest) validateNonVMPPaths() error {
 		paths = append(paths, route.Reference, route.PolicyOverlay)
 	}
 	for _, rel := range paths {
-		if containsVMPPath(rel) {
-			return fmt.Errorf("non-vmp pack declares vmp-re path: %s", rel)
+		if containsBinaryREPath(rel) {
+			return fmt.Errorf("non-binary-re pack declares binary-re path: %s", rel)
 		}
 	}
 	for _, rel := range m.AuthorityFiles {
-		if containsVMPPath(rel) {
-			return fmt.Errorf("non-vmp pack declares vmp-re authority path: %s", rel)
+		if containsBinaryREPath(rel) {
+			return fmt.Errorf("non-binary-re pack declares binary-re authority path: %s", rel)
 		}
 	}
 	for _, key := range []string{"handoffPath", "backupRoot"} {
-		if containsVMPPath(m.WorkstreamDefaults[key]) {
-			return fmt.Errorf("non-vmp pack declares vmp-re workstream default: %s=%s", key, m.WorkstreamDefaults[key])
+		if containsBinaryREPath(m.WorkstreamDefaults[key]) {
+			return fmt.Errorf("non-binary-re pack declares binary-re workstream default: %s=%s", key, m.WorkstreamDefaults[key])
 		}
 	}
 	return nil
 }
 
-func containsVMPPath(value string) bool {
+func containsBinaryREPath(value string) bool {
 	value = strings.ReplaceAll(value, `\\`, "/")
-	return regexp.MustCompile(`(^|/)vmp-re(/|$)`).MatchString(value)
+	return regexp.MustCompile(`(^|/)binary-re(/|$)`).MatchString(value)
 }
 
 func convertValue(v string) string {

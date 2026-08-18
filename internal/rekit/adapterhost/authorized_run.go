@@ -26,6 +26,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
@@ -89,6 +90,9 @@ func RunVMPIDAIndexChild(opt VMPIDAIndexChildOptions) (VMPIDAIndexChildResult, e
 func validateVMPIDAIndexChildBinding(
 	opt VMPIDAIndexChildOptions,
 ) (string, string, error) {
+	if err := packidentity.Validate(opt.Pack); err != nil {
+		return "", "", err
+	}
 	if strings.TrimSpace(opt.Pack) != defaults.DefaultPack ||
 		strings.TrimSpace(opt.GateEventID) == "" ||
 		!validSHA256(opt.ExpectedDispatchSHA256) ||
@@ -199,6 +203,9 @@ type AuthorizedRunOptions struct {
 // private authorized parent mode. The adapter parent remains the sole owner of
 // child containment, execution evidence, member binding, and profile revoke.
 func RunAuthorizedGateProcess(adapterPath string, opt AuthorizedRunOptions, timeout time.Duration) (AuthorizedRunResult, int, error) {
+	if err := packidentity.Validate(opt.Pack); err != nil {
+		return AuthorizedRunResult{}, 0, err
+	}
 	binding, err := processguard.LockExecutable(strings.TrimSpace(adapterPath), 128<<20)
 	if err != nil {
 		return AuthorizedRunResult{}, 0, err
@@ -357,6 +364,9 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		NoNetwork:         true,
 		NoNetworkBoundary: fixedChildNoNetworkCodepath,
 		NoAuthority:       true,
+	}
+	if err := packidentity.Validate(result.Pack); err != nil {
+		return result, err
 	}
 	if result.Pack != defaults.DefaultPack || result.GateEventID == "" || result.AdapterSession == "" || strings.TrimSpace(opt.Actor) == "" {
 		return result, fmt.Errorf("authorized VMP IDA run requires pack=%s, gate event id, adapter session, and actor", defaults.DefaultPack)
@@ -844,6 +854,9 @@ func readVMPIDADispatchArtifact(caseRoot, lane, gateEventID string) (adapterexec
 	}
 	dispatch, err := adapterexecution.DecodeDispatch(data)
 	if err != nil {
+		return dispatch, rel, sha256Hex(data), true, err
+	}
+	if err := packidentity.Validate(dispatch.Adapter.Pack); err != nil {
 		return dispatch, rel, sha256Hex(data), true, err
 	}
 	if dispatch.Gate.GateEventID != gateEventID || dispatch.Owner.Lane != lane || dispatch.Adapter.Pack != defaults.DefaultPack || dispatch.Adapter.AdapterID != VMPIDAIndexAdapterID {
@@ -1937,6 +1950,9 @@ func publishVMPIDAFailureReport(
 }
 
 func validateVMPIDADispatch(dispatch adapterexecution.DispatchReceipt, requestPath, reportPath, packetPath string) error {
+	if err := packidentity.Validate(dispatch.Adapter.Pack); err != nil {
+		return err
+	}
 	if dispatch.Adapter.Pack != defaults.DefaultPack || dispatch.Adapter.AdapterID != VMPIDAIndexAdapterID || dispatch.Adapter.Candidate.ID != VMPIDAIndexAdapterID || dispatch.Gate.Action != "inspect" || dispatch.Owner.AdapterHarness != adapterHarness {
 		return fmt.Errorf("VMP IDA adapter accepts only pack=%s action=inspect harness=%s and compiled-in candidate=%s", defaults.DefaultPack, adapterHarness, VMPIDAIndexAdapterID)
 	}

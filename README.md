@@ -50,11 +50,11 @@ Claude Code Remote Control 仅作为显式 opt-in 的 read-only Reviewer transpo
 - 后续真实使用有序路线与压缩后接手协议：`docs/real-usage-hardening-roadmap.md`
 - 当前批次和路线指针投影：`docs/batch-plan.md`
 - 启动已批准路线的短 goal 与新会话接手指南：`docs/autonomous-goal.md`
-- pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制；`packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/`、`packs/android-native/` 与 `packs/generic-binary-re/` 是首批安全领域 pack 骨架）
+- pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制；`packs/binary-re/` 是唯一成熟二进制逆向 pack，`packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/` 与 `packs/android-native/` 是安全领域 pack 骨架）
 - evidence / intervention 账本草案：`docs/evidence-ledger.md`
 - 半自动 orchestration 计划：`docs/orchestration-plan.md`
 - Agent Team rollout 计划：`docs/agent-team-rollout-plan.md`
-- VMP/RE Agent Team 工作方式：`packs/vmp-re/references/vmp-re/agent-driven-re.md`
+- 二进制 RE Agent Team 工作方式：`packs/binary-re/references/binary-re/agent-driven-re.md`
 - sync/promote 机制：`docs/promote-sync.md`
 - case 迁移说明：`docs/case-migration.md`
 - Go backend 渐进迁移：`docs/go-runtime-migration.md`
@@ -91,18 +91,18 @@ claude
 使用 `/steamai`，或直接用自然语言告诉主 Agent：
 
 ```text
-开始这个 case，目标是还原核心逻辑；使用 vmp-re pack，由当前 Mission Commander 会话接手主线。
+开始这个 case，目标是还原核心逻辑；使用 binary-re pack，由当前 Mission Commander 会话接手主线。
 ```
 
 主 Agent 使用项目内 deterministic daily front door；用户不填写 pack、lane、executor、session/event ID、generation、时间、路径或 SHA，也不需要记底层 executable 命令。`/steamai` 通过 `${CLAUDE_PROJECT_DIR}` 定位并验证项目内 runtime，再提交原始 goal/correction。
 
-fresh target 会选择默认 `vmp-re`；已通过 `attach/init` 绑定且 doctor-ready、尚无 Mission Control 状态的 existing case 会从 metadata 选择 pack，并只追加 immutable onboarding intent/mission/commit，不覆盖普通 case 文件。相同 goal 在当前真实 member 已 intake-ready 后安全 replay，不重复启动 Claude；冲突 goal 会明确拒绝。
+fresh target 会选择默认 `binary-re`；已通过 `attach/init` 绑定且 doctor-ready、尚无 Mission Control 状态的 existing case 会从 metadata 选择 pack，并只追加 immutable onboarding intent/mission/commit，不覆盖普通 case 文件。旧 `vmp-re` / `generic-binary-re` metadata 只返回 typed `pack-migration-required`，不作为 alias、不自动迁移或改写。相同 goal 在当前真实 member 已 intake-ready 后安全 replay，不重复启动 Claude；冲突 goal 会明确拒绝。
 
 已有 case 同时有多个可继续 lane 时，daily 先返回 typed choices，选择前不启动 Claude、也不写 case。主 Agent 使用 choice 的 canonical ID 重新调用 `-lane <lane-id>`；该 selector 只在本次调用生效，并贯穿 status、current-step/current-loop、纠偏和完成，所选 lane 不可继续时会停止，不会回退到其它 lane。lane 的人话 label 只用于展示，不能代替 canonical ID。
 
 外部 initializer 对尚未接入的普通非空目录先做只读分类并返回 `directory-adoption-required`；选择 `initialize-in-place` 前零写入。接入使用 canonical init preview 的 exact plan SHA，再执行 hash-bound Apply；只允许新增或保留现有文件，managed collision、partial state、wrong binding、dual root、symlink/junction/reparse 和 plan/source/target drift 均 fail-closed。Apply 发布 `/steamai`、`.steamai` 和 verified project-local runtime bundle；从此才进入上面的项目内日常路径。bundle/copy、installed-skill typed-command bridge 与完整 Windows local minimum 均已通过，路线已按 Windows 本机口径完成。
 
-`vmp-re` 还支持查询用户已经导出的 `function_index.tsv`（必需）以及可选 `strings.tsv` / `imports.tsv` / `xrefs.tsv`。主 Agent 会先预览内容寻址 request 和最长 15 分钟的 exact `inspect` profile；只有用户确认 profile 且 canonical `authorized-gate` current 时，独立 `rekit-adapter-host` 才运行 compiled-in `vmp-ida-index-inspector`，随后写入 bounded packet/report/receipt/observation、恢复默认 manual profile，并交给独立 evidence review、member 和 Reviewer。该路径不安装或启动 IDA、不打开 IDB、不联网，也从不执行 tooling catalog 的 `entry`；当前 `NoNetwork` 只表示固定 Go child 没有网络代码路径，不是 OS 级 socket 隔离。
+`binary-re` 的成熟 VMProtect/IDA capability 还支持查询用户已经导出的 `function_index.tsv`（必需）以及可选 `strings.tsv` / `imports.tsv` / `xrefs.tsv`。主 Agent 会先预览内容寻址 request 和最长 15 分钟的 exact `inspect` profile；只有用户确认 profile 且 canonical `authorized-gate` current 时，独立 `rekit-adapter-host` 才运行 compiled-in `vmp-ida-index-inspector`，随后写入 bounded packet/report/receipt/observation、恢复默认 manual profile，并交给独立 evidence review、member 和 Reviewer。该路径不安装或启动 IDA、不打开 IDB、不联网，也从不执行 tooling catalog 的 `entry`；当前 `NoNetwork` 只表示固定 Go child 没有网络代码路径，不是 OS 级 socket 隔离。
 
 人工纠偏也只提交文本；多个可纠偏 lane（包括已完成 lane）会先返回 typed choices，选择前零写入、零 Claude launch。用户只需告诉主 Agent“按这条意见纠偏：优先核对控制流证据，区分 observation 与 hypothesis”；主 Agent 选择同一个 canonical lane ID，并只调用 manifest 绑定的项目内 `steamai.exe host`。中央源码目录下的 direct host 仅作为 maintenance/internal API，不是新项目默认入口。
 
@@ -198,7 +198,7 @@ Handoff currentness：`status` 或 generic runbook 中尚未绑定 publication p
 
 普通用户只需在真实项目目录启动 `claude`，然后使用 `/steamai` 或自然语言；主 Agent 会从 fresh typed state 选择项目内 daily、状态、纠偏和接手 owner。下面的 `/rekit` 子命令、legacy `.rekit` 路径和 live gate 都是维护者、自动化、迁移兼容或按需排障参考，不是 current `.steamai` 项目的日常操作清单。
 
-维护真实 session 产品链时，普通 `go test ./...` 不会启动 Claude。只有维护者显式运行以下 live gate，才会创建无敏感内容的临时 case，依次启动第一代真实 member、真实 Reviewer reject、证据绑定的人工 correction、replacement member 和独立新 Reviewer accept，验证旧 rejected manifest 不会自动复审、strict writeback、accepted-only feature-lane completion 与自动清理。省略 `-pack` 时保持 fresh 默认 `vmp-re`；RH-08 跨 pack 维护验收只允许显式选择 `_template` 或 `web-security`，ordinary `-daily` 仍拒绝 `-pack` 并只从 fresh default 或 attached metadata 派生 pack：
+维护真实 session 产品链时，普通 `go test ./...` 不会启动 Claude。只有维护者显式运行以下 live gate，才会创建无敏感内容的临时 case，依次启动第一代真实 member、真实 Reviewer reject、证据绑定的人工 correction、replacement member 和独立新 Reviewer accept，验证旧 rejected manifest 不会自动复审、strict writeback、accepted-only feature-lane completion 与自动清理。省略 `-pack` 时保持 fresh 默认 `binary-re`；RH-08 跨 pack 维护验收只允许显式选择 `_template` 或 `web-security`，ordinary `-daily` 仍拒绝 `-pack` 并只从 fresh default 或 attached metadata 派生 pack：
 
 ```text
 go run ./cmd/rekit-host -live-acceptance -pack "<_template-or-web-security>" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
@@ -206,7 +206,7 @@ go run ./cmd/rekit-host -live-acceptance -pack "<_template-or-web-security>" -go
 
 通过 receipt 必须同时满足 `passed=true`、exact `pack`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。attached case 还必须证明 member packet cutpoint、accepted Reviewer intake cutpoint、同一 goal 的零 Claude completion recovery 和 terminal replay，且 `replayLaunches=0`。每个 member 记录从所选 pack manifest 派生的 `outputContract`（manifest path/SHA、task type、route ID 与 fields），Reviewer rejection/acceptance 必须绑定同一 exact route；completion 还会重验 packet shard 与 canonical `ReviewerResult.items` 完全一致，并都指向当前 member manifest。action-ready 路径继续要求 TaskContext 绑定当前 RESUME/checkpoint/owner/correction；终态 receipt 只把已完成 attempt 当作 immutable snapshot 验证其内部 artifact hashes、mission intent 与当前 exact pack contract，不能因 completion 合法刷新 lane 文档而误报历史快照漂移。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
 
-维护 RH-09 Windows 连续试用时，使用 Go-owned 聚合 gate；它顺序运行默认 `vmp-re`、`_template`、`web-security` 三个真实任务，并追加既有真实进程中断恢复门槛，任一失败仍保留在最终仓库外 receipt 中：
+维护 RH-09 Windows 连续试用时，使用 Go-owned 聚合 gate；它顺序运行默认 `binary-re`、`_template`、`web-security` 三个真实任务，并追加既有真实进程中断恢复门槛，任一失败仍保留在最终仓库外 receipt 中：
 
 ```text
 go run ./cmd/rekit-host -live-soak-acceptance -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-repository-receipt.json>"
@@ -268,7 +268,7 @@ current 项目直接输入：
 开一条 login 工作线，专项核对登录逻辑。
 ```
 
-主 Agent 会预览创建或进入功能支线，例如 `feature-login`，并在需要写入时让用户确认具体动作；确认后只消费 runtime 返回的 exact typed Apply。若当前 Claude Code 会话要登记为该 lane 的 executor，主 Agent会提供 runtime 要求的 executor/actor/reason。runtime 只记录 `currentExecutor` / `executorGeneration` / takeover metadata 并刷新 RESUME、checkpoint、board、overview 和 handoff，不负责创建、停止或监控会话。功能支线用于专项分析、证据收集、候选结论和 request；它默认不能写 confirmed CSV、`routine_ir.*` 或 `references/vmp-re/task-handoff.md`。
+主 Agent 会预览创建或进入功能支线，例如 `feature-login`，并在需要写入时让用户确认具体动作；确认后只消费 runtime 返回的 exact typed Apply。若当前 Claude Code 会话要登记为该 lane 的 executor，主 Agent会提供 runtime 要求的 executor/actor/reason。runtime 只记录 `currentExecutor` / `executorGeneration` / takeover metadata 并刷新 RESUME、checkpoint、board、overview 和 handoff，不负责创建、停止或监控会话。功能支线用于专项分析、证据收集、候选结论和 request；它默认不能写 confirmed CSV、`routine_ir.*` 或 `references/binary-re/task-handoff.md`。
 
 主线/支线不是级别高低，而是写入权限不同：
 
@@ -290,7 +290,7 @@ current 项目直接输入：
 
 新会话在同一项目目录启动 `claude` 后，使用 `/steamai` 或直接说“接手并继续主线”；无需手工寻找 handover 路径或拼底层 continue 命令。工作线接手文档会附带本工作线的 workspace packet、最近 verification、decision、pending-gate、authorized-gate、intervention 和 rollback 摘要，便于新会话看到 reviewer verdict、main decision 与 durable autonomy gate decision 的状态。
 
-这些接手文档只引用 `references/vmp-re/task-handoff.md`，不会覆盖它。
+这些接手文档只引用 `references/binary-re/task-handoff.md`，不会覆盖它。
 
 ### 5. 同步模板更新到当前项目
 
@@ -299,20 +299,20 @@ current 项目直接输入：
 写入型同步会同步：
 
 ```text
-references/vmp-re/README.md
-references/vmp-re/agent-driven-re.md
-references/vmp-re/workflow-template.md
-references/vmp-re/progressive-disclosure.md
-references/vmp-re/toolchain-router.md
-references/vmp-re/singleton-handler-review.md
-references/vmp-re/lane-collaboration.md
+references/binary-re/README.md
+references/binary-re/agent-driven-re.md
+references/binary-re/workflow-template.md
+references/binary-re/progressive-disclosure.md
+references/binary-re/toolchain-router.md
+references/binary-re/singleton-handler-review.md
+references/binary-re/lane-collaboration.md
 CLAUDE.local.md 中的 managed router block
 ```
 
 不会覆盖：
 
 ```text
-references/vmp-re/task-handoff.md
+references/binary-re/task-handoff.md
 tools.local.yml
 captures/**
 artifacts/**
@@ -365,22 +365,22 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 
 | 层级 | 路径 | 内容 |
 |---|---|---|
-| 通用 tooling 资产 | `packs/vmp-re/tooling/` | 工具 catalog、recipes、脚本模板化清单、补丁/止损经验；fresh case 通过 pack reference/tooling 路径重新消费，不复制成 case-local managed docs。 |
-| 当前 case 状态 | `<caseRoot>/references/vmp-re/toolchain-router.md` | 当前样本具体脚本、路径、工具结论和状态。 |
+| 通用 tooling 资产 | `packs/binary-re/tooling/` | 工具 catalog、recipes、脚本模板化清单、补丁/止损经验；fresh case 通过 pack reference/tooling 路径重新消费，不复制成 case-local managed docs。 |
+| 当前 case 状态 | `<caseRoot>/references/binary-re/toolchain-router.md` | 当前样本具体脚本、路径、工具结论和状态。 |
 
 通用 tooling 资产包括：
 
 ```text
-packs/vmp-re/tooling/catalog.yml
-packs/vmp-re/tooling/recipes/public-tool-triage.md
-packs/vmp-re/tooling/recipes/lane-collaboration.md
-packs/vmp-re/tooling/recipes/vmenter-context-probe.md
-packs/vmp-re/tooling/recipes/unicorn-trace.md
-packs/vmp-re/tooling/recipes/focused-handler-review.md
-packs/vmp-re/tooling/recipes/value-flow-mining.md
-packs/vmp-re/tooling/recipes/ida-x64dbg-mcp.md
-packs/vmp-re/tooling/scripts/README.md
-packs/vmp-re/tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
+packs/binary-re/tooling/catalog.yml
+packs/binary-re/tooling/recipes/public-tool-triage.md
+packs/binary-re/tooling/recipes/lane-collaboration.md
+packs/binary-re/tooling/recipes/vmenter-context-probe.md
+packs/binary-re/tooling/recipes/unicorn-trace.md
+packs/binary-re/tooling/recipes/focused-handler-review.md
+packs/binary-re/tooling/recipes/value-flow-mining.md
+packs/binary-re/tooling/recipes/ida-x64dbg-mcp.md
+packs/binary-re/tooling/scripts/README.md
+packs/binary-re/tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
 ```
 
 原则：具体样本名、RVA、ctx、coverage 留在 case；可复用工具路线、脚本接口、短测/止损经验进 tooling。
@@ -447,7 +447,7 @@ claude
 ```text
 CLAUDE.local.md
 .re-template.yml
-references/vmp-re/task-handoff.md
+references/binary-re/task-handoff.md
 自写脚本中的 PROJECT_ROOT / workdir / output path
 ```
 
@@ -469,10 +469,10 @@ rekit/tests/facade-smoke.ps1       # façade 委托回归 smoke
 rekit/tests/pack-smoke-lib.ps1     # 多安全领域 pack smoke 共享 helper
 rekit/tests/pack-smoke-matrix.ps1  # 多安全领域 pack smoke 串行矩阵 runner，支持 -Format json 与 -DiscoveryOnly
 rekit/tests/pack-smoke-matrix-selftest.ps1 # pack smoke matrix 输出契约自测
-packs/vmp-re/scripts/bootstrap.ps1
-packs/vmp-re/scripts/update.ps1
-packs/vmp-re/scripts/validate.ps1
-packs/vmp-re/scripts/promote.ps1
+packs/binary-re/scripts/bootstrap.ps1
+packs/binary-re/scripts/update.ps1
+packs/binary-re/scripts/validate.ps1
+packs/binary-re/scripts/promote.ps1
 ```
 
 面向新项目用户时，优先用自然语言或 `/steamai` 表达，不要让用户手动跑这些脚本；`/rekit` 只出现在明确标注的 legacy compatibility、内部 API 或维护诊断说明中。

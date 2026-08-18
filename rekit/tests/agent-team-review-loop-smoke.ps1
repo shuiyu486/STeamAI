@@ -1,6 +1,6 @@
 param(
   [string]$WorkRoot = 'C:\AI\m_projects\RE\_dryrun_cases',
-  [string]$Pack = 'vmp-re'
+  [string]$Pack = 'binary-re'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,7 +71,7 @@ try {
   $packetPath = Join-Path $reviewRoot 'packet.json'
   if (-not (Test-Path -LiteralPath $packetPath)) { throw "missing review packet: $packetPath" }
   $packet = Get-Content -LiteralPath $packetPath -Raw | ConvertFrom-Json
-  if ([string]$packet.route.id -ne 'vmp-re:lane-feature-analysis') { throw "unexpected route: $($packet | ConvertTo-Json -Depth 10)" }
+  if ([string]$packet.route.id -ne 'binary-re:lane-feature-analysis') { throw "unexpected route: $($packet | ConvertTo-Json -Depth 10)" }
   foreach ($field in @('tier_used','tool_scope')) {
     Assert-ContainsText -Text ([string]$packet.outputContract) -Expected $field -Label 'route outputContract'
   }

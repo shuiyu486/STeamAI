@@ -4,7 +4,7 @@ param(
   [ValidateSet('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','attach','repair','init','bootstrap','onboard','migrate-state','sync','update','promote','validate','doctor','plan-subagents','overview','complete','reopen','continue','reconcile','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
-  [string]$Pack = 'vmp-re',
+  [string]$Pack = 'binary-re',
   [string]$ProjectName = '',
   [string]$Goal = '',
   [string]$InitialLane = '',

@@ -1,0 +1,256 @@
+schemaVersion: 1
+name: binary-re
+version: 0.3.0
+description: Authorized binary reverse engineering with general static analysis and mature VMProtect x64 capabilities
+maturity: mature
+
+managedFiles:
+  - references/binary-re/README.md
+  - references/binary-re/agent-driven-re.md
+  - references/binary-re/workflow-template.md
+  - references/binary-re/progressive-disclosure.md
+  - references/binary-re/toolchain-router.md
+  - references/binary-re/singleton-handler-review.md
+  - references/binary-re/lane-collaboration.md
+  - references/binary-re/general-analysis.md
+  - references/binary-re/general-agent-team.md
+  - references/binary-re/general-workflow.md
+  - references/binary-re/general-toolchain-router.md
+
+templateFiles:
+  - references/binary-re/task-handoff.template.md
+
+localNeverOverwrite:
+  - CLAUDE.local.md
+  - references/binary-re/task-handoff.md
+  - tools.local.yml
+
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: binary-re-template:router
+  source: CLAUDE.local.snippet.md
+
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+
+workstreamDefaults:
+  defaultAuthorityLane: devirt-main
+  defaultStartLaneType: binary-analysis
+  handoffPath: references/binary-re/task-handoff.md
+  backupRoot: references/binary-re/.backup
+  requestDefaultTargetLane: devirt-main
+
+authorityFiles:
+  - captures/vm_opcode_semantics_confirmed.csv
+  - captures/vm_handler_roles_confirmed.csv
+  - references/binary-re/task-handoff.md
+
+commonPolicies:
+  - agent-team
+  - tool-adapters
+  - context-budget
+  - subagents
+  - lane-collaboration
+  - review-first
+  - write-boundaries
+  - verification
+  - evidence
+  - tool-output
+  - handoff
+
+policyOverlays:
+  - policies/subagents.overlay.md
+  - policies/lane-collaboration.overlay.md
+  - policies/context-budget.overlay.md
+  - policies/review-first.overlay.md
+  - policies/verification.overlay.md
+
+subagentRoutes:
+  - id: binary-re:bounded-review
+    taskTypes: handler-lowering,focused-batch-review,instruction-level-review,trace-review,value-flow-review,tooling-diff-review,finding-review,evidence-review,function-review,api-review,tooling-review
+    trigger: fixed-boundary read-only review for binary RE findings, function/API hypotheses, tooling notes, handler candidates, or bounded trace/value-flow evidence
+    shardBasis: function-or-finding
+    targetItemsPerAgent: 4
+    maxParallel: 3
+    reference: references/binary-re/general-agent-team.md
+    policyOverlay: policies/subagents.overlay.md
+    subagentPermissions: read-only
+    mainAgentOwns: ledger-writeback,csv-backup,csv-write,validation,handoff-update,authority-confirmation
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,binary_ref,function_ref,artifact_ref,behavior_hint,api_ref,handler,csv_ready,row,candidate_path,defer_reason
+  - id: binary-re:binary-analysis
+    taskTypes: binary-analysis,static-triage,function-behavior-analysis,api-behavior-review,string-analysis,format-analysis
+    trigger: binary RE workspace has binary aliases, function groups, API hypotheses, behavior candidates, or needs bounded analysis before main merge
+    shardBasis: binary-function-or-behavior
+    targetItemsPerAgent: 2
+    maxParallel: 2
+    reference: references/binary-re/general-agent-team.md
+    policyOverlay:
+    subagentPermissions: read-only-or-workspace-only
+    mainAgentOwns: canonical-write,ledger-writeback,validation,handoff-update,authority-confirmation
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,binary_ref,function_ref,artifact_ref,behavior_hint,api_ref,candidate_path,defer_reason
+  - id: binary-re:lane-feature-analysis
+    taskTypes: feature-analysis,function-analysis,lane-feature-review,lowering-request-review
+    trigger: feature workspace has requests/candidates or needs merge review
+    shardBasis: feature
+    targetItemsPerAgent: 1
+    maxParallel: 2
+    reference: references/binary-re/lane-collaboration.md
+    policyOverlay: policies/lane-collaboration.overlay.md
+    subagentPermissions: read-only-or-workspace-only
+    mainAgentOwns: canonical-write,confirmed-csv,validation,handoff-update,authority-sync
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,feature,request_id,candidate_path,defer_reason
+
+promoteFiles:
+  - references/binary-re/README.md
+  - references/binary-re/agent-driven-re.md
+  - references/binary-re/workflow-template.md
+  - references/binary-re/progressive-disclosure.md
+  - references/binary-re/toolchain-router.md
+  - references/binary-re/singleton-handler-review.md
+  - references/binary-re/lane-collaboration.md
+  - references/binary-re/general-analysis.md
+  - references/binary-re/general-agent-team.md
+  - references/binary-re/general-workflow.md
+  - references/binary-re/general-toolchain-router.md
+
+toolingFiles:
+  - tooling/README.md
+  - tooling/catalog.yml
+  - tooling/recipes/static-binary-triage.md
+  - tooling/recipes/function-behavior-review.md
+  - tooling/recipes/public-tool-triage.md
+  - tooling/recipes/lane-collaboration.md
+  - tooling/recipes/vmenter-context-probe.md
+  - tooling/recipes/unicorn-trace.md
+  - tooling/recipes/focused-handler-review.md
+  - tooling/recipes/value-flow-mining.md
+  - tooling/recipes/ida-x64dbg-mcp.md
+  - tooling/recipes/ida-agent-bridge-readonly.md
+  - tooling/scripts/README.md
+  - tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
+
+promptFiles:
+  - common/prompts/lane-main-session.md
+  - common/prompts/lane-feature-session.md
+  - common/prompts/lane-merge-review.md
+  - packs/binary-re/prompts/feature-analysis-session.md
+
+laneTypes:
+  - id: devirt-main
+    title: 二进制逆向主线（含 VMProtect 脱虚拟化）
+    authority: true
+    workspaceRoot: captures/devirt_main
+    canWrite: captures/vm_opcode_semantics_confirmed.csv,captures/vm_handler_roles_confirmed.csv,references/binary-re/task-handoff.md,captures/routine_ir.events.csv,captures/routine_ir.summary.csv,captures/routine_ir.md
+    readOnly: .steamai/facts/**
+    outputs: publication,authority-update,resolved-request,observation
+  - id: feature-analysis
+    title: 功能分析
+    authority: false
+    workspaceRoot: captures/feature_analysis
+    canWrite: own-workspace
+    readOnly: captures/vm_opcode_semantics_confirmed.csv,captures/vm_handler_roles_confirmed.csv,captures/routine_ir.events.csv,captures/routine_ir.summary.csv,captures/routine_ir.md,references/binary-re/task-handoff.md,.steamai/facts/**
+    outputs: observation,request,candidate,summary
+  - id: binary-analysis
+    title: 通用二进制与函数分析
+    authority: false
+    workspaceRoot: captures/binary_analysis
+    canWrite: own-workspace
+    readOnly: references/binary-re/**,.steamai/facts/**
+    outputs: observation,request,candidate,summary
+  - id: tooling
+    title: 工具链开发
+    authority: false
+    workspaceRoot: captures/tooling_lanes
+    canWrite: own-workspace
+    readOnly: .steamai/facts/**,references/binary-re/**
+    outputs: observation,request,candidate,tooling-change
+
+toolingCandidateSources:
+  - references/binary-re/general-toolchain-router.md
+  - references/binary-re/toolchain-router.md
+  - references/binary-re/lane-collaboration.md
+
+heavyToolGates:
+  - id: inspect
+    title: Existing IDA sidecar index inspection
+    sideEffects: inspect,filesystem-read,bounded-packet-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: scope-drift,source-drift,output-exceeds-bounded-evidence-packet
+  - id: full-trace
+    title: Full trace capture
+    sideEffects: full-trace,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: budget-exhausted,scope-drift,output-exceeds-bounded-evidence-packet
+  - id: debug
+    title: Dynamic debug or attach
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected-side-effect,scope-drift
+  - id: inject
+    title: Runtime injection or hook
+    sideEffects: inject,filesystem-write
+    defaultRisk: critical
+    requiresConfirmation: true
+    stopConditions: unexpected-mutation,scope-drift,budget-exhausted
+  - id: patch
+    title: Binary or project patch
+    sideEffects: patch,filesystem-write
+    defaultRisk: critical
+    requiresConfirmation: true
+    stopConditions: overwrite-risk,scope-drift,no-rollback-path
+  - id: dump
+    title: Memory or artifact dump
+    sideEffects: dump,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: output-exceeds-bounded-evidence-packet,sensitive-artifact-detected,scope-drift
+  - id: network
+    title: Network access or replay
+    sideEffects: network,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift
+  - id: symex
+    title: Long symbolic execution
+    sideEffects: symex,filesystem-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
+
+promoteDenyPatterns:
+  - "C:\\"
+  - "samples[\\/]"
+  - "artifacts[\\/]"
+  - "captures[\\/]"
+  - "dumps?[\\/]"
+  - "traces?[\\/]"
+  - "evidence[\\/]raw[\\/]"
+  - "binaries[\\/]"
+  - "memory[\\/]"
+  - "patched[\\/]"
+  - "[A-Za-z0-9_.-]*(sample|malware|payload|binary|patched|dump|trace|pcap|capture|memory)[A-Za-z0-9_.-]*\.(exe|dll|sys|so|dylib|elf|macho|bin|dat|raw|dmp|mem|pcap|pcapng|zip|7z|rar|log|json)"
+  - "(?i)sha256\s*[:=]\s*[0-9a-f]{64}"
+  - "(?i)sha1\s*[:=]\s*[0-9a-f]{40}"
+  - "(?i)md5\s*[:=]\s*[0-9a-f]{32}"
+  - "(?i)(authorization|cookie|set-cookie)\s*[:=]"
+  - "(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]"
+  - "(?i)bearer\s+[A-Za-z0-9._~+/\\-]+"
+  - "\b(10|172\.(1[6-9]|2[0-9]|3[0-1])|192\.168)\."
+  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)"
+  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)"
+  - "\.dmp\b"
+  - "0x[0-9A-Fa-f]{6,}"
+  - "ctx[0-9]+"
+  - "round[0-9]+"
+  - "Task #[0-9]+"
+
+budgets:
+  CLAUDE.local.md: 8192
+  references/binary-re/task-handoff.md: 12288
+  references/binary-re/lane-collaboration.md: 16384
+  defaultMarkdown: 16384

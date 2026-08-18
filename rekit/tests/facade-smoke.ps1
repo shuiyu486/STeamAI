@@ -91,7 +91,7 @@ function Write-PreauthorizedGateProfile {
     '  "deniedActions": ["symex"],',
     '  "targetScope": [{"match":"exact","value":"target-alpha"}],',
     '  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},',
-    '  "stopConditions": ["timeout"],',
+    '  "stopConditions": ["timeout", "unexpected-side-effect", "scope-drift"],',
     '  "outputPaths": ["workspace/main/debug"],',
     '  "recordRequired": true,',
     '  "notifyMainOn": ["boundary-hit", "new-risk"],',
@@ -172,7 +172,7 @@ try {
     Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject',"facade-smoke-$suffix",'-Summary','seed observation for facade smoke','-Actor','facade-smoke') | Out-Null
     Write-PreauthorizedGateProfile -CaseRoot $CaseRoot
-  } elseif ([string]::Equals($Pack, 'vmp-re', [System.StringComparison]::OrdinalIgnoreCase)) {
+  } elseif ([string]::Equals($Pack, 'binary-re', [System.StringComparison]::OrdinalIgnoreCase)) {
     $gateLane = 'feature-handler-0x40a010'
   }
 
@@ -185,7 +185,7 @@ try {
 
   $packsOut = Invoke-RekitSmoke -Arguments @('-Command','packs')
   Assert-ContainsText -Text $packsOut -Expected "pack`t" -Label 'default go packs'
-  Assert-ContainsText -Text $packsOut -Expected "vmp-re`t" -Label 'default go packs'
+  Assert-ContainsText -Text $packsOut -Expected "binary-re`t" -Label 'default go packs'
 
   $caseDoctor = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack)
   Assert-ContainsText -Text $caseDoctor -Expected 'instance validation ok' -Label 'default go case doctor'
@@ -403,7 +403,7 @@ try {
   if ($usingSelfContainedCase) {
     $workspaceRoot = Join-Path $CaseRoot 'workspace\main\debug\session-1'
     New-Item -ItemType Directory -Path $workspaceRoot -Force | Out-Null
-    $gateApplyOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane','main','-Actor','facade-smoke','-Subject','facade smoke authorized gate','-TargetRef','target-alpha','-BatchId','facade-smoke-nested-output','-Scope','handler only','-RuntimeSeconds','30','-DiskMB','64','-Requests','1','-OutputPaths','workspace/main/debug/session-1','-StopConditions','timeout','-Format','json')
+    $gateApplyOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane','main','-Actor','facade-smoke','-Subject','facade smoke authorized gate','-TargetRef','target-alpha','-BatchId','facade-smoke-nested-output','-Scope','handler only','-RuntimeSeconds','30','-DiskMB','64','-Requests','1','-OutputPaths','workspace/main/debug/session-1','-StopConditions','timeout,unexpected-side-effect,scope-drift','-Format','json')
     $gateApply = $gateApplyOut | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace([string]$gateApply.eventId)) { throw "facade nested product path gate apply did not return eventId. Output:`n$gateApplyOut" }
     $adapterReport = '{"schemaVersion":1,"kind":"adapter-execution-report","adapterId":"facade-smoke-adapter","action":"debug","status":"succeeded","gateEventId":"' + [string]$gateApply.eventId + '","actualBudget":{"runtimeSeconds":20,"diskMB":32,"requests":1},"outputRefs":["workspace/main/debug/session-1/result.json"],"summary":"facade smoke adapter report"}'

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -30,7 +31,7 @@ func TestPlanDryRunDoesNotWriteRequestLedger(t *testing.T) {
 	if !plan.WouldExecutorAction.Blocked || plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 1 || !plan.WouldExecutorAction.PendingGateRequired || plan.WouldExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("gate dry-run would executor action drifted: %+v", plan.WouldExecutorAction)
 	}
-	if plan.MissionCommanderAction.State != "needs-gate-apply" || !strings.Contains(plan.MissionCommanderAction.PrimaryCommand, "/rekit gate -Pack vmp-re -Action debug -Lane main -Apply -Actor <actor>") || !gateNextActionContainsCommand(plan.MissionCommanderNextActions, plan.MissionCommanderAction.PrimaryCommand) || !gateNextActionContainsSource(plan.MissionCommanderNextActions, "missionCommanderActions.followUp") || !gateNextActionBoundaryContains(plan.MissionCommanderNextActions, "pending-gate still requires explicit authorization") {
+	if plan.MissionCommanderAction.State != "needs-gate-apply" || !strings.Contains(plan.MissionCommanderAction.PrimaryCommand, "/rekit gate -Pack binary-re -Action debug -Lane main -Apply -Actor <actor>") || !gateNextActionContainsCommand(plan.MissionCommanderNextActions, plan.MissionCommanderAction.PrimaryCommand) || !gateNextActionContainsSource(plan.MissionCommanderNextActions, "missionCommanderActions.followUp") || !gateNextActionBoundaryContains(plan.MissionCommanderNextActions, "pending-gate still requires explicit authorization") {
 		t.Fatalf("gate dry-run omitted top-level Mission Commander apply projection: action=%+v next=%+v", plan.MissionCommanderAction, plan.MissionCommanderNextActions)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
@@ -293,10 +294,10 @@ func gateFixtureWithDefaultRiskAndStateRoot(t *testing.T, defaultRisk, stateDir 
 	root := t.TempDir()
 	repoRoot = filepath.Join(root, "repo")
 	caseRoot = filepath.Join(root, "case")
-	pack = "vmp-re"
-	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: vmp-re
+	pack = defaults.DefaultPack
+	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: binary-re
 managedFiles:
-  - references/vmp-re/README.md
+  - references/binary-re/README.md
 heavyToolGates:
   - id: debug
     title: Dynamic debug or attach
@@ -318,9 +319,9 @@ heavyToolGates:
 
 func gateToolingFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 	repoRoot, caseRoot, pack = gateFixture(t)
-	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: vmp-re
+	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: binary-re
 managedFiles:
-  - references/vmp-re/README.md
+  - references/binary-re/README.md
 toolingFiles:
   - tooling/catalog.yml
 heavyToolGates:
@@ -338,7 +339,7 @@ heavyToolGates:
     stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
 `)
 	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "tooling", "catalog.yml"), `schemaVersion: 1
-pack: vmp-re
+pack: binary-re
 purpose: tooling fixture
 
 tools:
@@ -408,7 +409,7 @@ func TestPlanDryRunUsesPreauthorizedLaneAutonomyProfile(t *testing.T) {
 	if plan.WouldExecutorAction.Blocked || !plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 0 {
 		t.Fatalf("authorized gate would executor action should remain non-blocking: %+v", plan.WouldExecutorAction)
 	}
-	if plan.MissionCommanderAction.State != "needs-authorized-gate-apply" || !strings.Contains(plan.MissionCommanderAction.PrimaryCommand, "/rekit gate -Pack vmp-re -Action debug -Lane main -Apply -Actor <actor>") || !gateNextActionContainsSource(plan.MissionCommanderNextActions, "missionCommanderActions") || !gateNextActionContainsCommand(plan.MissionCommanderNextActions, "-ExecutionReportContract") || !gateNextActionBoundaryContains(plan.MissionCommanderNextActions, "actual heavy tool must stay within authorized target") {
+	if plan.MissionCommanderAction.State != "needs-authorized-gate-apply" || !strings.Contains(plan.MissionCommanderAction.PrimaryCommand, "/rekit gate -Pack binary-re -Action debug -Lane main -Apply -Actor <actor>") || !gateNextActionContainsSource(plan.MissionCommanderNextActions, "missionCommanderActions") || !gateNextActionContainsCommand(plan.MissionCommanderNextActions, "-ExecutionReportContract") || !gateNextActionBoundaryContains(plan.MissionCommanderNextActions, "actual heavy tool must stay within authorized target") {
 		t.Fatalf("authorized gate plan omitted top-level Mission Commander apply projection: action=%+v next=%+v", plan.MissionCommanderAction, plan.MissionCommanderNextActions)
 	}
 	if plan.EventPreview.Gate.RequestedBudget.RuntimeSeconds != 30 || strings.Join(plan.EventPreview.Gate.OutputPaths, ",") != "workspace/main/debug/session-1" {

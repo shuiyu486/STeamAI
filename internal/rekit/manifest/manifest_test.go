@@ -873,7 +873,7 @@ func TestValidateSchemaRequiresNonEmptyContractLists(t *testing.T) {
 		},
 		{
 			name:   "toolingCandidateSources",
-			want:   "toolingCandidateSources must include at least one source; implicit vmp-re fallback is not allowed",
+			want:   "toolingCandidateSources must include at least one explicit source; implicit pack-specific fallback is not allowed",
 			mutate: func(m *Manifest) { m.ToolingCandidateSources = nil },
 		},
 		{
@@ -1813,8 +1813,8 @@ func TestListPackSummaries(t *testing.T) {
 	if byID["_template"].Maturity != "template" || byID["_template"].SchemaVersion != "1" || byID["_template"].SubagentRoutes != 2 || byID["_template"].HeavyToolGates != 8 {
 		t.Fatalf("unexpected template summary: %+v", byID["_template"])
 	}
-	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].SchemaVersion != "1" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" || byID["vmp-re"].HeavyToolGates != 8 {
-		t.Fatalf("unexpected vmp summary: %+v", byID["vmp-re"])
+	if byID["binary-re"].Maturity != "mature" || byID["binary-re"].SchemaVersion != "1" || byID["binary-re"].DefaultAuthorityLane != "devirt-main" || byID["binary-re"].HeavyToolGates != 8 {
+		t.Fatalf("unexpected binary-re summary: %+v", byID["binary-re"])
 	}
 	if byID["web-security"].Maturity != "skeleton" || byID["web-security"].SchemaVersion != "1" || byID["web-security"].DefaultAuthorityLane != "main" || byID["web-security"].HeavyToolGates != 7 {
 		t.Fatalf("unexpected web-security summary: %+v", byID["web-security"])
