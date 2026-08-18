@@ -58,6 +58,32 @@ func TestCanonicalCollectionNamespaceRejectsDualRoots(t *testing.T) {
 	}
 }
 
+func TestPlannedResultSnapshotPathUsesActiveReviewNamespace(t *testing.T) {
+	for _, stateDir := range []string{".steamai", ".rekit"} {
+		t.Run(stateDir, func(t *testing.T) {
+			caseRoot := filepath.Join(t.TempDir(), "case")
+			if err := os.MkdirAll(filepath.Join(caseRoot, stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			path, err := PlannedResultSnapshotPath(caseRoot, "dispatch-01")
+			want := filepath.Join(caseRoot, stateDir, "reviews", "planned-snapshots", "dispatch-01.json")
+			if err != nil || path != want || !CollectionNamespacePathSafe(caseRoot, filepath.Dir(path), true) {
+				t.Fatalf("planned snapshot path=%q err=%v want=%q", path, err, want)
+			}
+		})
+	}
+
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".steamai"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dispatchID := range []string{"", ".", "..", "../escape", `nested\\escape`} {
+		if path, err := PlannedResultSnapshotPath(caseRoot, dispatchID); err == nil || path != "" {
+			t.Fatalf("invalid dispatch %q produced path %q with error %v", dispatchID, path, err)
+		}
+	}
+}
+
 func TestCollectionNamespacePathSafeRejectsInactiveRoot(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	if err := os.MkdirAll(filepath.Join(caseRoot, ".steamai", "reviews"), 0o755); err != nil {

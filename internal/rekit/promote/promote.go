@@ -436,6 +436,11 @@ func sourceTextEqual(left, right string) bool {
 }
 
 func CreateCandidates(repoRoot, caseRoot, pack string, opt CandidateOptions) (CandidateResult, error) {
+	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, caseRoot); err != nil {
+			return CandidateResult{}, err
+		}
+	}
 	plan, err := Plan(repoRoot, caseRoot, pack)
 	if err != nil {
 		return CandidateResult{}, err
@@ -832,6 +837,11 @@ func candidateDecisionDraftCommanderAction(base mission.MissionCommanderAction, 
 }
 
 func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {
+	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, caseRoot); err != nil {
+			return ApplyResult{}, err
+		}
+	}
 	plan, err := Plan(repoRoot, caseRoot, pack)
 	if err != nil {
 		return ApplyResult{}, err

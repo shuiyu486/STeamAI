@@ -18,10 +18,32 @@ import (
 type onboardCLIPlan struct {
 	Command              string   `json:"command"`
 	CaseRoot             string   `json:"caseRoot"`
+	ProjectID            string   `json:"projectId"`
 	PublicationStamp     string   `json:"publicationStamp"`
 	OnboardingPlanSHA256 string   `json:"onboardingPlanSha256"`
 	ApplyCommand         string   `json:"applyCommand"`
 	ApplyArgs            []string `json:"applyArgs"`
+}
+
+func retargetOnboardCLIApplyArgs(t *testing.T, args []string, target string) []string {
+	t.Helper()
+	out := append([]string{}, args...)
+	targets := 0
+	for index := 0; index < len(out); index++ {
+		if out[index] != "-Target" {
+			continue
+		}
+		if index+1 >= len(out) {
+			t.Fatal("onboard ApplyArgs contains a missing -Target value")
+		}
+		out[index+1] = target
+		targets++
+		index++
+	}
+	if targets != 1 {
+		t.Fatalf("onboard ApplyArgs contains %d -Target selectors: %v", targets, args)
+	}
+	return out
 }
 
 func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
@@ -35,7 +57,7 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
-	if plan.Command != "onboard" || plan.CaseRoot != caseRoot || plan.OnboardingPlanSHA256 == "" || !strings.HasPrefix(plan.ApplyCommand, "/steamai onboard ") || !strings.Contains(plan.ApplyCommand, plan.PublicationStamp) || len(plan.ApplyArgs) == 0 {
+	if plan.Command != "onboard" || plan.CaseRoot != caseRoot || len(plan.ProjectID) != 16 || plan.OnboardingPlanSHA256 == "" || !strings.HasPrefix(plan.ApplyCommand, "/steamai onboard ") || !strings.Contains(plan.ApplyCommand, plan.PublicationStamp) || len(plan.ApplyArgs) == 0 {
 		t.Fatalf("unexpected preview: %+v", plan)
 	}
 	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
@@ -46,6 +68,28 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	if err := Run(apply, &out); err != nil {
 		t.Fatal(err)
 	}
+	var applied struct {
+		CaseRoot   string                   `json:"caseRoot"`
+		ProjectID  string                   `json:"projectId"`
+		Applied    bool                     `json:"applied"`
+		Replay     bool                     `json:"replay"`
+		Inspection missionintent.Inspection `json:"inspection"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || applied.Replay || applied.ProjectID != plan.ProjectID || applied.Inspection.Identity.SchemaVersion != 2 || applied.Inspection.Identity.Target != "." || applied.Inspection.Identity.ProjectID != plan.ProjectID {
+		t.Fatalf("onboard Apply did not commit the previewed v2 identity: %+v", applied)
+	}
+	originalCaseRoot := caseRoot
+	caseRoot = filepath.Join(filepath.Dir(originalCaseRoot), "moved-onboard-case")
+	if err := os.Rename(originalCaseRoot, caseRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(originalCaseRoot); !os.IsNotExist(err) {
+		t.Fatalf("old onboarding physical root remains after move: %v", err)
+	}
+	apply = retargetOnboardCLIApplyArgs(t, apply, caseRoot)
 	boardPath, err := projectstate.Join(caseRoot, "board.json")
 	if err != nil {
 		t.Fatal(err)
@@ -55,9 +99,7 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	}
 	out.Reset()
 	var overviewStatus struct {
-		Onboarding struct {
-			State string `json:"state"`
-		} `json:"onboarding"`
+		Onboarding            missionintent.Inspection             `json:"onboarding"`
 		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 	}
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -66,8 +108,11 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &overviewStatus); err != nil {
 		t.Fatal(err)
 	}
-	if overviewStatus.Onboarding.State != "committed" || overviewStatus.MissionControlRunbook == nil || overviewStatus.MissionControlRunbook.Quickstart == nil || !strings.Contains(overviewStatus.MissionControlRunbook.Quickstart.Command, "/steamai overview ") {
-		t.Fatalf("status did not expose the single overview onboarding route: %+v\n%s", overviewStatus, out.String())
+	if overviewStatus.Onboarding.State != "committed" || !overviewStatus.Onboarding.Committed ||
+		overviewStatus.Onboarding.Identity != applied.Inspection.Identity || overviewStatus.Onboarding.ProjectBinding == nil ||
+		overviewStatus.Onboarding.ProjectBinding.ProjectID != plan.ProjectID || overviewStatus.MissionControlRunbook == nil ||
+		overviewStatus.MissionControlRunbook.Quickstart == nil || !strings.Contains(overviewStatus.MissionControlRunbook.Quickstart.Command, "/steamai overview ") {
+		t.Fatalf("moved status did not expose the same committed v2 identity and overview route: %+v\n%s", overviewStatus, out.String())
 	}
 	takeover := overviewStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage
 	missionIntentRel, err := projectstate.Rel(caseRoot, "mission-intent.json")
@@ -520,7 +565,7 @@ func TestRunStatusReportsCorruptOnboardingAndMutationFailsClosed(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
-	if err := Run(append(append([]string{}, args...), "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", plan.OnboardingPlanSHA256, "-Apply"), &bytes.Buffer{}); err != nil {
+	if err := Run(append(append([]string{}, args...), "-ProjectId", plan.ProjectID, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", plan.OnboardingPlanSHA256, "-Apply"), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	paths, err := missionintent.Paths(caseRoot)
@@ -542,6 +587,130 @@ func TestRunStatusReportsCorruptOnboardingAndMutationFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRunStatusRejectsRelocatedOldCurrentV1Onboarding(t *testing.T) {
+	base := t.TempDir()
+	originalRoot := filepath.Join(base, "old-current-v1")
+	args := []string{"-Command", "onboard", "-Target", originalRoot, "-Pack", "_template", "-ProjectName", "demo", "-Goal", "opaque goal", "-Actor", "operator", "-Executor", "executor-a", "-InitialLane", "feature-analysis"}
+	var out bytes.Buffer
+	if err := Run(append(append([]string{}, args...), "-WhatIf", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var plan onboardCLIPlan
+	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(plan.ApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	writeOldCurrentV1Onboarding(t, originalRoot)
+	originalInspection, err := missionintent.Inspect(originalRoot)
+	if err != nil || !originalInspection.Committed || originalInspection.Identity.SchemaVersion != 1 || originalInspection.Identity.Target != originalRoot {
+		t.Fatalf("old current v1 fixture is not committed at its original root: inspection=%+v err=%v", originalInspection, err)
+	}
+
+	movedRoot := filepath.Join(base, "moved-old-current-v1")
+	if err := os.Rename(originalRoot, movedRoot); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", movedRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("relocated old current v1 status must remain readable: %v", err)
+	}
+	var status struct {
+		Mode string `json:"mode"`
+		Case struct {
+			Moved bool `json:"moved"`
+		} `json:"case"`
+		Onboarding  missionintent.Inspection `json:"onboarding"`
+		CaseMission *struct {
+			Ready   bool   `json:"ready"`
+			Summary string `json:"summary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Mode != "case" || status.Case.Moved || status.Onboarding.State != "corrupt" || status.Onboarding.Committed ||
+		status.CaseMission == nil || status.CaseMission.Ready ||
+		!strings.Contains(status.CaseMission.Summary, "mission intent Target does not match inspected case root") ||
+		!strings.Contains(out.String(), "ordinary attached commands are blocked") {
+		t.Fatalf("relocated old current v1 status did not fail closed specifically on onboarding identity: %+v\n%s", status, out.String())
+	}
+	if err := Run([]string{"-Command", "overview", "-Target", movedRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "onboarding state is corrupt") {
+		t.Fatalf("relocated old current v1 mutation error = %v", err)
+	}
+}
+
+func writeOldCurrentV1Onboarding(t *testing.T, caseRoot string) {
+	t.Helper()
+	const stamp = "20260817-010203004"
+	planSHA256 := strings.Repeat("a", 64)
+	identity := missionintent.Identity{
+		SchemaVersion: 1,
+		Target:        caseRoot,
+		Pack:          "_template",
+		ProjectName:   "demo",
+		Goal:          "opaque goal",
+		Actor:         "operator",
+		Executor:      "executor-a",
+		InitialLane:   "feature-analysis",
+	}
+	missionBytes, err := missionintent.MarshalMissionIntent(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := missionintent.RecoveryEnvelope{
+		SchemaVersion: 1,
+		RepoRoot:      ".",
+		CreatedAt:     "2026-08-17T01:02:03.004Z",
+		Mode:          "attached-adoption",
+		AttachedSnapshot: []missionintent.SnapshotArtifact{
+			{Path: ".claude/skills/steamai/SKILL.md", Kind: "project-local-steamai-skill", SHA256: strings.Repeat("1", 64), Size: 1},
+			{Path: ".steamai/instance.yml", Kind: "instance-metadata", SHA256: strings.Repeat("2", 64), Size: 1},
+			{Path: ".steamai/state.json", Kind: "sync-state", SHA256: strings.Repeat("3", 64), Size: 1},
+		},
+	}
+	intentBytes, err := missionintent.MarshalIntent(missionintent.Intent{
+		SchemaVersion:        1,
+		Kind:                 "mission-onboarding-intent",
+		PublicationStamp:     stamp,
+		OnboardingPlanSHA256: planSHA256,
+		Identity:             identity,
+		Recovery:             recovery,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitBytes, err := missionintent.MarshalCommit(missionintent.Commit{
+		SchemaVersion:        1,
+		Kind:                 "mission-onboarding-commit",
+		PublicationStamp:     stamp,
+		OnboardingPlanSHA256: planSHA256,
+		MissionIntentSHA256:  missionintent.SHA256(missionBytes),
+		IntentSHA256:         missionintent.SHA256(intentBytes),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := missionintent.Paths(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, data := range map[string][]byte{
+		paths.MissionIntent: missionBytes,
+		paths.Intent:        intentBytes,
+		paths.Commit:        commitBytes,
+	} {
+		if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(path)), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(filepath.Join(caseRoot, filepath.FromSlash(paths.ProjectBinding))); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunOnboardRejectsHashAndInputDrift(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "drift")
 	base := []string{"-Command", "onboard", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "demo", "-Goal", "opaque goal", "-Actor", "operator", "-Executor", "executor-a", "-InitialLane", "feature-analysis"}
@@ -554,7 +723,7 @@ func TestRunOnboardRejectsHashAndInputDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	badHash := strings.Repeat("0", 64)
-	if err := Run(append(append([]string{}, base...), "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", badHash, "-Apply"), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
+	if err := Run(append(append([]string{}, base...), "-ProjectId", plan.ProjectID, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", badHash, "-Apply"), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
 		t.Fatalf("hash drift error = %v", err)
 	}
 	drift := append([]string{}, base...)
@@ -563,7 +732,7 @@ func TestRunOnboardRejectsHashAndInputDrift(t *testing.T) {
 			drift[i] = "changed goal"
 		}
 	}
-	if err := Run(append(drift, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", plan.OnboardingPlanSHA256, "-Apply"), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
+	if err := Run(append(drift, "-ProjectId", plan.ProjectID, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", plan.OnboardingPlanSHA256, "-Apply"), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
 		t.Fatalf("input drift error = %v", err)
 	}
 	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {

@@ -34,6 +34,9 @@ type DailyOptions struct {
 	Goal                              string
 	Correction                        string
 	SelectedLane                      string
+	DirectoryAdoptionAction           string
+	ExpectedInitPlanSHA256            string
+	InitializationRepoRoot            string
 	Actor                             string
 	ClaudePath                        string
 	ExpectedClaudeExecutableSHA256    string
@@ -74,6 +77,7 @@ type DailyResult struct {
 	CurrentDriverRequest       *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
 	CurrentDriverRequestSHA256 string                                 `json:"currentDriverRequestSha256,omitempty"`
 	CurrentSyncRecovery        *syncreview.CurrentSyncRecovery        `json:"currentSyncRecovery,omitempty"`
+	DirectoryAdoption          *DailyDirectoryAdoption                `json:"directoryAdoption,omitempty"`
 	Boundary                   []string                               `json:"boundary"`
 }
 
@@ -187,9 +191,15 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			"project-local recovery front door requires a pending durable current project update",
 		)
 	}
+	adoptionRequested := strings.TrimSpace(opt.DirectoryAdoptionAction) != "" ||
+		strings.TrimSpace(opt.ExpectedInitPlanSHA256) != ""
+	if target.Kind != dailyTargetOrdinary && adoptionRequested {
+		return result, fmt.Errorf("daily directory adoption controls require an ordinary directory target")
+	}
 	if target.Kind == dailyTargetOrdinary {
-		result.Blocked = true
-		result.Action = dailyAction(DailyActionDirectoryAdoptionRequired)
+		if err := runDailyDirectoryAdoption(opt, &result); err != nil {
+			return result, err
+		}
 		return result, nil
 	}
 	if exists && opt.onCaseReady != nil {
@@ -246,7 +256,7 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		if goal != "" && goal != strings.TrimSpace(inspection.Identity.Goal) {
 			return result, fmt.Errorf("daily goal differs from the immutable pending mission intent")
 		}
-		if err := recoverDailyOnboarding(inspection, &result); err != nil {
+		if err := recoverDailyOnboarding(caseRoot, inspection, &result); err != nil {
 			return result, err
 		}
 		if err := ensureExecutionLease(caseRoot); err != nil {
@@ -478,16 +488,19 @@ func applyDailyOnboarding(caseRoot, goal, actor string, result *DailyResult) (mi
 	return applied.Inspection, nil
 }
 
-func recoverDailyOnboarding(inspection missionintent.Inspection, result *DailyResult) error {
+func recoverDailyOnboarding(caseRoot string, inspection missionintent.Inspection, result *DailyResult) error {
 	identity := inspection.Identity
-	args := []string{
-		"-Command", "onboard", "-Target", identity.Target, "-Pack", identity.Pack,
-		"-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor,
+	args := []string{"-Command", "onboard", "-Target", caseRoot}
+	if identity.SchemaVersion == 2 {
+		args = append(args, "-ProjectId", identity.ProjectID)
+	}
+	args = append(args,
+		"-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor,
 		"-Executor", identity.Executor, "-InitialLane", identity.InitialLane,
 		"-OnboardingPublicationStamp", inspection.PublicationStamp,
 		"-ExpectedOnboardingPlanSha256", inspection.OnboardingPlanSHA256,
 		"-Apply", "-Format", "json",
-	}
+	)
 	var applied onboarding.Result
 	if err := runPublicCLI(args, &applied); err != nil {
 		return fmt.Errorf("recover daily public onboarding: %w", err)

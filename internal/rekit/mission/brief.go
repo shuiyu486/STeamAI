@@ -236,13 +236,9 @@ func MissionCommanderDriverRequestForEntrypoint(request MissionCommanderDriverRe
 	}
 	if request.Invocation != nil {
 		invocation := clonePublicInvocation(request.Invocation)
-		command := strings.TrimSpace(request.Command)
-		if !strings.HasPrefix(command, strings.TrimSpace(entrypoint)+" ") {
-			var err error
-			command, err = invocation.RenderForEntrypoint(entrypoint)
-			if err != nil {
-				return MissionCommanderDriverRequest{}, err
-			}
+		command, err := invocation.RenderForEntrypoint(entrypoint)
+		if err != nil {
+			return MissionCommanderDriverRequest{}, err
 		}
 		request.Invocation = invocation
 		request.Command = command
@@ -255,11 +251,9 @@ func MissionCommanderDriverRequestForEntrypoint(request MissionCommanderDriverRe
 		if err != nil {
 			return MissionCommanderDriverRequest{}, fmt.Errorf("mission commander driver request refresh status command: %w", err)
 		}
-		if !strings.HasPrefix(refresh, strings.TrimSpace(entrypoint)+" ") {
-			request.ExpectedReceipt.RefreshStatusCommand, err = refreshInvocation.RenderForEntrypoint(entrypoint)
-			if err != nil {
-				return MissionCommanderDriverRequest{}, fmt.Errorf("mission commander driver request refresh status command: %w", err)
-			}
+		request.ExpectedReceipt.RefreshStatusCommand, err = refreshInvocation.RenderForEntrypoint(entrypoint)
+		if err != nil {
+			return MissionCommanderDriverRequest{}, fmt.Errorf("mission commander driver request refresh status command: %w", err)
 		}
 	}
 	if err := ValidateMissionCommanderDriverRequest(request); err != nil {

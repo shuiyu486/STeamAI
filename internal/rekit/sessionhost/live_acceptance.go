@@ -560,11 +560,11 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	}
 	receipt.TerminalReplay = LiveAcceptanceReplay{Verified: true, FinalState: replayResult.FinalState, SessionLaunches: replayResult.SessionLaunches, SessionCompletions: replayResult.SessionCompletions, MutationSHA256: afterReplay}
 	if strings.EqualFold(pack, liveAcceptancePack) {
-		repoRoot, err := currentRepoRoot()
+		replayOpt, err := liveAcceptanceVMPIDARunOptions(caseRoot, lane, receipt.VMPIDA)
 		if err != nil {
-			return receipt, err
+			return receipt, fmt.Errorf("prepare terminal VMP IDA adapter replay: %w", err)
 		}
-		adapterReplay, processID, err := adapterhost.RunAuthorizedGateProcess(receipt.VMPIDA.AdapterPath, liveAcceptanceVMPIDARunOptions(repoRoot, caseRoot, lane, receipt.VMPIDA), 20*time.Second)
+		adapterReplay, processID, err := adapterhost.RunAuthorizedGateProcess(receipt.VMPIDA.AdapterPath, replayOpt, 20*time.Second)
 		if err != nil {
 			return receipt, fmt.Errorf("replay terminal VMP IDA adapter lifecycle: %w", err)
 		}

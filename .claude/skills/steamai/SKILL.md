@@ -12,6 +12,7 @@ argument-hint: "[目标、继续请求、状态查询、纠偏或授权意图]"
 
 - 项目根目录由 `${CLAUDE_PROJECT_DIR}` 定位。
 - 新项目唯一可变状态根是 `${CLAUDE_PROJECT_DIR}/.steamai`。
+- 只接受 `${CLAUDE_PROJECT_DIR}/.steamai/instance.yml` 作为当前项目 metadata。
 - 项目内 runtime 位于 `${CLAUDE_PROJECT_DIR}/.steamai/runtime`，packs 位于 `${CLAUDE_PROJECT_DIR}/.steamai/packs`。
 - 旧 `.rekit` 项目只走兼容入口；`.steamai` 与 `.rekit` 同时存在时立即停止，不拼接两份状态。
 - 不读取或修改用户级 `~/.claude/skills`，不要求安装全局 plugin。

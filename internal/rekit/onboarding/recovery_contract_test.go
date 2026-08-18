@@ -1,7 +1,6 @@
 package onboarding
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
@@ -30,7 +29,14 @@ func TestCurrentPackControlWritesAreAcceptedRecoveryGenerations(t *testing.T) {
 				case "managed-file", "template-file":
 					normalized := append([]byte{}, write.Content...)
 					if write.Kind == "template-file" {
-						normalized = []byte(strings.ReplaceAll(strings.ReplaceAll(string(normalized), plan.Identity.Target, "<PROJECT_ROOT>"), plan.Identity.ProjectName, "<PROJECT_NAME>"))
+						canonical, err := missionintent.CanonicalRecoveryWriteAt(plan.CaseRoot, plan.Identity, missionintent.RecoveryWrite{
+							Path: write.Path, Kind: write.Kind, SHA256: write.SHA256, Size: write.Size,
+							Content: write.Content, PublicationPhase: write.PublicationPhase,
+						})
+						if err != nil {
+							t.Fatal(err)
+						}
+						normalized = canonical.Content
 					}
 					if err := caseshim.ValidatePackRecoveryWrite(fixture.pack, write.Path, write.Kind, missionintent.SHA256(normalized)); err != nil {
 						t.Fatal(err)

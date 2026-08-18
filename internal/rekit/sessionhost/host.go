@@ -22,6 +22,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
@@ -35,11 +36,11 @@ const (
 )
 
 func reviewerResultSnapshotPath(caseRoot, dispatchID string) (string, error) {
-	dispatchID = strings.TrimSpace(dispatchID)
-	if dispatchID == "" || dispatchID == "." || dispatchID == ".." || strings.ContainsAny(dispatchID, `/\\`) {
-		return "", fmt.Errorf("reviewer result snapshot requires an exact dispatch ID")
+	path, err := reviewpath.PlannedResultSnapshotPath(caseRoot, dispatchID)
+	if err != nil {
+		return "", fmt.Errorf("reviewer result snapshot path: %w", err)
 	}
-	return projectstate.Join(caseRoot, "session-host", "reviewer-results", dispatchID+".json")
+	return path, nil
 }
 
 type Options struct {

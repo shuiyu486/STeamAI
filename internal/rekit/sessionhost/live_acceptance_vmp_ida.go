@@ -37,10 +37,6 @@ func prepareLiveAcceptanceVMPIDA(parent context.Context, dailyOpt DailyOptions, 
 	if !strings.EqualFold(pack, liveAcceptancePack) || strings.TrimSpace(lane) == "" {
 		return fmt.Errorf("VMP IDA live acceptance adapter preparation requires the exact pack and lane")
 	}
-	repoRoot, err := currentRepoRoot()
-	if err != nil {
-		return err
-	}
 	if err := writeLiveAcceptanceVMPIDAIndexes(caseRoot); err != nil {
 		return err
 	}
@@ -108,7 +104,10 @@ func prepareLiveAcceptanceVMPIDA(parent context.Context, dailyOpt DailyOptions, 
 	}
 	proof.GateEventID = authorized.EventID
 	proof.Authorization = authorized.Event.Gate.Authorization.Decision
-	runOpt := liveAcceptanceVMPIDARunOptions(repoRoot, caseRoot, lane, proof)
+	runOpt, err := liveAcceptanceVMPIDARunOptions(caseRoot, lane, proof)
+	if err != nil {
+		return err
+	}
 	run, processID, err := adapterhost.RunAuthorizedGateProcess(proof.AdapterPath, runOpt, 20*time.Second)
 	if err != nil {
 		return err
@@ -124,12 +123,16 @@ func prepareLiveAcceptanceVMPIDA(parent context.Context, dailyOpt DailyOptions, 
 	return nil
 }
 
-func liveAcceptanceVMPIDARunOptions(repoRoot, caseRoot, lane string, proof *LiveAcceptanceVMPIDA) adapterhost.AuthorizedRunOptions {
+func liveAcceptanceVMPIDARunOptions(caseRoot, lane string, proof *LiveAcceptanceVMPIDA) (adapterhost.AuthorizedRunOptions, error) {
+	repoRoot, err := runtimeContextForDailyPack(caseRoot, liveAcceptancePack)
+	if err != nil {
+		return adapterhost.AuthorizedRunOptions{}, fmt.Errorf("resolve VMP IDA live acceptance project-local pack root: %w", err)
+	}
 	return adapterhost.AuthorizedRunOptions{
 		RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: liveAcceptancePack,
 		GateEventID: proof.GateEventID, ExecutionReportPath: liveAcceptanceVMPIDAReportPath,
 		AdapterSession: "dpc04-vmp-ida-" + lane, Actor: "mission-commander",
-	}
+	}, nil
 }
 
 func writeLiveAcceptanceVMPIDAIndexes(caseRoot string) error {

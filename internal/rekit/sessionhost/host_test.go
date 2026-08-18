@@ -32,7 +32,7 @@ func TestReviewerResultSnapshotPathUsesSelectedStateRoot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := filepath.Join(caseRoot, tc.dir, "session-host", "reviewer-results", "dispatch-1.json")
+			want := filepath.Join(caseRoot, tc.dir, "reviews", "planned-snapshots", "dispatch-1.json")
 			if path != want {
 				t.Fatalf("snapshot path = %q, want %q", path, want)
 			}

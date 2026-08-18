@@ -77,7 +77,8 @@ func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing
 func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "review-proof")
-	proofPath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "review-proof.candidate-decision-note.md")
+	proofDir := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "review-proof-shared")
+	proofPath := filepath.Join(proofDir, "review-proof.candidate-decision-note.md")
 
 	preview, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "candidate-decision-note", CandidatePath: managed.CandidatePath, Decision: "accept", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, WhatIf: true})
 	if err != nil {
@@ -90,6 +91,9 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
 		t.Fatalf("candidate review proof WhatIf wrote proof file: %v", err)
 	}
+	if _, err := os.Stat(proofDir); !os.IsNotExist(err) {
+		t.Fatalf("candidate review proof WhatIf created proof directory: %v", err)
+	}
 
 	applied, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "candidate-decision-note", CandidatePath: managed.CandidatePath, Decision: "accept", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, ExpectedProofSHA256: preview.ProofSHA256})
 	if err != nil {
@@ -99,6 +103,7 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 		t.Fatalf("unexpected candidate review proof apply: %+v", applied)
 	}
 	assertCandidateDraftDriverRequestForTest(t, applied.MissionCommanderActionQueue, "pack-memory-proof-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
+	assertCandidateReviewProofSharedModes(t, proofPath)
 	data, err := os.ReadFile(proofPath)
 	if err != nil {
 		t.Fatal(err)
@@ -121,6 +126,180 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 		t.Fatalf("candidate review proof replay did not return already-drafted handoff: %+v", replay)
 	}
 	assertCandidateDraftDriverRequestForTest(t, replay.MissionCommanderActionQueue, "pack-memory-proof-already-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
+}
+
+func assertCandidateReviewProofSharedModes(t *testing.T, proofPath string) {
+	t.Helper()
+	if filepath.Separator == '\\' {
+		return
+	}
+	proofInfo, err := os.Stat(proofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proofInfo.Mode().Perm() != 0o644 {
+		t.Fatalf("candidate review proof mode=%#o, want 0644", proofInfo.Mode().Perm())
+	}
+	directoryInfo, err := os.Stat(filepath.Dir(proofPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directoryInfo.Mode().Perm() != 0o755 {
+		t.Fatalf("candidate review proof directory mode=%#o, want 0755", directoryInfo.Mode().Perm())
+	}
+}
+
+func TestDraftCandidateProofRejectsAliasBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		proofType string
+		lifecycle bool
+	}{
+		{name: "review", proofType: "candidate-decision-note"},
+		{name: "lifecycle", proofType: "fresh-case-reconsume-proof", lifecycle: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := promoteFixture(t)
+			created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "proof-alias")
+			reviewArtifacts := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts")
+			if err := os.MkdirAll(reviewArtifacts, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			evidenceRefs := created.ReviewWorkspace.CombinedDiffPath
+			if test.lifecycle {
+				evidencePath := filepath.Join(reviewArtifacts, "proof-evidence.md")
+				writeText(t, evidencePath, "bounded proof evidence\n")
+				evidenceRefs = evidencePath
+			}
+			opt := CandidateReviewProofDraftOptions{
+				PacketPath:    created.ReviewWorkspace.PacketPath,
+				ProofPath:     filepath.Join(reviewArtifacts, test.name+"-safe-preview.json"),
+				ProofType:     test.proofType,
+				CandidatePath: managed.CandidatePath,
+				Decision:      "accept",
+				Reason:        "reparse alias must fail closed",
+				Actor:         "mission-commander",
+				EvidenceRefs:  evidenceRefs,
+				WhatIf:        true,
+			}
+			if test.lifecycle {
+				opt.Decision = ""
+			}
+			var previewProofSHA string
+			var proofBytes []byte
+			if test.lifecycle {
+				preview, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, opt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				previewProofSHA = preview.ProofSHA256
+				proofBytes, err = json.MarshalIndent(preview.Proof, "", "  ")
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				preview, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, opt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				previewProofSHA = preview.ProofSHA256
+				proofBytes, err = json.MarshalIndent(preview.Proof, "", "  ")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			proofBytes = append(proofBytes, '\n')
+			if previewProofSHA == "" || sha256Hex(proofBytes) != previewProofSHA {
+				t.Fatalf("proof alias preview bytes do not match proof hash: %s", previewProofSHA)
+			}
+			outside := t.TempDir()
+			outsideProofPath := filepath.Join(outside, "nested", "proof.json")
+			if err := os.MkdirAll(filepath.Dir(outsideProofPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(outsideProofPath, proofBytes, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(reviewArtifacts, "alias")
+			if err := os.Symlink(outside, alias); err != nil {
+				t.Skipf("symlink creation unavailable: %v", err)
+			}
+			opt.ProofPath = filepath.Join(alias, "nested", "proof.json")
+			if test.lifecycle {
+				if _, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, opt); err == nil {
+					t.Fatal("lifecycle proof WhatIf accepted exact bytes through alias")
+				}
+			} else if _, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, opt); err == nil {
+				t.Fatal("review proof WhatIf accepted exact bytes through alias")
+			}
+			opt.WhatIf = false
+			opt.ExpectedProofSHA256 = previewProofSHA
+			var err error
+			if test.lifecycle {
+				_, err = DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, opt)
+			} else {
+				_, err = DraftCandidateReviewProof(repoRoot, caseRoot, pack, opt)
+			}
+			if err == nil {
+				t.Fatal("proof draft through alias unexpectedly succeeded")
+			}
+			if outsideBytes, readErr := os.ReadFile(outsideProofPath); readErr != nil || !bytes.Equal(outsideBytes, proofBytes) {
+				t.Fatalf("proof alias changed exact outside proof: err=%v bytes=%q", readErr, outsideBytes)
+			}
+			entries, readErr := os.ReadDir(filepath.Dir(outsideProofPath))
+			if readErr != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(outsideProofPath) {
+				t.Fatalf("proof alias created outside side effects: entries=%v err=%v", entries, readErr)
+			}
+			info, statErr := os.Lstat(alias)
+			if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("proof alias was modified or removed: info=%v err=%v", info, statErr)
+			}
+		})
+	}
+}
+
+func TestDraftCandidateLifecycleProofRejectsSymlinkCandidateBeforeReadingOutside(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation is not reliably available on Windows test hosts")
+	}
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "lifecycle-candidate-symlink")
+	outside := t.TempDir()
+	outsideCandidate := filepath.Join(outside, "candidate.md")
+	if err := os.WriteFile(outsideCandidate, []byte("outside candidate must not be read\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(managed.CandidatePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideCandidate, managed.CandidatePath); err != nil {
+		t.Fatal(err)
+	}
+	proofPath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "lifecycle-candidate-symlink.json")
+	_, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{
+		PacketPath:    created.ReviewWorkspace.PacketPath,
+		ProofPath:     proofPath,
+		ProofType:     "fresh-case-reconsume-proof",
+		CandidatePath: managed.CandidatePath,
+		Reason:        "canonical candidate must not traverse an external symlink",
+		Actor:         "mission-commander",
+		EvidenceRefs:  created.ReviewWorkspace.CombinedDiffPath,
+		WhatIf:        true,
+	})
+	if err == nil {
+		t.Fatal("lifecycle proof WhatIf accepted a candidate symlink to an outside file")
+	}
+	if _, statErr := os.Lstat(proofPath); !os.IsNotExist(statErr) {
+		t.Fatalf("lifecycle proof WhatIf wrote proof after candidate rejection: %v", statErr)
+	}
+	info, statErr := os.Lstat(managed.CandidatePath)
+	if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("candidate symlink was modified or removed: info=%v err=%v", info, statErr)
+	}
+	outsideBytes, readErr := os.ReadFile(outsideCandidate)
+	if readErr != nil || string(outsideBytes) != "outside candidate must not be read\n" {
+		t.Fatalf("outside candidate changed while rejecting symlink: err=%v bytes=%q", readErr, outsideBytes)
+	}
 }
 
 func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testing.T) {

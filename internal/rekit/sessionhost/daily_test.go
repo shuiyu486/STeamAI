@@ -520,7 +520,7 @@ func TestRunDailyReturnsOrdinaryDirectoryAdoptionWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Blocked || result.Action == nil || result.Action.Code != DailyActionDirectoryAdoptionRequired || !result.Action.RequiresInput || len(result.Action.Choices) != 2 || result.Action.Choices[0].ID != "initialize-in-place" || result.Action.Choices[1].ID != "cancel" {
+	if result.FinalState != DailyActionDirectoryAdoptionRequired || !result.Blocked || result.Action == nil || result.Action.Code != DailyActionDirectoryAdoptionRequired || !result.Action.RequiresInput || len(result.Action.Choices) != 2 || result.Action.Choices[0].ID != "initialize-in-place" || result.Action.Choices[1].ID != "cancel" {
 		t.Fatalf("ordinary directory action = %+v", result)
 	}
 	if readyCalls != 0 || result.SessionLaunches != 0 || len(result.HostRuns) != 0 {
@@ -531,6 +531,111 @@ func TestRunDailyReturnsOrdinaryDirectoryAdoptionWithoutMutation(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.IntentRel))); !os.IsNotExist(err) {
 		t.Fatalf("ordinary directory adoption preview wrote intent: %v", err)
+	}
+}
+
+func TestRunDailyDirectoryAdoptionPreviewApplyAndFreshOnboarding(t *testing.T) {
+	repoRoot := sessionhostTestRepoRoot(t)
+	caseRoot := t.TempDir()
+	userPath := filepath.Join(caseRoot, "user.txt")
+	original := []byte("keep\n")
+	if err := os.WriteFile(userPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := RunDaily(context.Background(), DailyOptions{
+		Target:                  caseRoot,
+		Goal:                    "inspect this project",
+		DirectoryAdoptionAction: dailyAdoptionInitialize,
+		InitializationRepoRoot:  repoRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.FinalState != DailyActionConfirmationRequired || !preview.Blocked || preview.Action == nil || preview.Action.Code != DailyActionConfirmationRequired || preview.DirectoryAdoption == nil || preview.DirectoryAdoption.Plan == nil || !preview.DirectoryAdoption.Plan.AdoptionReady || len(preview.DirectoryAdoption.Plan.ExpectedPlanSHA256) != 64 || preview.SessionLaunches != 0 || len(preview.HostRuns) != 0 {
+		t.Fatalf("ordinary directory adoption preview = %+v", preview)
+	}
+	if content, readErr := os.ReadFile(userPath); readErr != nil || !bytes.Equal(content, original) {
+		t.Fatalf("adoption preview changed user file: %q err=%v", content, readErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, projectstate.CurrentDir)); !os.IsNotExist(statErr) {
+		t.Fatalf("adoption preview wrote project state: %v", statErr)
+	}
+
+	stale, staleErr := RunDaily(context.Background(), DailyOptions{
+		Target:                  caseRoot,
+		Goal:                    "inspect this project",
+		DirectoryAdoptionAction: dailyAdoptionConfirm,
+		ExpectedInitPlanSHA256:  strings.Repeat("0", 64),
+		InitializationRepoRoot:  repoRoot,
+	})
+	if staleErr == nil || !strings.Contains(staleErr.Error(), "plan changed after preview") || stale.SessionLaunches != 0 || len(stale.HostRuns) != 0 {
+		t.Fatalf("stale adoption confirmation = %+v err=%v", stale, staleErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, projectstate.CurrentDir)); !os.IsNotExist(statErr) {
+		t.Fatalf("stale adoption confirmation wrote project state: %v", statErr)
+	}
+
+	applied, err := RunDaily(context.Background(), DailyOptions{
+		Target:                  caseRoot,
+		Goal:                    "inspect this project",
+		DirectoryAdoptionAction: dailyAdoptionConfirm,
+		ExpectedInitPlanSHA256:  preview.DirectoryAdoption.Plan.ExpectedPlanSHA256,
+		InitializationRepoRoot:  repoRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.FinalState != DailyActionReadyToContinue || applied.Blocked || applied.Action == nil || applied.Action.Code != DailyActionReadyToContinue || applied.DirectoryAdoption == nil || applied.DirectoryAdoption.Apply == nil || !applied.DirectoryAdoption.Apply.Applied || applied.SessionLaunches != 0 || len(applied.HostRuns) != 0 || applied.OnboardingApplied {
+		t.Fatalf("ordinary directory adoption Apply = %+v", applied)
+	}
+	if content, readErr := os.ReadFile(userPath); readErr != nil || !bytes.Equal(content, original) {
+		t.Fatalf("adoption Apply changed user file: %q err=%v", content, readErr)
+	}
+	if target, classifyErr := classifyDailyTarget(caseRoot); classifyErr != nil || target.Kind != dailyTargetAttached {
+		t.Fatalf("adopted target = %+v err=%v", target, classifyErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, projectstate.LegacyDir)); !os.IsNotExist(statErr) {
+		t.Fatalf("adoption wrote legacy state: %v", statErr)
+	}
+
+	fresh := DailyResult{CaseRoot: caseRoot}
+	if _, err := applyDailyOnboarding(caseRoot, "inspect this project", "daily-adoption-test", &fresh); err != nil {
+		t.Fatal(err)
+	}
+	if !fresh.OnboardingApplied {
+		t.Fatalf("fresh onboarding did not own the post-adoption mission: %+v", fresh)
+	}
+}
+
+func TestRunDailyDirectoryAdoptionCancelAndControlValidationAreZeroWrite(t *testing.T) {
+	caseRoot := t.TempDir()
+	userPath := filepath.Join(caseRoot, "user.txt")
+	original := []byte("keep\n")
+	if err := os.WriteFile(userPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: "inspect this project", DirectoryAdoptionAction: dailyAdoptionCancel,
+	})
+	if err != nil || cancelled.FinalState != "directory-adoption-cancelled" || cancelled.Action == nil || cancelled.Action.Code != DailyActionCompleted || cancelled.SessionLaunches != 0 {
+		t.Fatalf("directory adoption cancel = %+v err=%v", cancelled, err)
+	}
+	if content, readErr := os.ReadFile(userPath); readErr != nil || !bytes.Equal(content, original) {
+		t.Fatalf("adoption cancel changed user file: %q err=%v", content, readErr)
+	}
+	if _, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: "inspect this project", DirectoryAdoptionAction: "unknown",
+	}); err == nil || !strings.Contains(err.Error(), "unknown daily directory adoption action") {
+		t.Fatalf("unknown adoption action error = %v", err)
+	}
+	if _, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: "inspect this project", ExpectedInitPlanSHA256: strings.Repeat("0", 64),
+	}); err == nil || !strings.Contains(err.Error(), "requires an exact adoption action") {
+		t.Fatalf("unowned adoption hash error = %v", err)
+	}
+	if content, readErr := os.ReadFile(userPath); readErr != nil || !bytes.Equal(content, original) {
+		t.Fatalf("invalid adoption controls changed user file: %q err=%v", content, readErr)
 	}
 }
 

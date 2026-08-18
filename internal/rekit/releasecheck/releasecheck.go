@@ -38,10 +38,56 @@ type Result struct {
 	CaseShim              caseshim.Readiness     `json:"caseShim"` // Legacy /rekit + .rekit compatibility gate; retained key preserves schema history.
 	PublicDefaultDocs     defaultdocs.Readiness  `json:"publicDefaultDocs"`
 	ReleaseHandoff        ReleaseHandoff         `json:"releaseHandoff"`
+	ReadinessLayers       ReadinessLayers        `json:"readinessLayers"`
 	HeavyToolGateActions  []string               `json:"heavyToolGateActions"`
 	Boundaries            []string               `json:"boundaries"`
 	KnownGaps             []string               `json:"knownGaps"`
 	Warnings              []string               `json:"warnings"`
+}
+
+type ReadinessLayers struct {
+	RepositoryInventory RepositoryInventoryReadinessLayer `json:"repositoryInventory"`
+	LocalValidation     LocalValidationReadinessLayer     `json:"localValidation"`
+	GitLocalPublication GitLocalPublicationReadinessLayer `json:"gitLocalPublication"`
+	RemoteCI            RemoteCIReadinessLayer            `json:"remoteCI"`
+	FormalRelease       FormalReleaseReadinessLayer       `json:"formalRelease"`
+}
+
+type RepositoryInventoryReadinessLayer struct {
+	State string `json:"state"`
+	Ready bool   `json:"ready"`
+}
+
+type LocalValidationReadinessLayer struct {
+	State                         string `json:"state"`
+	Ready                         bool   `json:"ready"`
+	ExactReceiptInspectionPresent bool   `json:"exactReceiptInspectionPresent"`
+}
+
+type GitLocalPublicationReadinessLayer struct {
+	State                           string `json:"state"`
+	Ready                           bool   `json:"ready"`
+	ExactPostPushObservationPresent bool   `json:"exactPostPushObservationPresent"`
+	LocalTrackingRefOnly            bool   `json:"localTrackingRefOnly"`
+}
+
+type RemoteCIReadinessLayer struct {
+	State                        string                   `json:"state"`
+	StructuredObservationPresent bool                     `json:"structuredObservationPresent"`
+	CanClaimGreen                bool                     `json:"canClaimGreen"`
+	DocumentedClaim              ReadinessDocumentedClaim `json:"documentedClaim"`
+}
+
+type ReadinessDocumentedClaim struct {
+	Present       bool   `json:"present"`
+	Claim         string `json:"claim"`
+	Source        string `json:"source"`
+	Authoritative bool   `json:"authoritative"`
+}
+
+type FormalReleaseReadinessLayer struct {
+	State            string `json:"state"`
+	CanClaimReleased bool   `json:"canClaimReleased"`
 }
 
 type ReleaseCheckResultCounts struct {
@@ -228,7 +274,52 @@ func Build(repoRoot string) (Result, error) {
 	if !check.Ready {
 		check.Summary = "release gate inventory has warnings"
 	}
+	check.ReadinessLayers = readinessLayers(check)
 	return check, nil
+}
+
+func readinessLayers(result Result) ReadinessLayers {
+	layers := ReadinessLayers{
+		RepositoryInventory: RepositoryInventoryReadinessLayer{
+			State: "not-ready",
+			Ready: result.Ready,
+		},
+		LocalValidation: LocalValidationReadinessLayer{
+			State: "not-observed",
+		},
+		GitLocalPublication: GitLocalPublicationReadinessLayer{
+			State:                "not-observed",
+			LocalTrackingRefOnly: true,
+		},
+		RemoteCI: RemoteCIReadinessLayer{
+			State: "not-observed",
+			DocumentedClaim: ReadinessDocumentedClaim{
+				Source: "releaseHandoff.latestBatch.handoff.remoteReleaseGate",
+			},
+		},
+		FormalRelease: FormalReleaseReadinessLayer{
+			State: "not-evaluated",
+		},
+	}
+	if result.Ready {
+		layers.RepositoryInventory.State = "ready"
+	}
+	latest := result.ReleaseHandoff.LatestBatch.Handoff
+	if inspection := latest.LocalValidationReceipt; inspection != nil {
+		layers.LocalValidation.State = inspection.State
+		layers.LocalValidation.ExactReceiptInspectionPresent = true
+		layers.LocalValidation.Ready = inspection.Ready && inspection.State == "validated-implementation-commit"
+	}
+	if receipt := latest.PostPushReceipt; receipt != nil {
+		layers.GitLocalPublication.State = receipt.State
+		layers.GitLocalPublication.ExactPostPushObservationPresent = true
+		layers.GitLocalPublication.Ready = receipt.Ready && receipt.State == "post-push-complete"
+	}
+	if claim := strings.TrimSpace(latest.RemoteReleaseGate); claim != "" && claim != "not-recorded" {
+		layers.RemoteCI.DocumentedClaim.Present = true
+		layers.RemoteCI.DocumentedClaim.Claim = claim
+	}
+	return layers
 }
 
 func loadCatalog(repo string) (catalog, error) {

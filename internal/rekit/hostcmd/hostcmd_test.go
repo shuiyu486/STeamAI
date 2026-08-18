@@ -106,6 +106,69 @@ func TestRunDailyDirectoryAdoptionEmitsTypedActionWithoutMutation(t *testing.T) 
 	}
 }
 
+func TestRunDailyDirectoryAdoptionPreviewAndApplyBridge(t *testing.T) {
+	caseRoot := t.TempDir()
+	userPath := filepath.Join(caseRoot, "user.txt")
+	original := []byte("keep\n")
+	if err := os.WriteFile(userPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	previewCode := Run([]string{
+		"-daily", "-target", caseRoot,
+		"-directory-adoption-action", "initialize-in-place",
+	}, &stdout, &stderr)
+	if previewCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("daily adoption preview exit=%d stderr=%q", previewCode, stderr.String())
+	}
+	var preview sessionhost.DailyResult
+	if err := json.Unmarshal(stdout.Bytes(), &preview); err != nil {
+		t.Fatalf("daily adoption preview JSON: %v\n%s", err, stdout.String())
+	}
+	if preview.Action == nil || preview.Action.Code != sessionhost.DailyActionConfirmationRequired || preview.DirectoryAdoption == nil || preview.DirectoryAdoption.Plan == nil || !preview.DirectoryAdoption.Plan.AdoptionReady || len(preview.DirectoryAdoption.Plan.ExpectedPlanSHA256) != 64 || preview.SessionLaunches != 0 {
+		t.Fatalf("daily adoption preview = %+v", preview)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(err) {
+		t.Fatalf("daily adoption preview wrote project state: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	applyCode := Run([]string{
+		"-daily", "-target", caseRoot,
+		"-directory-adoption-action", "confirm-exact-plan",
+		"-expected-init-plan-sha256", preview.DirectoryAdoption.Plan.ExpectedPlanSHA256,
+	}, &stdout, &stderr)
+	if applyCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("daily adoption Apply exit=%d stderr=%q", applyCode, stderr.String())
+	}
+	var applied sessionhost.DailyResult
+	if err := json.Unmarshal(stdout.Bytes(), &applied); err != nil {
+		t.Fatalf("daily adoption Apply JSON: %v\n%s", err, stdout.String())
+	}
+	if applied.Action == nil || applied.Action.Code != sessionhost.DailyActionReadyToContinue || applied.DirectoryAdoption == nil || applied.DirectoryAdoption.Apply == nil || !applied.DirectoryAdoption.Apply.Applied || applied.OnboardingApplied || applied.SessionLaunches != 0 {
+		t.Fatalf("daily adoption Apply = %+v", applied)
+	}
+	if content, err := os.ReadFile(userPath); err != nil || !bytes.Equal(content, original) {
+		t.Fatalf("daily adoption bridge changed user file: %q err=%v", content, err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(err) {
+		t.Fatalf("daily adoption bridge wrote legacy state: %v", err)
+	}
+}
+
+func TestRunProjectLocalRejectsOrdinaryDirectoryAdoptionControls(t *testing.T) {
+	projectRoot := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := RunProjectLocal([]string{
+		"-daily", "-directory-adoption-action", "initialize-in-place",
+	}, &stdout, &stderr, projectRoot)
+	if code != 2 || !strings.Contains(stderr.String(), "cannot adopt an ordinary directory") || stdout.Len() != 0 {
+		t.Fatalf("project-local adoption controls exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunDailyFailureEmitsTypedRecoveryBeforeNonzeroExit(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "missing")
 	var stdout, stderr bytes.Buffer

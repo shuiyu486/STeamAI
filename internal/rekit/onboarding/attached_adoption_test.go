@@ -66,6 +66,7 @@ func TestAttachedAdoptionPreviewApplyAndReplay(t *testing.T) {
 		t.Fatalf("attached preview wrote intent: %v", err)
 	}
 
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	applied, err := Apply(repo, opt)
@@ -123,6 +124,7 @@ func TestAttachedAdoptionRejectsSnapshotDriftWithoutWriting(t *testing.T) {
 	if err := os.WriteFile(path, append(state, ' '), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	if _, err := Apply(repo, opt); err == nil || !strings.Contains(err.Error(), "snapshot changed") {
@@ -161,6 +163,7 @@ func TestAttachedAdoptionPendingRecoveryRejectsMissionControlState(t *testing.T)
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	if _, err := Apply(repo, opt); err == nil || !strings.Contains(err.Error(), "refuses existing Mission Control state") {
@@ -179,6 +182,7 @@ func TestAttachedAdoptionRevalidatesSnapshotBeforeCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	attachedAdoptionBeforeCommitHook = func() error {
@@ -211,6 +215,7 @@ func TestAttachedAdoptionRevalidatesMissionControlBeforeCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	attachedAdoptionBeforeCommitHook = func() error {
@@ -242,6 +247,7 @@ func TestAttachedAdoptionRecoversIntentOnlyPublication(t *testing.T) {
 	if err != nil || inspection.State != "pending" || inspection.Recovery.Mode != "attached-adoption" {
 		t.Fatalf("intent-only attached inspection = %+v err=%v", inspection, err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	result, err := Apply(repo, opt)

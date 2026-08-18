@@ -10,6 +10,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -27,6 +28,7 @@ func TestPreviewApplyReplayAndIdentityDrift(t *testing.T) {
 	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
 		t.Fatalf("preview wrote target: %v", err)
 	}
+	opt.ProjectID = plan.ProjectID
 	opt.PublicationStamp = plan.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = plan.OnboardingPlanSHA256
 	result, err := Apply(repo, opt)
@@ -62,6 +64,140 @@ func TestPreviewApplyReplayAndIdentityDrift(t *testing.T) {
 	}
 }
 
+func TestCurrentV2ApplyCopyAndMoveRemainReplayable(t *testing.T) {
+	repo := testRepoRoot(t)
+	base := t.TempDir()
+	original := filepath.Join(base, "original")
+	opt := testOptions(original)
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Identity.SchemaVersion != 2 || preview.Identity.Target != "." || len(preview.ProjectID) != 16 || preview.CaseRoot != original {
+		t.Fatalf("current v2 preview identity = %+v caseRoot=%s", preview.Identity, preview.CaseRoot)
+	}
+	bindingPath := projectstate.CurrentRel("project-binding.json")
+	bindingFound := false
+	for _, write := range preview.Writes {
+		if write.Path == bindingPath && write.Kind == "project-binding" && write.PublicationPhase == 2 {
+			bindingFound = true
+		}
+	}
+	if !bindingFound {
+		t.Fatalf("current v2 preview omitted project binding: %+v", preview.Writes)
+	}
+	opt.ProjectID = preview.ProjectID
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	applied, err := Apply(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Inspection.Committed || applied.Inspection.ProjectBinding == nil || applied.Inspection.Identity.ProjectID != preview.ProjectID {
+		t.Fatalf("current v2 Apply = %+v", applied)
+	}
+
+	copied := filepath.Join(base, "copied")
+	if err := os.CopyFS(copied, os.DirFS(original)); err != nil {
+		t.Fatal(err)
+	}
+	copyOpt := opt
+	copyOpt.Target = copied
+	copyReplay, err := Apply(repo, copyOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copyReplay.Applied || !copyReplay.Replay || copyReplay.CaseRoot != copied || copyReplay.Inspection.Identity.ProjectID != preview.ProjectID {
+		t.Fatalf("copied v2 replay = %+v", copyReplay)
+	}
+
+	moved := filepath.Join(base, "moved")
+	if err := os.Rename(original, moved); err != nil {
+		t.Fatal(err)
+	}
+	moveOpt := opt
+	moveOpt.Target = moved
+	moveReplay, err := Apply(repo, moveOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moveReplay.Applied || !moveReplay.Replay || moveReplay.CaseRoot != moved || moveReplay.Inspection.Identity.ProjectID != preview.ProjectID {
+		t.Fatalf("moved v2 replay = %+v", moveReplay)
+	}
+}
+
+func TestCurrentV2IntentOnlyRecoveryMaterializesCopiedAndMovedRoots(t *testing.T) {
+	repo := testRepoRoot(t)
+	base := t.TempDir()
+	original := filepath.Join(base, "pending-original")
+	opt := testOptions(original)
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.ProjectID = preview.ProjectID
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	paths, err := missionintent.Paths(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore := syncreview.SetExclusiveInitLeafWriteHookForTest(func(stage, path string) error {
+		if stage == "before-publish" && path != paths.Intent {
+			return os.ErrClosed
+		}
+		return nil
+	})
+	if _, err := Apply(repo, opt); err == nil {
+		restore()
+		t.Fatal("hooked v2 Apply unexpectedly completed")
+	}
+	restore()
+	inspection, err := missionintent.Inspect(original)
+	if err != nil || inspection.State != "pending" || inspection.Identity.ProjectID != preview.ProjectID {
+		t.Fatalf("intent-only v2 inspection = %+v err=%v", inspection, err)
+	}
+
+	copied := filepath.Join(base, "pending-copied")
+	if err := os.CopyFS(copied, os.DirFS(original)); err != nil {
+		t.Fatal(err)
+	}
+	copyOpt := opt
+	copyOpt.Target = copied
+	copyResult, err := Apply(repo, copyOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRecoveredTemplateRoot(t, copied, original, copyResult)
+
+	moved := filepath.Join(base, "pending-moved")
+	if err := os.Rename(original, moved); err != nil {
+		t.Fatal(err)
+	}
+	moveOpt := opt
+	moveOpt.Target = moved
+	moveResult, err := Apply(repo, moveOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRecoveredTemplateRoot(t, moved, original, moveResult)
+}
+
+func assertRecoveredTemplateRoot(t *testing.T, caseRoot, oldRoot string, result Result) {
+	t.Helper()
+	if !result.Inspection.Committed || result.Inspection.Identity.ProjectID == "" {
+		t.Fatalf("recovered v2 result = %+v", result)
+	}
+	templatePath := filepath.Join(caseRoot, "references", "template", "task-handoff.md")
+	content, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), caseRoot) || strings.Contains(string(content), oldRoot) || strings.Contains(string(content), "<PROJECT_ROOT>") {
+		t.Fatalf("recovered template did not bind current physical root %s:\n%s", caseRoot, content)
+	}
+}
+
 func TestApplyRecoversPartialExactPublication(t *testing.T) {
 	repo := testRepoRoot(t)
 	caseRoot := filepath.Join(t.TempDir(), "partial")
@@ -80,6 +216,7 @@ func TestApplyRecoversPartialExactPublication(t *testing.T) {
 		}
 		return nil
 	})
+	opt.ProjectID = plan.ProjectID
 	opt.PublicationStamp = plan.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = plan.OnboardingPlanSHA256
 	if _, err := Apply(repo, opt); err == nil {
@@ -107,6 +244,7 @@ func TestApplyIntentOnlyRecoversAfterLiveSourceDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	restore := syncreview.SetExclusiveInitLeafWriteHookForTest(func(stage, path string) error {
@@ -150,6 +288,7 @@ func TestPendingBundleRecoveryDoesNotRequireOriginalKitRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	restore := syncreview.SetExclusiveInitLeafWriteHookForTest(func(stage, path string) error {
@@ -270,6 +409,7 @@ func TestStrictTamperRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = plan.ProjectID
 	opt.PublicationStamp = plan.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = plan.OnboardingPlanSHA256
 	if _, err := Apply(repo, opt); err != nil {
@@ -300,6 +440,7 @@ func TestFreshApplyRejectsSourceDriftWithoutWriting(t *testing.T) {
 	if err := os.WriteFile(source, append(append([]byte{}, original...), []byte("\nsource drift fixture\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	if _, err := Apply(repo, opt); err == nil {

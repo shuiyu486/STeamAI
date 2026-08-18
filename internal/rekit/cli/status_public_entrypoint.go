@@ -328,6 +328,20 @@ func projectLaneExecutorActionPublicEntrypoint(snapshot *mission.LaneExecutorAct
 	return projectExecutorActionPublicEntrypoint(&snapshot.ExecutorAction, entrypoint)
 }
 
+func projectMissionBriefPublicEntrypoint(brief *mission.Brief, entrypoint string) error {
+	if brief == nil {
+		return nil
+	}
+	for index := range brief.NextAgentActions {
+		projected, err := projectPublicCommandForEntrypoint(brief.NextAgentActions[index], entrypoint)
+		if err != nil {
+			return fmt.Errorf("nextAgentActions[%d]: %w", index, err)
+		}
+		brief.NextAgentActions[index] = projected
+	}
+	return nil
+}
+
 func projectExecutorActionPublicEntrypoint(action *mission.ExecutorAction, entrypoint string) error {
 	if action == nil {
 		return nil
@@ -340,6 +354,12 @@ func projectExecutorActionPublicEntrypoint(action *mission.ExecutorAction, entry
 	action.HandoffCommand, err = projectPublicCommandForEntrypoint(action.HandoffCommand, entrypoint)
 	if err != nil {
 		return fmt.Errorf("handoffCommand: %w", err)
+	}
+	for index := range action.NextAgentActions {
+		action.NextAgentActions[index], err = projectPublicCommandForEntrypoint(action.NextAgentActions[index], entrypoint)
+		if err != nil {
+			return fmt.Errorf("nextAgentActions[%d]: %w", index, err)
+		}
 	}
 	if err := projectMissionCommanderActionPublicEntrypoint(&action.MissionCommanderAction, entrypoint); err != nil {
 		return fmt.Errorf("missionCommanderAction: %w", err)
@@ -693,22 +713,58 @@ func projectSkillEntrypointSelector(command, entrypoint string) (string, error) 
 }
 
 func projectPublicCommandForEntrypoint(command, entrypoint string) (string, error) {
+	original := command
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return "", nil
 	}
-	if command != commands.LegacyPublicEntrypoint &&
-		command != commands.CurrentPublicEntrypoint &&
-		!strings.HasPrefix(command, commands.LegacyPublicEntrypoint+" ") &&
-		!strings.HasPrefix(command, commands.CurrentPublicEntrypoint+" ") {
-		return command, nil
+	if !strings.HasPrefix(command, "/") {
+		return original, nil
 	}
 	invocation, err := commands.ParsePublicInvocation(command)
 	if err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(command, entrypoint+" ") {
-		return command, nil
+	return invocation.RenderForEntrypoint(entrypoint)
+}
+
+func projectPublicCommandOrProseForEntrypoint(text, entrypoint string) (string, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || !startsWithPublicEntrypoint(trimmed) {
+		return text, nil
+	}
+	invocation, err := commands.ParsePublicInvocation(trimmed)
+	if err != nil {
+		return "", err
+	}
+	if !publicInvocationShapeIsCommand(invocation) {
+		return text, nil
 	}
 	return invocation.RenderForEntrypoint(entrypoint)
+}
+
+func startsWithPublicEntrypoint(text string) bool {
+	for _, entrypoint := range []string{commands.LegacyPublicEntrypoint, commands.CurrentPublicEntrypoint} {
+		if text == entrypoint || strings.HasPrefix(text, entrypoint+" ") ||
+			strings.HasPrefix(text, entrypoint+"\t") ||
+			strings.HasPrefix(text, entrypoint+"\r") ||
+			strings.HasPrefix(text, entrypoint+"\n") {
+			return true
+		}
+	}
+	return false
+}
+
+func publicInvocationShapeIsCommand(invocation commands.PublicInvocation) bool {
+	if len(invocation.Arguments) == 0 || strings.HasPrefix(strings.TrimSpace(invocation.Arguments[0]), "-") {
+		return true
+	}
+	switch invocation.Command {
+	case commands.Start, commands.Handoff, commands.Complete,
+		commands.Reopen, commands.Continue, commands.Reconcile:
+		return len(invocation.Arguments) == 1 ||
+			strings.HasPrefix(strings.TrimSpace(invocation.Arguments[1]), "-")
+	default:
+		return false
+	}
 }

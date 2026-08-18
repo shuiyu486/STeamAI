@@ -1,6 +1,7 @@
 package releasecheck
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -114,6 +115,9 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected CI release gate inventory: %+v", gate)
 	}
+	if gate.Kind != "workflow-definition" || !gate.DefinitionReady || gate.DefinitionReady != gate.Ready || gate.ReadyMeaning != "workflow-definition" || gate.ProvesRemoteExecution || gate.ProvesRemoteGreen {
+		t.Fatalf("CI release gate readiness meaning drifted: %+v", gate)
+	}
 	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 18 || counts.ForbiddenStrings == 0 {
 		t.Fatalf("CI release gate omitted required sections: %+v", gate)
 	}
@@ -177,14 +181,201 @@ jobs:
         run: pack-smoke-matrix.ps1
 `)
 	gate := ciReleaseGate(repo)
-	if gate.Ready {
+	if gate.Ready || gate.DefinitionReady || gate.DefinitionReady != gate.Ready {
 		t.Fatalf("CI release gate unexpectedly ready despite drift: %+v", gate)
+	}
+	if gate.Kind != "workflow-definition" || gate.ReadyMeaning != "workflow-definition" || gate.ProvesRemoteExecution || gate.ProvesRemoteGreen {
+		t.Fatalf("drifted CI release gate changed readiness meaning: %+v", gate)
 	}
 	assertWarningContains(t, gate.Warnings, "go-checks-windows")
 	assertWarningContains(t, gate.Warnings, "go-checks-macos")
 	assertWarningContains(t, gate.Warnings, "go run ./cmd/rekit -- -Command status")
 	assertWarningContains(t, gate.Warnings, "go vet ./...")
 	assertWarningContains(t, gate.Warnings, "pack-smoke-matrix.ps1")
+}
+
+func TestCIReleaseGateMissingWorkflowInitializesDefinitionMeaning(t *testing.T) {
+	gate := ciReleaseGate(t.TempDir())
+	if gate.Ready || gate.DefinitionReady || gate.DefinitionReady != gate.Ready {
+		t.Fatalf("missing CI workflow should make its definition not ready: %+v", gate)
+	}
+	if gate.Kind != "workflow-definition" || gate.ReadyMeaning != "workflow-definition" || gate.ProvesRemoteExecution || gate.ProvesRemoteGreen {
+		t.Fatalf("missing CI workflow returned incomplete readiness meaning: %+v", gate)
+	}
+}
+
+func TestReadinessLayersWorkflowDefinitionReadyDoesNotPromoteRemoteCI(t *testing.T) {
+	result := Result{CIReleaseGate: CIReleaseGate{
+		Ready:                 true,
+		Kind:                  "workflow-definition",
+		DefinitionReady:       true,
+		ReadyMeaning:          "workflow-definition",
+		ProvesRemoteExecution: false,
+		ProvesRemoteGreen:     false,
+	}}
+
+	layers := readinessLayers(result)
+	if layers.RemoteCI.State != "not-observed" || layers.RemoteCI.StructuredObservationPresent || layers.RemoteCI.CanClaimGreen {
+		t.Fatalf("workflow definition readiness promoted remote CI truth: gate=%+v remote=%+v", result.CIReleaseGate, layers.RemoteCI)
+	}
+}
+
+func TestReadinessLayersLocalReceiptReadyDoesNotPromoteRemoteCI(t *testing.T) {
+	result := Result{
+		Ready: true,
+		ReleaseHandoff: ReleaseHandoff{LatestBatch: ReleaseHandoffLatestBatch{Handoff: ReleaseHandoffLatestBatchHandoff{
+			LocalValidationReceipt: &LocalValidationReceiptInspection{
+				Ready: true,
+				State: "validated-implementation-commit",
+			},
+		}}},
+	}
+
+	layers := readinessLayers(result)
+	if !layers.RepositoryInventory.Ready || layers.RepositoryInventory.State != "ready" {
+		t.Fatalf("repository inventory layer did not preserve Result.Ready: %+v", layers.RepositoryInventory)
+	}
+	if !layers.LocalValidation.Ready || !layers.LocalValidation.ExactReceiptInspectionPresent || layers.LocalValidation.State != "validated-implementation-commit" {
+		t.Fatalf("exact local validation receipt was not projected: %+v", layers.LocalValidation)
+	}
+	if layers.RemoteCI.State != "not-observed" || layers.RemoteCI.StructuredObservationPresent || layers.RemoteCI.CanClaimGreen {
+		t.Fatalf("local validation receipt promoted remote CI truth: %+v", layers.RemoteCI)
+	}
+}
+
+func TestReadinessLayersPostPushReadyDoesNotPromoteRemoteCI(t *testing.T) {
+	result := Result{
+		ReleaseHandoff: ReleaseHandoff{LatestBatch: ReleaseHandoffLatestBatch{Handoff: ReleaseHandoffLatestBatchHandoff{
+			PostPushReceipt: &ReleaseHandoffPostPushReceipt{
+				Ready: true,
+				State: "post-push-complete",
+			},
+		}}},
+	}
+
+	layers := readinessLayers(result)
+	if !layers.GitLocalPublication.Ready || !layers.GitLocalPublication.ExactPostPushObservationPresent || layers.GitLocalPublication.State != "post-push-complete" || !layers.GitLocalPublication.LocalTrackingRefOnly {
+		t.Fatalf("exact post-push local tracking-ref observation was not projected: %+v", layers.GitLocalPublication)
+	}
+	if layers.RemoteCI.State != "not-observed" || layers.RemoteCI.StructuredObservationPresent || layers.RemoteCI.CanClaimGreen {
+		t.Fatalf("post-push observation promoted remote CI truth: %+v", layers.RemoteCI)
+	}
+}
+
+func TestReadinessLayersProseRemoteGreenIsNonAuthoritative(t *testing.T) {
+	latest := latestBatchSummaryFromData("docs/batch-plan.md", []byte("### Batch 816：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：remote CI green.\n"))
+	if latest.Handoff.RemoteReleaseGate != "green" || latest.Handoff.RemoteReleaseGateDetail == nil || !latest.Handoff.RemoteReleaseGateDetail.CanClaimGreen {
+		t.Fatalf("fixture did not exercise the legacy prose remote-green claim: %+v", latest.Handoff)
+	}
+
+	layers := readinessLayers(Result{ReleaseHandoff: ReleaseHandoff{LatestBatch: latest}})
+	if layers.RemoteCI.State != "not-observed" || layers.RemoteCI.StructuredObservationPresent || layers.RemoteCI.CanClaimGreen {
+		t.Fatalf("prose remote green promoted machine truth: %+v", layers.RemoteCI)
+	}
+	claim := layers.RemoteCI.DocumentedClaim
+	if !claim.Present || claim.Claim != "green" || claim.Source != "releaseHandoff.latestBatch.handoff.remoteReleaseGate" || claim.Authoritative {
+		t.Fatalf("prose remote green was not retained as a non-authoritative documented claim: %+v", claim)
+	}
+}
+
+func TestReleaseCheckJSONCompatibilityAddsExplicitReadinessLayers(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var legacy struct {
+		Command       string `json:"command"`
+		SchemaVersion int    `json:"schemaVersion"`
+		IsMutation    bool   `json:"isMutation"`
+		Ready         bool   `json:"ready"`
+		Summary       string `json:"summary"`
+		CIReleaseGate struct {
+			WorkflowPath string `json:"workflowPath"`
+			Ready        bool   `json:"ready"`
+			Summary      string `json:"summary"`
+		} `json:"ciReleaseGate"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Command != result.Command || legacy.SchemaVersion != 1 || legacy.IsMutation != result.IsMutation || legacy.Ready != result.Ready || legacy.Summary != result.Summary || legacy.CIReleaseGate.WorkflowPath != result.CIReleaseGate.WorkflowPath || legacy.CIReleaseGate.Ready != result.CIReleaseGate.Ready || legacy.CIReleaseGate.Summary != result.CIReleaseGate.Summary {
+		t.Fatalf("existing release-check JSON fields changed: legacy=%+v result=%+v", legacy, result)
+	}
+
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"command", "schemaVersion", "isMutation", "repoRoot", "ready", "summary", "gateProfile", "ciReleaseGate", "recommendedMinimum", "requiredCommands", "documents", "packs", "powerShellDeprecation", "goNativePublicSurface", "publicFacadeRemoval", "caseShim", "publicDefaultDocs", "releaseHandoff", "heavyToolGateActions", "boundaries", "knownGaps", "warnings", "readinessLayers"} {
+		if _, present := wire[key]; !present {
+			t.Fatalf("release-check JSON omitted compatible field %q", key)
+		}
+	}
+	var gateWire map[string]json.RawMessage
+	if err := json.Unmarshal(wire["ciReleaseGate"], &gateWire); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"workflowPath", "ready", "summary", "workflowChecks", "jobs", "requiredCommands", "forbiddenStrings", "warnings", "kind", "definitionReady", "readyMeaning", "provesRemoteExecution", "provesRemoteGreen"} {
+		if _, present := gateWire[key]; !present {
+			t.Fatalf("ciReleaseGate JSON omitted field %q", key)
+		}
+	}
+	var readinessWire map[string]json.RawMessage
+	if err := json.Unmarshal(wire["readinessLayers"], &readinessWire); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"repositoryInventory", "localValidation", "gitLocalPublication", "remoteCI", "formalRelease"} {
+		if _, present := readinessWire[key]; !present {
+			t.Fatalf("readinessLayers JSON omitted layer %q", key)
+		}
+	}
+	for layer, keys := range map[string][]string{
+		"repositoryInventory": {"state", "ready"},
+		"localValidation":     {"state", "ready", "exactReceiptInspectionPresent"},
+		"gitLocalPublication": {"state", "ready", "exactPostPushObservationPresent", "localTrackingRefOnly"},
+		"remoteCI":            {"state", "structuredObservationPresent", "canClaimGreen", "documentedClaim"},
+		"formalRelease":       {"state", "canClaimReleased"},
+	} {
+		var layerWire map[string]json.RawMessage
+		if err := json.Unmarshal(readinessWire[layer], &layerWire); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range keys {
+			if _, present := layerWire[key]; !present {
+				t.Fatalf("readinessLayers.%s JSON omitted field %q", layer, key)
+			}
+		}
+	}
+	var layersWire struct {
+		GitLocalPublication struct {
+			LocalTrackingRefOnly bool `json:"localTrackingRefOnly"`
+		} `json:"gitLocalPublication"`
+		RemoteCI struct {
+			State                        string `json:"state"`
+			StructuredObservationPresent bool   `json:"structuredObservationPresent"`
+			CanClaimGreen                bool   `json:"canClaimGreen"`
+			DocumentedClaim              struct {
+				Authoritative bool `json:"authoritative"`
+			} `json:"documentedClaim"`
+		} `json:"remoteCI"`
+		FormalRelease struct {
+			State            string `json:"state"`
+			CanClaimReleased bool   `json:"canClaimReleased"`
+		} `json:"formalRelease"`
+	}
+	if err := json.Unmarshal(wire["readinessLayers"], &layersWire); err != nil {
+		t.Fatal(err)
+	}
+	if !layersWire.GitLocalPublication.LocalTrackingRefOnly || layersWire.RemoteCI.State != "not-observed" || layersWire.RemoteCI.StructuredObservationPresent || layersWire.RemoteCI.CanClaimGreen || layersWire.RemoteCI.DocumentedClaim.Authoritative || layersWire.FormalRelease.State != "not-evaluated" || layersWire.FormalRelease.CanClaimReleased {
+		t.Fatalf("readiness layer JSON semantics drifted: %+v", layersWire)
+	}
 }
 
 func assertCIJob(t *testing.T, gate CIReleaseGate, id, name, runsOn string) {

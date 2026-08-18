@@ -110,6 +110,8 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 	flags.StringVar(&opt.Target, "target", "", "fresh or attached case root")
 	flags.StringVar(&opt.Pack, "pack", "", "optional attached pack override")
 	flags.StringVar(&opt.SelectedLane, "lane", "", "exact current lane selected for this invocation")
+	directoryAdoptionAction := flags.String("directory-adoption-action", "", "typed ordinary-directory adoption choice")
+	expectedInitPlanSHA256 := flags.String("expected-init-plan-sha256", "", "exact ordinary-directory init preview sha256")
 	flags.StringVar(&opt.ExpectedCurrentDriverRequestSHA256, "expected-current-driver-request-sha256", "", "exact fresh missionControlRunbook current driver request sha256")
 	flags.StringVar(&opt.Actor, "actor", "rekit-claude-host", "durable host actor")
 	flags.StringVar(&opt.ClaudePath, "claude", "", "Claude Code executable path")
@@ -129,8 +131,17 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	adoptionRequested := strings.TrimSpace(*directoryAdoptionAction) != "" || strings.TrimSpace(*expectedInitPlanSHA256) != ""
+	if adoptionRequested && (*liveAcceptance || *liveSupervisionAcceptance || *livePackMemoryAcceptance || *liveSoakAcceptance || strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" || strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != "") {
+		fmt.Fprintln(stderr, "directory adoption controls are supported only by the external daily front door")
+		return 2
+	}
+	if adoptionRequested && strings.TrimSpace(projectRoot) != "" {
+		fmt.Fprintln(stderr, "project-local STeamAI executable cannot adopt an ordinary directory")
+		return 2
+	}
 	ordinaryHostRequested := !PublicModeRequested(*daily, *liveAcceptance, *liveSupervisionAcceptance, *livePackMemoryAcceptance, *liveSoakAcceptance) &&
-		strings.TrimSpace(liveOpt.Goal) == "" && strings.TrimSpace(liveOpt.Correction) == "" &&
+		strings.TrimSpace(liveOpt.Goal) == "" && strings.TrimSpace(liveOpt.Correction) == "" && !adoptionRequested &&
 		strings.TrimSpace(*internalSupervisor) == "" && strings.TrimSpace(*internalSupervisorSHA256) == "" &&
 		strings.TrimSpace(*internalPackMemoryAcceptance) == "" && strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) == ""
 	if err := ValidateExpectedCurrentDriverRequestFlag(opt.ExpectedCurrentDriverRequestSHA256, ordinaryHostRequested); err != nil {
@@ -254,7 +265,7 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		return printResult(stdout, stderr, result, err)
 	}
 
-	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" {
+	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" || adoptionRequested {
 		if strings.TrimSpace(projectRoot) != "" {
 			resolved, err := rekitruntime.ResolveProjectLocalTarget(
 				projectRoot,
@@ -279,16 +290,29 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 			fmt.Fprintln(stderr, "daily front door derives pack from onboarding or attached case metadata; omit -pack")
 			return 2
 		}
+		initializationRepoRoot := ""
+		adoptionAction := strings.ToLower(strings.TrimSpace(*directoryAdoptionAction))
+		if adoptionAction == "initialize-in-place" || adoptionAction == "confirm-exact-plan" {
+			ctx, resolveErr := rekitruntime.New(opt.Target, defaults.DefaultPack)
+			if resolveErr != nil {
+				fmt.Fprintln(stderr, resolveErr)
+				return 1
+			}
+			initializationRepoRoot = ctx.RepoRoot
+		}
 		result, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
-			Target:       opt.Target,
-			Goal:         liveOpt.Goal,
-			Correction:   liveOpt.Correction,
-			SelectedLane: opt.SelectedLane,
-			Actor:        opt.Actor,
-			ClaudePath:   opt.ClaudePath,
-			Model:        opt.Model,
-			Timeout:      opt.Timeout,
-			MaxAttempts:  opt.MaxAttempts,
+			Target:                  opt.Target,
+			Goal:                    liveOpt.Goal,
+			Correction:              liveOpt.Correction,
+			SelectedLane:            opt.SelectedLane,
+			DirectoryAdoptionAction: *directoryAdoptionAction,
+			ExpectedInitPlanSHA256:  *expectedInitPlanSHA256,
+			InitializationRepoRoot:  initializationRepoRoot,
+			Actor:                   opt.Actor,
+			ClaudePath:              opt.ClaudePath,
+			Model:                   opt.Model,
+			Timeout:                 opt.Timeout,
+			MaxAttempts:             opt.MaxAttempts,
 		})
 		return printResult(stdout, stderr, result, err)
 	}

@@ -17,6 +17,21 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
+func TestLiveAcceptanceVMPIDARunOptionsUseProjectLocalPackRoot(t *testing.T) {
+	repoRoot := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repoRoot, liveAcceptancePack)
+	proof := &LiveAcceptanceVMPIDA{GateEventID: "evt-test"}
+
+	opt, err := liveAcceptanceVMPIDARunOptions(caseRoot, "feature-mission", proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRepoRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	if opt.RepoRoot != wantRepoRoot || opt.RepoRoot == repoRoot || opt.CaseRoot != caseRoot || opt.Pack != liveAcceptancePack || opt.GateEventID != proof.GateEventID {
+		t.Fatalf("VMP IDA run options = %+v, want project-local repo root %s", opt, wantRepoRoot)
+	}
+}
+
 func TestAssertLiveAcceptanceNoAuthorityUsesSelectedStateRoot(t *testing.T) {
 	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
 		t.Run(stateDir, func(t *testing.T) {

@@ -113,6 +113,11 @@ type preparedCandidateReviewProofDraft struct {
 }
 
 func DraftCandidateReviewProof(repoRoot, caseRoot, pack string, opt CandidateReviewProofDraftOptions) (CandidateReviewProofDraftResult, error) {
+	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, caseRoot); err != nil {
+			return CandidateReviewProofDraftResult{}, err
+		}
+	}
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return CandidateReviewProofDraftResult{}, err
@@ -203,22 +208,11 @@ func prepareCandidateReviewProofDraft(repoRoot, caseRoot, pack string, opt Candi
 	if reviewItem.Kind == "tooling-candidate-source" {
 		reviewItemRoot = canonicalToolingRoot
 	}
-	if err := assertInsideRoot(reviewItemRoot, reviewItem.CandidatePath); err != nil {
-		return preparedCandidateReviewProofDraft{}, err
-	}
-	if _, err := os.Lstat(reviewItem.CandidatePath); err != nil {
-		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate %s must be a non-empty regular file: %w", reviewItem.CandidatePath, err)
-	}
-	if err := rejectCandidateDecisionSymlinkPath(m.PackRoot, reviewItem.CandidatePath, false); err != nil {
-		return preparedCandidateReviewProofDraft{}, err
-	}
-	state, err := refsf.ClassifyNonEmptyRegularFile(reviewItem.CandidatePath)
+	candidateHash, err := candidateReviewProofCandidateHash(reviewItemRoot, reviewItem.CandidatePath)
 	if err != nil {
-		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate %s must be a non-empty regular file: %w", reviewItem.CandidatePath, err)
+		return preparedCandidateReviewProofDraft{}, err
 	}
-	if state != refsf.RegularFileReady {
-		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate %s must be a non-empty regular file, got %s", reviewItem.CandidatePath, state)
-	}
+	reviewItem.CandidateHash = candidateHash
 	if reviewItem.Kind == "tooling-candidate-source" && decision == "accept" {
 		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft cannot accept tooling candidates automatically; use reject or superseded, or record manual tooling merge proof")
 	}
@@ -312,16 +306,14 @@ func prepareCandidateReviewProofDraft(repoRoot, caseRoot, pack string, opt Candi
 		NextSteps:      []string{"review the deterministic proof note and exact hash", "write only the proof note with the returned expected-hash Apply command", "rerun release-check or status to refresh pack-memory proof summary"},
 		Boundary:       candidateReviewProofDraftBoundary(),
 	}
-	if existing, err := os.ReadFile(proofPath); err == nil {
-		if bytes.Equal(existing, proofBytes) {
-			result.Mode = "already-drafted"
-			result.ApplyCommand = ""
-			result.NextSteps = []string{"the exact proof note already exists", "rerun release-check or status to refresh pack-memory proof summary"}
-		} else {
-			return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft target already exists with different bytes: %s", proofPath)
-		}
-	} else if !os.IsNotExist(err) {
+	already, err := candidateReviewProofDraftAlreadyExists(repoRoot, proofPath, proofBytes)
+	if err != nil {
 		return preparedCandidateReviewProofDraft{}, err
+	}
+	if already {
+		result.Mode = "already-drafted"
+		result.ApplyCommand = ""
+		result.NextSteps = []string{"the exact proof note already exists", "rerun release-check or status to refresh pack-memory proof summary"}
 	}
 	return preparedCandidateReviewProofDraft{result: result, proofBytes: proofBytes}, nil
 }
@@ -475,16 +467,14 @@ func prepareCandidateCleanupReviewProofDraft(repoRoot, caseRoot, pack string, op
 		NextSteps:      []string{"review the deterministic cleanup proof note and exact hash", "write only the cleanup proof note with the returned expected-hash Apply command", "rerun release-check or status to refresh pack-memory proof summary"},
 		Boundary:       candidateReviewProofDraftBoundary(),
 	}
-	if existing, err := os.ReadFile(proofPath); err == nil {
-		if bytes.Equal(existing, proofBytes) {
-			result.Mode = "already-drafted"
-			result.ApplyCommand = ""
-			result.NextSteps = []string{"the exact cleanup proof note already exists", "rerun release-check or status to refresh pack-memory proof summary"}
-		} else {
-			return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft target already exists with different bytes: %s", proofPath)
-		}
-	} else if !os.IsNotExist(err) {
+	already, err := candidateReviewProofDraftAlreadyExists(repoRoot, proofPath, proofBytes)
+	if err != nil {
 		return preparedCandidateReviewProofDraft{}, err
+	}
+	if already {
+		result.Mode = "already-drafted"
+		result.ApplyCommand = ""
+		result.NextSteps = []string{"the exact cleanup proof note already exists", "rerun release-check or status to refresh pack-memory proof summary"}
 	}
 	return preparedCandidateReviewProofDraft{result: result, proofBytes: proofBytes}, nil
 }
@@ -516,10 +506,38 @@ func candidateReviewProofItem(packet CandidateReviewPacket, candidatePath, repoR
 	candidatePath = candidateReviewProofResolveRepoPath(repoRoot, candidatePath)
 	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
 		if sameCandidateDecisionPath(item.CandidatePath, candidatePath) || candidateReviewProofSameCleanPath(item.CandidatePath, candidatePath) {
-			return CandidateReviewProofReviewItemRef{CandidatePath: item.CandidatePath, CandidateHash: fileSHA256(item.CandidatePath), PackTarget: item.PackTarget, Kind: item.Kind}, nil
+			return CandidateReviewProofReviewItemRef{CandidatePath: item.CandidatePath, PackTarget: item.PackTarget, Kind: item.Kind}, nil
 		}
 	}
 	return CandidateReviewProofReviewItemRef{}, fmt.Errorf("candidate review proof draft candidatePath not found in packet reviewItems: %s", candidatePath)
+}
+
+func candidateReviewProofCandidateHash(root, path string) (string, error) {
+	rootFull, err := filepath.Abs(strings.TrimSpace(root))
+	if err != nil || strings.TrimSpace(root) == "" {
+		return "", fmt.Errorf("candidate proof root is required")
+	}
+	pathFull, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil || strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("candidate proof path is required")
+	}
+	rel, err := filepath.Rel(rootFull, pathFull)
+	if err != nil || filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("candidate proof path escapes root: %s", path)
+	}
+	anchored, err := refsf.OpenAnchoredRoot(rootFull)
+	if err != nil {
+		return "", err
+	}
+	defer anchored.Close()
+	data, info, err := anchored.ReadStableFile(rel, maxCandidateDecisionBytes)
+	if err != nil {
+		return "", fmt.Errorf("candidate %s must be a non-empty regular file: %w", path, err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || len(data) == 0 {
+		return "", fmt.Errorf("candidate %s must be a non-empty regular file", path)
+	}
+	return sha256Hex(data), nil
 }
 
 func candidateReviewProofResolveRepoPath(repoRoot, path string) string {
@@ -633,38 +651,67 @@ func pathWithinCandidateReviewRoot(repoRoot, candidateRoot, path string) bool {
 	return (strings.EqualFold(pathClean, rootClean) || strings.HasPrefix(strings.ToLower(pathClean), strings.ToLower(rootClean+string(filepath.Separator)))) && (strings.EqualFold(pathClean, repoClean) || strings.HasPrefix(strings.ToLower(pathClean), strings.ToLower(repoClean+string(filepath.Separator))))
 }
 
-func writeCandidateReviewProofDraftFile(caseRoot, path string, data []byte) (bool, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func candidateReviewProofDraftAlreadyExists(repoRoot, path string, data []byte) (bool, error) {
+	root, rel, err := openCandidateReviewProofDraftRoot(repoRoot, path)
+	if err != nil {
 		return false, err
 	}
-	if err := rejectCandidateDecisionSymlinkPath(caseRoot, filepath.Dir(path), false); err != nil {
-		return false, err
-	}
-	if err := rejectCandidateDecisionSymlinkPath(caseRoot, path, true); err != nil {
-		return false, err
-	}
-	err := writeDurableExclusiveFile(path, data)
-	if err == nil {
+	defer root.Close()
+	existing, info, err := root.ReadStableFile(rel, maxCandidateDecisionBytes)
+	if os.IsNotExist(err) {
 		return false, nil
 	}
-	if !os.IsExist(err) {
+	if err != nil {
 		return false, err
 	}
-	state, stateErr := refsf.ClassifyNonEmptyRegularFile(path)
-	if stateErr != nil {
-		return false, stateErr
-	}
-	if state != refsf.RegularFileReady {
-		return false, fmt.Errorf("existing candidate review proof draft must be a non-empty regular file: %s", path)
-	}
-	existing, readErr := os.ReadFile(path)
-	if readErr != nil {
-		return false, readErr
+	if !candidateReviewProofModeMatches(info.Mode()) {
+		return false, fmt.Errorf("candidate review proof draft target already exists with incompatible mode: %s", path)
 	}
 	if !bytes.Equal(existing, data) {
-		return false, fmt.Errorf("existing candidate review proof draft does not match replay: %s", path)
+		return false, fmt.Errorf("candidate review proof draft target already exists with different bytes: %s", path)
 	}
 	return true, nil
+}
+
+func candidateReviewProofModeMatches(mode os.FileMode) bool {
+	if filepath.Separator == '\\' {
+		return mode.Perm()&0o200 == 0o644&0o200
+	}
+	return mode.Perm() == 0o644
+}
+
+func writeCandidateReviewProofDraftFile(repoRoot, path string, data []byte) (bool, error) {
+	root, rel, err := openCandidateReviewProofDraftRoot(repoRoot, path)
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	if err := root.MkdirAllNoFollow(filepath.Dir(rel), 0o755); err != nil {
+		return false, err
+	}
+	return root.WriteExclusiveFileWriteThrough(rel, data, 0o644, true)
+}
+
+func openCandidateReviewProofDraftRoot(repoRoot, path string) (*refsf.AnchoredRoot, string, error) {
+	full, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil || strings.TrimSpace(path) == "" {
+		return nil, "", fmt.Errorf("candidate review proof path is required")
+	}
+	rootPath, err := filepath.Abs(strings.TrimSpace(repoRoot))
+	if err != nil || strings.TrimSpace(repoRoot) == "" {
+		return nil, "", fmt.Errorf("candidate review proof repo root is required")
+	}
+	full = filepath.Clean(full)
+	rootPath = filepath.Clean(rootPath)
+	rel, err := filepath.Rel(rootPath, full)
+	if err != nil || filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, "", fmt.Errorf("candidate review proof path escapes repo root: %s", path)
+	}
+	root, err := refsf.OpenAnchoredRoot(rootPath)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, rel, nil
 }
 
 func candidateReviewProofDraftCommand(packetPath, decisionPath, proofPath, proofType, candidatePath, decision, reason, actor, evidenceRefs, expectedProofSHA256 string, apply bool) string {

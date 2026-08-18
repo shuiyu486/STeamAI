@@ -120,6 +120,11 @@ var candidateVerificationRetirementStageHook func(string) error
 // RetireCandidateVerificationWorkspace removes a completed, exact canonical
 // verification workspace through a WhatIf -> expected SHA-256 domain flow.
 func RetireCandidateVerificationWorkspace(repoRoot, sourceCaseRoot, pack string, opt CandidateVerificationRetirementOptions) (CandidateVerificationRetirementResult, error) {
+	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, sourceCaseRoot); err != nil {
+			return CandidateVerificationRetirementResult{}, err
+		}
+	}
 	if opt.WhatIf {
 		if retired, ok, err := loadCompletedCandidateVerificationRetirement(repoRoot, sourceCaseRoot, pack, opt); err != nil {
 			return CandidateVerificationRetirementResult{}, err

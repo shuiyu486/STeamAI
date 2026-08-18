@@ -15,6 +15,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
@@ -126,7 +127,7 @@ func TestSelfContainedCopiedProjectRunsWithoutCentralKit(t *testing.T) {
 		!status.CaseShim.Ready || status.CaseShim.InstalledShimMatches == nil || !*status.CaseShim.InstalledShimMatches {
 		t.Fatalf("copied project status did not use its local bundle and installed skill: %+v", status)
 	}
-	assertInstalledSTeamAISkillBridge(t, copiedProject)
+	assertInstalledSTeamAISkillBridge(t, repoRoot, copiedProject)
 
 	packsData := selfContainedRun(t, nested, localExecutable, "runtime", "-Command", "packs", "-Format", "json")
 	var packs struct {
@@ -204,17 +205,172 @@ func TestSelfContainedCopiedProjectRunsWithoutCentralKit(t *testing.T) {
 	} {
 		assertSelfContainedOutputOmits(t, name, data, sourceProject, centralExecutable)
 	}
-	preserved, err := os.ReadFile(filepath.Join(copiedProject, "user-note.txt"))
-	if err != nil || string(preserved) != "preserve me\n" {
-		t.Fatalf("copied project did not preserve the ordinary directory content: data=%q err=%v", preserved, err)
+
+	onboardPreviewData := selfContainedRun(
+		t,
+		nested,
+		localExecutable,
+		"runtime",
+		"-Command", "onboard",
+		"-Target", copiedProject,
+		"-Pack", "_template",
+		"-ProjectName", "copied-e2e",
+		"-Goal", "inspect harmless fixture",
+		"-Actor", "operator",
+		"-Executor", "executor-a",
+		"-InitialLane", "feature-login",
+		"-WhatIf",
+		"-Format", "json",
+	)
+	var onboardPreview struct {
+		CaseRoot  string   `json:"caseRoot"`
+		ProjectID string   `json:"projectId"`
+		ApplyArgs []string `json:"applyArgs"`
 	}
-	assertSelfContainedTypedCommandBridge(t, nested, localExecutable, copiedProject, sourceProject, centralExecutable)
+	selfContainedDecode(t, onboardPreviewData, &onboardPreview)
+	if !sameSelfContainedPath(onboardPreview.CaseRoot, copiedProject) || len(onboardPreview.ProjectID) != 16 || len(onboardPreview.ApplyArgs) == 0 {
+		t.Fatalf("unexpected project-local onboard preview: %+v", onboardPreview)
+	}
+	onboardApplyData := selfContainedRun(
+		t,
+		nested,
+		localExecutable,
+		append([]string{"runtime"}, onboardPreview.ApplyArgs...)...,
+	)
+	var onboardApply struct {
+		CaseRoot   string                   `json:"caseRoot"`
+		ProjectID  string                   `json:"projectId"`
+		Applied    bool                     `json:"applied"`
+		Replay     bool                     `json:"replay"`
+		Inspection missionintent.Inspection `json:"inspection"`
+	}
+	selfContainedDecode(t, onboardApplyData, &onboardApply)
+	if !onboardApply.Applied || onboardApply.Replay || onboardApply.ProjectID != onboardPreview.ProjectID ||
+		!sameSelfContainedPath(onboardApply.CaseRoot, copiedProject) || !onboardApply.Inspection.Committed ||
+		onboardApply.Inspection.Identity.SchemaVersion != 2 || onboardApply.Inspection.Identity.Target != "." ||
+		onboardApply.Inspection.Identity.ProjectID != onboardPreview.ProjectID || onboardApply.Inspection.ProjectBinding == nil ||
+		onboardApply.Inspection.ProjectBinding.ProjectID != onboardPreview.ProjectID {
+		t.Fatalf("project-local onboard Apply did not commit v2 identity: %+v", onboardApply)
+	}
+
+	movedProject := filepath.Join(testRoot, "moved-project")
+	if err := os.Rename(copiedProject, movedProject); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(copiedProject); !os.IsNotExist(err) {
+		t.Fatalf("pre-move physical root remains: %s: %v", copiedProject, err)
+	}
+	movedNested := filepath.Join(movedProject, "workspace", "nested")
+	movedExecutable := filepath.Join(movedProject, ".steamai", "runtime", "bin", runtimebundle.ExecutableName())
+	replayArgs := retargetSelfContainedApplyArgs(t, onboardPreview.ApplyArgs, movedProject)
+	replayData := selfContainedRun(t, movedNested, movedExecutable, append([]string{"runtime"}, replayArgs...)...)
+	var replay struct {
+		CaseRoot   string                   `json:"caseRoot"`
+		ProjectID  string                   `json:"projectId"`
+		Applied    bool                     `json:"applied"`
+		Replay     bool                     `json:"replay"`
+		Inspection missionintent.Inspection `json:"inspection"`
+	}
+	selfContainedDecode(t, replayData, &replay)
+	if replay.Applied || !replay.Replay || !sameSelfContainedPath(replay.CaseRoot, movedProject) ||
+		replay.ProjectID != onboardPreview.ProjectID || !replay.Inspection.Committed ||
+		replay.Inspection.Identity != onboardApply.Inspection.Identity || replay.Inspection.ProjectBinding == nil ||
+		replay.Inspection.ProjectBinding.ProjectID != onboardPreview.ProjectID {
+		t.Fatalf("moved project did not replay the same v2 identity: %+v", replay)
+	}
+	movedOutputs := assertMovedSelfContainedProjectHealth(t, movedNested, movedExecutable, movedProject, onboardPreview.ProjectID)
+	movedOutputs["onboard-replay"] = replayData
+	for name, data := range movedOutputs {
+		assertSelfContainedOutputOmits(t, name, data, sourceProject, centralExecutable, copiedProject)
+	}
+
+	preserved, err := os.ReadFile(filepath.Join(movedProject, "user-note.txt"))
+	if err != nil || string(preserved) != "preserve me\n" {
+		t.Fatalf("moved project did not preserve the ordinary directory content: data=%q err=%v", preserved, err)
+	}
+	assertSelfContainedTypedCommandBridge(t, movedNested, movedExecutable, movedProject, sourceProject, centralExecutable, copiedProject)
 }
 
-func assertInstalledSTeamAISkillBridge(t *testing.T, projectRoot string) {
+func retargetSelfContainedApplyArgs(t *testing.T, args []string, target string) []string {
+	t.Helper()
+	out := append([]string{}, args...)
+	targets := 0
+	for index := 0; index < len(out); index++ {
+		if out[index] != "-Target" {
+			continue
+		}
+		if index+1 >= len(out) {
+			t.Fatal("self-contained ApplyArgs contains a missing -Target value")
+		}
+		out[index+1] = target
+		targets++
+		index++
+	}
+	if targets != 1 {
+		t.Fatalf("self-contained ApplyArgs contains %d -Target selectors: %v", targets, args)
+	}
+	return out
+}
+
+func assertMovedSelfContainedProjectHealth(t *testing.T, cwd, executable, projectRoot, projectID string) map[string][]byte {
+	t.Helper()
+	statusData := selfContainedRun(t, cwd, executable, "runtime", "-Command", "status", "-Format", "json")
+	var status struct {
+		Command      string                    `json:"command"`
+		RuntimeRoot  string                    `json:"runtimeRoot"`
+		TemplateRoot string                    `json:"templateRoot"`
+		Target       string                    `json:"target"`
+		Mode         string                    `json:"mode"`
+		Onboarding   *missionintent.Inspection `json:"onboarding"`
+	}
+	selfContainedDecode(t, statusData, &status)
+	if status.Command != "status" || status.Mode != "case" ||
+		!sameSelfContainedPath(status.Target, projectRoot) ||
+		!sameSelfContainedPath(status.TemplateRoot, filepath.Join(projectRoot, ".steamai")) ||
+		!sameSelfContainedPath(status.RuntimeRoot, filepath.Join(projectRoot, ".steamai", "runtime")) ||
+		status.Onboarding == nil || !status.Onboarding.Committed ||
+		status.Onboarding.Identity.SchemaVersion != 2 || status.Onboarding.Identity.Target != "." ||
+		status.Onboarding.Identity.ProjectID != projectID || status.Onboarding.ProjectBinding == nil ||
+		status.Onboarding.ProjectBinding.ProjectID != projectID {
+		t.Fatalf("moved project status did not preserve its local runtime and v2 identity: %+v", status)
+	}
+
+	packsData := selfContainedRun(t, cwd, executable, "runtime", "-Command", "packs", "-Format", "json")
+	var packs struct {
+		Command string `json:"command"`
+		Packs   []struct {
+			ID string `json:"id"`
+		} `json:"packs"`
+	}
+	selfContainedDecode(t, packsData, &packs)
+	foundTemplate := false
+	for _, pack := range packs.Packs {
+		foundTemplate = foundTemplate || pack.ID == "_template"
+	}
+	if packs.Command != "packs" || !foundTemplate {
+		t.Fatalf("moved project pack inventory is invalid: %+v", packs)
+	}
+
+	doctorData := selfContainedRun(t, cwd, executable, "runtime", "-Command", "doctor", "-Format", "json")
+	var doctor struct {
+		Command string `json:"command"`
+		Pack    string `json:"pack"`
+		Target  string `json:"target"`
+		Mode    string `json:"mode"`
+		Valid   bool   `json:"valid"`
+	}
+	selfContainedDecode(t, doctorData, &doctor)
+	if doctor.Command != "doctor" || doctor.Mode != "case" || doctor.Pack != "_template" || !doctor.Valid || !sameSelfContainedPath(doctor.Target, projectRoot) {
+		t.Fatalf("moved project doctor result is invalid: %+v", doctor)
+	}
+	return map[string][]byte{"moved-status": statusData, "moved-packs": packsData, "moved-doctor": doctorData}
+}
+
+func assertInstalledSTeamAISkillBridge(t *testing.T, repoRoot, projectRoot string) {
 	t.Helper()
 	installedPath := filepath.Join(projectRoot, ".claude", "skills", "steamai", "SKILL.md")
 	templatePath := filepath.Join(projectRoot, ".steamai", "rekit", "templates", "steamai-project", "SKILL.md")
+	canonicalPath := filepath.Join(repoRoot, ".claude", "skills", "steamai", "SKILL.md")
 	installed, err := os.ReadFile(installedPath)
 	if err != nil {
 		t.Fatalf("read installed /steamai skill: %v", err)
@@ -223,15 +379,23 @@ func assertInstalledSTeamAISkillBridge(t *testing.T, projectRoot string) {
 	if err != nil {
 		t.Fatalf("read bundled /steamai skill template: %v", err)
 	}
-	if !bytes.Equal(sourceartifact.SemanticText(installed), sourceartifact.SemanticText(template)) {
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical /steamai skill: %v", err)
+	}
+	installedSemantic := sourceartifact.SemanticText(installed)
+	if !bytes.Equal(installedSemantic, sourceartifact.SemanticText(template)) {
 		t.Fatalf("installed /steamai skill differs semantically from its bundled template")
+	}
+	if !bytes.Equal(installedSemantic, sourceartifact.SemanticText(canonical)) {
+		t.Fatalf("installed and bundled /steamai skills differ semantically from the canonical skill")
 	}
 	text := string(installed)
 	for _, phrase := range []string{
 		"typed `invocation` 是唯一通用命令桥",
 		`["runtime", "-Command", invocation.command] + invocation.arguments`,
 		"`commandExecutable=false`",
-		"不拼接 shell command",
+		"不得拼接 shell command",
 		"不自行追加 `-Apply`",
 	} {
 		if !strings.Contains(text, phrase) {

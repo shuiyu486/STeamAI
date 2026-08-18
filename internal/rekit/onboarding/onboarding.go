@@ -62,6 +62,7 @@ var (
 
 type Options struct {
 	Target                       string
+	ProjectID                    string
 	Pack                         string
 	ProjectName                  string
 	Goal                         string
@@ -85,6 +86,7 @@ type Plan struct {
 	Command              string                       `json:"command"`
 	CaseRoot             string                       `json:"caseRoot"`
 	RepoRoot             string                       `json:"repoRoot"`
+	ProjectID            string                       `json:"projectId,omitempty"`
 	Pack                 string                       `json:"pack"`
 	ProjectName          string                       `json:"projectName"`
 	Goal                 string                       `json:"goal"`
@@ -111,6 +113,7 @@ type Result struct {
 	SchemaVersion        int                      `json:"schemaVersion"`
 	Command              string                   `json:"command"`
 	CaseRoot             string                   `json:"caseRoot"`
+	ProjectID            string                   `json:"projectId,omitempty"`
 	Pack                 string                   `json:"pack"`
 	ProjectName          string                   `json:"projectName"`
 	Applied              bool                     `json:"applied"`
@@ -147,7 +150,7 @@ func Apply(repoRoot string, opt Options) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		ordinary, err := ordinaryPlan(repoRoot, plan.Identity, plan.PublicationStamp, createdAt, true)
+		ordinary, err := ordinaryPlan(repoRoot, plan.CaseRoot, plan.Identity, plan.PublicationStamp, createdAt, true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -155,7 +158,7 @@ func Apply(repoRoot string, opt Options) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		currentHash, err := hashExclusivePlan(marker)
+		currentHash, err := hashExclusivePlan(marker, plan.Identity)
 		if err != nil || !strings.EqualFold(currentHash, plan.OnboardingPlanSHA256) {
 			return Result{}, fmt.Errorf("onboarding source snapshot changed after reviewed preview")
 		}
@@ -190,7 +193,7 @@ func Apply(repoRoot string, opt Options) (Result, error) {
 }
 
 func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
-	identity, err := normalizeIdentity(opt)
+	caseRoot, identity, err := normalizeIdentity(opt)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -198,22 +201,22 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if existing, statErr := os.Lstat(identity.Target); statErr == nil {
+	if existing, statErr := os.Lstat(caseRoot); statErr == nil {
 		if !existing.IsDir() || existing.Mode()&os.ModeSymlink != 0 {
-			return Plan{}, fmt.Errorf("onboard target is not a regular directory: %s", identity.Target)
+			return Plan{}, fmt.Errorf("onboard target is not a regular directory: %s", caseRoot)
 		}
-		inspection, inspectErr := missionintent.Inspect(identity.Target)
+		inspection, inspectErr := missionintent.Inspect(caseRoot)
 		if inspectErr != nil {
 			return Plan{}, inspectErr
 		}
 		if inspection.State == "absent" {
-			return buildAttachedAdoption(repoRoot, identity, opt)
+			return buildAttachedAdoption(repoRoot, caseRoot, identity, opt)
 		}
 		if inspection.Identity != identity {
 			return Plan{}, fmt.Errorf("onboard identity differs from the immutable existing mission intent")
 		}
 		if inspection.Committed {
-			if inspection.Recovery.BundleManifest == (missionintent.BundleBinding{}) && !samePath(inspection.Recovery.RepoRoot, repoRoot) {
+			if identity.SchemaVersion == 1 && inspection.Recovery.BundleManifest == (missionintent.BundleBinding{}) && !samePath(inspection.Recovery.RepoRoot, repoRoot) {
 				return Plan{}, fmt.Errorf("committed onboarding belongs to a different canonical kit root: %s", inspection.Recovery.RepoRoot)
 			}
 			if opt.PublicationStamp != "" && opt.PublicationStamp != inspection.PublicationStamp {
@@ -222,7 +225,7 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 			if opt.ExpectedOnboardingPlanSHA256 != "" && !strings.EqualFold(opt.ExpectedOnboardingPlanSHA256, inspection.OnboardingPlanSHA256) {
 				return Plan{}, fmt.Errorf("onboarding plan hash differs from committed identity")
 			}
-			return replayPlan(repoRoot, inspection), nil
+			return replayPlan(repoRoot, caseRoot, inspection), nil
 		}
 		if !allowExisting && opt.PublicationStamp == "" {
 			return Plan{}, fmt.Errorf("onboarding publication is pending; rerun the exact Apply command with stamp %s and plan hash %s", inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
@@ -230,26 +233,26 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 		if opt.PublicationStamp != inspection.PublicationStamp || (opt.ExpectedOnboardingPlanSHA256 != "" && !strings.EqualFold(opt.ExpectedOnboardingPlanSHA256, inspection.OnboardingPlanSHA256)) {
 			return Plan{}, fmt.Errorf("pending onboarding requires the exact publication stamp and plan hash")
 		}
-		if inspection.Recovery.BundleManifest == (missionintent.BundleBinding{}) && !samePath(inspection.Recovery.RepoRoot, repoRoot) {
+		if identity.SchemaVersion == 1 && inspection.Recovery.BundleManifest == (missionintent.BundleBinding{}) && !samePath(inspection.Recovery.RepoRoot, repoRoot) {
 			return Plan{}, fmt.Errorf("pending onboarding recovery is bound to a different canonical kit root: %s", inspection.Recovery.RepoRoot)
 		}
 		if inspection.Recovery.Mode == "attached-adoption" {
-			if err := missionintent.ValidateRecoveryEnvelope(identity, inspection.Recovery); err != nil {
+			if err := validateRecoveryEnvelopeAt(caseRoot, identity, inspection.Recovery); err != nil {
 				return Plan{}, err
 			}
 			createdAt, err := time.Parse(time.RFC3339Nano, inspection.Recovery.CreatedAt)
 			if err != nil {
 				return Plan{}, err
 			}
-			marker, err := attachedPlan(repoRoot, identity, inspection.PublicationStamp, createdAt, inspection.Recovery.AttachedSnapshot, planMarker)
+			marker, err := attachedPlan(repoRoot, caseRoot, identity, inspection.PublicationStamp, createdAt, inspection.Recovery.AttachedSnapshot, planMarker)
 			if err != nil {
 				return Plan{}, err
 			}
-			hash, err := hashExclusivePlan(marker)
+			hash, err := hashExclusivePlan(marker, identity)
 			if err != nil || !strings.EqualFold(hash, inspection.OnboardingPlanSHA256) {
 				return Plan{}, fmt.Errorf("durable attached onboarding recovery envelope does not reconstruct the reviewed plan hash")
 			}
-			exact, err := attachedPlan(repoRoot, identity, inspection.PublicationStamp, createdAt, inspection.Recovery.AttachedSnapshot, inspection.OnboardingPlanSHA256)
+			exact, err := attachedPlan(repoRoot, caseRoot, identity, inspection.PublicationStamp, createdAt, inspection.Recovery.AttachedSnapshot, inspection.OnboardingPlanSHA256)
 			if err != nil {
 				return Plan{}, err
 			}
@@ -257,7 +260,7 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 			plan.DurableRecovery = true
 			return plan, nil
 		}
-		ordinary, err := ordinaryPlanFromRecovery(identity, inspection.Recovery)
+		ordinary, err := ordinaryPlanFromRecovery(caseRoot, identity, inspection.Recovery)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -265,7 +268,7 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 		if err != nil {
 			return Plan{}, err
 		}
-		hash, err := hashExclusivePlan(marker)
+		hash, err := hashExclusivePlan(marker, identity)
 		if err != nil || !strings.EqualFold(hash, inspection.OnboardingPlanSHA256) {
 			return Plan{}, fmt.Errorf("durable onboarding recovery envelope does not reconstruct the reviewed plan hash")
 		}
@@ -294,7 +297,7 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 	if err != nil {
 		return Plan{}, fmt.Errorf("invalid onboarding publication stamp: %s", stamp)
 	}
-	ordinary, err := ordinaryPlan(repoRoot, identity, stamp, createdAt, allowExisting)
+	ordinary, err := ordinaryPlan(repoRoot, caseRoot, identity, stamp, createdAt, allowExisting)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -302,7 +305,7 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	planSHA256, err := hashExclusivePlan(placeholder)
+	planSHA256, err := hashExclusivePlan(placeholder, identity)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -314,17 +317,25 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 	return plan, nil
 }
 
-func buildAttachedAdoption(repoRoot string, identity missionintent.Identity, opt Options) (Plan, error) {
-	if _, err := instance.AssertAttached(identity.Target, repoRoot, identity.Pack); err != nil {
+func buildAttachedAdoption(repoRoot, caseRoot string, identity missionintent.Identity, opt Options) (Plan, error) {
+	attachedRepoRoot := repoRoot
+	inst, err := instance.Read(caseRoot)
+	if err != nil {
+		return Plan{}, err
+	}
+	if inst.StateDir == projectstate.CurrentDir {
+		attachedRepoRoot = inst.TemplateRoot
+	}
+	if _, err := instance.AssertAttached(caseRoot, attachedRepoRoot, identity.Pack); err != nil {
 		return Plan{}, fmt.Errorf("onboard attached adoption requires a current attached case: %w", err)
 	}
-	if err := validateInitialLane(repoRoot, identity.Pack, identity.InitialLane); err != nil {
+	if err := validateInitialLane(attachedRepoRoot, identity.Pack, identity.InitialLane); err != nil {
 		return Plan{}, err
 	}
-	if err := ensureAttachedMissionControlEmpty(identity.Target); err != nil {
+	if err := ensureAttachedMissionControlEmpty(caseRoot); err != nil {
 		return Plan{}, err
 	}
-	rows, err := casehealth.Static(repoRoot, identity.Target, identity.Pack)
+	rows, err := casehealth.Static(attachedRepoRoot, caseRoot, identity.Pack)
 	if err != nil {
 		return Plan{}, fmt.Errorf("onboard attached adoption requires doctor-ready case files: %w", err)
 	}
@@ -332,65 +343,179 @@ func buildAttachedAdoption(repoRoot string, identity missionintent.Identity, opt
 	if err != nil {
 		return Plan{}, err
 	}
-	snapshot, err := attachedSnapshot(identity.Target, rows)
+	snapshot, err := attachedSnapshot(caseRoot, rows)
 	if err != nil {
 		return Plan{}, err
 	}
 	if opt.PublicationStamp != "" && strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) == "" {
 		return Plan{}, fmt.Errorf("attached onboarding Apply requires the exact reviewed plan hash")
 	}
-	marker, err := attachedPlan(repoRoot, identity, stamp, createdAt, snapshot, planMarker)
+	marker, err := attachedPlan(repoRoot, caseRoot, identity, stamp, createdAt, snapshot, planMarker)
 	if err != nil {
 		return Plan{}, err
 	}
-	hash, err := hashExclusivePlan(marker)
+	hash, err := hashExclusivePlan(marker, identity)
 	if err != nil {
 		return Plan{}, err
 	}
 	if expected := strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256); expected != "" && !strings.EqualFold(expected, hash) {
 		return Plan{}, fmt.Errorf("attached onboarding snapshot changed after reviewed preview")
 	}
-	exact, err := attachedPlan(repoRoot, identity, stamp, createdAt, snapshot, hash)
+	exact, err := attachedPlan(repoRoot, caseRoot, identity, stamp, createdAt, snapshot, hash)
 	if err != nil {
 		return Plan{}, err
 	}
 	return publicPlan(exact, identity, stamp, hash, false), nil
 }
 
-func attachedPlan(repoRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, snapshot []missionintent.SnapshotArtifact, hash string) (syncreview.ExclusiveInitPlan, error) {
-	artifactPaths, err := missionintent.Paths(identity.Target)
+func attachedPlan(repoRoot, caseRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, snapshot []missionintent.SnapshotArtifact, hash string) (syncreview.ExclusiveInitPlan, error) {
+	recoveryRepoRoot := repoRoot
+	if identity.SchemaVersion == 2 {
+		recoveryRepoRoot = "."
+	}
+	recovery := missionintent.RecoveryEnvelope{SchemaVersion: 1, RepoRoot: recoveryRepoRoot, CreatedAt: createdAt.UTC().Format(time.RFC3339Nano), Mode: "attached-adoption", AttachedSnapshot: append([]missionintent.SnapshotArtifact{}, snapshot...)}
+	if err := validateRecoveryEnvelopeAt(caseRoot, identity, recovery); err != nil {
+		return syncreview.ExclusiveInitPlan{}, err
+	}
+	base := syncreview.ExclusiveInitPlan{SchemaVersion: 1, Command: attachedPlanCommand, CaseRoot: caseRoot, RepoRoot: recoveryRepoRoot, Pack: identity.Pack, ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + stamp, Role: "mission-onboarding-adoption", CreatedAt: recovery.CreatedAt, BlockedActions: []string{"existing case content writes", "existing Mission Control takeover", "overwrite", "backup", "force", "authority/confirmed writes", "heavy-tool execution"}}
+	generated, err := generatedOnboardingWrites(caseRoot, identity, recovery, stamp, hash)
 	if err != nil {
 		return syncreview.ExclusiveInitPlan{}, err
 	}
-	recovery := missionintent.RecoveryEnvelope{SchemaVersion: 1, RepoRoot: repoRoot, CreatedAt: createdAt.UTC().Format(time.RFC3339Nano), Mode: "attached-adoption", AttachedSnapshot: append([]missionintent.SnapshotArtifact{}, snapshot...)}
-	if err := missionintent.ValidateRecoveryEnvelope(identity, recovery); err != nil {
-		return syncreview.ExclusiveInitPlan{}, err
+	base.Writes = append(base.Writes, generated...)
+	return base, nil
+}
+
+func validateRecoveryEnvelopeAt(caseRoot string, identity missionintent.Identity, recovery missionintent.RecoveryEnvelope) error {
+	if identity.SchemaVersion == 2 {
+		return missionintent.ValidateRecoveryEnvelopeAt(caseRoot, identity, recovery)
 	}
-	base := syncreview.ExclusiveInitPlan{SchemaVersion: 1, Command: attachedPlanCommand, CaseRoot: identity.Target, RepoRoot: repoRoot, Pack: identity.Pack, ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + stamp, Role: "mission-onboarding-adoption", CreatedAt: recovery.CreatedAt, BlockedActions: []string{"existing case content writes", "existing Mission Control takeover", "overwrite", "backup", "force", "authority/confirmed writes", "heavy-tool execution"}}
-	missionBytes, err := missionintent.MarshalMissionIntent(identity)
+	return missionintent.ValidateRecoveryEnvelope(identity, recovery)
+}
+
+func generatedOnboardingWrites(caseRoot string, identity missionintent.Identity, recovery missionintent.RecoveryEnvelope, stamp, planSHA256 string) ([]syncreview.ExclusiveInitWrite, error) {
+	artifactPaths, err := missionintent.Paths(caseRoot)
 	if err != nil {
-		return syncreview.ExclusiveInitPlan{}, err
+		return nil, err
 	}
-	intentBytes, err := missionintent.MarshalIntent(missionintent.Intent{SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: stamp, OnboardingPlanSHA256: hash, Identity: identity, Recovery: recovery})
-	if err != nil {
-		return syncreview.ExclusiveInitPlan{}, err
-	}
-	commit := missionintent.Commit{SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: stamp, OnboardingPlanSHA256: hash, MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes)}
-	commitBytes, err := missionintent.MarshalCommit(commit)
-	if err != nil && hash == planMarker {
-		commitBytes, err = marshalMarkerCommit(stamp, commit.MissionIntentSHA256, commit.IntentSHA256)
+	var missionBytes []byte
+	if identity.SchemaVersion == 2 {
+		missionBytes, err = missionintent.MarshalMissionIntentAt(caseRoot, identity)
+	} else {
+		missionBytes, err = missionintent.MarshalMissionIntent(identity)
 	}
 	if err != nil {
-		return syncreview.ExclusiveInitPlan{}, err
+		return nil, err
 	}
-	for _, generated := range []struct {
+
+	intent := missionintent.Intent{
+		SchemaVersion:        identity.SchemaVersion,
+		Kind:                 "mission-onboarding-intent",
+		PublicationStamp:     stamp,
+		OnboardingPlanSHA256: planSHA256,
+		Identity:             identity,
+		Recovery:             recovery,
+	}
+	generated := []struct {
 		path, kind string
 		content    []byte
 		phase      int
-	}{{artifactPaths.Intent, "onboarding-intent", intentBytes, 0}, {artifactPaths.MissionIntent, "mission-intent", missionBytes, 1}, {artifactPaths.Commit, "onboarding-commit", commitBytes, 2}} {
-		base.Writes = append(base.Writes, syncreview.ExclusiveInitWrite{Path: generated.path, Kind: generated.kind, TargetPath: filepath.Join(identity.Target, filepath.FromSlash(generated.path)), SHA256: missionintent.SHA256(generated.content), Size: int64(len(generated.content)), Content: generated.content, PublicationPhase: generated.phase})
+	}{}
+	if identity.SchemaVersion == 2 {
+		binding := missionintent.ProjectBinding{
+			SchemaVersion:        1,
+			ProjectID:            identity.ProjectID,
+			Target:               ".",
+			MissionIntentSHA256:  missionintent.SHA256(missionBytes),
+			PublicationStamp:     stamp,
+			OnboardingPlanSHA256: planSHA256,
+			NoAuthority:          true,
+			NoConfirmed:          true,
+			NoHeavyTool:          true,
+		}
+		bindingBytes, err := missionintent.MarshalProjectBindingAt(caseRoot, binding)
+		if err != nil {
+			return nil, err
+		}
+		intent.ProjectBindingSHA256 = missionintent.SHA256(bindingBytes)
+		intentBytes, err := missionintent.MarshalIntentAt(caseRoot, intent)
+		if err != nil {
+			return nil, err
+		}
+		commit := missionintent.Commit{SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256, MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes)}
+		commitBytes, err := missionintent.MarshalCommitAt(caseRoot, commit)
+		if err != nil && planSHA256 == planMarker {
+			commitBytes, err = marshalMarkerCommit(stamp, commit.MissionIntentSHA256, commit.IntentSHA256)
+		}
+		if err != nil {
+			return nil, err
+		}
+		generated = append(generated,
+			struct {
+				path, kind string
+				content    []byte
+				phase      int
+			}{artifactPaths.Intent, "onboarding-intent", intentBytes, 0},
+			struct {
+				path, kind string
+				content    []byte
+				phase      int
+			}{artifactPaths.MissionIntent, "mission-intent", missionBytes, 1},
+			struct {
+				path, kind string
+				content    []byte
+				phase      int
+			}{artifactPaths.ProjectBinding, "project-binding", bindingBytes, 2},
+			struct {
+				path, kind string
+				content    []byte
+				phase      int
+			}{artifactPaths.Commit, "onboarding-commit", commitBytes, 3},
+		)
+	} else {
+		intentBytes, err := missionintent.MarshalIntent(intent)
+		if err != nil {
+			return nil, err
+		}
+		commit := missionintent.Commit{SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256, MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes)}
+		commitBytes, err := missionintent.MarshalCommit(commit)
+		if err != nil && planSHA256 == planMarker {
+			commitBytes, err = marshalMarkerCommit(stamp, commit.MissionIntentSHA256, commit.IntentSHA256)
+		}
+		if err != nil {
+			return nil, err
+		}
+		generated = append(generated,
+			struct {
+				path, kind string
+				content    []byte
+				phase      int
+			}{artifactPaths.Intent, "onboarding-intent", intentBytes, 0},
+			struct {
+				path, kind string
+				content    []byte
+				phase      int
+			}{artifactPaths.MissionIntent, "mission-intent", missionBytes, 1},
+			struct {
+				path, kind string
+				content    []byte
+				phase      int
+			}{artifactPaths.Commit, "onboarding-commit", commitBytes, 2},
+		)
 	}
-	return base, nil
+	writes := make([]syncreview.ExclusiveInitWrite, 0, len(generated))
+	for _, artifact := range generated {
+		writes = append(writes, syncreview.ExclusiveInitWrite{
+			Path:             artifact.path,
+			Kind:             artifact.kind,
+			TargetPath:       filepath.Join(caseRoot, filepath.FromSlash(artifact.path)),
+			SHA256:           missionintent.SHA256(artifact.content),
+			Size:             int64(len(artifact.content)),
+			Content:          artifact.content,
+			PublicationPhase: artifact.phase,
+		})
+	}
+	return writes, nil
 }
 
 func attachedSnapshot(caseRoot string, rows []casehealth.Row) ([]missionintent.SnapshotArtifact, error) {
@@ -493,7 +618,15 @@ func applyAttachedAdoption(plan Plan) (result Result, retErr error) {
 		return resultFor(plan, inspection, true), nil
 	}
 	if inspection.State == "absent" {
-		if _, err := instance.AssertAttached(plan.CaseRoot, plan.RepoRoot, plan.Pack); err != nil {
+		attachedRepoRoot := plan.RepoRoot
+		inst, err := instance.Read(plan.CaseRoot)
+		if err != nil {
+			return Result{}, err
+		}
+		if inst.StateDir == projectstate.CurrentDir {
+			attachedRepoRoot = inst.TemplateRoot
+		}
+		if _, err := instance.AssertAttached(plan.CaseRoot, attachedRepoRoot, plan.Pack); err != nil {
 			return Result{}, err
 		}
 	}
@@ -552,7 +685,14 @@ func recoverySnapshot(plan syncreview.ExclusiveInitPlan) ([]missionintent.Snapsh
 			return nil, fmt.Errorf("attached onboarding plan has an invalid intent artifact binding: %s", write.Path)
 		}
 		var intent missionintent.Intent
-		if err := json.Unmarshal(write.Content, &intent); err != nil || intent.SchemaVersion != 1 || intent.Kind != "mission-onboarding-intent" || intent.Identity.Target != plan.CaseRoot || intent.Recovery.Mode != "attached-adoption" {
+		if err := json.Unmarshal(write.Content, &intent); err != nil || intent.Kind != "mission-onboarding-intent" || intent.Recovery.Mode != "attached-adoption" {
+			return nil, fmt.Errorf("attached onboarding plan has an invalid intent artifact: %s", write.Path)
+		}
+		if intent.SchemaVersion == 1 {
+			if intent.Identity.Target != plan.CaseRoot {
+				return nil, fmt.Errorf("attached onboarding plan has an invalid intent artifact: %s", write.Path)
+			}
+		} else if err := missionintent.ValidateIntentAt(plan.CaseRoot, intent); err != nil {
 			return nil, fmt.Errorf("attached onboarding plan has an invalid intent artifact: %s", write.Path)
 		}
 		return append([]missionintent.SnapshotArtifact{}, intent.Recovery.AttachedSnapshot...), nil
@@ -575,25 +715,25 @@ func onboardingStamp(value string) (string, time.Time, error) {
 	return stamp, createdAt, nil
 }
 
-func ordinaryPlan(repoRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, allowExisting bool) (syncreview.ExclusiveInitPlan, error) {
+func ordinaryPlan(repoRoot, caseRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, allowExisting bool) (syncreview.ExclusiveInitPlan, error) {
 	options := syncreview.ExclusiveInitOptions{ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + stamp, Role: "mission-onboarding", CreatedAt: createdAt, SkipVerificationMarker: true, DefaultPublicationPhase: 1}
 	var (
 		plan syncreview.ExclusiveInitPlan
 		err  error
 	)
 	if allowExisting {
-		plan, err = syncreview.PlanExclusiveInitReplay(repoRoot, identity.Target, identity.Pack, options)
+		plan, err = syncreview.PlanExclusiveInitReplay(repoRoot, caseRoot, identity.Pack, options)
 	} else {
-		plan, err = syncreview.PlanExclusiveInit(repoRoot, identity.Target, identity.Pack, options)
+		plan, err = syncreview.PlanExclusiveInit(repoRoot, caseRoot, identity.Pack, options)
 	}
 	if err != nil {
 		return syncreview.ExclusiveInitPlan{}, err
 	}
-	return remapOrdinaryPlanStateRoot(plan, identity)
+	return remapOrdinaryPlanStateRoot(plan, caseRoot)
 }
 
-func remapOrdinaryPlanStateRoot(plan syncreview.ExclusiveInitPlan, identity missionintent.Identity) (syncreview.ExclusiveInitPlan, error) {
-	stateRoot, err := projectstate.Resolve(identity.Target)
+func remapOrdinaryPlanStateRoot(plan syncreview.ExclusiveInitPlan, caseRoot string) (syncreview.ExclusiveInitPlan, error) {
+	stateRoot, err := projectstate.Resolve(caseRoot)
 	if err != nil {
 		return syncreview.ExclusiveInitPlan{}, err
 	}
@@ -611,18 +751,25 @@ func remapOrdinaryPlanStateRoot(plan syncreview.ExclusiveInitPlan, identity miss
 	return plan, nil
 }
 
-func ordinaryPlanFromRecovery(identity missionintent.Identity, recovery missionintent.RecoveryEnvelope) (syncreview.ExclusiveInitPlan, error) {
-	if err := missionintent.ValidateRecoveryEnvelope(identity, recovery); err != nil {
+func ordinaryPlanFromRecovery(caseRoot string, identity missionintent.Identity, recovery missionintent.RecoveryEnvelope) (syncreview.ExclusiveInitPlan, error) {
+	if err := validateRecoveryEnvelopeAt(caseRoot, identity, recovery); err != nil {
 		return syncreview.ExclusiveInitPlan{}, err
 	}
-	plan := syncreview.ExclusiveInitPlan{SchemaVersion: 1, Command: "exclusive-init", CaseRoot: identity.Target, RepoRoot: recovery.RepoRoot, Pack: identity.Pack, ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + strings.ReplaceAll(strings.ReplaceAll(recovery.CreatedAt, "-", ""), ":", ""), Role: "mission-onboarding", CreatedAt: recovery.CreatedAt, BlockedActions: []string{"existing root takeover", "overwrite", "backup", "force", "authority/confirmed writes", "heavy-tool execution"}}
+	plan := syncreview.ExclusiveInitPlan{SchemaVersion: 1, Command: "exclusive-init", CaseRoot: caseRoot, RepoRoot: recovery.RepoRoot, Pack: identity.Pack, ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + strings.ReplaceAll(strings.ReplaceAll(recovery.CreatedAt, "-", ""), ":", ""), Role: "mission-onboarding", CreatedAt: recovery.CreatedAt, BlockedActions: []string{"existing root takeover", "overwrite", "backup", "force", "authority/confirmed writes", "heavy-tool execution"}}
 	stampTime, err := time.Parse(time.RFC3339Nano, recovery.CreatedAt)
 	if err != nil {
 		return syncreview.ExclusiveInitPlan{}, err
 	}
 	plan.ProvisionID = "onboarding-" + stampTime.UTC().Format("20060102-150405000")
 	for _, write := range recovery.Writes {
-		planned := syncreview.ExclusiveInitWrite{Path: write.Path, Kind: write.Kind, TargetPath: filepath.Join(identity.Target, filepath.FromSlash(write.Path)), SHA256: write.SHA256, Size: write.Size, Content: append([]byte{}, write.Content...), PublicationPhase: write.PublicationPhase}
+		materialized := write
+		if identity.SchemaVersion == 2 {
+			materialized, err = missionintent.MaterializeRecoveryWriteAt(caseRoot, identity, write)
+			if err != nil {
+				return syncreview.ExclusiveInitPlan{}, err
+			}
+		}
+		planned := syncreview.ExclusiveInitWrite{Path: materialized.Path, Kind: materialized.Kind, TargetPath: filepath.Join(caseRoot, filepath.FromSlash(materialized.Path)), SHA256: materialized.SHA256, Size: materialized.Size, Content: append([]byte{}, materialized.Content...), PublicationPhase: materialized.PublicationPhase}
 		if write.Kind == "runtime-executable" {
 			source, err := runtimebundle.SourceExecutable()
 			if err != nil {
@@ -640,10 +787,6 @@ func ordinaryPlanFromRecovery(identity missionintent.Identity, recovery missioni
 }
 
 func planFromOrdinary(ordinary syncreview.ExclusiveInitPlan, identity missionintent.Identity, stamp, planSHA256 string) (syncreview.ExclusiveInitPlan, error) {
-	artifactPaths, err := missionintent.Paths(identity.Target)
-	if err != nil {
-		return syncreview.ExclusiveInitPlan{}, err
-	}
 	recoveryRepoRoot := ordinary.RepoRoot
 	for _, write := range ordinary.Writes {
 		if write.Kind == "runtime-bundle-manifest" {
@@ -655,12 +798,20 @@ func planFromOrdinary(ordinary syncreview.ExclusiveInitPlan, identity missionint
 	for _, write := range ordinary.Writes {
 		content := append([]byte{}, write.Content...)
 		if strings.TrimSpace(write.SourcePath) != "" && write.Kind != "runtime-executable" {
+			var err error
 			content, err = refsf.ReadStableRegularFileAnchored(filepath.Dir(write.SourcePath), write.SourcePath, "onboarding recovery bundle asset", write.Size+1)
 			if err != nil || int64(len(content)) != write.Size || !strings.EqualFold(missionintent.SHA256(content), write.SHA256) {
 				return syncreview.ExclusiveInitPlan{}, fmt.Errorf("onboarding bundle source changed while building recovery: %s", write.Path)
 			}
 		}
 		recoveryWrite := missionintent.RecoveryWrite{Path: write.Path, Kind: write.Kind, SHA256: write.SHA256, Size: write.Size, Content: content, PublicationPhase: write.PublicationPhase}
+		if identity.SchemaVersion == 2 {
+			var err error
+			recoveryWrite, err = missionintent.CanonicalRecoveryWriteAt(ordinary.CaseRoot, identity, recoveryWrite)
+			if err != nil {
+				return syncreview.ExclusiveInitPlan{}, err
+			}
+		}
 		recovery.Writes = append(recovery.Writes, recoveryWrite)
 		if write.Kind == "runtime-bundle-manifest" {
 			recovery.BundleManifest.Path = runtimebundle.ManifestRel
@@ -678,33 +829,14 @@ func planFromOrdinary(ordinary syncreview.ExclusiveInitPlan, identity missionint
 		}
 		recovery.BundleManifest.Files = len(manifest.Files) + 1
 	}
-	missionBytes, err := missionintent.MarshalMissionIntent(identity)
-	if err != nil {
-		return syncreview.ExclusiveInitPlan{}, err
-	}
-	intentBytes, err := missionintent.MarshalIntent(missionintent.Intent{SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256, Identity: identity, Recovery: recovery})
-	if err != nil {
-		return syncreview.ExclusiveInitPlan{}, err
-	}
-	commit := missionintent.Commit{SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256, MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes)}
-	commitBytes, err := missionintent.MarshalCommit(commit)
-	if err != nil && planSHA256 == planMarker {
-		commitBytes, err = marshalMarkerCommit(stamp, commit.MissionIntentSHA256, commit.IntentSHA256)
-	}
+	generated, err := generatedOnboardingWrites(ordinary.CaseRoot, identity, recovery, stamp, planSHA256)
 	if err != nil {
 		return syncreview.ExclusiveInitPlan{}, err
 	}
 	plan := ordinary
 	plan.RepoRoot = recovery.RepoRoot
 	plan.Writes = append([]syncreview.ExclusiveInitWrite{}, ordinary.Writes...)
-	for _, generated := range []struct {
-		path, kind string
-		content    []byte
-		phase      int
-	}{{artifactPaths.Intent, "onboarding-intent", intentBytes, 0}, {artifactPaths.MissionIntent, "mission-intent", missionBytes, 1}, {artifactPaths.Commit, "onboarding-commit", commitBytes, 2}} {
-		sum := sha256.Sum256(generated.content)
-		plan.Writes = append(plan.Writes, syncreview.ExclusiveInitWrite{Path: generated.path, Kind: generated.kind, TargetPath: filepath.Join(identity.Target, filepath.FromSlash(generated.path)), SHA256: hex.EncodeToString(sum[:]), Size: int64(len(generated.content)), Content: generated.content, PublicationPhase: generated.phase})
-	}
+	plan.Writes = append(plan.Writes, generated...)
 	sort.Slice(plan.Writes, func(i, j int) bool {
 		if plan.Writes[i].PublicationPhase != plan.Writes[j].PublicationPhase {
 			return plan.Writes[i].PublicationPhase < plan.Writes[j].PublicationPhase
@@ -723,13 +855,17 @@ func recoveryWriteByKind(writes []missionintent.RecoveryWrite, kind string) (mis
 	return missionintent.RecoveryWrite{}, false
 }
 
-func hashExclusivePlan(plan syncreview.ExclusiveInitPlan) (string, error) {
+func hashExclusivePlan(plan syncreview.ExclusiveInitPlan, identity missionintent.Identity) (string, error) {
 	type hashWrite struct {
 		Path             string `json:"path"`
 		Kind             string `json:"kind"`
 		SHA256           string `json:"sha256"`
 		Size             int64  `json:"size"`
 		PublicationPhase int    `json:"publicationPhase"`
+	}
+	caseRoot := plan.CaseRoot
+	if identity.SchemaVersion == 2 {
+		caseRoot = "."
 	}
 	value := struct {
 		SchemaVersion int         `json:"schemaVersion"`
@@ -742,9 +878,22 @@ func hashExclusivePlan(plan syncreview.ExclusiveInitPlan) (string, error) {
 		Role          string      `json:"role"`
 		CreatedAt     string      `json:"createdAt"`
 		Writes        []hashWrite `json:"writes"`
-	}{plan.SchemaVersion, plan.Command, plan.CaseRoot, plan.RepoRoot, plan.Pack, plan.ProjectName, plan.ProvisionID, plan.Role, plan.CreatedAt, nil}
+	}{plan.SchemaVersion, plan.Command, caseRoot, plan.RepoRoot, plan.Pack, plan.ProjectName, plan.ProvisionID, plan.Role, plan.CreatedAt, nil}
 	for _, write := range plan.Writes {
-		value.Writes = append(value.Writes, hashWrite{write.Path, write.Kind, strings.ToLower(write.SHA256), write.Size, write.PublicationPhase})
+		hash := strings.ToLower(write.SHA256)
+		size := write.Size
+		if identity.SchemaVersion == 2 && write.Kind == "template-file" {
+			canonical, err := missionintent.CanonicalRecoveryWriteAt(plan.CaseRoot, identity, missionintent.RecoveryWrite{
+				Path: write.Path, Kind: write.Kind, SHA256: write.SHA256, Size: write.Size,
+				Content: write.Content, PublicationPhase: write.PublicationPhase,
+			})
+			if err != nil {
+				return "", err
+			}
+			hash = strings.ToLower(canonical.SHA256)
+			size = canonical.Size
+		}
+		value.Writes = append(value.Writes, hashWrite{write.Path, write.Kind, hash, size, write.PublicationPhase})
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -766,30 +915,76 @@ func samePath(left, right string) bool {
 	return filepath.Clean(leftAbs) == filepath.Clean(rightAbs)
 }
 
-func normalizeIdentity(opt Options) (missionintent.Identity, error) {
-	target, err := filepath.Abs(strings.TrimSpace(opt.Target))
+func normalizeIdentity(opt Options) (string, missionintent.Identity, error) {
+	caseRoot, err := filepath.Abs(strings.TrimSpace(opt.Target))
 	if err != nil || strings.TrimSpace(opt.Target) == "" {
-		return missionintent.Identity{}, fmt.Errorf("onboard requires Target")
+		return "", missionintent.Identity{}, fmt.Errorf("onboard requires Target")
 	}
-	identity := missionintent.Identity{SchemaVersion: 1, Target: target, Pack: strings.TrimSpace(opt.Pack), ProjectName: strings.TrimSpace(opt.ProjectName), Goal: opt.Goal, Actor: strings.TrimSpace(opt.Actor), Executor: strings.TrimSpace(opt.Executor), InitialLane: strings.TrimSpace(opt.InitialLane)}
-	if err := missionintent.ValidateIdentity(identity); err != nil {
-		return missionintent.Identity{}, err
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", missionintent.Identity{}, err
+	}
+	identity := missionintent.Identity{
+		SchemaVersion: 1,
+		Target:        caseRoot,
+		Pack:          strings.TrimSpace(opt.Pack),
+		ProjectName:   strings.TrimSpace(opt.ProjectName),
+		Goal:          opt.Goal,
+		Actor:         strings.TrimSpace(opt.Actor),
+		Executor:      strings.TrimSpace(opt.Executor),
+		InitialLane:   strings.TrimSpace(opt.InitialLane),
+	}
+	projectID := strings.TrimSpace(opt.ProjectID)
+	if stateRoot.Legacy {
+		if projectID != "" {
+			return "", missionintent.Identity{}, fmt.Errorf("legacy onboarding must not contain ProjectId")
+		}
+	} else {
+		inspection, inspectErr := missionintent.Inspect(caseRoot)
+		if inspectErr != nil {
+			return "", missionintent.Identity{}, inspectErr
+		}
+		if inspection.State != "absent" && inspection.Identity.SchemaVersion == 1 && projectID == "" {
+			// Existing current schema v1 generations remain readable at their
+			// original physical root, but they do not become relocatable.
+		} else {
+			identity.SchemaVersion = 2
+			identity.Target = "."
+			if projectID == "" && inspection.State != "absent" && inspection.Identity.SchemaVersion == 2 {
+				projectID = inspection.Identity.ProjectID
+			}
+			if projectID == "" {
+				projectID, err = missionintent.GenerateProjectID()
+				if err != nil {
+					return "", missionintent.Identity{}, err
+				}
+			}
+			identity.ProjectID = projectID
+		}
+	}
+	if identity.SchemaVersion == 2 {
+		err = missionintent.ValidateIdentityAt(caseRoot, identity)
+	} else {
+		err = missionintent.ValidateIdentity(identity)
+	}
+	if err != nil {
+		return "", missionintent.Identity{}, err
 	}
 	if !utf8.ValidString(identity.Goal) {
-		return missionintent.Identity{}, fmt.Errorf("onboard Goal must be valid UTF-8")
+		return "", missionintent.Identity{}, fmt.Errorf("onboard Goal must be valid UTF-8")
 	}
 	if len([]byte(identity.Goal)) > 4096 {
-		return missionintent.Identity{}, fmt.Errorf("onboard Goal exceeds 4096 bytes")
+		return "", missionintent.Identity{}, fmt.Errorf("onboard Goal exceeds 4096 bytes")
 	}
 	for name, value := range map[string]string{"Pack": identity.Pack, "ProjectName": identity.ProjectName, "Actor": identity.Actor, "Executor": identity.Executor, "InitialLane": identity.InitialLane} {
 		if !utf8.ValidString(value) {
-			return missionintent.Identity{}, fmt.Errorf("onboard %s must be valid UTF-8", name)
+			return "", missionintent.Identity{}, fmt.Errorf("onboard %s must be valid UTF-8", name)
 		}
 		if len([]byte(value)) > 256 {
-			return missionintent.Identity{}, fmt.Errorf("onboard %s exceeds 256 bytes", name)
+			return "", missionintent.Identity{}, fmt.Errorf("onboard %s exceeds 256 bytes", name)
 		}
 	}
-	return identity, nil
+	return caseRoot, identity, nil
 }
 
 func validateInitialLane(repoRoot, pack, lane string) error {
@@ -821,17 +1016,17 @@ func validateInitialLane(repoRoot, pack, lane string) error {
 
 func publicPlan(exclusive syncreview.ExclusiveInitPlan, identity missionintent.Identity, stamp, hash string, replay bool) Plan {
 	writes := publicWrites(exclusive.Writes)
-	args := applyArgs(identity, stamp, hash)
-	return Plan{SchemaVersion: 1, Command: "onboard", CaseRoot: identity.Target, RepoRoot: exclusive.RepoRoot, Pack: identity.Pack, ProjectName: identity.ProjectName, Goal: identity.Goal, Actor: identity.Actor, Executor: identity.Executor, InitialLane: identity.InitialLane, ReviewRequired: true, RequiresConfirmation: true, Replay: replay, PublicationStamp: stamp, OnboardingPlanSHA256: hash, ApplyCommand: applyCommand(args, identity.Goal), ApplyArgs: args, Writes: writes, BlockedActions: []string{"board creation", "lane creation", "goal inference", "authority/confirmed writes", "heavy-tool execution"}, NextSteps: []string{"review the exact mission intent and write set", "run applyArgs as the exact Apply request", "after commit, run status to use the durable onboarding route"}, Identity: identity, ExclusivePlan: exclusive}
+	args := applyArgs(exclusive.CaseRoot, identity, stamp, hash)
+	return Plan{SchemaVersion: 1, Command: "onboard", CaseRoot: exclusive.CaseRoot, RepoRoot: exclusive.RepoRoot, ProjectID: identity.ProjectID, Pack: identity.Pack, ProjectName: identity.ProjectName, Goal: identity.Goal, Actor: identity.Actor, Executor: identity.Executor, InitialLane: identity.InitialLane, ReviewRequired: true, RequiresConfirmation: true, Replay: replay, PublicationStamp: stamp, OnboardingPlanSHA256: hash, ApplyCommand: applyCommand(args, identity.Goal), ApplyArgs: args, Writes: writes, BlockedActions: []string{"board creation", "lane creation", "goal inference", "authority/confirmed writes", "heavy-tool execution"}, NextSteps: []string{"review the exact mission intent and write set", "run applyArgs as the exact Apply request", "after commit, run status to use the durable onboarding route"}, Identity: identity, ExclusivePlan: exclusive}
 }
 
-func replayPlan(repoRoot string, inspection missionintent.Inspection) Plan {
-	args := applyArgs(inspection.Identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
-	return Plan{SchemaVersion: 1, Command: "onboard", CaseRoot: inspection.Identity.Target, RepoRoot: repoRoot, Pack: inspection.Identity.Pack, ProjectName: inspection.Identity.ProjectName, Goal: inspection.Identity.Goal, Actor: inspection.Identity.Actor, Executor: inspection.Identity.Executor, InitialLane: inspection.Identity.InitialLane, ReviewRequired: true, RequiresConfirmation: true, Replay: true, PublicationStamp: inspection.PublicationStamp, OnboardingPlanSHA256: inspection.OnboardingPlanSHA256, ApplyCommand: applyCommand(args, inspection.Identity.Goal), ApplyArgs: args, BlockedActions: []string{"committed onboarding replacement", "board/lane mutation"}, NextSteps: []string{"onboarding is already committed; run status"}, Identity: inspection.Identity}
+func replayPlan(repoRoot, caseRoot string, inspection missionintent.Inspection) Plan {
+	args := applyArgs(caseRoot, inspection.Identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
+	return Plan{SchemaVersion: 1, Command: "onboard", CaseRoot: caseRoot, RepoRoot: repoRoot, ProjectID: inspection.Identity.ProjectID, Pack: inspection.Identity.Pack, ProjectName: inspection.Identity.ProjectName, Goal: inspection.Identity.Goal, Actor: inspection.Identity.Actor, Executor: inspection.Identity.Executor, InitialLane: inspection.Identity.InitialLane, ReviewRequired: true, RequiresConfirmation: true, Replay: true, PublicationStamp: inspection.PublicationStamp, OnboardingPlanSHA256: inspection.OnboardingPlanSHA256, ApplyCommand: applyCommand(args, inspection.Identity.Goal), ApplyArgs: args, BlockedActions: []string{"committed onboarding replacement", "board/lane mutation"}, NextSteps: []string{"onboarding is already committed; run status"}, Identity: inspection.Identity}
 }
 
 func resultFor(plan Plan, inspection missionintent.Inspection, replay bool) Result {
-	return Result{SchemaVersion: 1, Command: "onboard", CaseRoot: plan.CaseRoot, Pack: plan.Pack, ProjectName: plan.ProjectName, Applied: !replay, Replay: replay, PublicationStamp: plan.PublicationStamp, OnboardingPlanSHA256: plan.OnboardingPlanSHA256, ApplyCommand: plan.ApplyCommand, ApplyArgs: append([]string{}, plan.ApplyArgs...), Writes: plan.Writes, Inspection: inspection, NextSteps: []string{"run status and consume its single typed onboarding request", "create board/lanes only through the reviewed public onboarding actions"}}
+	return Result{SchemaVersion: 1, Command: "onboard", CaseRoot: plan.CaseRoot, ProjectID: plan.ProjectID, Pack: plan.Pack, ProjectName: plan.ProjectName, Applied: !replay, Replay: replay, PublicationStamp: plan.PublicationStamp, OnboardingPlanSHA256: plan.OnboardingPlanSHA256, ApplyCommand: plan.ApplyCommand, ApplyArgs: append([]string{}, plan.ApplyArgs...), Writes: plan.Writes, Inspection: inspection, NextSteps: []string{"run status and consume its single typed onboarding request", "create board/lanes only through the reviewed public onboarding actions"}}
 }
 
 func publicWrites(writes []syncreview.ExclusiveInitWrite) []Write {
@@ -842,8 +1037,12 @@ func publicWrites(writes []syncreview.ExclusiveInitWrite) []Write {
 	return out
 }
 
-func applyArgs(identity missionintent.Identity, stamp, hash string) []string {
-	return []string{"-Command", "onboard", "-Target", identity.Target, "-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor, "-Executor", identity.Executor, "-InitialLane", identity.InitialLane, "-OnboardingPublicationStamp", stamp, "-ExpectedOnboardingPlanSha256", hash, "-Apply", "-Format", "json"}
+func applyArgs(caseRoot string, identity missionintent.Identity, stamp, hash string) []string {
+	args := []string{"-Command", "onboard", "-Target", caseRoot}
+	if identity.SchemaVersion == 2 {
+		args = append(args, "-ProjectId", identity.ProjectID)
+	}
+	return append(args, "-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor, "-Executor", identity.Executor, "-InitialLane", identity.InitialLane, "-OnboardingPublicationStamp", stamp, "-ExpectedOnboardingPlanSha256", hash, "-Apply", "-Format", "json")
 }
 
 func applyCommand(args []string, goal string) string {

@@ -29,6 +29,14 @@
 
 ## 近期已完成批次与验证
 
+### Batch 829：GitHub repository identity migration
+
+状态：已完成。
+
+实现：canonical repository、clone/handoff 示例、skills、模板和 release invariant 已迁移到 `https://github.com/shuiyu486/STeamAI`；Go module `github.com/shuiyu486/re-context-kits`、内部 `rekit` names、legacy `/rekit` / `.rekit` 与本地 checkout 目录名作为 compatibility identity 保留，没有机械重命名。STeamAI current 项目继续拒绝 PATH/外部 kit fallback。
+
+验证结果：新 repository 与本地 `origin`、tracked identity migration、focused regressions 和独立复核已完成；Git-local machine receipt 与 tracking ref 只证明本地 publication，不冒充 remote CI green 或 formal release。后续产品优化已转入 `steamai-product-optimization-v1`，本条不再作为 active route。
+
 ### Batch 828：STeamAI self-contained project closure
 
 状态：已完成。

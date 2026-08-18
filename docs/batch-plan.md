@@ -2,11 +2,11 @@
 
 ## 读取指南
 
-本文件只是当前路线的短投影，不选题、不保存完整实施日志。先由 `docs/context-routing.md` 选择场景；实施当前路线时，以 `docs/real-usage-hardening-roadmap.md` 的当前卡为唯一 source。完整历史只在 `docs/batch-history.md` 按 ID 查询。
+本文件只是当前路线的短投影，不选题、不保存完整实施日志；本文件不是第二份 roadmap。先由 `docs/context-routing.md` 选择场景；实施当前路线时，以 `docs/real-usage-hardening-roadmap.md` 的当前卡为唯一 source。完整历史只在 `docs/batch-history.md` 按 ID 查询。
 
 ## 实施摘要
 
-当前路线是 `steamai-repository-identity-v1`。Batch 829只迁移GitHub repository的current display/clone/maintenance identity到`shuiyu486/STeamAI`，并用Go-owned default-doc readiness阻止旧clone URL回流；Go module/import、内部`rekit` names、legacy `/rekit` / `.rekit`和本地checkout目录名继续作为兼容身份保留。
+当前路线是 `steamai-product-optimization-v1`。四个阶段严格串行：core product closure → 唯一 `binary-re` → durable pause/resume/stop → `binary-re` actual analysis。Batch 830 已完成，当前只允许领取 Batch 831；source-clone-first、Go + Claude Code 预期依赖和无 installer 是稳定边界。
 
 ## 执行清单
 
@@ -14,36 +14,43 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-repository-identity-v1` |
+| 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `Batch 829` GitHub repository identity migration |
+| 当前批次 | `Batch 830` core product closure |
 | 状态 | `completed` |
-| 唯一允许领取 | `无；Batch 829 已完成，不可继续领取` |
-| 上一批 | `Batch 828` STeamAI self-contained project closure 已完成 |
-| 下一批 | `无；等待用户明确改变路线` |
+| 唯一允许领取 | `Batch 831` |
+| 上一批 | `Batch 829` GitHub repository identity migration 已归档 |
+| 下一批 | `Batch 831` |
 
 ### Current batch state
 
-新GitHub repository与本地`origin`已切换到`shuiyu486/STeamAI`；current docs、skills、templates、examples、active route和release invariant已完成迁移。Go module/import/internal package未机械迁移，历史事实未改写。
+Batch 830 已完成：Identity v2 copy/move、project-local promote/no-reparse、public projection、ordinary-directory adoption、release truth、actual adapter root binding 和真实 Claude 产品链均已按本批范围验证；Batch 831 是唯一允许领取的下一批。Batch 830 不在本次提交前提前复制到 `docs/batch-history.md`。
 
-### Batch 829：GitHub repository identity migration
+### Batch 830：core product closure
 
-状态：已完成 repository identity implementation；release cadence 由 machine receipt 判定。
+状态：已完成。
 
-目标：让canonical GitHub repository、clone/handoff示例和维护文案一致指向`https://github.com/shuiyu486/STeamAI`，同时明确保留`github.com/shuiyu486/re-context-kits` Go module兼容身份与legacy `/rekit` / `.rekit`合同。
+目标：让自包含项目的 identity、复制/移动恢复、project-local promote、public projection、ordinary-directory adoption、release truth 和真实 Claude member→Reviewer→correction→completion 路径在真实调用链上闭合。
 
-验证结果：新repository与本地remote、tracked identity migration、focused regressions和独立复核已完成；冻结工作树的完整local release minimum、direct implementation commit/push与post-push核验只由Git-local machine receipt和本地tracking ref证明，不由本文提前声称，也不声称remote CI green。
+验证结果：Identity v2 copy/move 与旧 current v1 relocation fail-closed、project-local promote no-reparse、受影响 `promote`/`cli` 包 fresh 测试、真实 Claude 全链一次通过、第二次 gate 的 Reviewer 语义拒绝与 cleanup truth 均已如实验证；最终本机 release minimum 只以冻结工作树生成的 fresh machine receipt 判定。本批不声称 remote CI green，本地 receipt 和 tracking ref 仅证明 Git-local validation/publication truth。
+
+### Locked sequence
+
+| Batch | 目标 | 解锁条件 |
+|---|---|---|
+| 831 | 唯一 active `binary-re`，旧 pack typed migration-required | Batch 830 完成 |
+| 832 | durable pause/resume/stop 与 late-result held ledger | Batch 831 完成 |
+| 833 | `binary-re` VMP/IDA actual adapter 与真实分析闭环 | Batch 832 完成 |
 
 ## 验证标准
 
-- 本文件与路线图的route/current/state/claim/next必须一致；冲突时fail-closed。
-- active plan只保留一个compact batch摘要；Batch 828及更早完整历史只在`docs/batch-history.md`。
-- current clone URL只使用`shuiyu486/STeamAI`；旧module path明确作为compatibility identity保留。
-- `completed`表示Batch 829 implementation已冻结；focused回归必须已通过，完整Windows local minimum、direct commit/push与post-push readiness必须再由同批Git-local machine receipt和tracking ref证明。
+- 本文件与路线图的 route/current/state/claim/next 必须一致；冲突时 fail-closed。
+- active plan 只保留一个 compact 当前批次摘要；旧批次只在 `docs/batch-history.md`。
+- 当前批次 focused tests、独立审查和临时项目 E2E 通过后才移动指针。
+- 每批完成 focused/fresh local validation 后提交、推送并做 Git-local post-push inspection，再继续唯一解锁批次；四阶段结束后另做 route-level full validation和临时文档清理。不声称未读取的 remote CI green。
 
 ## 风险与注意事项
 
-- 本文件不是第二份 roadmap；范围、边界和完成门槛只在当前卡。
-- 不全局替换`re-context-kits`：Go imports、module identity和历史语境需要保留。
-- repository rename不等于runtime/schema/entrypoint migration；不删除legacy surface，不强制重命名本地目录。
-- local receipt和tracking ref不证明remote CI green。
+- Batch 831 已解锁为唯一下一批；Batch 832/833 仍 locked。不得把后续设计蓝图或 partial code 写成完成事实。
+- 不全局替换兼容 `rekit` identity，不新增 PowerShell runtime logic，不引入 installer 或 PATH fallback。
+- authority/confirmed、heavy action、sync/promote 和 schema migration 继续遵守 exact review/gate 边界。

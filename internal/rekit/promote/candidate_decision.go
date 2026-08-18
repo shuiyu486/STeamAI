@@ -539,6 +539,9 @@ func candidateDecisionAuthorityKey(path string) (string, error) {
 
 func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecisionVerificationOptions) (CandidateDecisionVerificationResult, error) {
 	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, caseRoot); err != nil {
+			return CandidateDecisionVerificationResult{}, err
+		}
 		m, err := manifest.Load(repoRoot, pack)
 		if err != nil {
 			return CandidateDecisionVerificationResult{}, err
@@ -1007,11 +1010,16 @@ func candidateDecisionDraftPath(caseRoot, decisionInput string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	if err := assertInsideRoot(caseRoot, decisionPath); err != nil {
-		return "", fmt.Errorf("candidate decision draft path must stay under the attached case: %w", err)
-	}
-	if err := rejectCandidateDecisionSymlinkPath(caseRoot, filepath.Dir(decisionPath), false); err != nil {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
 		return "", err
+	}
+	reviewsRoot := filepath.Join(stateRoot.Path, "reviews")
+	if err := assertInsideRoot(reviewsRoot, decisionPath); err != nil || refsf.SamePath(reviewsRoot, decisionPath) {
+		return "", fmt.Errorf("candidate decision draft path must stay under the attached case's resolved state reviews namespace: %s", decisionPath)
+	}
+	if err := refsf.ValidateNoReparseComponents(decisionPath); err != nil {
+		return "", fmt.Errorf("candidate decision draft path must not traverse a symlink, junction, or reparse point: %w", err)
 	}
 	return decisionPath, nil
 }
@@ -1139,40 +1147,27 @@ func candidateDecisionDraftCommand(packetPath, decisionPath, decision, reason, a
 }
 
 func writeCandidateDecisionDraftFile(caseRoot, path string, data []byte) (bool, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	decisionPath, err := candidateDecisionDraftPath(caseRoot, path)
+	if err != nil {
 		return false, err
 	}
-	if err := rejectCandidateDecisionSymlinkPath(caseRoot, filepath.Dir(path), false); err != nil {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
 		return false, err
 	}
-	if err := rejectCandidateDecisionSymlinkPath(caseRoot, path, true); err != nil {
+	rel, err := filepath.Rel(stateRoot.Path, decisionPath)
+	if err != nil {
 		return false, err
 	}
-	err := writeDurableExclusiveFile(path, data)
-	if err == nil {
-		return false, nil
-	}
-	if !os.IsExist(err) {
-		return false, err
-	}
-	state, stateErr := refsf.ClassifyNonEmptyRegularFile(path)
-	if stateErr != nil {
-		return false, stateErr
-	}
-	if state != refsf.RegularFileReady {
-		return false, fmt.Errorf("existing candidate decision draft must be a non-empty regular file: %s", path)
-	}
-	existing, readErr := os.ReadFile(path)
-	if readErr != nil {
-		return false, readErr
-	}
-	if !bytes.Equal(existing, data) {
-		return false, fmt.Errorf("existing candidate decision draft does not match replay: %s", path)
-	}
-	return true, nil
+	return refsf.WriteExclusiveRegularFileAnchored(stateRoot.Path, rel, "candidate decision draft", data)
 }
 
 func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisionOptions) (CandidateDecisionResult, error) {
+	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, caseRoot); err != nil {
+			return CandidateDecisionResult{}, err
+		}
+	}
 	if err := prepareCandidateDecisionPlan(opt); err != nil {
 		return CandidateDecisionResult{}, err
 	}

@@ -23,8 +23,10 @@
 
 ## 风险与注意事项
 
-- `sync -Apply` 会写 case，`promote -Apply` 会写 pack source；必须使用显式范围、backup、deny pattern、validation 和 cleanup guard。
-- `promote -CreateCandidates` 写入 pack candidate/tooling candidate 目录，测试必须清理新增 residue。
+- `sync -Apply` 会写 case，`promote -Apply` 会写 authoritative pack source；必须使用显式范围、backup、deny pattern、validation 和 cleanup guard。
+- current `.steamai` 项目的 `.steamai/packs` 是 manifest-hash-bound 的 project-local delivery copy，不是 authoritative writable source。任何会修改该 pack tree 的 `promote` Apply、candidate、decision/proof、verification provision/retirement 操作，都必须在第一笔副作用前 fail-closed；不得通过 path alias、候选目录、lock、backup 或 proof sidecar 绕过 exact bundle validation。真正 zero-write 的 Plan/WhatIf、case-local review/draft、`StageMemberOutput` 保持可用；写回可复用 pack 必须从明确的 source clone owner 发起。
+- central source repo 与明确 legacy source repo 的既有 review-first promote 仍可使用；上述拒绝不能误伤纯读取或 case-local 审查材料。
+- `promote -CreateCandidates` 写入 authoritative pack candidate/tooling candidate 目录，测试必须清理新增 residue。
 - 不写 authority/confirmed，不执行 heavy-tool，不把 case-private state 提升为 pack memory。
 
 ## 方向
@@ -34,25 +36,27 @@
 | `sync` | kit -> case | 将 pack 的 managed docs / managed block 下发到已绑定 case。 |
 | `promote` | case -> kit | 将已绑定 case 中可复用的 managed doc 改进生成候选或写回 pack，并生成 tooling 候选。 |
 
-两者不对称：`sync` 是模板升级，`promote` 是经验蒸馏。日常 `/rekit sync` / `/rekit promote` 默认采用 LLM-first review：先生成审查包，Claude 比较优劣/冲突并让用户确认，确认后才写入。
+两者不对称：`sync` 是模板升级，`promote` 是经验蒸馏。current 项目使用 `/steamai` 或自然语言发起日常请求，Mission Commander 再消费 resolved state root 投影的 typed invocation；legacy-only 项目才使用 `/rekit`。两条路径都默认 LLM-first review：先生成审查包，Claude 比较优劣/冲突并让用户确认，确认后才写入。
 
 ## review-first 流程
 
-默认日常流程：
+current 项目默认日常流程：
 
 ```text
-/rekit sync
-/rekit promote
+/steamai
+然后说“同步项目模板”或“沉淀这轮可复用经验”
 ```
 
-Claude 会先使用内部 runtime 生成只读 review 包。用户不需要手动执行底层脚本；Batch 107 起 `/rekit promote` review 与 JSON what-if preview 默认由 Go backend 处理；Batch 108 起 `promote -CreateCandidates` 实际候选写入也默认由 Go backend 处理；Batch 112 起 `promote -Apply` 实际 pack source 写入也默认由 Go backend 处理；Batch 229 起 `promote` PowerShell fallback 已退休，`REKIT_GO_DISABLE=1` 或 Go delegation 不可用时直接失败。
+Claude 会先使用内部 Go runtime 生成只读 review 包。用户不需要手动执行底层脚本；review、JSON WhatIf、候选写入和显式 Apply 均由 deterministic backend 处理，PowerShell fallback 已退休，`REKIT_GO_DISABLE=1` 或 Go delegation 不可用时直接失败。
 
-review 包写入 case-local 目录：
+review 包写入 case-local active state root：
 
 ```text
-<caseRoot>/.rekit/reviews/<timestamp>-sync/
-<caseRoot>/.rekit/reviews/<timestamp>-promote/
+<active-state-root>/reviews/<timestamp>-sync/
+<active-state-root>/reviews/<timestamp>-promote/
 ```
+
+`<active-state-root>` 由 exact project root 一次解析：current 项目是 `<caseRoot>/.steamai`，legacy-only 项目是 `<caseRoot>/.rekit`；双根 fail-closed，不得自动择优。
 
 每个 review 至少包含：
 
@@ -69,7 +73,7 @@ review 包写入 case-local 目录：
 - 目标必须是已经 `attach/init` 的 case；拼错路径或普通目录会失败，不会静默创建假 case。
 - review 报告应说明每项：是否会 create / overwrite / backup / skip，case 是否相对 last sync hash 有本地修改，风险与推荐动作。
 - 用户确认后，写入型 sync 才覆盖 managed files；覆盖前备份到 manifest `workstreamDefaults.backupRoot` 下的时间戳目录。
-- completed pack-memory selected sync 是同一 public `sync` 下的 bounded consumer path：status 从当前显式 attached case 返回一个具体 `previewCommand`；WhatIf 只绑定一个 completed verified `changeId`、managed path、producer authority、source/target/state hashes、backup/receipt paths，Apply 必须携带 exact `ExpectedPackMemoryConsumptionPlanSha256`。若目标相对 last sync 有本地修改、producer proof/source/state/target 漂移或 existing receipt 不同则 fail-closed；成功后目标 case 的 `.rekit/pack-memory/consumptions/<changeId>.json` 是消费 commit evidence，fresh status/handoff 应显示 consumed。Producer proof 不是目标 case 写入授权，runtime 不扫描磁盘寻找其它 case。
+- completed pack-memory selected sync 是同一 public `sync` 下的 bounded consumer path：status 从当前显式 attached case 返回一个具体 `previewCommand`；WhatIf 只绑定一个 completed verified `changeId`、managed path、producer authority、source/target/state hashes、backup/receipt paths，Apply 必须携带 exact `ExpectedPackMemoryConsumptionPlanSha256`。若目标相对 last sync 有本地修改、producer proof/source/state/target 漂移或 existing receipt 不同则 fail-closed；成功后 `<active-state-root>/pack-memory/consumptions/<changeId>.json` 是消费 commit evidence，fresh status/handoff 应显示 consumed。Producer proof 不是目标 case 写入授权，runtime 不扫描磁盘寻找其它 case。
 - `templateFiles` 只在目标缺失时创建。
 - 不覆盖：
   - `CLAUDE.local.md` block 外内容
@@ -89,7 +93,7 @@ review 包写入 case-local 目录：
 - `promote -CreateCandidates` JSON 的 `reviewPlan` 是 Mission Commander 的候选审查 handoff：按 item 给出 `reviewDecision`、candidate path、merge / reject / cleanup guidance、cleanup targets、main Agent execution plan、runtime boundary 与 completion criteria；`-WhatIf` 只预览这些路径，不创建候选文件。`mainAgentExecutionPlan[]` 只给出 review / materialize / cleanup / doctor / reconsume 的 bounded commands、expected、evidence 与 boundary，runtime 不执行 merge、cleanup、`init` 或 `doctor`。
 - 直接整文件写回 pack managed docs 不作为默认推荐路径；优先让 Claude 提炼经验片段。
 - tooling 候选不直接覆盖正式 recipe；需要人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
-- 已合入的 tooling 资产由 pack 本身重新消费：fresh case / attached case 通过 `.rekit/instance.yml` 的 `templateRoot` + `templatePack` 找到 pack tooling 文档；`sync` 仍只处理 managed/template/managed-block/support files，不把 tooling recipes 复制进 case-local managed docs。
+- 已合入的 tooling 资产由 pack 本身重新消费：fresh / attached case 通过 resolved active-state instance metadata 找到 pack tooling 文档；current 项目读取 `.steamai/instance.yml`，legacy-only 项目读取 `.rekit/instance.yml`。`sync` 仍只处理 managed/template/managed-block/support files，不把 tooling recipes 复制进 case-local managed docs。
 
 ## 永不提升
 
@@ -113,13 +117,7 @@ manifest 中的文件路径必须是相对路径，并且不能通过 `..` 越�
 
 ## 推荐日常流程
 
-在 case 中完成一轮实践后：
-
-```text
-/rekit promote
-```
-
-Claude 读取 review 包后输出：
+在 current case 中完成一轮实践后，使用 `/steamai` 或直接说“沉淀这轮可复用经验”；legacy-only case 才使用 `/rekit promote`。Claude 读取 review 包后输出：
 
 - 每个大项即将同步/回流什么。
 - 新旧经验是否冲突。
@@ -136,10 +134,6 @@ Claude 读取 review 包后输出：
 取消
 ```
 
-最后验证：
+最后通过 `/steamai` 或自然语言请求“检查项目健康状态”；legacy-only case 才使用 `/rekit doctor`。
 
-```text
-/rekit doctor
-```
-
-> 底层 runtime 只是 `/rekit` 的内部实现；日常不要手动执行。
+> current 项目的底层 Go runtime 只是 project-local `/steamai` 的内部实现；日常不要手动拼接底层命令。

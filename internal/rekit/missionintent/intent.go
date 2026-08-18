@@ -2,6 +2,7 @@ package missionintent
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -22,6 +23,7 @@ const (
 	// Legacy relative constants remain for callers without a case root. New
 	// case-local publication code must use ArtifactPaths.
 	MissionIntentRel       = ".rekit/mission-intent.json"
+	ProjectBindingRel      = ".steamai/project-binding.json"
 	IntentRel              = ".rekit/onboarding/intent.json"
 	CommitRel              = ".rekit/onboarding/commit.json"
 	maxArtifactBytes       = 64 * 1024
@@ -33,6 +35,7 @@ const (
 type Identity struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Target        string `json:"target"`
+	ProjectID     string `json:"projectId,omitempty"`
 	Pack          string `json:"pack"`
 	ProjectName   string `json:"projectName"`
 	Goal          string `json:"goal"`
@@ -46,6 +49,7 @@ type Intent struct {
 	Kind                 string           `json:"kind"`
 	PublicationStamp     string           `json:"publicationStamp"`
 	OnboardingPlanSHA256 string           `json:"onboardingPlanSha256"`
+	ProjectBindingSHA256 string           `json:"projectBindingSha256,omitempty"`
 	Identity             Identity         `json:"identity"`
 	Recovery             RecoveryEnvelope `json:"recovery"`
 }
@@ -55,7 +59,7 @@ type RecoveryEnvelope struct {
 	RepoRoot         string             `json:"repoRoot"`
 	CreatedAt        string             `json:"createdAt"`
 	Mode             string             `json:"mode,omitempty"`
-	BundleManifest   BundleBinding      `json:"bundleManifest,omitempty"`
+	BundleManifest   BundleBinding      `json:"bundleManifest"`
 	Writes           []RecoveryWrite    `json:"writes,omitempty"`
 	AttachedSnapshot []SnapshotArtifact `json:"attachedSnapshot,omitempty"`
 }
@@ -64,6 +68,18 @@ type BundleBinding struct {
 	Path   string `json:"path,omitempty"`
 	SHA256 string `json:"sha256,omitempty"`
 	Files  int    `json:"files,omitempty"`
+}
+
+type ProjectBinding struct {
+	SchemaVersion        int    `json:"schemaVersion"`
+	ProjectID            string `json:"projectId"`
+	Target               string `json:"target"`
+	MissionIntentSHA256  string `json:"missionIntentSha256"`
+	PublicationStamp     string `json:"publicationStamp"`
+	OnboardingPlanSHA256 string `json:"onboardingPlanSha256"`
+	NoAuthority          bool   `json:"noAuthority"`
+	NoConfirmed          bool   `json:"noConfirmed"`
+	NoHeavyTool          bool   `json:"noHeavyTool"`
 }
 
 type RecoveryWrite struct {
@@ -92,9 +108,10 @@ type Commit struct {
 }
 
 type ArtifactPaths struct {
-	MissionIntent string
-	Intent        string
-	Commit        string
+	MissionIntent  string
+	ProjectBinding string
+	Intent         string
+	Commit         string
 }
 
 func Paths(caseRoot string) (ArtifactPaths, error) {
@@ -106,11 +123,15 @@ func Paths(caseRoot string) (ArtifactPaths, error) {
 }
 
 func artifactPaths(root projectstate.Root) ArtifactPaths {
-	return ArtifactPaths{
+	paths := ArtifactPaths{
 		MissionIntent: filepath.ToSlash(filepath.Join(root.Dir, "mission-intent.json")),
 		Intent:        filepath.ToSlash(filepath.Join(root.Dir, "onboarding", "intent.json")),
 		Commit:        filepath.ToSlash(filepath.Join(root.Dir, "onboarding", "commit.json")),
 	}
+	if !root.Legacy {
+		paths.ProjectBinding = filepath.ToSlash(filepath.Join(root.Dir, "project-binding.json"))
+	}
+	return paths
 }
 
 type Inspection struct {
@@ -119,7 +140,9 @@ type Inspection struct {
 	PublicationStamp     string           `json:"publicationStamp,omitempty"`
 	OnboardingPlanSHA256 string           `json:"onboardingPlanSha256,omitempty"`
 	Identity             Identity         `json:"identity"`
+	ProjectBinding       *ProjectBinding  `json:"projectBinding,omitempty"`
 	MissionIntentSHA256  string           `json:"missionIntentSha256,omitempty"`
+	ProjectBindingSHA256 string           `json:"projectBindingSha256,omitempty"`
 	IntentSHA256         string           `json:"intentSha256,omitempty"`
 	CommitSHA256         string           `json:"commitSha256,omitempty"`
 	ApplyArgs            []string         `json:"applyArgs,omitempty"`
@@ -133,37 +156,178 @@ func MarshalMissionIntent(identity Identity) ([]byte, error) {
 	return marshalCanonical(identity)
 }
 
+func MarshalMissionIntentAt(caseRoot string, identity Identity) ([]byte, error) {
+	if err := ValidateIdentityAt(caseRoot, identity); err != nil {
+		return nil, err
+	}
+	return marshalBoundedCanonical(identity, maxArtifactBytes, "mission intent")
+}
+
+func MarshalProjectBindingAt(caseRoot string, value ProjectBinding) ([]byte, error) {
+	if err := ValidateProjectBindingAt(caseRoot, value); err != nil {
+		return nil, err
+	}
+	return marshalBoundedCanonical(value, maxArtifactBytes, "project binding")
+}
+
 func MarshalIntent(value Intent) ([]byte, error) {
-	if value.SchemaVersion != 1 || value.Kind != "mission-onboarding-intent" || !validStamp(value.PublicationStamp) || !validPlanHash(value.OnboardingPlanSHA256) {
-		return nil, fmt.Errorf("invalid onboarding intent identity")
-	}
-	if err := ValidateIdentity(value.Identity); err != nil {
+	if err := validateLegacyIntent(value); err != nil {
 		return nil, err
 	}
-	if err := ValidateRecoveryEnvelope(value.Identity, value.Recovery); err != nil {
-		return nil, err
-	}
-	data, err := marshalCanonical(value)
+	return marshalBoundedCanonical(value, maxIntentArtifactBytes, "onboarding intent")
+}
+
+func MarshalIntentAt(caseRoot string, value Intent) ([]byte, error) {
+	physicalRoot, _, err := resolvePhysicalCaseRoot(caseRoot)
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > maxIntentArtifactBytes {
-		return nil, fmt.Errorf("canonical onboarding intent exceeds %d bytes", maxIntentArtifactBytes)
+	if value.SchemaVersion == 2 {
+		value.Recovery, err = canonicalizeRecoveryEnvelope(physicalRoot, value.Identity, value.Recovery)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return data, nil
+	if err := ValidateIntentAt(physicalRoot, value); err != nil {
+		return nil, err
+	}
+	return marshalBoundedCanonical(value, maxIntentArtifactBytes, "onboarding intent")
 }
 
 func MarshalCommit(value Commit) ([]byte, error) {
-	if value.SchemaVersion != 1 || value.Kind != "mission-onboarding-commit" || !validStamp(value.PublicationStamp) || !validSHA256(value.OnboardingPlanSHA256) || !validSHA256(value.MissionIntentSHA256) || !validSHA256(value.IntentSHA256) {
-		return nil, fmt.Errorf("invalid onboarding commit identity")
+	if err := validateCommit(value); err != nil {
+		return nil, err
 	}
-	return marshalCanonical(value)
+	return marshalBoundedCanonical(value, maxArtifactBytes, "onboarding commit")
+}
+
+func MarshalCommitAt(caseRoot string, value Commit) ([]byte, error) {
+	if err := ValidateCommitAt(caseRoot, value); err != nil {
+		return nil, err
+	}
+	return marshalBoundedCanonical(value, maxArtifactBytes, "onboarding commit")
 }
 
 func ValidateIdentity(identity Identity) error {
 	if identity.SchemaVersion != 1 {
 		return fmt.Errorf("mission intent requires schemaVersion 1")
 	}
+	if identity.ProjectID != "" {
+		return fmt.Errorf("mission intent schemaVersion 1 must not contain projectId")
+	}
+	if err := validateIdentityFields(identity); err != nil {
+		return err
+	}
+	target, err := filepath.Abs(identity.Target)
+	if err != nil || !samePath(target, identity.Target) {
+		return fmt.Errorf("mission intent Target must be canonical absolute path: %s", identity.Target)
+	}
+	return nil
+}
+
+func ValidateIdentityAt(caseRoot string, identity Identity) error {
+	physicalRoot, stateRoot, err := resolvePhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return err
+	}
+	if identity.SchemaVersion == 1 {
+		if err := ValidateIdentity(identity); err != nil {
+			return err
+		}
+		if !samePath(identity.Target, physicalRoot) {
+			return fmt.Errorf("mission intent Target does not match physical case root")
+		}
+		return nil
+	}
+	if identity.SchemaVersion != 2 {
+		return fmt.Errorf("mission intent requires schemaVersion 1 or 2")
+	}
+	if stateRoot.Legacy {
+		return fmt.Errorf("mission intent schemaVersion 2 requires current .steamai state root")
+	}
+	if identity.Target != "." {
+		return fmt.Errorf("mission intent schemaVersion 2 Target must be logical current project root: .")
+	}
+	if !validProjectID(identity.ProjectID) {
+		return fmt.Errorf("mission intent schemaVersion 2 requires a 16 lowercase hex projectId")
+	}
+	return validateIdentityFields(identity)
+}
+
+func ValidateProjectBindingAt(caseRoot string, value ProjectBinding) error {
+	_, stateRoot, err := resolvePhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return err
+	}
+	if stateRoot.Legacy {
+		return fmt.Errorf("project binding requires current .steamai state root")
+	}
+	if value.SchemaVersion != 1 || !validProjectID(value.ProjectID) || value.Target != "." || !validSHA256(value.MissionIntentSHA256) || !validStamp(value.PublicationStamp) || !validPlanHash(value.OnboardingPlanSHA256) {
+		return fmt.Errorf("invalid project binding identity")
+	}
+	if !value.NoAuthority || !value.NoConfirmed || !value.NoHeavyTool {
+		return fmt.Errorf("project binding must preserve no-authority, no-confirmed, and no-heavy boundaries")
+	}
+	return nil
+}
+
+func ValidateIntentAt(caseRoot string, value Intent) error {
+	physicalRoot, _, err := resolvePhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return err
+	}
+	if value.SchemaVersion == 1 {
+		if err := ValidateIdentityAt(physicalRoot, value.Identity); err != nil {
+			return err
+		}
+		return validateLegacyIntent(value)
+	}
+	if value.SchemaVersion != 2 || value.Kind != "mission-onboarding-intent" || !validStamp(value.PublicationStamp) || !validPlanHash(value.OnboardingPlanSHA256) || !validSHA256(value.ProjectBindingSHA256) {
+		return fmt.Errorf("invalid onboarding intent identity")
+	}
+	if err := ValidateIdentityAt(physicalRoot, value.Identity); err != nil {
+		return err
+	}
+	return ValidateRecoveryEnvelopeAt(physicalRoot, value.Identity, value.Recovery)
+}
+
+func ValidateCommitAt(caseRoot string, value Commit) error {
+	_, stateRoot, err := resolvePhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return err
+	}
+	if stateRoot.Legacy {
+		return fmt.Errorf("v2 onboarding commit requires current .steamai state root")
+	}
+	return validateCommit(value)
+}
+
+func GenerateProjectID() (string, error) {
+	var value [8]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value[:]), nil
+}
+
+func validateLegacyIntent(value Intent) error {
+	if value.SchemaVersion != 1 || value.Kind != "mission-onboarding-intent" || !validStamp(value.PublicationStamp) || !validPlanHash(value.OnboardingPlanSHA256) || value.ProjectBindingSHA256 != "" {
+		return fmt.Errorf("invalid onboarding intent identity")
+	}
+	if err := ValidateIdentity(value.Identity); err != nil {
+		return err
+	}
+	return ValidateRecoveryEnvelope(value.Identity, value.Recovery)
+}
+
+func validateCommit(value Commit) error {
+	if value.SchemaVersion != 1 || value.Kind != "mission-onboarding-commit" || !validStamp(value.PublicationStamp) || !validSHA256(value.OnboardingPlanSHA256) || !validSHA256(value.MissionIntentSHA256) || !validSHA256(value.IntentSHA256) {
+		return fmt.Errorf("invalid onboarding commit identity")
+	}
+	return nil
+}
+
+func validateIdentityFields(identity Identity) error {
 	fields := map[string]string{
 		"Target": identity.Target, "Pack": identity.Pack, "ProjectName": identity.ProjectName,
 		"Goal": identity.Goal, "Actor": identity.Actor, "Executor": identity.Executor, "InitialLane": identity.InitialLane,
@@ -173,18 +337,65 @@ func ValidateIdentity(identity Identity) error {
 			return fmt.Errorf("mission intent requires %s", name)
 		}
 	}
-	target, err := filepath.Abs(identity.Target)
-	if err != nil || !samePath(target, identity.Target) {
-		return fmt.Errorf("mission intent Target must be canonical absolute path: %s", identity.Target)
-	}
 	return nil
 }
 
+func resolvePhysicalCaseRoot(caseRoot string) (string, projectstate.Root, error) {
+	if strings.TrimSpace(caseRoot) == "" {
+		return "", projectstate.Root{}, fmt.Errorf("physical case root is empty")
+	}
+	physicalRoot, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return "", projectstate.Root{}, err
+	}
+	physicalRoot = filepath.Clean(physicalRoot)
+	stateRoot, err := projectstate.Resolve(physicalRoot)
+	if err != nil {
+		return "", projectstate.Root{}, err
+	}
+	return physicalRoot, stateRoot, nil
+}
+
+func marshalBoundedCanonical(value any, limit int, label string) ([]byte, error) {
+	data, err := marshalCanonical(value)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > limit {
+		return nil, fmt.Errorf("canonical %s exceeds %d bytes", label, limit)
+	}
+	return data, nil
+}
+
 func ValidateRecoveryEnvelope(identity Identity, envelope RecoveryEnvelope) error {
+	if identity.SchemaVersion == 2 {
+		return fmt.Errorf("mission intent schemaVersion 2 recovery validation requires an explicit physical case root")
+	}
 	stateRoot, err := projectstate.Resolve(identity.Target)
 	if err != nil {
 		return err
 	}
+	return validateRecoveryEnvelope(stateRoot, identity.Target, identity, envelope)
+}
+
+func ValidateRecoveryEnvelopeAt(caseRoot string, identity Identity, envelope RecoveryEnvelope) error {
+	physicalRoot, stateRoot, err := resolvePhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return err
+	}
+	if err := ValidateIdentityAt(physicalRoot, identity); err != nil {
+		return err
+	}
+	if identity.SchemaVersion == 2 {
+		envelope, err = canonicalizeRecoveryEnvelope(physicalRoot, identity, envelope)
+		if err != nil {
+			return err
+		}
+	}
+	return validateRecoveryEnvelope(stateRoot, physicalRoot, identity, envelope)
+}
+
+func validateRecoveryEnvelope(stateRoot projectstate.Root, physicalRoot string, identity Identity, envelope RecoveryEnvelope) error {
 	if envelope.SchemaVersion != 1 || strings.TrimSpace(envelope.RepoRoot) == "" || strings.TrimSpace(envelope.CreatedAt) == "" {
 		return fmt.Errorf("onboarding recovery envelope is missing stable identity")
 	}
@@ -192,7 +403,7 @@ func ValidateRecoveryEnvelope(identity Identity, envelope RecoveryEnvelope) erro
 		return fmt.Errorf("invalid onboarding recovery createdAt: %w", err)
 	}
 	if envelope.Mode == "attached-adoption" {
-		return validateAttachedSnapshot(stateRoot, envelope)
+		return validateAttachedSnapshot(stateRoot, envelope, identity.SchemaVersion == 2)
 	}
 	if envelope.Mode != "" || len(envelope.AttachedSnapshot) != 0 {
 		return fmt.Errorf("onboarding recovery envelope has an unsupported mode")
@@ -232,7 +443,10 @@ func ValidateRecoveryEnvelope(identity Identity, envelope RecoveryEnvelope) erro
 		if write.PublicationPhase != 1 {
 			return fmt.Errorf("onboarding recovery ordinary write must use publication phase 1: %s", rel)
 		}
-		if err := validateRecoveryWrite(stateRoot, identity, envelope, key, write); err != nil {
+		if identity.SchemaVersion == 2 && isCurrentGeneratedArtifact(key) {
+			return fmt.Errorf("onboarding recovery envelope must not embed generated artifact: %s", rel)
+		}
+		if err := validateRecoveryWrite(stateRoot, physicalRoot, identity, envelope, key, write); err != nil {
 			return err
 		}
 		if strings.TrimSpace(write.Kind) == "" || write.PublicationPhase < lastPhase || (write.PublicationPhase == lastPhase && lastPath != "" && write.Path <= lastPath) {
@@ -334,16 +548,22 @@ func recoveryWriteByPath(writes []RecoveryWrite, path string) (RecoveryWrite, bo
 
 func recoveryWriteByKey(writes []RecoveryWrite, key string) (RecoveryWrite, bool) {
 	for _, write := range writes {
-		if strings.ToLower(write.Path) == key {
+		if strings.EqualFold(write.Path, key) {
 			return write, true
 		}
 	}
 	return RecoveryWrite{}, false
 }
 
-func validateAttachedSnapshot(stateRoot projectstate.Root, envelope RecoveryEnvelope) error {
+func validateAttachedSnapshot(stateRoot projectstate.Root, envelope RecoveryEnvelope, requireRelocatable bool) error {
 	if len(envelope.Writes) != 0 || len(envelope.AttachedSnapshot) == 0 || len(envelope.AttachedSnapshot) > maxRecoveryWrites {
 		return fmt.Errorf("attached onboarding recovery snapshot count is outside bounds")
+	}
+	if requireRelocatable && envelope.RepoRoot != "." {
+		return fmt.Errorf("current schemaVersion 2 attached onboarding recovery repoRoot must be relocatable")
+	}
+	if requireRelocatable && envelope.BundleManifest != (BundleBinding{}) {
+		return fmt.Errorf("current schemaVersion 2 attached onboarding recovery must not contain a runtime bundle binding")
 	}
 	required := recoveryRequiredPaths(stateRoot, true)
 	seen := map[string]struct{}{}
@@ -353,6 +573,9 @@ func validateAttachedSnapshot(stateRoot projectstate.Root, envelope RecoveryEnve
 		rel, key, err := validateRecoveryPath(artifact.Path)
 		if err != nil {
 			return err
+		}
+		if requireRelocatable && isCurrentGeneratedArtifact(key) {
+			return fmt.Errorf("onboarding recovery envelope must not embed generated artifact: %s", rel)
 		}
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("duplicate attached onboarding snapshot path: %s", rel)
@@ -398,6 +621,20 @@ func validateRecoveryPath(value string) (string, string, error) {
 	return rel, key, nil
 }
 
+func isCurrentGeneratedArtifact(key string) bool {
+	for _, path := range []string{
+		filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "mission-intent.json")),
+		ProjectBindingRel,
+		filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "onboarding", "intent.json")),
+		filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "onboarding", "commit.json")),
+	} {
+		if strings.EqualFold(key, path) {
+			return true
+		}
+	}
+	return false
+}
+
 func isBundleRecoveryKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
 	case "runtime-executable", "pack-asset", "common-asset", "runtime-asset", "runtime-bundle-manifest":
@@ -407,7 +644,7 @@ func isBundleRecoveryKind(kind string) bool {
 	}
 }
 
-func validateRecoveryWrite(stateRoot projectstate.Root, identity Identity, envelope RecoveryEnvelope, key string, write RecoveryWrite) error {
+func validateRecoveryWrite(stateRoot projectstate.Root, physicalRoot string, identity Identity, envelope RecoveryEnvelope, key string, write RecoveryWrite) error {
 	statePrefix := strings.ToLower(filepath.ToSlash(stateRoot.Dir))
 	fixedKinds := recoveryRequiredPaths(stateRoot, false)
 	fixedKinds[".gitignore"] = "support-file"
@@ -430,7 +667,7 @@ func validateRecoveryWrite(stateRoot projectstate.Root, identity Identity, envel
 				"templateRoot: " + envelope.RepoRoot + "\n" +
 				"templatePack: " + identity.Pack + "\n" +
 				"projectName: " + identity.ProjectName + "\n" +
-				"projectRoot: " + identity.Target + "\n" +
+				"projectRoot: " + physicalRoot + "\n" +
 				"mode: case-local-shim\n"
 		} else {
 			expected = "schemaVersion: 2\n" +
@@ -518,7 +755,18 @@ func validateRecoveryWrite(stateRoot projectstate.Root, identity Identity, envel
 		case "managed-file", "template-file":
 			normalized := append([]byte{}, write.Content...)
 			if write.Kind == "template-file" {
-				normalized = []byte(strings.ReplaceAll(strings.ReplaceAll(string(normalized), identity.Target, "<PROJECT_ROOT>"), identity.ProjectName, "<PROJECT_NAME>"))
+				if identity.SchemaVersion == 1 {
+					normalized = []byte(strings.ReplaceAll(strings.ReplaceAll(string(normalized), identity.Target, "<PROJECT_ROOT>"), identity.ProjectName, "<PROJECT_NAME>"))
+				} else {
+					var err error
+					normalized, err = canonicalTemplateRecoveryContent(normalized, physicalRoot, identity.ProjectName)
+					if err != nil {
+						return fmt.Errorf("onboarding recovery template identity binding is invalid: %s: %w", write.Path, err)
+					}
+					if !bytes.Equal(normalized, write.Content) {
+						return fmt.Errorf("onboarding recovery template must use canonical project markers: %s", write.Path)
+					}
+				}
 			}
 			if err := caseshim.ValidatePackRecoveryWrite(identity.Pack, write.Path, write.Kind, SHA256(normalized)); err != nil {
 				return fmt.Errorf("onboarding recovery %s: %w", write.Path, err)
@@ -542,6 +790,124 @@ func validateRecoveryWrite(stateRoot projectstate.Root, identity Identity, envel
 		}
 	}
 	return nil
+}
+
+func canonicalizeRecoveryEnvelope(physicalRoot string, identity Identity, envelope RecoveryEnvelope) (RecoveryEnvelope, error) {
+	if identity.SchemaVersion != 2 || envelope.Mode == "attached-adoption" {
+		return envelope, nil
+	}
+	canonical := envelope
+	canonical.Writes = append([]RecoveryWrite{}, envelope.Writes...)
+	for index := range canonical.Writes {
+		write, err := canonicalRecoveryWriteAt(physicalRoot, identity, canonical.Writes[index])
+		if err != nil {
+			return RecoveryEnvelope{}, err
+		}
+		canonical.Writes[index] = write
+	}
+	return canonical, nil
+}
+
+// CanonicalRecoveryWriteAt converts only explicit template identity bindings
+// to their durable placeholder representation. Other bytes are copied exactly.
+func CanonicalRecoveryWriteAt(caseRoot string, identity Identity, write RecoveryWrite) (RecoveryWrite, error) {
+	physicalRoot, _, err := resolvePhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return RecoveryWrite{}, err
+	}
+	if err := ValidateIdentityAt(physicalRoot, identity); err != nil {
+		return RecoveryWrite{}, err
+	}
+	return canonicalRecoveryWriteAt(physicalRoot, identity, write)
+}
+
+func canonicalRecoveryWriteAt(physicalRoot string, identity Identity, write RecoveryWrite) (RecoveryWrite, error) {
+	canonical := write
+	canonical.Content = append([]byte{}, write.Content...)
+	if identity.SchemaVersion != 2 || write.Kind != "template-file" {
+		return canonical, nil
+	}
+	if write.Size != int64(len(write.Content)) || !strings.EqualFold(write.SHA256, SHA256(write.Content)) {
+		return RecoveryWrite{}, fmt.Errorf("onboarding recovery content binding mismatch: %s", write.Path)
+	}
+	content, err := canonicalTemplateRecoveryWrite(physicalRoot, identity, write)
+	if err != nil {
+		return RecoveryWrite{}, fmt.Errorf("onboarding recovery template identity binding is invalid: %s: %w", write.Path, err)
+	}
+	canonical.Content = content
+	canonical.Size = int64(len(content))
+	canonical.SHA256 = SHA256(content)
+	return canonical, nil
+}
+
+// MaterializeRecoveryWriteAt expands only the two explicit project template
+// markers for the supplied physical root. It never rewrites arbitrary prose.
+func MaterializeRecoveryWriteAt(caseRoot string, identity Identity, write RecoveryWrite) (RecoveryWrite, error) {
+	physicalRoot, _, err := resolvePhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return RecoveryWrite{}, err
+	}
+	if err := ValidateIdentityAt(physicalRoot, identity); err != nil {
+		return RecoveryWrite{}, err
+	}
+	materialized := write
+	materialized.Content = append([]byte{}, write.Content...)
+	if identity.SchemaVersion != 2 || write.Kind != "template-file" {
+		return materialized, nil
+	}
+	canonical, err := canonicalRecoveryWriteAt(physicalRoot, identity, write)
+	if err != nil {
+		return RecoveryWrite{}, err
+	}
+	text := string(canonical.Content)
+	if strings.Count(text, "<PROJECT_ROOT>") != 1 || strings.Count(text, "<PROJECT_NAME>") != 1 {
+		return RecoveryWrite{}, fmt.Errorf("onboarding recovery template markers are absent or ambiguous: %s", write.Path)
+	}
+	text = strings.Replace(text, "<PROJECT_ROOT>", physicalRoot, 1)
+	text = strings.Replace(text, "<PROJECT_NAME>", identity.ProjectName, 1)
+	materialized.Content = []byte(text)
+	materialized.Size = int64(len(materialized.Content))
+	materialized.SHA256 = SHA256(materialized.Content)
+	return materialized, nil
+}
+
+func canonicalTemplateRecoveryWrite(physicalRoot string, identity Identity, write RecoveryWrite) ([]byte, error) {
+	content, err := canonicalTemplateRecoveryContent(write.Content, physicalRoot, identity.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+	if err := caseshim.ValidatePackRecoveryWrite(identity.Pack, write.Path, write.Kind, SHA256(content)); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+func canonicalTemplateRecoveryContent(content []byte, physicalRoot, projectName string) ([]byte, error) {
+	text := string(content)
+	var err error
+	text, err = replaceOneTemplateBinding(text, "<PROJECT_ROOT>", physicalRoot, "physical project root")
+	if err != nil {
+		return nil, err
+	}
+	text, err = replaceOneTemplateBinding(text, "<PROJECT_NAME>", projectName, "project name")
+	if err != nil {
+		return nil, err
+	}
+	return []byte(text), nil
+}
+
+func replaceOneTemplateBinding(text, marker, materialized, label string) (string, error) {
+	switch strings.Count(text, marker) {
+	case 1:
+		return text, nil
+	case 0:
+		if materialized == "" || strings.Count(text, materialized) != 1 {
+			return "", fmt.Errorf("%s binding is absent or ambiguous", label)
+		}
+		return strings.Replace(text, materialized, marker, 1), nil
+	default:
+		return "", fmt.Errorf("%s marker is ambiguous", label)
+	}
 }
 
 func recoveryRequiredPaths(stateRoot projectstate.Root, attached bool) map[string]string {
@@ -605,12 +971,7 @@ func SetInspectPinnedHookForTest(hook func(caseRoot string) error) func() {
 }
 
 func Inspect(caseRoot string) (inspection Inspection, resultErr error) {
-	caseRoot, err := filepath.Abs(caseRoot)
-	if err != nil {
-		return Inspection{State: "corrupt"}, err
-	}
-	caseRoot = filepath.Clean(caseRoot)
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	caseRoot, stateRoot, err := resolvePhysicalCaseRoot(caseRoot)
 	if err != nil {
 		return Inspection{State: "corrupt"}, err
 	}
@@ -659,12 +1020,18 @@ func Inspect(caseRoot string) (inspection Inspection, resultErr error) {
 	if err := validateInspectionNamespaceBindings(caseRoot, stateRoot, root, rootInfo, stateNamespaceRoot, stateNamespaceInfo, onboardingRoot, onboardingInfo); err != nil {
 		return Inspection{State: "corrupt"}, err
 	}
-	var missionBytes, intentBytes, commitBytes []byte
-	var missionPresent, intentPresent, commitPresent bool
+	var missionBytes, bindingBytes, intentBytes, commitBytes []byte
+	var missionPresent, bindingPresent, intentPresent, commitPresent bool
 	if stateNamespaceRoot != nil {
 		missionBytes, missionPresent, err = readStrictPinned(stateNamespaceRoot, stateRoot.Path, "mission-intent.json", paths.MissionIntent, maxArtifactBytes)
 		if err != nil {
 			return Inspection{State: "corrupt"}, err
+		}
+		if !stateRoot.Legacy {
+			bindingBytes, bindingPresent, err = readStrictPinned(stateNamespaceRoot, stateRoot.Path, "project-binding.json", paths.ProjectBinding, maxArtifactBytes)
+			if err != nil {
+				return Inspection{State: "corrupt"}, err
+			}
 		}
 	}
 	if onboardingRoot != nil {
@@ -678,7 +1045,7 @@ func Inspect(caseRoot string) (inspection Inspection, resultErr error) {
 			return Inspection{State: "corrupt"}, err
 		}
 	}
-	if !missionPresent && !intentPresent && !commitPresent {
+	if !missionPresent && !bindingPresent && !intentPresent && !commitPresent {
 		return Inspection{State: "absent"}, nil
 	}
 	if !intentPresent {
@@ -687,6 +1054,17 @@ func Inspect(caseRoot string) (inspection Inspection, resultErr error) {
 	var intent Intent
 	if err := decodeCanonical(intentBytes, &intent); err != nil {
 		return Inspection{State: "corrupt"}, fmt.Errorf("invalid onboarding intent: %w", err)
+	}
+	if intent.SchemaVersion == 1 {
+		return inspectV1(caseRoot, stateRoot, missionBytes, missionPresent, bindingPresent, intentBytes, intent, commitBytes, commitPresent)
+	}
+	return inspectV2(caseRoot, stateRoot, missionBytes, missionPresent, bindingBytes, bindingPresent, intentBytes, intent, commitBytes, commitPresent)
+
+}
+
+func inspectV1(caseRoot string, _ projectstate.Root, missionBytes []byte, missionPresent, bindingPresent bool, intentBytes []byte, intent Intent, commitBytes []byte, commitPresent bool) (Inspection, error) {
+	if bindingPresent {
+		return Inspection{State: "corrupt"}, fmt.Errorf("onboarding schemaVersion 1 must not contain a project binding")
 	}
 	canonicalIntent, err := MarshalIntent(intent)
 	if err != nil || !bytes.Equal(canonicalIntent, intentBytes) {
@@ -710,7 +1088,7 @@ func Inspect(caseRoot string) (inspection Inspection, resultErr error) {
 	if err != nil || !bytes.Equal(canonicalMission, missionBytes) || missionIdentity != identity {
 		return Inspection{State: "corrupt"}, fmt.Errorf("mission intent does not match onboarding intent identity")
 	}
-	inspection = Inspection{
+	inspection := Inspection{
 		State: "pending", PublicationStamp: intent.PublicationStamp, OnboardingPlanSHA256: intent.OnboardingPlanSHA256,
 		Identity: identity, MissionIntentSHA256: SHA256(missionBytes), IntentSHA256: SHA256(intentBytes), Recovery: intent.Recovery,
 	}
@@ -722,6 +1100,70 @@ func Inspect(caseRoot string) (inspection Inspection, resultErr error) {
 		return Inspection{State: "corrupt"}, fmt.Errorf("invalid onboarding commit: %w", err)
 	}
 	canonicalCommit, err := MarshalCommit(commit)
+	if err != nil || !bytes.Equal(canonicalCommit, commitBytes) || commit.PublicationStamp != intent.PublicationStamp || commit.OnboardingPlanSHA256 != intent.OnboardingPlanSHA256 || !strings.EqualFold(commit.MissionIntentSHA256, inspection.MissionIntentSHA256) || !strings.EqualFold(commit.IntentSHA256, inspection.IntentSHA256) {
+		return Inspection{State: "corrupt"}, fmt.Errorf("onboarding commit does not bind the exact intent generation")
+	}
+	inspection.State = "committed"
+	inspection.Committed = true
+	inspection.CommitSHA256 = SHA256(commitBytes)
+	return inspection, nil
+}
+
+func inspectV2(caseRoot string, stateRoot projectstate.Root, missionBytes []byte, missionPresent bool, bindingBytes []byte, bindingPresent bool, intentBytes []byte, intent Intent, commitBytes []byte, commitPresent bool) (Inspection, error) {
+	if stateRoot.Legacy {
+		return Inspection{State: "corrupt"}, fmt.Errorf("onboarding schemaVersion 2 requires current .steamai state root")
+	}
+	canonicalIntent, err := MarshalIntentAt(caseRoot, intent)
+	if err != nil || !bytes.Equal(canonicalIntent, intentBytes) {
+		return Inspection{State: "corrupt"}, fmt.Errorf("onboarding intent is not canonical")
+	}
+	inspection := Inspection{
+		State: "pending", PublicationStamp: intent.PublicationStamp, OnboardingPlanSHA256: intent.OnboardingPlanSHA256,
+		Identity: intent.Identity, IntentSHA256: SHA256(intentBytes), Recovery: intent.Recovery,
+	}
+	if !missionPresent {
+		if bindingPresent || commitPresent {
+			return Inspection{State: "corrupt"}, fmt.Errorf("onboarding generation contains project binding or commit without mission intent")
+		}
+		return inspection, nil
+	}
+	var missionIdentity Identity
+	if err := decodeCanonical(missionBytes, &missionIdentity); err != nil {
+		return Inspection{State: "corrupt"}, fmt.Errorf("invalid mission intent: %w", err)
+	}
+	canonicalMission, err := MarshalMissionIntentAt(caseRoot, missionIdentity)
+	if err != nil || !bytes.Equal(canonicalMission, missionBytes) || missionIdentity != intent.Identity {
+		return Inspection{State: "corrupt"}, fmt.Errorf("mission intent does not match onboarding intent identity")
+	}
+	missionSHA := SHA256(missionBytes)
+	inspection.Identity = missionIdentity
+	inspection.MissionIntentSHA256 = missionSHA
+	if !bindingPresent {
+		if commitPresent {
+			return Inspection{State: "corrupt"}, fmt.Errorf("onboarding commit exists without project binding")
+		}
+		return inspection, nil
+	}
+	var binding ProjectBinding
+	if err := decodeCanonical(bindingBytes, &binding); err != nil {
+		return Inspection{State: "corrupt"}, fmt.Errorf("invalid project binding: %w", err)
+	}
+	canonicalBinding, err := MarshalProjectBindingAt(caseRoot, binding)
+	bindingSHA := SHA256(bindingBytes)
+	if err != nil || !bytes.Equal(canonicalBinding, bindingBytes) || binding.ProjectID != missionIdentity.ProjectID || binding.Target != missionIdentity.Target || !strings.EqualFold(binding.MissionIntentSHA256, missionSHA) || binding.PublicationStamp != intent.PublicationStamp || binding.OnboardingPlanSHA256 != intent.OnboardingPlanSHA256 || !strings.EqualFold(intent.ProjectBindingSHA256, bindingSHA) {
+		return Inspection{State: "corrupt"}, fmt.Errorf("project binding does not bind the exact mission and onboarding generation")
+	}
+	bindingCopy := binding
+	inspection.ProjectBinding = &bindingCopy
+	inspection.ProjectBindingSHA256 = bindingSHA
+	if !commitPresent {
+		return inspection, nil
+	}
+	var commit Commit
+	if err := decodeCanonical(commitBytes, &commit); err != nil {
+		return Inspection{State: "corrupt"}, fmt.Errorf("invalid onboarding commit: %w", err)
+	}
+	canonicalCommit, err := MarshalCommitAt(caseRoot, commit)
 	if err != nil || !bytes.Equal(canonicalCommit, commitBytes) || commit.PublicationStamp != intent.PublicationStamp || commit.OnboardingPlanSHA256 != intent.OnboardingPlanSHA256 || !strings.EqualFold(commit.MissionIntentSHA256, inspection.MissionIntentSHA256) || !strings.EqualFold(commit.IntentSHA256, inspection.IntentSHA256) {
 		return Inspection{State: "corrupt"}, fmt.Errorf("onboarding commit does not bind the exact intent generation")
 	}
@@ -966,6 +1408,18 @@ func readStrictPinned(parent *os.Root, parentPath, leaf, rel string, limit int64
 
 func validPlanHash(value string) bool {
 	return value == "<onboarding-plan-sha256>" || validSHA256(value)
+}
+
+func validProjectID(value string) bool {
+	if len(value) != 16 {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func validSHA256(value string) bool {

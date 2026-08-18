@@ -1,7 +1,6 @@
 package promote
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -78,6 +78,11 @@ type preparedCandidateLifecycleProofDraft struct {
 }
 
 func DraftCandidateLifecycleProof(repoRoot, caseRoot, pack string, opt CandidateReviewProofDraftOptions) (CandidateLifecycleProofDraftResult, error) {
+	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, caseRoot); err != nil {
+			return CandidateLifecycleProofDraftResult{}, err
+		}
+	}
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return CandidateLifecycleProofDraftResult{}, err
@@ -161,6 +166,9 @@ func prepareCandidateLifecycleProofDraft(repoRoot, caseRoot, pack string, opt Ca
 	if err := assertInsideRoot(reviewItemRoot, reviewItem.CandidatePath); err != nil {
 		return preparedCandidateLifecycleProofDraft{}, err
 	}
+	if err := validateCandidateLifecycleProofCandidatePath(reviewItemRoot, reviewItem.CandidatePath); err != nil {
+		return preparedCandidateLifecycleProofDraft{}, err
+	}
 	if strings.TrimSpace(opt.Reason) == "" {
 		return preparedCandidateLifecycleProofDraft{}, fmt.Errorf("candidate lifecycle proof draft requires -Reason")
 	}
@@ -233,16 +241,14 @@ func prepareCandidateLifecycleProofDraft(repoRoot, caseRoot, pack string, opt Ca
 		NextSteps:      []string{"review the deterministic lifecycle proof note and exact hash", "write only the lifecycle proof note with the returned expected-hash Apply command", "rerun release-check or status to refresh pack-memory proof summary"},
 		Boundary:       candidateLifecycleProofDraftBoundary(),
 	}
-	if existing, err := os.ReadFile(proofPath); err == nil {
-		if bytes.Equal(existing, proofBytes) {
-			result.Mode = "already-drafted"
-			result.ApplyCommand = ""
-			result.NextSteps = []string{"the exact lifecycle proof note already exists", "rerun release-check or status to refresh pack-memory proof summary"}
-		} else {
-			return preparedCandidateLifecycleProofDraft{}, fmt.Errorf("candidate lifecycle proof draft target already exists with different bytes: %s", proofPath)
-		}
-	} else if !os.IsNotExist(err) {
+	already, err := candidateReviewProofDraftAlreadyExists(repoRoot, proofPath, proofBytes)
+	if err != nil {
 		return preparedCandidateLifecycleProofDraft{}, err
+	}
+	if already {
+		result.Mode = "already-drafted"
+		result.ApplyCommand = ""
+		result.NextSteps = []string{"the exact lifecycle proof note already exists", "rerun release-check or status to refresh pack-memory proof summary"}
 	}
 	return preparedCandidateLifecycleProofDraft{result: result, proofBytes: proofBytes}, nil
 }
@@ -269,6 +275,37 @@ func candidateLifecycleProofPackTarget(repoRoot, pack string, item CandidateRevi
 		return packTarget
 	}
 	return filepath.ToSlash(filepath.Join("packs", pack, filepath.FromSlash(packTarget)))
+}
+
+// validateCandidateLifecycleProofCandidatePath checks the candidate identity
+// without reading its contents. A missing candidate is valid after cleanup;
+// an existing candidate must remain a regular, non-reparse file.
+func validateCandidateLifecycleProofCandidatePath(root, path string) error {
+	rootFull, err := filepath.Abs(strings.TrimSpace(root))
+	if err != nil || strings.TrimSpace(root) == "" {
+		return fmt.Errorf("candidate proof root is required")
+	}
+	pathFull, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil || strings.TrimSpace(path) == "" {
+		return fmt.Errorf("candidate proof path is required")
+	}
+	if err := assertInsideRoot(rootFull, pathFull); err != nil {
+		return err
+	}
+	if err := refsf.ValidateNoReparseComponents(pathFull); err != nil {
+		return fmt.Errorf("candidate proof path must not traverse symlink or reparse point: %s: %w", pathFull, err)
+	}
+	info, err := os.Lstat(pathFull)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect candidate proof path %s: %w", pathFull, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("candidate %s must be a regular non-symlink file", pathFull)
+	}
+	return nil
 }
 
 func parseCandidateLifecycleProofEvidenceRefs(repoRoot, value string) ([]CandidateDecisionEvidence, error) {

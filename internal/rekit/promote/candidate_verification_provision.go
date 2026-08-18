@@ -109,6 +109,11 @@ var (
 )
 
 func ProvisionCandidateVerificationCases(repoRoot, sourceCaseRoot, pack string, opt CandidateVerificationProvisionOptions) (CandidateVerificationProvisionResult, error) {
+	if !opt.WhatIf {
+		if err := refuseProjectLocalBundlePackMutation(repoRoot, sourceCaseRoot); err != nil {
+			return CandidateVerificationProvisionResult{}, err
+		}
+	}
 	prepared, err := prepareCandidateVerificationProvision(repoRoot, sourceCaseRoot, pack, opt)
 	if err != nil {
 		return CandidateVerificationProvisionResult{}, err

@@ -188,7 +188,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		t.Fatalf("reconcile refresh should restore continue quickstart and handoff route: %+v", reconciledRunbook)
 	}
 
-	if !strings.Contains(reconciledRunbook.HandoffPreviewDriverRequest.Command, `-Lane "main" -WhatIf`) || reconciledRunbook.HandoffApplyDriverRequest != nil || reconciledRunbook.HandoffApplyCommand != "" {
+	if !publicCommandFlagValueIs(reconciledRunbook.HandoffPreviewDriverRequest.Command, "main", "-Lane", "--lane") || !publicCommandHasFlag(reconciledRunbook.HandoffPreviewDriverRequest.Command, "-WhatIf") || publicCommandHasFlag(reconciledRunbook.HandoffPreviewDriverRequest.Command, "-Apply") || reconciledRunbook.HandoffApplyDriverRequest != nil || reconciledRunbook.HandoffApplyCommand != "" {
 		t.Fatalf("selected status should expose only an exact lane handoff preview: %+v", reconciledRunbook)
 	}
 	beforeHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))

@@ -141,6 +141,7 @@ type Options struct {
 	ShardID                                   string
 	DiffPath                                  string
 	ProjectName                               string
+	ProjectID                                 string
 	Goal                                      string
 	InitialLane                               string
 	OnboardingPublicationStamp                string
@@ -250,6 +251,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ProjectName")
 			}
 			opt.ProjectName = args[i]
+		case "-ProjectId", "-ProjectID", "--project-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProjectId")
+			}
+			opt.ProjectID = args[i]
 		case "-Goal", "--goal":
 			i++
 			if i >= len(args) {
@@ -1813,7 +1820,7 @@ func runWithOptions(args []string, stdout io.Writer, snapshot *subagents.Reviewe
 	if strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("expected candidate hash is supported only by plan-subagents reviewer result collection or recovery")
 	}
-	if (strings.TrimSpace(opt.Goal) != "" || strings.TrimSpace(opt.InitialLane) != "" || strings.TrimSpace(opt.OnboardingPublicationStamp) != "" || strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) != "") && opt.Command != commands.Onboard {
+	if (strings.TrimSpace(opt.ProjectID) != "" || strings.TrimSpace(opt.Goal) != "" || strings.TrimSpace(opt.InitialLane) != "" || strings.TrimSpace(opt.OnboardingPublicationStamp) != "" || strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) != "") && opt.Command != commands.Onboard {
 		return fmt.Errorf("mission onboarding flags are supported only by onboard")
 	}
 	switch opt.Command {
@@ -2791,7 +2798,7 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		caseShimCounts := caseshim.ReadinessCountsFor(result.CaseShim)
 		publicDefaultDocCounts := defaultdocs.ReadinessCountsFor(result.PublicDefaultDocs)
 		fmt.Fprintf(out, "case shim: %s ready=%t model=%s entrypoint=%s stateRoot=%s defaultForNewProjects=%t required=%d canonical=%d forbidden=%d\n", result.CaseShim.Summary, result.CaseShim.Ready, result.CaseShim.Model, result.CaseShim.CompatibilityEntrypoint, result.CaseShim.StateRoot, result.CaseShim.DefaultForNewProjects, caseShimCounts.RequiredPhrases, caseShimCounts.CanonicalSkillPhrases, caseShimCounts.ForbiddenStrings)
-		fmt.Fprintf(out, "public default docs: %s ready=%t model=%s entrypoint=%s stateRoot=%s runtimeSource=%s fallbackAllowed=%t canonicalRepository=%s canonicalCloneUrl=%s moduleCompatibilityIdentity=%s documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d\n", result.PublicDefaultDocs.Summary, result.PublicDefaultDocs.Ready, result.PublicDefaultDocs.Model, result.PublicDefaultDocs.DefaultEntrypoint, result.PublicDefaultDocs.StateRoot, result.PublicDefaultDocs.RuntimeSource, result.PublicDefaultDocs.FallbackAllowed, result.PublicDefaultDocs.CanonicalRepository, result.PublicDefaultDocs.CanonicalCloneURL, result.PublicDefaultDocs.ModuleCompatibilityIdentity, publicDefaultDocCounts.Documents, publicDefaultDocCounts.RequiredPhrases, publicDefaultDocCounts.ForbiddenCommands, publicDefaultDocCounts.ForbiddenShellFences)
+		fmt.Fprintf(out, "public default docs: %s ready=%t model=%s entrypoint=%s stateRoot=%s runtimeSource=%s fallbackAllowed=%t canonicalRepository=%s canonicalCloneUrl=%s moduleCompatibilityIdentity=%s documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d guidanceConflicts=%d\n", result.PublicDefaultDocs.Summary, result.PublicDefaultDocs.Ready, result.PublicDefaultDocs.Model, result.PublicDefaultDocs.DefaultEntrypoint, result.PublicDefaultDocs.StateRoot, result.PublicDefaultDocs.RuntimeSource, result.PublicDefaultDocs.FallbackAllowed, result.PublicDefaultDocs.CanonicalRepository, result.PublicDefaultDocs.CanonicalCloneURL, result.PublicDefaultDocs.ModuleCompatibilityIdentity, publicDefaultDocCounts.Documents, publicDefaultDocCounts.RequiredPhrases, publicDefaultDocCounts.ForbiddenCommands, publicDefaultDocCounts.ForbiddenShellFences, publicDefaultDocCounts.GuidanceConflicts)
 		handoffCounts := releasecheck.ReleaseHandoffCountsFor(result.ReleaseHandoff)
 		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d packMemoryCandidates=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.PackMemoryCandidates, handoffCounts.Validation, result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
 		if surfaceCounts.Warnings > 0 {
@@ -3139,7 +3146,7 @@ func writeReleaseCaseShimText(out io.Writer, shim caseshim.Readiness) error {
 
 func writeReleasePublicDefaultDocsText(out io.Writer, docs defaultdocs.Readiness) error {
 	counts := defaultdocs.ReadinessCountsFor(docs)
-	if _, err := fmt.Fprintf(out, "release-check public default docs：summary=%s ready=%t model=%s entrypoint=%s stateRoot=%s runtimeSource=%s fallbackAllowed=%t canonicalRepository=%s canonicalCloneUrl=%s moduleCompatibilityIdentity=%s documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d boundaries=%d warnings=%d\n", docs.Summary, docs.Ready, docs.Model, docs.DefaultEntrypoint, docs.StateRoot, docs.RuntimeSource, docs.FallbackAllowed, docs.CanonicalRepository, docs.CanonicalCloneURL, docs.ModuleCompatibilityIdentity, counts.Documents, counts.RequiredPhrases, counts.ForbiddenCommands, counts.ForbiddenShellFences, counts.Boundaries, counts.Warnings); err != nil {
+	if _, err := fmt.Fprintf(out, "release-check public default docs：summary=%s ready=%t model=%s entrypoint=%s stateRoot=%s runtimeSource=%s fallbackAllowed=%t canonicalRepository=%s canonicalCloneUrl=%s moduleCompatibilityIdentity=%s documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d guidanceConflicts=%d boundaries=%d warnings=%d\n", docs.Summary, docs.Ready, docs.Model, docs.DefaultEntrypoint, docs.StateRoot, docs.RuntimeSource, docs.FallbackAllowed, docs.CanonicalRepository, docs.CanonicalCloneURL, docs.ModuleCompatibilityIdentity, counts.Documents, counts.RequiredPhrases, counts.ForbiddenCommands, counts.ForbiddenShellFences, counts.GuidanceConflicts, counts.Boundaries, counts.Warnings); err != nil {
 		return err
 	}
 	for _, doc := range docs.Documents {
@@ -3159,6 +3166,11 @@ func writeReleasePublicDefaultDocsText(out io.Writer, docs defaultdocs.Readiness
 	}
 	for _, forbidden := range docs.ForbiddenShellFences {
 		if _, err := fmt.Fprintf(out, "release-check public default forbidden shell fence：path=%s language=%s line=%d present=%t snippet=%s\n", forbidden.Path, forbidden.Language, forbidden.Line, forbidden.Present, forbidden.Snippet); err != nil {
+			return err
+		}
+	}
+	for _, conflict := range docs.GuidanceConflicts {
+		if _, err := fmt.Fprintf(out, "release-check public default guidance conflict：path=%s pattern=%s line=%d present=%t snippet=%s\n", conflict.Path, conflict.Pattern, conflict.Line, conflict.Present, conflict.Snippet); err != nil {
 			return err
 		}
 	}
@@ -6447,22 +6459,11 @@ func statusMissionControlRefreshCommand(target string) (string, error) {
 }
 
 func projectVisibleCommand(target, command string) (string, error) {
-	fields, err := splitDriverCommand(command)
-	if err != nil || len(fields) == 0 {
-		return "", fmt.Errorf("project-visible command is invalid: %w", err)
-	}
-	invocation, err := commands.ParsePublicInvocation(command)
+	projected, err := projectstate.ProjectPublicCommand(target, command)
 	if err != nil {
 		return "", fmt.Errorf("project-visible command is invalid: %w", err)
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(target)
-	if err != nil {
-		return "", err
-	}
-	if fields[0] == entrypoint {
-		return strings.TrimSpace(command), nil
-	}
-	return invocation.RenderForEntrypoint(entrypoint)
+	return projected, nil
 }
 
 func statusMissionControlRunbookSteps(runbook *statusMissionControlRunbook) []statusMissionControlRunbookStep {
@@ -8777,7 +8778,7 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 		inspection, inspectErr := missionintent.Inspect(ctx.Target)
 		if inspectErr != nil || inspection.State == "pending" || inspection.State == "corrupt" {
 			if inspection.State == "pending" {
-				inspection.ApplyArgs = onboardingApplyArgs(inspection.Identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
+				inspection.ApplyArgs = onboardingApplyArgs(ctx.Target, inspection.Identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
 			}
 			status.Mode = "case-onboarding-pending"
 			status.Onboarding = &inspection
@@ -8891,8 +8892,12 @@ func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommander
 	return workstream.MissingBoardOnboardingAction(caseRoot)
 }
 
-func onboardingApplyArgs(identity missionintent.Identity, stamp, hash string) []string {
-	return []string{"-Command", "onboard", "-Target", identity.Target, "-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor, "-Executor", identity.Executor, "-InitialLane", identity.InitialLane, "-OnboardingPublicationStamp", stamp, "-ExpectedOnboardingPlanSha256", hash, "-Apply", "-Format", "json"}
+func onboardingApplyArgs(caseRoot string, identity missionintent.Identity, stamp, hash string) []string {
+	args := []string{"-Command", "onboard", "-Target", caseRoot}
+	if identity.SchemaVersion == 2 {
+		args = append(args, "-ProjectId", identity.ProjectID)
+	}
+	return append(args, "-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor, "-Executor", identity.Executor, "-InitialLane", identity.InitialLane, "-OnboardingPublicationStamp", stamp, "-ExpectedOnboardingPlanSha256", hash, "-Apply", "-Format", "json")
 }
 
 func statusOnboardingBlockedMission(caseRoot, summary string) *statusCaseMission {
@@ -8909,16 +8914,20 @@ func statusCaseMissionStartBootstrapAction(caseRoot string) mission.MissionComma
 	return workstream.StartBootstrapAction(caseRoot)
 }
 
-func projectVisibleMissionBriefNextActions(caseRoot string, actions []string) []string {
-	root, err := projectstate.Resolve(caseRoot)
-	if err != nil || root.Legacy {
-		return append([]string{}, actions...)
+func projectVisibleMissionBriefNextActions(caseRoot string, actions []string) ([]string, error) {
+	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	if err != nil {
+		return nil, err
 	}
 	visible := make([]string, 0, len(actions))
-	for _, action := range actions {
-		visible = append(visible, strings.ReplaceAll(action, "/rekit", "/steamai"))
+	for index, action := range actions {
+		projected, err := projectPublicCommandForEntrypoint(action, entrypoint)
+		if err != nil {
+			return nil, fmt.Errorf("mission brief next action %d: %w", index, err)
+		}
+		visible = append(visible, projected)
 	}
-	return visible
+	return visible, nil
 }
 
 func projectVisibleMissionCommanderActions(
@@ -9142,6 +9151,10 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string, onboarding ...missi
 	if err != nil {
 		return nil, err
 	}
+	missionBriefNextActions, err := projectVisibleMissionBriefNextActions(caseRoot, inventory.NextSteps)
+	if err != nil {
+		return nil, fmt.Errorf("project mission brief next actions: %w", err)
+	}
 	return &statusCaseMission{
 		Ready:                             caseMissionActionQueue.Counts.Unblocked > 0 && caseMissionActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                           inventory.MissionBrief.Summary,
@@ -9175,7 +9188,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string, onboarding ...missi
 		MissionCommanderActionQueue:       caseMissionActionQueue,
 		MissionCommanderNextActions:       caseMissionNextActions,
 		DailyMissionControlRunbook:        dailyRunbook,
-		MissionBriefNextActions:           projectVisibleMissionBriefNextActions(caseRoot, inventory.NextSteps),
+		MissionBriefNextActions:           missionBriefNextActions,
 		Escalations:                       append([]string{}, inventory.MissionBrief.Escalations...),
 		HandoffPreviewCommand:             previewCommand,
 		HandoffApplyCommand:               applyCommand,
@@ -10839,7 +10852,7 @@ func runOnboard(ctx runtime.Context, opt Options, out io.Writer) error {
 		return fmt.Errorf("unsupported onboard format: %s", opt.Format)
 	}
 	onboardOpt := onboarding.Options{
-		Target: ctx.Target, Pack: ctx.Pack, ProjectName: opt.ProjectName, Goal: opt.Goal,
+		Target: ctx.Target, ProjectID: opt.ProjectID, Pack: ctx.Pack, ProjectName: opt.ProjectName, Goal: opt.Goal,
 		Actor: opt.Note.Actor, Executor: opt.Start.Executor, InitialLane: opt.InitialLane,
 		PublicationStamp: opt.OnboardingPublicationStamp, ExpectedOnboardingPlanSHA256: opt.ExpectedOnboardingPlanSHA256,
 	}
@@ -11119,6 +11132,9 @@ func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
 	case "json":
 		result, err := overview.BuildInventory(ctx.RepoRoot, target, ctx.Pack)
 		if err != nil {
+			return err
+		}
+		if err := projectOverviewInventoryPublicEntrypoint(&result, target); err != nil {
 			return err
 		}
 		enc := json.NewEncoder(out)
@@ -11893,6 +11909,9 @@ func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
 		return err
 	}
 	if format == "json" {
+		if err := projectStartResultPublicEntrypoint(&result, target); err != nil {
+			return err
+		}
 		return writeJSON(out, result)
 	}
 	return writeStartText(out, result)
@@ -11980,6 +11999,9 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	inspection := currentloop.Inspect(ctx.RepoRoot, target, ctx.Pack, currentRequest)
 	result.CurrentLoopSegment = &inspection
 	if format == "json" {
+		if err := projectHandoffResultPublicEntrypoint(&result, target); err != nil {
+			return err
+		}
 		return writeJSON(out, result)
 	}
 	return writeHandoffText(out, result)
@@ -12105,6 +12127,9 @@ func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	bindReconcileResultRefreshStatus(&result, refresh)
 	if format == "json" {
+		if err := projectReconcileResultPublicEntrypoint(&result, target); err != nil {
+			return err
+		}
 		return writeJSON(out, result)
 	}
 	return writeReconcileText(out, result)
@@ -12161,6 +12186,9 @@ func runComplete(ctx runtime.Context, opt Options, out io.Writer) error {
 		return err
 	}
 	if format == "json" {
+		if err := projectCompleteResultPublicEntrypoint(&result, target); err != nil {
+			return err
+		}
 		return writeJSON(out, result)
 	}
 	return writeCompleteText(out, result)
@@ -12200,6 +12228,9 @@ func runReopen(ctx runtime.Context, opt Options, out io.Writer) error {
 		return err
 	}
 	if format == "json" {
+		if err := projectReopenResultPublicEntrypoint(&result, target); err != nil {
+			return err
+		}
 		return writeJSON(out, result)
 	}
 	return writeReopenText(out, result)
@@ -12245,6 +12276,9 @@ func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 		}
 	}
 	if format == "json" {
+		if err := projectContinueResultPublicEntrypoint(&result, target); err != nil {
+			return err
+		}
 		return writeJSON(out, result)
 	}
 	return writeContinueText(out, result)

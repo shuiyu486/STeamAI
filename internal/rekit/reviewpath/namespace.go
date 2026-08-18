@@ -1,6 +1,7 @@
 package reviewpath
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,18 @@ func CanonicalCollectionNamespace(caseRoot, packetPath string) (CollectionNamesp
 	}, true
 }
 
+func PlannedResultSnapshotPath(caseRoot, dispatchID string) (string, error) {
+	dispatchID = strings.TrimSpace(dispatchID)
+	if !validPathSegment(dispatchID) || strings.ContainsAny(dispatchID, `/\`) {
+		return "", fmt.Errorf("planned reviewer result snapshot requires an exact dispatch ID")
+	}
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(stateRoot.Path, "reviews", "planned-snapshots", dispatchID+".json"), nil
+}
+
 func CollectionNamespacePathSafe(caseRoot, path string, allowMissingLeaf bool) bool {
 	caseRoot, err := filepath.Abs(caseRoot)
 	if err != nil {
@@ -72,8 +85,7 @@ func CollectionNamespacePathSafe(caseRoot, path string, allowMissingLeaf bool) b
 		return false
 	}
 	current := caseRoot
-	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
-	for _, part := range parts {
+	for part := range strings.SplitSeq(filepath.Clean(rel), string(filepath.Separator)) {
 		if part == "" || part == "." {
 			continue
 		}

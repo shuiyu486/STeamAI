@@ -1196,6 +1196,7 @@ func writeCommittedMissionIntent(t *testing.T, root, goal string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt.ProjectID = preview.ProjectID
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	if _, err := onboarding.Apply(repoRoot, opt); err != nil {

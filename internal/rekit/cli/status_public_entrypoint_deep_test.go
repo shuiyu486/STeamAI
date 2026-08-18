@@ -12,6 +12,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
@@ -142,6 +143,114 @@ func TestProjectStatusPublicEntrypointPreservesPausedReviewerWaveFence(t *testin
 	}
 	if len(wave.Shards) != 1 || wave.Shards[0].RecordDispatchCommand != "" || wave.Shards[0].CurrentDriverRequest != nil {
 		t.Fatalf("paused reviewer shard regained executable state: %+v", wave.Shards)
+	}
+}
+
+func TestProjectOverviewPublicEntrypointProjectsCommandsAndPreservesProse(t *testing.T) {
+	const mixedProse = "/rekit handoff main 或 /rekit handoff <name>"
+	for _, fixture := range publicEntrypointProductFixtures() {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, fixture.stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			inventory := overview.Inventory{
+				Command: "overview",
+				MissionBrief: mission.Brief{NextAgentActions: []string{
+					deepProjectionLegacyCommand,
+					deepProjectionProse,
+				}},
+				NextSteps: []string{
+					deepProjectionLegacyCommand,
+					deepProjectionProse,
+					mixedProse,
+				},
+			}
+
+			if err := projectOverviewInventoryPublicEntrypoint(&inventory, caseRoot); err != nil {
+				t.Fatal(err)
+			}
+			wantCommand := fixture.entrypoint + " status -Format json"
+			if inventory.Command != "overview" {
+				t.Fatalf("top-level command enum changed: %q", inventory.Command)
+			}
+			if got := inventory.MissionBrief.NextAgentActions[0]; got != wantCommand {
+				t.Fatalf("mission brief command = %q, want %q", got, wantCommand)
+			}
+			if got := inventory.NextSteps[0]; got != wantCommand {
+				t.Fatalf("next-step command = %q, want %q", got, wantCommand)
+			}
+			if got := inventory.MissionBrief.NextAgentActions[1]; got != deepProjectionProse {
+				t.Fatalf("mission brief prose changed: %q", got)
+			}
+			if got := inventory.NextSteps[1]; got != deepProjectionProse {
+				t.Fatalf("next-step prose changed: %q", got)
+			}
+			if got := inventory.NextSteps[2]; got != mixedProse {
+				t.Fatalf("slash-leading mixed prose changed: %q", got)
+			}
+		})
+	}
+}
+
+func TestProjectPublicCommandForEntrypointParsesAndCanonicalizesStrictFields(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+		want    string
+		wantErr string
+	}{
+		{name: "tab separator", command: "/rekit\tstatus -Format json", want: "/steamai status -Format json"},
+		{name: "already current canonicalized", command: `/steamai status   -Format "json"`, want: "/steamai status -Format json"},
+		{name: "unknown slash entrypoint", command: "/unknown status", wantErr: "must begin"},
+		{name: "unterminated quote", command: `/rekit status -Target "case`, wantErr: "unterminated quote"},
+		{name: "ordinary prose", command: deepProjectionProse, want: deepProjectionProse},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := projectPublicCommandForEntrypoint(test.command, commands.CurrentPublicEntrypoint)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("error = %v, want containing %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("projection = %q err=%v, want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestProjectOverviewPublicEntrypointSeparatesCommandsFromProse(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const prose = "/rekit status is documentation, not a command"
+	inventory := overview.Inventory{NextSteps: []string{
+		"/rekit status -Target /rekit",
+		prose,
+	}}
+	if err := projectOverviewInventoryPublicEntrypoint(&inventory, caseRoot); err != nil {
+		t.Fatal(err)
+	}
+	if got := inventory.NextSteps[0]; got != "/steamai status -Target /rekit" {
+		t.Fatalf("command with slash argument = %q", got)
+	}
+	if got := inventory.NextSteps[1]; got != prose {
+		t.Fatalf("slash-leading prose changed: %q", got)
+	}
+}
+
+func TestProjectOverviewPublicEntrypointRejectsMalformedTypedCommand(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inventory := overview.Inventory{NextSteps: []string{"/rekit unknown -Format json"}}
+	if err := projectOverviewInventoryPublicEntrypoint(&inventory, caseRoot); err == nil ||
+		!strings.Contains(err.Error(), "nextSteps[0]") {
+		t.Fatalf("malformed overview command did not fail closed: %v", err)
 	}
 }
 

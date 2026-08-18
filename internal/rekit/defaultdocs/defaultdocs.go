@@ -1,6 +1,7 @@
 package defaultdocs
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type Readiness struct {
@@ -25,6 +28,7 @@ type Readiness struct {
 	RequiredPhrases             []PhraseCheck         `json:"requiredPhrases"`
 	ForbiddenCommands           []ForbiddenCommand    `json:"forbiddenCommands"`
 	ForbiddenShellFences        []ForbiddenShellFence `json:"forbiddenShellFences"`
+	GuidanceConflicts           []GuidanceConflict    `json:"guidanceConflicts"`
 	Boundaries                  []string              `json:"boundaries"`
 	Warnings                    []string              `json:"warnings"`
 }
@@ -57,11 +61,20 @@ type ForbiddenShellFence struct {
 	Present  bool   `json:"present"`
 }
 
+type GuidanceConflict struct {
+	Path    string `json:"path"`
+	Pattern string `json:"pattern"`
+	Line    int    `json:"line"`
+	Snippet string `json:"snippet"`
+	Present bool   `json:"present"`
+}
+
 type ReadinessCounts struct {
 	Documents            int
 	RequiredPhrases      int
 	ForbiddenCommands    int
 	ForbiddenShellFences int
+	GuidanceConflicts    int
 	Boundaries           int
 	Warnings             int
 }
@@ -72,6 +85,7 @@ func ReadinessCountsFor(readiness Readiness) ReadinessCounts {
 		RequiredPhrases:      len(readiness.RequiredPhrases),
 		ForbiddenCommands:    len(readiness.ForbiddenCommands),
 		ForbiddenShellFences: len(readiness.ForbiddenShellFences),
+		GuidanceConflicts:    len(readiness.GuidanceConflicts),
 		Boundaries:           len(readiness.Boundaries),
 		Warnings:             len(readiness.Warnings),
 	}
@@ -103,6 +117,7 @@ var documents = []DocumentCheck{
 	{Path: "docs/autonomous-goal.md", Purpose: "short approved-route goal anchor"},
 	{Path: "docs/reference-absorption.md", Purpose: "current cross-machine repository clone and handoff guidance"},
 	{Path: "docs/release-readiness.md", Purpose: "routed current and legacy release gate guidance"},
+	{Path: "docs/promote-sync.md", Purpose: "routed current and legacy sync/promote review-first guidance"},
 	{Path: "docs/powershell-deprecation.md", Purpose: "routed PowerShell retirement contract"},
 	{Path: "rekit/tests/README.md", Purpose: "routed smoke selection guide"},
 }
@@ -126,9 +141,9 @@ var requiredPhrases = []requiredPhrase{
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "typed `invocation` 是唯一通用命令桥"},
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "[\"runtime\", \"-Command\", invocation.command]"},
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "`commandExecutable=false`"},
-	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "自包含 STeamAI 项目"},
-	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "`${CLAUDE_PROJECT_DIR}/.steamai/instance.yml`"},
-	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "不通过 PATH 或外部 kit 回退"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "STeamAI 项目内 Mission Control 入口"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "新项目唯一可变状态根是 `${CLAUDE_PROJECT_DIR}/.steamai`"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "bounded-autonomous-v1"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "不要让用户记 SHA"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "typed `invocation` 是唯一通用命令桥"},
@@ -140,17 +155,21 @@ var requiredPhrases = []requiredPhrase{
 	{path: "CLAUDE.md", phrase: "legacy `/rekit` compatibility skill"},
 	{path: "CLAUDE.md", phrase: "不得回退机器 PATH 或外部 kit"},
 	{path: "CLAUDE.md", phrase: "case public JSON 的 project-local typed command 由 resolved state root 统一投影"},
+	{path: "CLAUDE.md", phrase: "当前已批准路线是 `steamai-product-optimization-v1`"},
+	{path: "CLAUDE.md", phrase: "不做 installer"},
 	{path: "docs/context-routing.md", phrase: "本项目文档必须做成按需路由、渐进式披露的样式"},
 	{path: "docs/context-routing.md", phrase: "STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移"},
 	{path: "docs/context-routing.md", phrase: "GitHub repository identity / clone / rename / Go module compatibility"},
 	{path: "docs/context-routing.md", phrase: "不把旧中央 kit/thin-shim 流程当新项目默认"},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: "active source"},
-	{path: "docs/real-usage-hardening-roadmap.md", phrase: "当前路线是 `steamai-repository-identity-v1`"},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: "当前路线是 `steamai-product-optimization-v1`"},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: canonicalRepository},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: moduleCompatibilityIdentity},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: "source-clone-first"},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: "不实现 installer"},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: "拒绝 PATH/外部 kit fallback"},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: "默认 quickstart 只保留 `cd <project> → claude → /steamai`"},
-	{path: "docs/batch-plan.md", phrase: "当前路线是 `steamai-repository-identity-v1`"},
+	{path: "docs/batch-plan.md", phrase: "当前路线是 `steamai-product-optimization-v1`"},
 	{path: "docs/batch-plan.md", phrase: "唯一允许领取"},
 	{path: "docs/mission-control-product-direction.md", phrase: "STeamAI Lane-centric Agent Team Mission Control"},
 	{path: "docs/mission-control-product-direction.md", phrase: "新项目的用户入口是 `/steamai`"},
@@ -171,6 +190,11 @@ var requiredPhrases = []requiredPhrase{
 	{path: "docs/release-readiness.md", phrase: "current STeamAI entry readiness"},
 	{path: "docs/release-readiness.md", phrase: "legacy `/rekit` / `.rekit` compatibility readiness"},
 	{path: "docs/release-readiness.md", phrase: "默认本机验证路径不依赖 PowerShell"},
+	{path: "docs/release-readiness.md", phrase: "`docs/promote-sync.md` 纳入 current guidance inventory"},
+	{path: "docs/promote-sync.md", phrase: "current 项目使用 `/steamai` 或自然语言"},
+	{path: "docs/promote-sync.md", phrase: "legacy-only 项目才使用 `/rekit`"},
+	{path: "docs/promote-sync.md", phrase: "<active-state-root>"},
+	{path: "docs/promote-sync.md", phrase: "双根 fail-closed"},
 	{path: "docs/powershell-deprecation.md", phrase: "PowerShell-free default/product path / Go-native / 跨平台 convergence"},
 	{path: "docs/powershell-deprecation.md", phrase: "Go CLI/backend 是 canonical runtime"},
 	{path: "docs/powershell-deprecation.md", phrase: "PowerShell 当前只保留 `rekit/rekit.ps1` compatibility façade 与按需 parity residue"},
@@ -185,6 +209,19 @@ var legacyRepositoryReferencePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)git@github\.com:shuiyu486/re-context-kits(?:\.git)?`),
 	regexp.MustCompile(`(?i)\bgit[ \t]+clone(?:[ \t]+-[^ \t\r\n]+)*[ \t]+(?:github\.com/)?shuiyu486/re-context-kits(?:\.git)?`),
 	regexp.MustCompile(`(?i)\bgh[ \t]+repo[ \t]+clone[ \t]+shuiyu486/re-context-kits(?:\.git)?`),
+}
+
+type guidanceConflictPattern struct {
+	path    string
+	label   string
+	pattern *regexp.Regexp
+}
+
+var guidanceConflictPatterns = []guidanceConflictPattern{
+	{path: "docs/promote-sync.md", label: "standalone legacy command in current/default guidance", pattern: regexp.MustCompile(`(?i)^\s*/rekit\s+(?:sync|promote|doctor)(?:\s.*)?$`)},
+	{path: "docs/promote-sync.md", label: "fixed legacy review root in current/default guidance", pattern: regexp.MustCompile(`(?i)<caseRoot>[/\\]\.rekit[/\\]reviews(?:[/\\]|\b)`)},
+	{path: "docs/release-readiness.md", label: "fixed legacy observation root in current/default guidance", pattern: regexp.MustCompile(`(?i)\.rekit[/\\]facts[/\\]observations\.jsonl`)},
+	{path: "docs/release-readiness.md", label: "fixed legacy gate handoff in current/default guidance", pattern: regexp.MustCompile(`(?i)reportContract=/rekit\s+gate\b`)},
 }
 
 var boundaries = []string{
@@ -212,6 +249,7 @@ func Inspect(repoRoot string) Readiness {
 		RequiredPhrases:             []PhraseCheck{},
 		ForbiddenCommands:           []ForbiddenCommand{},
 		ForbiddenShellFences:        []ForbiddenShellFence{},
+		GuidanceConflicts:           []GuidanceConflict{},
 		Boundaries:                  append([]string{}, boundaries...),
 		Warnings:                    []string{},
 	}
@@ -226,6 +264,17 @@ func Inspect(repoRoot string) Readiness {
 			texts[doc.Path] = string(data)
 		}
 		readiness.Documents = append(readiness.Documents, doc)
+	}
+	canonicalSkill, canonicalPresent := texts[".claude/skills/steamai/SKILL.md"]
+	templateSkill, templatePresent := texts["rekit/templates/steamai-project/SKILL.md"]
+	if canonicalPresent && templatePresent && !bytes.Equal(
+		sourceartifact.SemanticText([]byte(canonicalSkill)),
+		sourceartifact.SemanticText([]byte(templateSkill)),
+	) {
+		readiness.Warnings = append(
+			readiness.Warnings,
+			"canonical /steamai skill differs semantically from its project-local delivery template",
+		)
 	}
 	for _, required := range requiredPhrases {
 		check := PhraseCheck{Path: required.path, Phrase: required.phrase}
@@ -242,6 +291,14 @@ func Inspect(repoRoot string) Readiness {
 		}
 		readiness.ForbiddenCommands = append(readiness.ForbiddenCommands, forbiddenCommandsInDoc(doc.Path, text)...)
 		readiness.ForbiddenShellFences = append(readiness.ForbiddenShellFences, forbiddenShellFencesInDoc(doc.Path, text)...)
+		conflicts := guidanceConflictsInDoc(doc.Path, text)
+		readiness.GuidanceConflicts = append(readiness.GuidanceConflicts, conflicts...)
+		for _, conflict := range conflicts {
+			readiness.Warnings = append(readiness.Warnings, fmt.Sprintf(
+				"public default doc %s:%d contains current/legacy guidance conflict: %s",
+				conflict.Path, conflict.Line, conflict.Snippet,
+			))
+		}
 		if containsLegacyRepositoryReference(text) {
 			readiness.Warnings = append(readiness.Warnings, fmt.Sprintf("public default doc %s still uses a legacy GitHub repository clone reference", doc.Path))
 		}
@@ -309,6 +366,36 @@ func containsLegacyRepositoryReference(text string) bool {
 		}
 	}
 	return false
+}
+
+func guidanceConflictsInDoc(path, text string) []GuidanceConflict {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	checks := []GuidanceConflict{}
+	heading := ""
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			heading = strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
+		}
+		if legacyGuidanceSection(heading) {
+			continue
+		}
+		for _, candidate := range guidanceConflictPatterns {
+			if candidate.path != path || !candidate.pattern.MatchString(line) {
+				continue
+			}
+			checks = append(checks, GuidanceConflict{
+				Path: path, Pattern: candidate.label, Line: index + 1,
+				Snippet: trimmed, Present: true,
+			})
+		}
+	}
+	return checks
+}
+
+func legacyGuidanceSection(heading string) bool {
+	heading = strings.ToLower(strings.TrimSpace(heading))
+	return strings.Contains(heading, "legacy") || strings.Contains(heading, "兼容")
 }
 
 func forbiddenCommandsInDoc(path, text string) []ForbiddenCommand {

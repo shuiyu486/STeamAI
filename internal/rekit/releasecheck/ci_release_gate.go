@@ -8,14 +8,19 @@ import (
 )
 
 type CIReleaseGate struct {
-	WorkflowPath     string                   `json:"workflowPath"`
-	Ready            bool                     `json:"ready"`
-	Summary          string                   `json:"summary"`
-	WorkflowChecks   []CIReleaseWorkflowCheck `json:"workflowChecks"`
-	Jobs             []CIReleaseJob           `json:"jobs"`
-	RequiredCommands []CIReleaseCommand       `json:"requiredCommands"`
-	ForbiddenStrings []CIReleaseForbidden     `json:"forbiddenStrings"`
-	Warnings         []string                 `json:"warnings"`
+	WorkflowPath          string                   `json:"workflowPath"`
+	Ready                 bool                     `json:"ready"`
+	Summary               string                   `json:"summary"`
+	WorkflowChecks        []CIReleaseWorkflowCheck `json:"workflowChecks"`
+	Jobs                  []CIReleaseJob           `json:"jobs"`
+	RequiredCommands      []CIReleaseCommand       `json:"requiredCommands"`
+	ForbiddenStrings      []CIReleaseForbidden     `json:"forbiddenStrings"`
+	Warnings              []string                 `json:"warnings"`
+	Kind                  string                   `json:"kind"`
+	DefinitionReady       bool                     `json:"definitionReady"`
+	ReadyMeaning          string                   `json:"readyMeaning"`
+	ProvesRemoteExecution bool                     `json:"provesRemoteExecution"`
+	ProvesRemoteGreen     bool                     `json:"provesRemoteGreen"`
 }
 
 type CIReleaseWorkflowCheck struct {
@@ -134,14 +139,20 @@ var ciForbiddenStrings = []string{
 func ciReleaseGate(repo string) CIReleaseGate {
 	const workflowPath = ".github/workflows/release-gate.yml"
 	gate := CIReleaseGate{
-		WorkflowPath: workflowPath,
-		Ready:        true,
-		Summary:      "CI release gate inventory ok",
-		Warnings:     []string{},
+		WorkflowPath:          workflowPath,
+		Ready:                 true,
+		Summary:               "CI release gate inventory ok",
+		Warnings:              []string{},
+		Kind:                  "workflow-definition",
+		DefinitionReady:       true,
+		ReadyMeaning:          "workflow-definition",
+		ProvesRemoteExecution: false,
+		ProvesRemoteGreen:     false,
 	}
 	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(workflowPath)))
 	if err != nil {
 		gate.Ready = false
+		gate.DefinitionReady = gate.Ready
 		gate.Summary = "CI release gate workflow missing"
 		gate.Warnings = append(gate.Warnings, err.Error())
 		return gate
@@ -158,6 +169,7 @@ func ciReleaseGate(repo string) CIReleaseGate {
 		gate.Ready = false
 		gate.Summary = "CI release gate inventory has warnings"
 	}
+	gate.DefinitionReady = gate.Ready
 	return gate
 }
 

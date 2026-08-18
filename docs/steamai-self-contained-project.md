@@ -38,7 +38,7 @@ claude
 - [x] 完成 `.rekit` → `.steamai` 的 zero-write preview、hash-bound Apply、durable receipt、replay 和 drift/dual-root/reparse 负例。
 - [x] production owner 通过 shared `projectstate` 选择 current/legacy root，并保留明确的 legacy compatibility 测试。
 - [x] case public JSON 按 resolved state root 投影全部 project-local typed command：current `.steamai` 只显示 `/steamai`，legacy `.rekit` 只显示 `/rekit`；投影不改 prose、durable artifact identity 或 source snapshot SHA。
-- [x] 独立恢复边界复核与完整 Windows release minimum 已关闭，active route 标为 completed/no-next；未授权 commit/push，release cadence 保持 `implementation-pending`。
+- [x] Batch 828 的独立恢复边界复核与完整 Windows release minimum 已关闭；当前产品优化路线与完成证据以 `docs/real-usage-hardening-roadmap.md` 和 fresh validation 为准。
 
 ## 1. 日常使用
 
@@ -53,7 +53,7 @@ claude
 
 ### 1.2 还没有接入的普通目录
 
-未接入目录在 init 前没有项目级 `/steamai` skill，不能从目录内凭空启动自包含流程。可信的外部 STeamAI initializer／maintenance executable 先做只读分类并返回 `directory-adoption-required`，再展示 canonical init preview；只有用户明确确认同一个 `ExpectedInitPlanSHA256` 才 Apply。确认前零写入、零 Claude launch；existing collision、partial state、state-root conflict、symlink/junction/reparse 或 source/target drift 均 fail-closed。Apply 发布项目内 skill、`.steamai` 状态根、verified runtime bundle 和 selected pack 后，项目才进入上面的日常 `/steamai` 流程。
+未接入目录在 init 前没有项目级 `/steamai` skill，不能从目录内凭空启动自包含流程。可信的外部 STeamAI initializer／maintenance executable 先做只读分类并返回 `directory-adoption-required`；`initialize-in-place` 只生成 canonical init preview，`confirm-exact-plan` 只有携带同一个 `ExpectedInitPlanSHA256` 才 Apply，`cancel` 保持目录不变。确认前零写入、零 Claude launch；stale hash、existing collision、partial state、state-root conflict、symlink/junction/reparse 或 source/target drift 均 fail-closed。确认 Apply 的同一次调用只返回 `ready-to-continue`，不自动启动 onboarding Claude；下一次 fresh daily 才进入项目流程。project-local executable 也不能借这个入口接入另一个普通目录，接入 owner 必须是外部 source-clone maintenance executable。Apply 发布项目内 skill、`.steamai` 状态根、verified runtime bundle 和 selected pack 后，项目才进入上面的日常 `/steamai` 流程。
 
 ### 1.3 日常意图
 
@@ -230,7 +230,7 @@ git diff --check
 
 ## 风险与注意事项
 
-- runtime bundle、copied-directory/no-central-kit、legacy migration、current-sync recovery process E2E、supervisor pre-shared hard-kill cancellation、独立边界复核与完整 Windows local minimum均已通过，active route为completed/no-next。未授权commit/push，cadence保持`implementation-pending`；不得把Git-local machine receipt说成post-push receipt或remote CI green。
+- Batch 828 已证明 runtime bundle、copied-directory/no-central-kit、legacy migration、current-sync recovery process E2E、supervisor pre-shared hard-kill cancellation与完整 Windows local minimum；当前路线新增的 relocation、promote、pack/control/adapter闭环必须以各自 fresh evidence重新判定。不得把Git-local machine receipt说成post-push receipt或remote CI green。
 - 项目内 bundle 是交付边界，不等于要管理 Claude Code 安装或登录。
 - 新品牌不应触发仓库名、Go module、所有内部 package 和 executable 的机械改名；公共/内部命名在产品模型稳定后分阶段迁移。
 - `.rekit` production literal 仍可能存在于明确 legacy compatibility、测试 fixture、文档历史和 schema 兼容中；静态门禁应禁止新增 current mutable owner 直写，而不是盲目删除所有字符串。
