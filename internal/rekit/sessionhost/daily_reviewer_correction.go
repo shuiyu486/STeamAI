@@ -56,7 +56,7 @@ func dailyReviewerOwnerRequest(status publicStatus, selected string) bool {
 		strings.TrimSpace(request.Guidance) == ""
 }
 
-func runDailyCorrection(parent context.Context, hostOpt Options, inspection missionintent.Inspection, correction string, result DailyResult, beforeMemberRun func(caseRoot, pack, lane string) error) (DailyResult, error) {
+func runDailyCorrection(parent context.Context, hostOpt Options, inspection missionintent.Inspection, correction string, result DailyResult, dailyOpt DailyOptions) (DailyResult, error) {
 	lane, boardLane, existing, err := dailyCorrectionLane(result.CaseRoot, inspection, correction, hostOpt.Actor, hostOpt.SelectedLane)
 	if err != nil {
 		return result, err
@@ -185,10 +185,17 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 		result.Replay = true
 		return result, nil
 	}
-	if beforeMemberRun != nil {
-		if err := beforeMemberRun(result.CaseRoot, result.Pack, lane); err != nil {
+	if dailyOpt.beforeMemberRun != nil {
+		if err := dailyOpt.beforeMemberRun(result.CaseRoot, result.Pack, lane); err != nil {
 			return result, fmt.Errorf("prepare corrected daily member run: %w", err)
 		}
+	}
+	adapterReady, err := prepareBinaryREAdapterBeforeMember(parent, dailyOpt, &result)
+	if err != nil {
+		return result, err
+	}
+	if !adapterReady {
+		return result, nil
 	}
 	if _, err := bindHostCurrentDriverRequest(&hostOpt); err != nil {
 		return result, fmt.Errorf("bind corrected daily current driver request: %w", err)

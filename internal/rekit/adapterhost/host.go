@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 )
@@ -47,12 +48,13 @@ type hostTestHooks struct {
 }
 
 type Options struct {
-	RepoRoot               string
-	CaseRoot               string
-	Pack                   string
-	GateEventID            string
-	ExpectedDispatchSHA256 string
-	testHooks              *hostTestHooks
+	RepoRoot                string
+	CaseRoot                string
+	Pack                    string
+	GateEventID             string
+	ExpectedDispatchSHA256  string
+	ExecutionControlBinding *executioncontrol.Binding
+	testHooks               *hostTestHooks
 }
 
 type Result struct {

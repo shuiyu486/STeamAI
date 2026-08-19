@@ -14,7 +14,10 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 )
 
@@ -486,6 +489,92 @@ func TestRunAuthorizedGateTerminalReportReplaysWithoutChild(t *testing.T) {
 	}
 	if !second.Replay || second.ChildLaunched || launches != 1 || second.ReceiptSHA256 != first.ReceiptSHA256 || second.ObservationEventID != first.ObservationEventID || !second.ProfileAlreadyManual || second.ProfileRevoked || second.TaskBindingSHA256 != first.TaskBindingSHA256 {
 		t.Fatalf("terminal replay = %+v first=%+v launches=%d", second, first, launches)
+	}
+}
+
+func TestRunAuthorizedGateDefersSuccessfulTaskBindingUntilReview(t *testing.T) {
+	fixture := newVMPAuthorizedFixtureWithStateRoot(t, false, ".steamai")
+	launches := 0
+	opt := authorizedRunOptionsForFixture(fixture, &hostTestHooks{
+		runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
+			launches++
+			return strictChildBytes(t, child), 5252, nil
+		},
+	})
+	opt.DeferSuccessfulTaskBinding = true
+
+	first, err := RunAuthorizedGate(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.ChildLaunched || first.Replay || launches != 1 || first.ExecutionStatus != "succeeded" ||
+		first.ReceiptSHA256 == "" || first.ObservationEventID == "" || first.TaskBindingPath != "" ||
+		first.TaskBindingSHA256 != "" || !first.ProfileRevoked || first.ProfileAlreadyManual {
+		t.Fatalf("deferred authorized run = %+v launches=%d", first, launches)
+	}
+	binding, err := memberexecution.CurrentTaskBinding(fixture.caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding != nil {
+		t.Fatalf("review-pending authorized run published member binding: %+v", binding)
+	}
+
+	opt.testHooks.runVMPIDAChild = func(VMPIDAIndexChildOptions) ([]byte, int, error) {
+		launches++
+		return nil, 0, errors.New("deferred terminal replay launched child")
+	}
+	second, err := RunAuthorizedGate(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Replay || second.ChildLaunched || launches != 1 ||
+		second.ReceiptSHA256 != first.ReceiptSHA256 || second.ObservationEventID != first.ObservationEventID ||
+		second.TaskBindingPath != "" || second.TaskBindingSHA256 != "" ||
+		!second.ProfileAlreadyManual || second.ProfileRevoked {
+		t.Fatalf("deferred terminal replay = %+v first=%+v launches=%d", second, first, launches)
+	}
+}
+
+func TestRunAuthorizedGateRefusesStaleExecutionControlBeforeChild(t *testing.T) {
+	fixture := newVMPAuthorizedFixtureWithStateRoot(t, false, ".steamai")
+	owner, err := laneowner.Read(fixture.caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(fixture.caseRoot, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := executioncontrol.Preview(fixture.caseRoot, executioncontrol.Options{
+		Lane: "main", Action: executioncontrol.ActionPause, Actor: "adapter-control-test",
+		Reason: "make the captured adapter launch binding stale", PublicationStamp: "2026-08-19T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executioncontrol.Apply(fixture.caseRoot, executioncontrol.Options{
+		Lane: preview.Lane, Action: preview.Action, Actor: preview.Actor, Reason: preview.Reason,
+		PublicationStamp: preview.PublicationStamp, ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	launches := 0
+	opt := authorizedRunOptionsForFixture(fixture, &hostTestHooks{
+		runVMPIDAChild: func(VMPIDAIndexChildOptions) ([]byte, int, error) {
+			launches++
+			return nil, 0, errors.New("stale execution control launched child")
+		},
+	})
+	opt.DeferSuccessfulTaskBinding = true
+	opt.ExecutionControlBinding = &binding
+	result, err := RunAuthorizedGate(opt)
+	if err == nil || !strings.Contains(err.Error(), "lane execution is paused") {
+		t.Fatalf("stale adapter launch result=%+v err=%v", result, err)
+	}
+	if launches != 0 || result.ReceiptSHA256 != "" || result.ObservationEventID != "" || result.TaskBindingSHA256 != "" {
+		t.Fatalf("stale adapter launch crossed child or evidence boundary: result=%+v launches=%d", result, launches)
 	}
 }
 

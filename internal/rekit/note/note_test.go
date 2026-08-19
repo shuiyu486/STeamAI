@@ -1,6 +1,7 @@
 package note
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
@@ -77,6 +80,39 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 		t.Fatalf("would commander projection drifted: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+}
+
+func TestAppendWhatIfPreservesExecutionControlBindingOnlyInRecordRoute(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+	binding := executioncontrol.Binding{
+		SchemaVersion: 1,
+		Lane:          "main",
+		Owner: laneowner.Snapshot{
+			Lane: "main", CurrentExecutor: "executor-a", ExecutorGeneration: 1,
+		},
+	}
+	result, err := Append(repoRoot, caseRoot, pack, Options{
+		Kind: "verification", Lane: "main", Subject: "execution evidence review accepted",
+		Verifier: "tool-review", Verdict: "accepted", Status: "resolved",
+		ExpectedExecutionControlBinding: &binding,
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := result.Event["expectedExecutionControlBinding"]; exists {
+		t.Fatalf("execution control binding leaked into ledger event: %+v", result.Event)
+	}
+	index := slices.Index(result.RecordArgs, "-ExpectedExecutionControlBindingJson")
+	if index < 0 || index+1 >= len(result.RecordArgs) {
+		t.Fatalf("record route omitted execution control binding: %+v", result.RecordArgs)
+	}
+	var replay executioncontrol.Binding
+	if err := json.Unmarshal([]byte(result.RecordArgs[index+1]), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if !executioncontrol.SameBinding(&replay, &binding) || !strings.Contains(result.RecordCommand, "-ExpectedExecutionControlBindingJson") {
+		t.Fatalf("record route binding = %+v command=%q", replay, result.RecordCommand)
+	}
 }
 
 func TestAppendWhatIfOmitsRecordCommandForInternalFields(t *testing.T) {
@@ -289,6 +325,88 @@ func TestAppendInterventionRechecksOpenLaneInsideLease(t *testing.T) {
 		t.Fatalf("closed-lane intervention error = %v", err)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
+}
+
+func TestAppendVerificationWithControlRejectsStaleHead(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixtureWithStateRoot(t, projectstate.CurrentDir)
+	writeNoteText(t, filepath.Join(caseRoot, projectstate.CurrentDir, "board.json"), `{"lanes":[{"id":"main","status":"open","currentExecutor":"executor-a","executorGeneration":1}]}`+"\n")
+	writeNoteText(t, filepath.Join(caseRoot, projectstate.CurrentDir, "lanes", "main", "lane.json"), `{"id":"main","status":"open","currentExecutor":"executor-a","executorGeneration":1}`+"\n")
+	owner, err := laneowner.Read(caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := executioncontrol.Preview(caseRoot, executioncontrol.Options{
+		Lane: "main", Action: executioncontrol.ActionPause, Actor: "note-control-test",
+		Reason: "make the evidence acknowledgement stale", PublicationStamp: "2026-08-19T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executioncontrol.Apply(caseRoot, executioncontrol.Options{
+		Lane: preview.Lane, Action: preview.Action, Actor: preview.Actor, Reason: preview.Reason,
+		PublicationStamp: preview.PublicationStamp, ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Append(repoRoot, caseRoot, pack, Options{
+		Kind: "verification", Lane: "main", Subject: "execution evidence review accepted",
+		Summary: "accepted exact adapter evidence", Verifier: "tool-review", Verdict: "accepted", Status: "resolved",
+		ExpectedExecutionControlBinding: &binding,
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "lane execution is paused") {
+		t.Fatalf("stale verification acknowledgement error = %v", err)
+	}
+	assertNoteNotExists(t, filepath.Join(caseRoot, projectstate.CurrentDir, "facts", "verifications.jsonl"))
+}
+
+func TestAppendDuplicateWithControlRechecksStaleHead(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixtureWithStateRoot(t, projectstate.CurrentDir)
+	writeNoteText(t, filepath.Join(caseRoot, projectstate.CurrentDir, "board.json"), `{"lanes":[{"id":"main","status":"open","currentExecutor":"executor-a","executorGeneration":1}]}`+"\n")
+	writeNoteText(t, filepath.Join(caseRoot, projectstate.CurrentDir, "lanes", "main", "lane.json"), `{"id":"main","status":"open","currentExecutor":"executor-a","executorGeneration":1}`+"\n")
+	owner, err := laneowner.Read(caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt := Options{
+		Kind: "verification", Lane: "main", Subject: "execution evidence review accepted",
+		Summary: "accepted exact adapter evidence", Verifier: "tool-review", Verdict: "accepted", Status: "resolved",
+		EventID: "verification-control-duplicate", CreatedAt: "2026-08-19T00:00:00Z",
+		ExpectedExecutionControlBinding: &binding,
+	}
+	first, err := Append(repoRoot, caseRoot, pack, opt, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Applied {
+		t.Fatalf("initial controlled verification was not applied: %+v", first)
+	}
+	preview, err := executioncontrol.Preview(caseRoot, executioncontrol.Options{
+		Lane: "main", Action: executioncontrol.ActionPause, Actor: "note-control-test",
+		Reason: "make duplicate acknowledgement stale", PublicationStamp: "2026-08-19T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executioncontrol.Apply(caseRoot, executioncontrol.Options{
+		Lane: preview.Lane, Action: preview.Action, Actor: preview.Actor, Reason: preview.Reason,
+		PublicationStamp: preview.PublicationStamp, ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Append(repoRoot, caseRoot, pack, opt, false)
+	if err == nil || !strings.Contains(err.Error(), "lane execution is paused") {
+		t.Fatalf("stale duplicate verification error = %v", err)
+	}
 }
 
 func TestAppendRejectsOversizedEventBeforeWrite(t *testing.T) {

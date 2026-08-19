@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -47,6 +48,15 @@ type publicStatus struct {
 	CaseMission           *publicCaseMission           `json:"caseMission,omitempty"`
 }
 
+type publicNoteResult struct {
+	IsMutation  bool     `json:"isMutation"`
+	Applied     bool     `json:"applied"`
+	Reason      string   `json:"reason,omitempty"`
+	EventID     string   `json:"eventId"`
+	EventSHA256 string   `json:"eventSha256"`
+	RecordArgs  []string `json:"recordArgs,omitempty"`
+}
+
 type publicDriverStep struct {
 	IsMutation                   bool   `json:"isMutation"`
 	Applied                      bool   `json:"applied"`
@@ -66,15 +76,6 @@ type publicDriverResult struct {
 	PreviousExecutor   string
 	ExecutorGeneration int
 	Completion         *workstream.CompleteResult
-}
-
-type publicNoteResult struct {
-	IsMutation  bool     `json:"isMutation"`
-	Applied     bool     `json:"applied"`
-	Reason      string   `json:"reason,omitempty"`
-	EventID     string   `json:"eventId"`
-	EventSHA256 string   `json:"eventSha256"`
-	RecordArgs  []string `json:"recordArgs,omitempty"`
 }
 
 func runPublicCLI(args []string, target any) error {
@@ -102,6 +103,57 @@ func runPublicCommand(command string) error {
 		return err
 	}
 	return runPublicCLI(args, nil)
+}
+
+func runPublicNotePreviewApply(
+	caseRoot,
+	pack string,
+	eventArgs []string,
+	binding executioncontrol.Binding,
+) (publicNoteResult, publicNoteResult, error) {
+	if err := executioncontrol.ValidateBinding(binding); err != nil {
+		return publicNoteResult{}, publicNoteResult{}, err
+	}
+	bindingData, err := json.Marshal(binding)
+	if err != nil {
+		return publicNoteResult{}, publicNoteResult{}, err
+	}
+	previewArgs := []string{"-Command", "note", "-Target", caseRoot}
+	if strings.TrimSpace(pack) != "" {
+		previewArgs = append(previewArgs, "-Pack", pack)
+	}
+	previewArgs = append(previewArgs, eventArgs...)
+	previewArgs = append(
+		previewArgs,
+		"-ExpectedExecutionControlBindingJson", string(bindingData),
+		"-WhatIf", "-Format", "json",
+	)
+	var preview publicNoteResult
+	if err := runPublicCLI(previewArgs, &preview); err != nil {
+		return publicNoteResult{}, publicNoteResult{}, err
+	}
+	if preview.IsMutation || preview.Applied || strings.TrimSpace(preview.EventID) == "" || len(strings.TrimSpace(preview.EventSHA256)) != 64 || len(preview.RecordArgs) == 0 {
+		return publicNoteResult{}, publicNoteResult{}, fmt.Errorf("public note preview omitted its zero-write hash-bound route")
+	}
+	bound, err := cli.Parse(preview.RecordArgs)
+	if err != nil {
+		return publicNoteResult{}, publicNoteResult{}, fmt.Errorf("parse public note record route: %w", err)
+	}
+	if !strings.EqualFold(bound.Command, "note") || bound.Target != caseRoot || bound.Pack != pack ||
+		bound.WhatIf || bound.Apply || bound.List || !strings.EqualFold(bound.Format, "json") ||
+		bound.Note.EventID != preview.EventID || !strings.EqualFold(bound.Note.ExpectedEventSHA256, preview.EventSHA256) ||
+		!executioncontrol.SameBinding(bound.Note.ExpectedExecutionControlBinding, &binding) {
+		return publicNoteResult{}, publicNoteResult{}, fmt.Errorf("public note record route drifted from its exact target, event, or execution control binding")
+	}
+	var applied publicNoteResult
+	if err := runPublicCLI(preview.RecordArgs, &applied); err != nil {
+		return publicNoteResult{}, publicNoteResult{}, err
+	}
+	if applied.IsMutation == false || applied.EventID != preview.EventID || !strings.EqualFold(applied.EventSHA256, preview.EventSHA256) ||
+		(!applied.Applied && applied.Reason != "duplicate eventId") {
+		return publicNoteResult{}, publicNoteResult{}, fmt.Errorf("public note Apply did not replay or apply the exact preview")
+	}
+	return preview, applied, nil
 }
 
 func runPublicApplyCommand(command, expectedCommand, caseRoot, pack string, target any) error {

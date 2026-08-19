@@ -217,6 +217,7 @@ type Options struct {
 	currentLoopExternalTurnResume             bool
 	ExpectedDriverStepPlanSHA256              string
 	ExpectedReviewerStepPlanSHA256            string
+	noteExecutionControlBindingProvided       bool
 	Gate                                      gate.Options
 	Note                                      note.Options
 	Start                                     workstream.StartOptions
@@ -1154,6 +1155,20 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedNoteEventSha256")
 			}
 			opt.Note.ExpectedEventSHA256 = args[i]
+		case "-ExpectedExecutionControlBindingJson", "-ExpectedExecutionControlBindingJSON", "--expected-execution-control-binding-json":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExecutionControlBindingJson")
+			}
+			if opt.noteExecutionControlBindingProvided {
+				return opt, fmt.Errorf("-ExpectedExecutionControlBindingJson cannot be repeated")
+			}
+			binding, err := decodeNoteExecutionControlBinding(args[i])
+			if err != nil {
+				return opt, err
+			}
+			opt.Note.ExpectedExecutionControlBinding = &binding
+			opt.noteExecutionControlBindingProvided = true
 		case "-InterventionId", "--intervention-id":
 			i++
 			if i >= len(args) {
@@ -1598,7 +1613,30 @@ func Parse(args []string) (Options, error) {
 	if err := commands.ValidatePublicInvocationSelectors(opt.Command, selectorArguments); err != nil {
 		return opt, err
 	}
+	if opt.noteExecutionControlBindingProvided && !strings.EqualFold(opt.Command, commands.Note) {
+		return opt, fmt.Errorf("-ExpectedExecutionControlBindingJson is supported only by note")
+	}
 	return opt, nil
+}
+
+func decodeNoteExecutionControlBinding(value string) (executioncontrol.Binding, error) {
+	if strings.TrimSpace(value) == "" {
+		return executioncontrol.Binding{}, fmt.Errorf("-ExpectedExecutionControlBindingJson requires a non-empty JSON object")
+	}
+	var binding executioncontrol.Binding
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&binding); err != nil {
+		return executioncontrol.Binding{}, fmt.Errorf("decode -ExpectedExecutionControlBindingJson: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return executioncontrol.Binding{}, fmt.Errorf("-ExpectedExecutionControlBindingJson must contain exactly one JSON object")
+	}
+	if err := executioncontrol.ValidateBinding(binding); err != nil {
+		return executioncontrol.Binding{}, fmt.Errorf("validate -ExpectedExecutionControlBindingJson: %w", err)
+	}
+	return binding, nil
 }
 
 func runtimeCwdOverride(opt Options) string {

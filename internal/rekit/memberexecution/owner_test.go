@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -389,6 +391,53 @@ func TestWriteTaskBindingForOwnerRejectsTakeover(t *testing.T) {
 		"g000002.json",
 	)); !os.IsNotExist(statErr) {
 		t.Fatalf("stale evidence was written into the replacement generation: %v", statErr)
+	}
+}
+
+func TestWriteTaskBindingForOwnerWithControlRejectsStaleHead(t *testing.T) {
+	caseRoot := memberCaseWithStateDir(t, projectstate.CurrentDir, "executor-a", 1)
+	lanePath, err := projectstate.Join(caseRoot, "lanes", "feature-analysis", "lane.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lanePath, []byte(`{"id":"feature-analysis","status":"active","currentExecutor":"executor-a","executorGeneration":1}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := laneowner.Read(caseRoot, "feature-analysis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := executioncontrol.Preview(caseRoot, executioncontrol.Options{
+		Lane: owner.Lane, Action: executioncontrol.ActionPause, Actor: "binding-control-test",
+		Reason: "make the accepted review binding stale", PublicationStamp: "2026-08-19T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executioncontrol.Apply(caseRoot, executioncontrol.Options{
+		Lane: preview.Lane, Action: preview.Action, Actor: preview.Actor, Reason: preview.Reason,
+		PublicationStamp: preview.PublicationStamp, ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = WriteTaskBindingForOwnerWithControlBinding(
+		caseRoot,
+		owner.Lane,
+		owner.CurrentExecutor,
+		owner.ExecutorGeneration,
+		binding,
+		TaskBinding{Kind: "vmp-ida-index-evidence", Values: map[string]string{"gate-event-id": "gate-a"}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "lane execution is paused") {
+		t.Fatalf("stale control task binding error = %v", err)
+	}
+	if current, readErr := CurrentTaskBinding(caseRoot, owner.Lane); readErr != nil || current != nil {
+		t.Fatalf("stale control task binding became current: binding=%+v err=%v", current, readErr)
 	}
 }
 

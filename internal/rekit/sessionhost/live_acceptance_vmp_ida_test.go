@@ -17,18 +17,47 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
-func TestLiveAcceptanceVMPIDARunOptionsUseProjectLocalPackRoot(t *testing.T) {
+func TestBinaryREAdapterLifecycleUsesProjectLocalPackRoot(t *testing.T) {
 	repoRoot := sessionhostTestRepoRoot(t)
 	caseRoot := provisionSessionhostAttachedCase(t, repoRoot, liveAcceptancePack)
-	proof := &LiveAcceptanceVMPIDA{GateEventID: "evt-test"}
 
-	opt, err := liveAcceptanceVMPIDARunOptions(caseRoot, "feature-mission", proof)
+	runtimeRoot, err := runtimeContextForDailyPack(caseRoot, liveAcceptancePack)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantRepoRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
-	if opt.RepoRoot != wantRepoRoot || opt.RepoRoot == repoRoot || opt.CaseRoot != caseRoot || opt.Pack != liveAcceptancePack || opt.GateEventID != proof.GateEventID {
-		t.Fatalf("VMP IDA run options = %+v, want project-local repo root %s", opt, wantRepoRoot)
+	wantRuntimeRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	if runtimeRoot != wantRuntimeRoot || runtimeRoot == repoRoot {
+		t.Fatalf("binary-re ordinary runtime root = %s, want project-local root %s", runtimeRoot, wantRuntimeRoot)
+	}
+}
+
+func TestSelectBinaryREVMPIDARowUsesRequestTermsInsteadOfAcceptanceFixtureTerm(t *testing.T) {
+	caseRoot := t.TempDir()
+	sourcePath := filepath.ToSlash(filepath.Join(adapterhost.VMPIDAIndexDefaultExportRoot, "function_index.tsv"))
+	data := []byte("rva\tname\tsize\n0x1000\tcustom_dispatch\t32\n")
+	full := filepath.Join(caseRoot, filepath.FromSlash(sourcePath))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := "ida-index:functions:" + sourcePath + "#L2"
+	packet := adapterhost.VMPIDAIndexPacket{
+		Query: adapterhost.VMPIDAIndexQuery{SchemaVersion: 1, Terms: []string{"custom_dispatch"}, MaxRowsPerIndex: 5},
+		Indexes: []adapterhost.VMPIDAIndexResult{{
+			Name:     "functions",
+			Source:   adapterhost.VMPIDAIndexInputBinding{Name: "functions", Path: sourcePath, Required: true, Exists: true, SHA256: bytesSHA256(data), Bytes: int64(len(data))},
+			Selected: []adapterhost.VMPIDAIndexSelectedRow{{Line: 2, Row: "0x1000\tcustom_dispatch\t32", MatchedTerms: []string{"custom_dispatch"}, EvidenceRef: evidenceRef}},
+		}},
+		EvidenceRefs: []string{evidenceRef},
+	}
+	selected, err := selectBinaryREVMPIDARow(caseRoot, packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.EvidenceRef != evidenceRef || selected.Row != "0x1000\tcustom_dispatch\t32" || len(selected.MatchedTerms) != 1 || selected.MatchedTerms[0] != "custom_dispatch" {
+		t.Fatalf("selected evidence = %+v", selected)
 	}
 }
 
@@ -269,6 +298,16 @@ func vmpIDAMemberArtifactFixture(t *testing.T) (memberexecution.Inspection, live
 	}
 	proof := &LiveAcceptanceVMPIDA{
 		GateEventID: "gate-exact", ProfileSHA256: strings.Repeat("a", 64), RequestPath: ".rekit/requests/request.json", RequestSHA256: strings.Repeat("b", 64),
+		Lifecycle: &BinaryREAdapterLifecycleResult{
+			ExecutionIntentPath: ".rekit/lanes/feature-analysis/adapter-executions/gate-exact/execution-intent.json", ExecutionIntentSHA256: strings.Repeat("1", 64),
+			ExecutionResultPath: ".rekit/lanes/feature-analysis/adapter-executions/gate-exact/execution-result.json", ExecutionResultSHA256: strings.Repeat("2", 64),
+			EvidenceReviewInputPath: ".rekit/lanes/feature-analysis/adapter-executions/gate-exact/evidence-review/input.json", EvidenceReviewInputSHA256: strings.Repeat("3", 64),
+			EvidenceReviewIntentPath: ".rekit/lanes/feature-analysis/adapter-executions/gate-exact/evidence-review/intent.json", EvidenceReviewIntentSHA256: strings.Repeat("4", 64),
+			EvidenceReviewDecisionPath: ".rekit/lanes/feature-analysis/adapter-executions/gate-exact/evidence-review/decision.json", EvidenceReviewDecisionSHA256: strings.Repeat("5", 64),
+			ClosurePath: ".rekit/lanes/feature-analysis/adapter-executions/gate-exact/evidence-review/closure.json", ClosureSHA256: strings.Repeat("6", 64),
+			TaskBindingPath: ".rekit/lanes/feature-analysis/member-task-bindings/g000002.json", TaskBindingSHA256: strings.Repeat("7", 64),
+			EvidenceReviewSession: "evidence-review-session", AcknowledgementEventID: "ack-exact", AcknowledgementSHA256: strings.Repeat("8", 64),
+		},
 		Run: adapterhost.AuthorizedRunResult{
 			PacketPath: "captures/feature_analysis/feature-mission/ida-index/session-1/evidence-packet.json", PacketSHA256: strings.Repeat("c", 64),
 			ReportPath: "captures/feature_analysis/feature-mission/ida-index/session-1/adapter-report.json", ReportSHA256: strings.Repeat("d", 64),
@@ -277,24 +316,22 @@ func vmpIDAMemberArtifactFixture(t *testing.T) (memberexecution.Inspection, live
 		},
 	}
 	evidence := liveAcceptanceVMPIDAEvidenceReviewInput{
-		PacketPath: proof.Run.PacketPath, ReceiptPath: proof.Run.ReceiptPath, ObservationEventID: proof.Run.ObservationEventID,
-		Selected: liveAcceptanceVMPIDASelectedEvidence{Row: "0x1000\tneedle_dispatch\t32", EvidenceRef: "ida-index:function_index.tsv#L2"},
+		GateEventID: proof.GateEventID, ProfileSHA256: proof.ProfileSHA256,
+		RequestPath: proof.RequestPath, RequestSHA256: proof.RequestSHA256,
+		PacketPath: proof.Run.PacketPath, PacketSHA256: proof.Run.PacketSHA256,
+		ReportPath: proof.Run.ReportPath, ReportSHA256: proof.Run.ReportSHA256,
+		DispatchPath: proof.Run.DispatchPath, DispatchSHA256: proof.Run.DispatchSHA256,
+		ReceiptPath: proof.Run.ReceiptPath, ReceiptSHA256: proof.Run.ReceiptSHA256,
+		ObservationEventID: proof.Run.ObservationEventID,
+		Selected:           liveAcceptanceVMPIDASelectedEvidence{Row: "0x1000\tneedle_dispatch\t32", EvidenceRef: "ida-index:function_index.tsv#L2"},
 	}
 	data := []byte(strings.Join([]string{evidence.Selected.Row, evidence.Selected.EvidenceRef, evidence.PacketPath, evidence.ReceiptPath, evidence.ObservationEventID}, "\n") + "\n")
 	if err := os.WriteFile(filepath.Join(outputRoot, "review-items.txt"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	values := map[string]string{
-		"gate-event-id": proof.GateEventID, "profile-hash": proof.ProfileSHA256,
-		"request-path": proof.RequestPath, "request-sha256": proof.RequestSHA256,
-		"packet-path": proof.Run.PacketPath, "packet-sha256": proof.Run.PacketSHA256,
-		"report-path": proof.Run.ReportPath, "report-sha256": proof.Run.ReportSHA256,
-		"dispatch-path": proof.Run.DispatchPath, "dispatch-sha256": proof.Run.DispatchSHA256,
-		"receipt-path": proof.Run.ReceiptPath, "receipt-sha256": proof.Run.ReceiptSHA256,
-		"observation-event-id": proof.Run.ObservationEventID,
-	}
+	binding := liveAcceptanceVMPIDATaskBinding(proof, evidence)
 	member := memberexecution.Inspection{
-		TaskContext: &memberexecution.TaskContext{Binding: &memberexecution.TaskBinding{Kind: "vmp-ida-index-evidence", Values: values}},
+		TaskContext: &memberexecution.TaskContext{Binding: &binding},
 		Manifest:    &memberexecution.ResultManifest{ReviewerItemsPath: "review-items.txt", Outputs: []memberexecution.Output{{Path: "review-items.txt", SHA256: bytesSHA256(data), Bytes: int64(len(data))}}},
 		OutputsRoot: outputRoot,
 	}

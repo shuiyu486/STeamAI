@@ -3,7 +3,6 @@ package sessionhost
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -24,19 +24,27 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
-const (
-	liveAcceptanceVMPIDAOutputRoot = "captures/feature_analysis/feature-mission/ida-index/session-1"
-	liveAcceptanceVMPIDAReportPath = liveAcceptanceVMPIDAOutputRoot + "/adapter-report.json"
-	liveAcceptanceVMPIDAQueryTerm  = "needle_dispatch"
-)
+const liveAcceptanceVMPIDAQueryTerm = "needle_dispatch"
 
-func prepareLiveAcceptanceVMPIDA(parent context.Context, dailyOpt DailyOptions, caseRoot, pack, lane string, proof *LiveAcceptanceVMPIDA) error {
-	if proof == nil || proof.Run.GateEventID != "" {
-		return fmt.Errorf("VMP IDA live acceptance adapter proof is missing or already populated")
+func prepareLiveAcceptanceVMPIDA(caseRoot, pack, lane string, proof *LiveAcceptanceVMPIDA) error {
+	if proof == nil {
+		return fmt.Errorf("VMP IDA live acceptance adapter proof is missing")
+	}
+	if proof.GateEventID != "" {
+		return nil
 	}
 	if !strings.EqualFold(pack, liveAcceptancePack) || strings.TrimSpace(lane) == "" {
 		return fmt.Errorf("VMP IDA live acceptance adapter preparation requires the exact pack and lane")
 	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return fmt.Errorf("read VMP IDA live acceptance lane workspace: %w", err)
+	}
+	selectedLane, ok := mission.LookupBoardLane(board.Lanes, lane, false)
+	if !ok || strings.TrimSpace(selectedLane.Workspace) == "" {
+		return fmt.Errorf("VMP IDA live acceptance selected lane workspace is unavailable")
+	}
+	outputRoot := filepath.ToSlash(filepath.Join(selectedLane.Workspace, "ida-index", "session-1"))
 	if err := writeLiveAcceptanceVMPIDAIndexes(caseRoot); err != nil {
 		return err
 	}
@@ -68,7 +76,7 @@ func prepareLiveAcceptanceVMPIDA(parent context.Context, dailyOpt DailyOptions, 
 		"-ProfileExpiresAt", now.Add(10 * time.Minute).Format(time.RFC3339Nano),
 		"-RuntimeSeconds", "10", "-DiskMB", "4", "-Requests", "1",
 		"-StopConditions", "scope-drift,source-drift,output-exceeds-bounded-evidence-packet",
-		"-OutputPaths", liveAcceptanceVMPIDAOutputRoot,
+		"-OutputPaths", outputRoot,
 	}
 	var profilePlan autonomy.ProfileMutationPlan
 	if err := runPublicCLI(profileArgs, &profilePlan); err != nil {
@@ -95,7 +103,7 @@ func prepareLiveAcceptanceVMPIDA(parent context.Context, dailyOpt DailyOptions, 
 		"-Summary", "bounded literal read-only inspection for DPC-04 acceptance",
 		"-TargetRef", published.RequestPath,
 		"-RuntimeSeconds", "10", "-DiskMB", "4", "-Requests", "1",
-		"-OutputPaths", liveAcceptanceVMPIDAOutputRoot,
+		"-OutputPaths", outputRoot,
 		"-StopConditions", "scope-drift,source-drift,output-exceeds-bounded-evidence-packet",
 	}
 	var authorized gate.ApplyResult
@@ -104,35 +112,109 @@ func prepareLiveAcceptanceVMPIDA(parent context.Context, dailyOpt DailyOptions, 
 	}
 	proof.GateEventID = authorized.EventID
 	proof.Authorization = authorized.Event.Gate.Authorization.Decision
-	runOpt, err := liveAcceptanceVMPIDARunOptions(caseRoot, lane, proof)
-	if err != nil {
-		return err
-	}
-	run, processID, err := adapterhost.RunAuthorizedGateProcess(proof.AdapterPath, runOpt, 20*time.Second)
-	if err != nil {
-		return err
-	}
-	if processID <= 0 || !run.ChildLaunched || run.Replay || run.ObservationEventID == "" || run.TaskBindingSHA256 == "" || !run.ProfileRevoked || run.ProfileAlreadyManual || !run.NoNetwork || !run.NoAuthority {
-		return fmt.Errorf("VMP IDA live acceptance authorized run omitted child, evidence, binding, or revoke: %+v", run)
-	}
-	proof.AdapterProcessID = processID
-	proof.Run = run
-	if err := acknowledgeLiveAcceptanceVMPIDAEvidence(parent, dailyOpt, caseRoot, lane, pack, proof); err != nil {
-		return err
-	}
 	return nil
 }
 
-func liveAcceptanceVMPIDARunOptions(caseRoot, lane string, proof *LiveAcceptanceVMPIDA) (adapterhost.AuthorizedRunOptions, error) {
-	repoRoot, err := runtimeContextForDailyPack(caseRoot, liveAcceptancePack)
-	if err != nil {
-		return adapterhost.AuthorizedRunOptions{}, fmt.Errorf("resolve VMP IDA live acceptance project-local pack root: %w", err)
+func projectLiveAcceptanceVMPIDALifecycle(
+	caseRoot,
+	lane string,
+	lifecycle *BinaryREAdapterLifecycleResult,
+	proof *LiveAcceptanceVMPIDA,
+) error {
+	if proof == nil || lifecycle == nil || lifecycle.Run == nil {
+		return fmt.Errorf("VMP IDA live acceptance ordinary lifecycle proof is missing")
 	}
-	return adapterhost.AuthorizedRunOptions{
-		RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: liveAcceptancePack,
-		GateEventID: proof.GateEventID, ExecutionReportPath: liveAcceptanceVMPIDAReportPath,
-		AdapterSession: "dpc04-vmp-ida-" + lane, Actor: "mission-commander",
-	}, nil
+	publication := lifecycle.ResultPublication
+	if lifecycle.SchemaVersion != 1 || lifecycle.Kind != binaryREAdapterLifecycleKind ||
+		lifecycle.State != "ready-for-member" || !lifecycle.ReadyForMember ||
+		lifecycle.AdapterID != adapterhost.VMPIDAIndexAdapterID ||
+		lifecycle.GateEventID != proof.GateEventID || lifecycle.RequestPath != proof.RequestPath ||
+		!strings.EqualFold(lifecycle.RequestSHA256, proof.RequestSHA256) ||
+		lifecycle.ExecutionStatus != "succeeded" || lifecycle.AdapterProcessID <= 0 ||
+		!lifecycle.ChildLaunched || lifecycle.AdapterReplay || lifecycle.EvidenceReviewReplay ||
+		lifecycle.EvidenceReviewDecision != "accepted" || publication == nil ||
+		!publication.Published || publication.Held || publication.Disposition != executioncontrol.ResultDispositionPublished ||
+		!lifecycle.NoAuthority || !lifecycle.NoHeavyToolAfterExecution {
+		return fmt.Errorf("VMP IDA live acceptance did not traverse one fresh ordinary adapter lifecycle: %+v", lifecycle)
+	}
+	for label, pair := range map[string][2]string{
+		"execution intent":         {lifecycle.ExecutionIntentPath, lifecycle.ExecutionIntentSHA256},
+		"execution result":         {lifecycle.ExecutionResultPath, lifecycle.ExecutionResultSHA256},
+		"evidence review input":    {lifecycle.EvidenceReviewInputPath, lifecycle.EvidenceReviewInputSHA256},
+		"evidence review intent":   {lifecycle.EvidenceReviewIntentPath, lifecycle.EvidenceReviewIntentSHA256},
+		"evidence review decision": {lifecycle.EvidenceReviewDecisionPath, lifecycle.EvidenceReviewDecisionSHA256},
+		"evidence review closure":  {lifecycle.ClosurePath, lifecycle.ClosureSHA256},
+		"member task binding":      {lifecycle.TaskBindingPath, lifecycle.TaskBindingSHA256},
+	} {
+		if strings.TrimSpace(pair[0]) == "" || !validBinaryRESHA256(pair[1]) {
+			return fmt.Errorf("VMP IDA ordinary lifecycle omitted exact %s lineage", label)
+		}
+	}
+	if lifecycle.EvidenceReviewSession == "" || lifecycle.AcknowledgementEventID == "" ||
+		!validBinaryRESHA256(lifecycle.AcknowledgementSHA256) || lifecycle.SelectedEvidenceRef == "" {
+		return fmt.Errorf("VMP IDA ordinary lifecycle omitted independent review or acknowledgement lineage")
+	}
+	run := *lifecycle.Run
+	if run.ChildProcessID <= 0 || !run.ChildLaunched || run.Replay || !run.ProfileRevoked ||
+		run.ProfileAlreadyManual || run.TaskBindingPath != "" || run.TaskBindingSHA256 != "" ||
+		!run.NoNetwork || run.NoNetworkBoundary != adapterhost.VMPIDAIndexNoNetworkBoundary || !run.NoAuthority {
+		return fmt.Errorf("VMP IDA ordinary lifecycle did not execute one contained child with deferred binding: %+v", run)
+	}
+	copy := *lifecycle
+	runCopy := run
+	publicationCopy := *publication
+	copy.Run = &runCopy
+	copy.ResultPublication = &publicationCopy
+	proof.Lifecycle = &copy
+	proof.AdapterProcessID = lifecycle.AdapterProcessID
+	proof.Run = run
+	proof.AcknowledgementEventID = lifecycle.AcknowledgementEventID
+	proof.EvidenceReviewSessionID = lifecycle.EvidenceReviewSession
+	proof.EvidenceReviewDecision = lifecycle.EvidenceReviewDecision
+	proof.SelectedEvidenceRef = lifecycle.SelectedEvidenceRef
+
+	evidence, err := currentLiveAcceptanceVMPIDAEvidence(caseRoot, lane, proof)
+	if err != nil {
+		return err
+	}
+	if evidence.ProfileSHA256 != proof.ProfileSHA256 || evidence.Selected.EvidenceRef != proof.SelectedEvidenceRef {
+		return fmt.Errorf("VMP IDA ordinary lifecycle evidence drifted from its profile or selected row")
+	}
+	executionIntent, executionIntentData, found, err := readBinaryREAdapterArtifact[binaryREAdapterExecutionIntent](
+		caseRoot,
+		lifecycle.ExecutionIntentPath,
+		"VMP IDA live acceptance ordinary execution intent",
+	)
+	if err != nil {
+		return err
+	}
+	if !found || !strings.EqualFold(bytesSHA256(executionIntentData), lifecycle.ExecutionIntentSHA256) ||
+		executionIntent.Lane != lane || executionIntent.GateEventID != proof.GateEventID ||
+		executionIntent.RequestPath != proof.RequestPath || !strings.EqualFold(executionIntent.RequestSHA256, proof.RequestSHA256) {
+		return fmt.Errorf("VMP IDA ordinary lifecycle execution intent drifted from the acceptance route")
+	}
+	binding, bindingPath, bindingSHA, err := memberexecution.ReadTaskBindingForOwner(
+		caseRoot,
+		lane,
+		executionIntent.Control.Owner.ExecutorGeneration,
+	)
+	if err != nil {
+		return err
+	}
+	expected := liveAcceptanceVMPIDATaskBinding(proof, evidence)
+	if binding == nil || bindingPath != lifecycle.TaskBindingPath ||
+		!strings.EqualFold(bindingSHA, lifecycle.TaskBindingSHA256) || !reflect.DeepEqual(*binding, expected) {
+		return fmt.Errorf("VMP IDA ordinary lifecycle member binding drifted from reviewed evidence")
+	}
+	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		return err
+	}
+	proof.EvidenceReviewCleared = len(mission.ExecutionEvidenceReviewItemsWithLedgerFacts(facts, lane, nil, 0)) == 0
+	if !proof.EvidenceReviewCleared {
+		return fmt.Errorf("VMP IDA ordinary lifecycle acknowledgement did not clear evidence review")
+	}
+	return assertLiveAcceptanceNoAuthority(caseRoot, lane)
 }
 
 func writeLiveAcceptanceVMPIDAIndexes(caseRoot string) error {
@@ -151,7 +233,7 @@ func writeLiveAcceptanceVMPIDAIndexes(caseRoot string) error {
 	return nil
 }
 
-type liveAcceptanceVMPIDASelectedEvidence struct {
+type binaryREVMPIDASelectedEvidence struct {
 	IndexName    string
 	Source       adapterhost.VMPIDAIndexInputBinding
 	Line         int
@@ -160,11 +242,12 @@ type liveAcceptanceVMPIDASelectedEvidence struct {
 	EvidenceRef  string
 }
 
-type liveAcceptanceVMPIDAEvidenceReviewInput struct {
+type binaryREVMPIDAEvidenceReviewInput struct {
 	SchemaVersion      int                                   `json:"schemaVersion"`
 	Kind               string                                `json:"kind"`
 	GateEventID        string                                `json:"gateEventId"`
 	ObservationEventID string                                `json:"observationEventId"`
+	ProfileSHA256      string                                `json:"profileSha256,omitempty"`
 	RequestPath        string                                `json:"requestPath"`
 	RequestSHA256      string                                `json:"requestSha256"`
 	Sources            []adapterhost.VMPIDAIndexInputBinding `json:"sources"`
@@ -176,11 +259,14 @@ type liveAcceptanceVMPIDAEvidenceReviewInput struct {
 	DispatchSHA256     string                                `json:"dispatchSha256"`
 	ReceiptPath        string                                `json:"receiptPath"`
 	ReceiptSHA256      string                                `json:"receiptSha256"`
-	Selected           liveAcceptanceVMPIDASelectedEvidence  `json:"selected"`
+	Selected           binaryREVMPIDASelectedEvidence        `json:"selected"`
 	EvidenceRefs       []string                              `json:"evidenceRefs"`
 	NoAuthority        bool                                  `json:"noAuthorityOrConfirmed"`
 	NoHeavyTool        bool                                  `json:"noHeavyTool"`
 }
+
+type liveAcceptanceVMPIDASelectedEvidence = binaryREVMPIDASelectedEvidence
+type liveAcceptanceVMPIDAEvidenceReviewInput = binaryREVMPIDAEvidenceReviewInput
 
 func requireAcceptedLiveAcceptanceVMPIDAEvidenceReview(decision evidenceReviewResponse) error {
 	if err := validateEvidenceReviewResponse(decision); err != nil {
@@ -192,138 +278,115 @@ func requireAcceptedLiveAcceptanceVMPIDAEvidenceReview(decision evidenceReviewRe
 	return nil
 }
 
-func acknowledgeLiveAcceptanceVMPIDAEvidence(parent context.Context, dailyOpt DailyOptions, caseRoot, lane, pack string, proof *LiveAcceptanceVMPIDA) error {
-	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
-	if err != nil {
-		return err
+func inspectLiveAcceptanceVMPIDAEvidence(caseRoot, lane string, item mission.ExecutionEvidenceReviewItem, proof *LiveAcceptanceVMPIDA) (liveAcceptanceVMPIDAEvidenceReviewInput, error) {
+	if proof == nil {
+		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review proof is missing")
 	}
-	items := mission.ExecutionEvidenceReviewItemsWithLedgerFacts(facts, lane, nil, 0)
-	if len(items) != 1 || items[0].GateEventID != proof.GateEventID || items[0].Acknowledgement == nil {
-		return fmt.Errorf("VMP IDA live acceptance observation did not enter exact evidence review")
-	}
-	input, err := inspectLiveAcceptanceVMPIDAEvidence(caseRoot, lane, items[0], proof)
-	if err != nil {
-		return err
-	}
-	decision, sessionID, err := runLiveAcceptanceVMPIDAEvidenceReview(parent, dailyOpt, caseRoot, input)
-	if err != nil {
-		return err
-	}
-	proof.EvidenceReviewSessionID = sessionID
-	proof.EvidenceReviewDecision = decision.Decision
-	proof.SelectedEvidenceRef = input.Selected.EvidenceRef
-	if err := requireAcceptedLiveAcceptanceVMPIDAEvidenceReview(decision); err != nil {
-		return err
-	}
-	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
-	ackArgs := []string{
-		"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Format", "json", "-WhatIf",
-		"-Kind", "verification", "-Lane", lane,
-		"-Subject", "execution evidence review accepted",
-		"-Summary", "accepted recorded execution evidence for gateEventId " + proof.GateEventID,
-		"-Verifier", "tool-review", "-Verdict", "accepted", "-Status", "resolved",
-		"-Related", strings.Join([]string{items[0].EventID, items[0].GateEventID}, ","),
-		"-Reason", decision.Summary + "; " + decision.Reason,
-		"-TargetRef", proof.RequestPath,
-		"-EvidenceRefs", strings.Join(input.EvidenceRefs, ","),
-		"-CreatedAt", createdAt,
-	}
-	var preview publicNoteResult
-	if err := runPublicCLI(ackArgs, &preview); err != nil || preview.IsMutation || preview.Applied || preview.EventSHA256 == "" || len(preview.RecordArgs) == 0 {
-		return fmt.Errorf("VMP IDA live acceptance evidence acknowledgement preview failed: %w", err)
-	}
-	var applied publicNoteResult
-	if err := runPublicCLI(preview.RecordArgs, &applied); err != nil || !applied.Applied || !strings.EqualFold(applied.EventSHA256, preview.EventSHA256) {
-		return fmt.Errorf("VMP IDA live acceptance evidence acknowledgement Apply failed: %w", err)
-	}
-	proof.AcknowledgementEventID = applied.EventID
-	facts, err = mission.ReadStrictLedgerFacts(caseRoot)
-	if err != nil {
-		return err
-	}
-	proof.EvidenceReviewCleared = len(mission.ExecutionEvidenceReviewItemsWithLedgerFacts(facts, lane, nil, 0)) == 0
-	if !proof.EvidenceReviewCleared {
-		return fmt.Errorf("VMP IDA live acceptance evidence acknowledgement did not clear review")
-	}
-	return assertLiveAcceptanceNoAuthority(caseRoot, lane)
+	return inspectBinaryREVMPIDAEvidence(caseRoot, lane, item, proof.RequestPath, proof.RequestSHA256, proof.Run)
 }
 
-func inspectLiveAcceptanceVMPIDAEvidence(caseRoot, lane string, item mission.ExecutionEvidenceReviewItem, proof *LiveAcceptanceVMPIDA) (liveAcceptanceVMPIDAEvidenceReviewInput, error) {
-	if proof == nil || item.EventID != proof.Run.ObservationEventID || item.Target != proof.RequestPath ||
-		item.ExecutionReportPath != proof.Run.ReportPath || !strings.EqualFold(item.ExecutionReportSHA256, proof.Run.ReportSHA256) ||
-		item.AdapterExecutionDispatchPath != proof.Run.DispatchPath || !strings.EqualFold(item.AdapterExecutionDispatchSHA256, proof.Run.DispatchSHA256) ||
-		item.AdapterExecutionReceiptPath != proof.Run.ReceiptPath || !strings.EqualFold(item.AdapterExecutionReceiptSHA256, proof.Run.ReceiptSHA256) ||
-		item.AdapterID != adapterhost.VMPIDAIndexAdapterID || item.AdapterSession != proof.Run.AdapterSession {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review observation lineage drifted")
+func inspectBinaryREVMPIDAEvidence(
+	caseRoot,
+	lane string,
+	item mission.ExecutionEvidenceReviewItem,
+	requestPath,
+	requestSHA string,
+	run adapterhost.AuthorizedRunResult,
+) (binaryREVMPIDAEvidenceReviewInput, error) {
+	if item.GateEventID != run.GateEventID || item.EventID != run.ObservationEventID || item.Target != requestPath ||
+		item.ExecutionReportPath != run.ReportPath || !strings.EqualFold(item.ExecutionReportSHA256, run.ReportSHA256) ||
+		item.AdapterExecutionDispatchPath != run.DispatchPath || !strings.EqualFold(item.AdapterExecutionDispatchSHA256, run.DispatchSHA256) ||
+		item.AdapterExecutionReceiptPath != run.ReceiptPath || !strings.EqualFold(item.AdapterExecutionReceiptSHA256, run.ReceiptSHA256) ||
+		item.AdapterID != adapterhost.VMPIDAIndexAdapterID || item.AdapterSession != run.AdapterSession {
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review observation lineage drifted")
 	}
-	request, err := adapterhost.ReadVMPIDAIndexRequest(caseRoot, proof.RequestPath)
-	if err != nil || request.RequestPath != proof.RequestPath || !strings.EqualFold(request.RequestSHA256, proof.RequestSHA256) {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review request drifted: %w", err)
+	request, err := adapterhost.ReadVMPIDAIndexRequest(caseRoot, requestPath)
+	if err != nil || request.RequestPath != requestPath || !strings.EqualFold(request.RequestSHA256, requestSHA) {
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review request drifted: %w", err)
 	}
-	packetData, err := readLiveAcceptanceVMPIDAFile(caseRoot, proof.Run.PacketPath, "VMP IDA live acceptance packet review", adapterhost.VMPIDAIndexMaxPacketBytes)
-	if err != nil || !strings.EqualFold(bytesSHA256(packetData), proof.Run.PacketSHA256) {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review packet hash drifted: %w", err)
+	packetData, err := readLiveAcceptanceVMPIDAFile(caseRoot, run.PacketPath, "VMP IDA packet review", adapterhost.VMPIDAIndexMaxPacketBytes)
+	if err != nil || !strings.EqualFold(bytesSHA256(packetData), run.PacketSHA256) {
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review packet hash drifted: %w", err)
 	}
 	var packet adapterhost.VMPIDAIndexPacket
 	if err := strictJSON(packetData, &packet); err != nil {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("decode VMP IDA evidence review packet: %w", err)
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("decode VMP IDA evidence review packet: %w", err)
 	}
 	canonicalPacket, err := json.MarshalIndent(packet, "", "  ")
 	canonicalPacket = append(canonicalPacket, '\n')
-	if err != nil || !bytes.Equal(packetData, canonicalPacket) || packet.AdapterID != adapterhost.VMPIDAIndexAdapterID || packet.RequestPath != proof.RequestPath || !strings.EqualFold(packet.RequestSHA256, proof.RequestSHA256) || !reflect.DeepEqual(packet.Sources, request.Request.Inputs) {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review packet is not canonical or request/source-bound")
+	if err != nil || !bytes.Equal(packetData, canonicalPacket) || packet.AdapterID != adapterhost.VMPIDAIndexAdapterID || packet.RequestPath != requestPath || !strings.EqualFold(packet.RequestSHA256, requestSHA) || !reflect.DeepEqual(packet.Sources, request.Request.Inputs) {
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review packet is not canonical or request/source-bound")
 	}
-	selected, err := selectLiveAcceptanceVMPIDARow(caseRoot, packet)
+	selected, err := selectBinaryREVMPIDARow(caseRoot, packet)
 	if err != nil {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, err
+		return binaryREVMPIDAEvidenceReviewInput{}, err
 	}
-	reportData, err := readLiveAcceptanceVMPIDAFile(caseRoot, proof.Run.ReportPath, "VMP IDA live acceptance report review", 1<<20)
-	if err != nil || !strings.EqualFold(bytesSHA256(reportData), proof.Run.ReportSHA256) {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review report hash drifted: %w", err)
+	reportData, err := readLiveAcceptanceVMPIDAFile(caseRoot, run.ReportPath, "VMP IDA report review", 1<<20)
+	if err != nil || !strings.EqualFold(bytesSHA256(reportData), run.ReportSHA256) {
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review report hash drifted: %w", err)
 	}
 	var report gate.AdapterReport
-	if err := strictJSON(reportData, &report); err != nil || report.AdapterID != adapterhost.VMPIDAIndexAdapterID || report.Status != "succeeded" || report.GateEventID != proof.GateEventID || report.Dispatch == nil || report.Dispatch.Path != proof.Run.DispatchPath || !strings.EqualFold(report.Dispatch.SHA256, proof.Run.DispatchSHA256) || !slices.Equal(report.EvidenceRefs, []string{proof.Run.PacketPath}) {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review report lineage drifted: %w", err)
+	if err := strictJSON(reportData, &report); err != nil || report.AdapterID != adapterhost.VMPIDAIndexAdapterID || report.Status != "succeeded" || report.GateEventID != run.GateEventID || report.Dispatch == nil || report.Dispatch.Path != run.DispatchPath || !strings.EqualFold(report.Dispatch.SHA256, run.DispatchSHA256) || !slices.Equal(report.EvidenceRefs, []string{run.PacketPath}) {
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review report lineage drifted: %w", err)
 	}
-	receipt, receiptPath, receiptSHA, present, err := gate.ReadAdapterExecutionReceipt(caseRoot, lane, proof.GateEventID)
-	if err != nil || !present || receipt == nil || receiptPath != proof.Run.ReceiptPath || !strings.EqualFold(receiptSHA, proof.Run.ReceiptSHA256) {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review receipt drifted: %w", err)
+	receipt, receiptPath, receiptSHA, present, err := gate.ReadAdapterExecutionReceipt(caseRoot, lane, run.GateEventID)
+	if err != nil || !present || receipt == nil || receiptPath != run.ReceiptPath || !strings.EqualFold(receiptSHA, run.ReceiptSHA256) {
+		return binaryREVMPIDAEvidenceReviewInput{}, fmt.Errorf("VMP IDA evidence review receipt drifted: %w", err)
 	}
-	if err := validateLiveAcceptanceVMPIDAReceipt(*receipt, item, proof); err != nil {
-		return liveAcceptanceVMPIDAEvidenceReviewInput{}, err
+	if err := validateBinaryREVMPIDAReceipt(*receipt, item, requestPath, run); err != nil {
+		return binaryREVMPIDAEvidenceReviewInput{}, err
 	}
-	return liveAcceptanceVMPIDAEvidenceReviewInput{
-		SchemaVersion: 1, Kind: "vmp-ida-index-evidence-review", GateEventID: proof.GateEventID, ObservationEventID: proof.Run.ObservationEventID,
-		RequestPath: proof.RequestPath, RequestSHA256: proof.RequestSHA256, Sources: append([]adapterhost.VMPIDAIndexInputBinding{}, request.Request.Inputs...),
-		PacketPath: proof.Run.PacketPath, PacketSHA256: proof.Run.PacketSHA256, ReportPath: proof.Run.ReportPath, ReportSHA256: proof.Run.ReportSHA256,
-		DispatchPath: proof.Run.DispatchPath, DispatchSHA256: proof.Run.DispatchSHA256, ReceiptPath: proof.Run.ReceiptPath, ReceiptSHA256: proof.Run.ReceiptSHA256,
-		Selected: selected, EvidenceRefs: []string{proof.Run.PacketPath, proof.Run.ReportPath, proof.Run.ReceiptPath, selected.EvidenceRef}, NoAuthority: true, NoHeavyTool: true,
+	return binaryREVMPIDAEvidenceReviewInput{
+		SchemaVersion: 1, Kind: "vmp-ida-index-evidence-review", GateEventID: run.GateEventID, ObservationEventID: run.ObservationEventID, ProfileSHA256: receipt.Gate.Authorization.ProfileHash,
+		RequestPath: requestPath, RequestSHA256: requestSHA, Sources: append([]adapterhost.VMPIDAIndexInputBinding{}, request.Request.Inputs...),
+		PacketPath: run.PacketPath, PacketSHA256: run.PacketSHA256, ReportPath: run.ReportPath, ReportSHA256: run.ReportSHA256,
+		DispatchPath: run.DispatchPath, DispatchSHA256: run.DispatchSHA256, ReceiptPath: run.ReceiptPath, ReceiptSHA256: run.ReceiptSHA256,
+		Selected: selected, EvidenceRefs: []string{run.PacketPath, run.ReportPath, run.ReceiptPath, selected.EvidenceRef}, NoAuthority: true, NoHeavyTool: true,
 	}, nil
 }
 
-func selectLiveAcceptanceVMPIDARow(caseRoot string, packet adapterhost.VMPIDAIndexPacket) (liveAcceptanceVMPIDASelectedEvidence, error) {
-	matches := []liveAcceptanceVMPIDASelectedEvidence{}
+func selectBinaryREVMPIDARow(caseRoot string, packet adapterhost.VMPIDAIndexPacket) (binaryREVMPIDASelectedEvidence, error) {
+	if len(packet.Query.Terms) == 0 {
+		return binaryREVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA packet query has no literal terms")
+	}
 	for _, index := range packet.Indexes {
+		if len(index.Selected) == 0 {
+			continue
+		}
+		sourceData, err := readLiveAcceptanceVMPIDAFile(caseRoot, index.Source.Path, "VMP IDA selected source", adapterhost.VMPIDAIndexMaxInputBytes)
+		if err != nil || !strings.EqualFold(bytesSHA256(sourceData), index.Source.SHA256) || int64(len(sourceData)) != index.Source.Bytes {
+			return binaryREVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA selected source drifted: %w", err)
+		}
 		for _, row := range index.Selected {
-			if !slices.Contains(row.MatchedTerms, liveAcceptanceVMPIDAQueryTerm) {
-				continue
+			if len(row.MatchedTerms) == 0 {
+				return binaryREVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA selected row has no matched literal terms")
 			}
-			sourceData, err := readLiveAcceptanceVMPIDAFile(caseRoot, index.Source.Path, "VMP IDA selected source", adapterhost.VMPIDAIndexMaxInputBytes)
-			if err != nil || !strings.EqualFold(bytesSHA256(sourceData), index.Source.SHA256) || int64(len(sourceData)) != index.Source.Bytes {
-				return liveAcceptanceVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA selected source drifted: %w", err)
+			for _, term := range row.MatchedTerms {
+				if !containsFold(packet.Query.Terms, term) || !strings.Contains(strings.ToLower(row.Row), strings.ToLower(term)) {
+					return binaryREVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA selected row contains an unbound matched literal term")
+				}
 			}
 			line, err := liveAcceptanceVMPIDALine(sourceData, row.Line)
 			expectedRef := fmt.Sprintf("ida-index:%s:%s#L%d", index.Name, index.Source.Path, row.Line)
-			if err != nil || line != row.Row || row.EvidenceRef != expectedRef || !strings.Contains(strings.ToLower(row.Row), strings.ToLower(liveAcceptanceVMPIDAQueryTerm)) {
-				return liveAcceptanceVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA selected row does not match its exact source line or evidence ref")
+			if err != nil || line != row.Row || row.EvidenceRef != expectedRef || !slices.Contains(packet.EvidenceRefs, row.EvidenceRef) {
+				return binaryREVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA selected row does not match its exact source line or evidence ref")
 			}
-			matches = append(matches, liveAcceptanceVMPIDASelectedEvidence{IndexName: index.Name, Source: index.Source, Line: row.Line, Row: row.Row, MatchedTerms: append([]string{}, row.MatchedTerms...), EvidenceRef: row.EvidenceRef})
+			return binaryREVMPIDASelectedEvidence{
+				IndexName: index.Name, Source: index.Source, Line: row.Line, Row: row.Row,
+				MatchedTerms: append([]string{}, row.MatchedTerms...), EvidenceRef: row.EvidenceRef,
+			}, nil
 		}
 	}
-	if len(matches) < 1 || !slices.Contains(packet.EvidenceRefs, matches[0].EvidenceRef) {
-		return liveAcceptanceVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA packet lacks an exact selected literal evidence ref")
+	return binaryREVMPIDASelectedEvidence{}, fmt.Errorf("VMP IDA packet lacks an exact selected literal evidence ref")
+}
+
+func containsFold(items []string, expected string) bool {
+	for _, item := range items {
+		if strings.EqualFold(item, expected) {
+			return true
+		}
 	}
-	return matches[0], nil
+	return false
 }
 
 func liveAcceptanceVMPIDALine(data []byte, lineNumber int) (string, error) {
@@ -345,56 +408,20 @@ func liveAcceptanceVMPIDALine(data []byte, lineNumber int) (string, error) {
 	return "", fmt.Errorf("VMP IDA selected line %d is absent", lineNumber)
 }
 
-func validateLiveAcceptanceVMPIDAReceipt(receipt adapterexecution.Receipt, item mission.ExecutionEvidenceReviewItem, proof *LiveAcceptanceVMPIDA) error {
-	if receipt.Dispatch.Path != proof.Run.DispatchPath || !strings.EqualFold(receipt.Dispatch.SHA256, proof.Run.DispatchSHA256) ||
-		receipt.Gate.GateEventID != proof.GateEventID || receipt.Gate.Target != proof.RequestPath || receipt.Adapter.AdapterID != adapterhost.VMPIDAIndexAdapterID ||
-		receipt.Owner.AdapterSession != proof.Run.AdapterSession || receipt.Report.Path != proof.Run.ReportPath || !strings.EqualFold(receipt.Report.SHA256, proof.Run.ReportSHA256) ||
-		len(receipt.Artifacts) != 1 || receipt.Artifacts[0].Path != proof.Run.PacketPath || !strings.EqualFold(receipt.Artifacts[0].SHA256, proof.Run.PacketSHA256) ||
+func validateBinaryREVMPIDAReceipt(
+	receipt adapterexecution.Receipt,
+	item mission.ExecutionEvidenceReviewItem,
+	requestPath string,
+	run adapterhost.AuthorizedRunResult,
+) error {
+	if receipt.Dispatch.Path != run.DispatchPath || !strings.EqualFold(receipt.Dispatch.SHA256, run.DispatchSHA256) ||
+		receipt.Gate.GateEventID != run.GateEventID || receipt.Gate.Target != requestPath || receipt.Adapter.AdapterID != adapterhost.VMPIDAIndexAdapterID ||
+		receipt.Owner.AdapterSession != run.AdapterSession || receipt.Report.Path != run.ReportPath || !strings.EqualFold(receipt.Report.SHA256, run.ReportSHA256) ||
+		len(receipt.Artifacts) != 1 || receipt.Artifacts[0].Path != run.PacketPath || !strings.EqualFold(receipt.Artifacts[0].SHA256, run.PacketSHA256) ||
 		!slices.Equal(receipt.Artifacts[0].Roles, []string{"evidence", "output"}) || item.AdapterExecutionArtifactCount != 1 {
 		return fmt.Errorf("VMP IDA evidence review receipt does not bind exact dispatch, gate, owner, report, and packet")
 	}
 	return nil
-}
-
-func runLiveAcceptanceVMPIDAEvidenceReview(parent context.Context, dailyOpt DailyOptions, caseRoot string, input liveAcceptanceVMPIDAEvidenceReviewInput) (evidenceReviewResponse, string, error) {
-	inputData, err := json.MarshalIndent(input, "", "  ")
-	if err != nil {
-		return evidenceReviewResponse{}, "", err
-	}
-	inputData = append(inputData, '\n')
-	inputPath := filepath.ToSlash(filepath.Join(filepath.Dir(input.PacketPath), "evidence-review-input.json"))
-	if _, err := rekitfs.WriteExclusiveRegularFileAnchored(caseRoot, inputPath, "VMP IDA evidence review input", inputData); err != nil {
-		return evidenceReviewResponse{}, "", err
-	}
-	sessionID, err := newUUID()
-	if err != nil {
-		return evidenceReviewResponse{}, "", err
-	}
-	pkg := mission.CurrentLoopExternalSessionHarnessPackage{
-		SchemaVersion: 1, State: "launch-ready", CaseRoot: caseRoot, SessionKind: "mission-commander-evidence-review",
-		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
-			Ready: true, Tool: "Claude Code Agent", AgentType: "read-only-evidence-reviewer", ReadOnly: true,
-			Input:          mission.CurrentLoopExternalSessionHarnessInput{Path: inputPath, SHA256: bytesSHA256(inputData), Role: "mission-commander-evidence-review-input"},
-			ExpectedOutput: "one strict accepted/rejected evidence review decision bound to the exact selected row, observation, and receipt",
-			Attempt:        mission.CurrentLoopExternalSessionAttempt{AttemptID: "evidence-review-" + input.GateEventID, AttemptSHA256: bytesSHA256(inputData), Generation: 1, Harness: defaultHarness, Session: sessionID, Actor: "mission-commander", StartedAt: time.Now().UTC().Format(time.RFC3339Nano)},
-		},
-	}
-	opt := Options{Target: caseRoot, Pack: liveAcceptancePack, Actor: "mission-commander", ClaudePath: dailyOpt.ClaudePath, ExpectedClaudeExecutableSHA256: dailyOpt.ExpectedClaudeExecutableSHA256, ExpectedClaudeExecutablePublisher: dailyOpt.ExpectedClaudeExecutablePublisher, Model: dailyOpt.Model, Timeout: dailyOpt.Timeout, MaxAttempts: 1}
-	run := runClaude(parent, opt, pkg, sessionID, nil)
-	if !run.success() {
-		return evidenceReviewResponse{}, sessionID, fmt.Errorf("independent VMP IDA evidence review failed: %s", run.failureReason())
-	}
-	if err := validateClaudeStructuredResult(pkg, run); err != nil {
-		return evidenceReviewResponse{}, sessionID, err
-	}
-	var response evidenceReviewResponse
-	if err := strictJSON(run.structuredOutput, &response); err != nil {
-		return evidenceReviewResponse{}, sessionID, err
-	}
-	if response.SelectedEvidenceRef != input.Selected.EvidenceRef || response.ObservationEventID != input.ObservationEventID || !strings.EqualFold(response.ReceiptSHA256, input.ReceiptSHA256) || !slices.Equal(response.EvidenceRefs, input.EvidenceRefs) {
-		return evidenceReviewResponse{}, sessionID, fmt.Errorf("independent VMP IDA evidence review decision drifted from exact input lineage")
-	}
-	return response, sessionID, nil
 }
 
 func readLiveAcceptanceVMPIDAFile(caseRoot, rel, label string, limit int64) ([]byte, error) {
@@ -444,20 +471,40 @@ func validateLiveAcceptanceVMPIDAMember(caseRoot string, member memberexecution.
 	return nil
 }
 
+func liveAcceptanceVMPIDATaskBinding(
+	proof *LiveAcceptanceVMPIDA,
+	evidence liveAcceptanceVMPIDAEvidenceReviewInput,
+) memberexecution.TaskBinding {
+	if proof == nil || proof.Lifecycle == nil {
+		return memberexecution.TaskBinding{}
+	}
+	lifecycle := proof.Lifecycle
+	return binaryREMemberTaskBinding(
+		evidence,
+		lifecycle.ExecutionIntentPath,
+		lifecycle.ExecutionIntentSHA256,
+		lifecycle.ExecutionResultPath,
+		lifecycle.ExecutionResultSHA256,
+		lifecycle.EvidenceReviewInputPath,
+		lifecycle.EvidenceReviewInputSHA256,
+		lifecycle.EvidenceReviewIntentPath,
+		lifecycle.EvidenceReviewIntentSHA256,
+		lifecycle.EvidenceReviewDecisionPath,
+		lifecycle.EvidenceReviewDecisionSHA256,
+		lifecycle.ClosurePath,
+		lifecycle.ClosureSHA256,
+		lifecycle.EvidenceReviewSession,
+		lifecycle.AcknowledgementEventID,
+		lifecycle.AcknowledgementSHA256,
+	)
+}
+
 func validateLiveAcceptanceVMPIDAMemberArtifact(member memberexecution.Inspection, evidence liveAcceptanceVMPIDAEvidenceReviewInput, proof *LiveAcceptanceVMPIDA) error {
-	if proof == nil || member.TaskContext == nil || member.TaskContext.Binding == nil || member.TaskContext.Binding.Kind != "vmp-ida-index-evidence" || member.Manifest == nil {
-		return fmt.Errorf("replacement member task context omitted vmp-ida-index-evidence binding or strict result manifest")
+	if proof == nil || proof.Lifecycle == nil || member.TaskContext == nil || member.TaskContext.Binding == nil || member.TaskContext.Binding.Kind != "vmp-ida-index-evidence" || member.Manifest == nil {
+		return fmt.Errorf("replacement member task context omitted ordinary vmp-ida-index-evidence lifecycle binding or strict result manifest")
 	}
 	values := member.TaskContext.Binding.Values
-	expected := map[string]string{
-		"gate-event-id": proof.GateEventID, "profile-hash": proof.ProfileSHA256,
-		"request-path": proof.RequestPath, "request-sha256": proof.RequestSHA256,
-		"packet-path": proof.Run.PacketPath, "packet-sha256": proof.Run.PacketSHA256,
-		"report-path": proof.Run.ReportPath, "report-sha256": proof.Run.ReportSHA256,
-		"dispatch-path": proof.Run.DispatchPath, "dispatch-sha256": proof.Run.DispatchSHA256,
-		"receipt-path": proof.Run.ReceiptPath, "receipt-sha256": proof.Run.ReceiptSHA256,
-		"observation-event-id": proof.Run.ObservationEventID,
-	}
+	expected := liveAcceptanceVMPIDATaskBinding(proof, evidence).Values
 	if len(values) != len(expected) {
 		return fmt.Errorf("replacement member task binding contains an unexpected field set")
 	}

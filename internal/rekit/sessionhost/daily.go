@@ -50,6 +50,8 @@ type DailyOptions struct {
 	MaxAttempts                       int
 	onCaseReady                       func(string) error
 	beforeMemberRun                   func(caseRoot, pack, lane string) error
+	binaryREAdapterPath               string
+	binaryREAdapterRunner             binaryREAuthorizedRunner
 	stopAfterMemberSegment            bool
 	projectExecutionLease             *projectexecution.Lease
 }
@@ -83,6 +85,7 @@ type DailyResult struct {
 	CurrentSyncRecovery        *syncreview.CurrentSyncRecovery        `json:"currentSyncRecovery,omitempty"`
 	DirectoryAdoption          *DailyDirectoryAdoption                `json:"directoryAdoption,omitempty"`
 	ExecutionControl           *executioncontrol.Plan                 `json:"executionControl,omitempty"`
+	BinaryREAdapter            *BinaryREAdapterLifecycleResult        `json:"binaryReAdapter,omitempty"`
 	Boundary                   []string                               `json:"boundary"`
 }
 
@@ -394,7 +397,7 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		if correctionRoute.Kind != dailyCorrectionRouteReviewer {
 			return result, fmt.Errorf("daily correction route is not executable: %s", correctionRoute.Kind)
 		}
-		return runDailyCorrection(parent, hostOpt, inspection, correction, result, opt.beforeMemberRun)
+		return runDailyCorrection(parent, hostOpt, inspection, correction, result, opt)
 	}
 	if state, generation, terminal, err := dailyLaneTerminal(caseRoot, result.Lane); err != nil {
 		return result, err
@@ -421,6 +424,13 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		if err := opt.beforeMemberRun(caseRoot, pack, result.Lane); err != nil {
 			return result, fmt.Errorf("prepare daily member run: %w", err)
 		}
+	}
+	adapterReady, err := prepareBinaryREAdapterBeforeMember(parent, opt, &result)
+	if err != nil {
+		return result, err
+	}
+	if !adapterReady {
+		return result, nil
 	}
 	if goal != "" {
 		if opt.stopAfterMemberSegment {

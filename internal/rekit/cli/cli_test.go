@@ -73,6 +73,38 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestParseNoteExecutionControlBinding(t *testing.T) {
+	bindingJSON := `{"schemaVersion":1,"lane":"main","controlGeneration":0,"owner":{"lane":"main","currentExecutor":"executor-a","executorGeneration":1}}`
+	opt, err := Parse([]string{"-Command", "note", "-ExpectedExecutionControlBindingJson", bindingJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := opt.Note.ExpectedExecutionControlBinding
+	if binding == nil || binding.Lane != "main" || binding.ControlGeneration != 0 ||
+		binding.Owner.Lane != "main" || binding.Owner.CurrentExecutor != "executor-a" || binding.Owner.ExecutorGeneration != 1 {
+		t.Fatalf("note execution control binding = %+v", binding)
+	}
+
+	for _, test := range []struct {
+		name  string
+		args  []string
+		match string
+	}{
+		{name: "unknown field", args: []string{"-Command", "note", "-ExpectedExecutionControlBindingJson", strings.TrimSuffix(bindingJSON, "}") + `,"extra":true}`}, match: "unknown field"},
+		{name: "trailing JSON", args: []string{"-Command", "note", "-ExpectedExecutionControlBindingJson", bindingJSON + `{}`}, match: "exactly one JSON object"},
+		{name: "invalid binding", args: []string{"-Command", "note", "-ExpectedExecutionControlBindingJson", `{"schemaVersion":1,"lane":"other","controlGeneration":0,"owner":{"lane":"main","currentExecutor":"executor-a","executorGeneration":1}}`}, match: "execution control binding is invalid"},
+		{name: "wrong command", args: []string{"-Command", "status", "-ExpectedExecutionControlBindingJson", bindingJSON}, match: "supported only by note"},
+		{name: "duplicate flag", args: []string{"-Command", "note", "-ExpectedExecutionControlBindingJson", bindingJSON, "-ExpectedExecutionControlBindingJson", bindingJSON}, match: "cannot be repeated"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Parse(test.args)
+			if err == nil || !strings.Contains(err.Error(), test.match) {
+				t.Fatalf("Parse error = %v, want substring %q", err, test.match)
+			}
+		})
+	}
+}
+
 func TestParseRejectsAmbiguousLaneSelectors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -2266,7 +2298,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
 	}
 	activeRoute := status.ProjectHandoff.ActiveRoute
-	if !activeRoute.Present || activeRoute.Route != "steamai-product-optimization-v1" || !strings.HasPrefix(activeRoute.CurrentBatch, "Batch 831") || activeRoute.State != "completed" || activeRoute.ExclusiveClaim != "Batch 832" || !activeRoute.NextBatchUnlocked || !activeRoute.ProjectionConsistent {
+	if !activeRoute.Present || activeRoute.Route != "steamai-product-optimization-v1" || !strings.HasPrefix(activeRoute.CurrentBatch, "路线收口") || activeRoute.State != "in_progress" || activeRoute.ExclusiveClaim != "路线收口" || activeRoute.NextBatchUnlocked || !activeRoute.ProjectionConsistent {
 		t.Fatalf("unexpected project handoff active route: %+v", activeRoute)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
@@ -2283,8 +2315,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("project handoff omitted latest batch remote gate detail: %+v", status.ProjectHandoff)
 	}
 	projectCurrent := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
-	if projectCurrent == nil || projectCurrent.ActionID != "latest-batch-next-action" || projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.State != "implementation-pending" || projectCurrent.Label != "Batch 831" {
-		t.Fatalf("completed active route did not expose the latest batch validation action: route=%+v current=%+v", activeRoute, projectCurrent)
+	if projectCurrent == nil || projectCurrent.ActionID != "active-route-current-batch" || projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.State != "in_progress" || projectCurrent.Label != "路线收口" {
+		t.Fatalf("active route did not expose the route closure action: route=%+v current=%+v", activeRoute, projectCurrent)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
 		t.Fatalf("completed release-run batch should not repeat local validation as current action: %+v", projectCurrent)

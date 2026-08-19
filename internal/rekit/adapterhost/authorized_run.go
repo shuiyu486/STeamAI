@@ -20,6 +20,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -42,7 +43,8 @@ const (
 	vmpIDASuccessSealFileName      = ".ida-index-success-seal.json"
 	vmpIDASuccessSealKind          = "vmp-ida-index-success-seal"
 	vmpIDAChildResultKind          = "vmp-ida-index-inspector-child-result"
-	fixedChildNoNetworkCodepath    = "fixed-child-no-network-codepath"
+	VMPIDAIndexNoNetworkBoundary   = "fixed-child-no-network-codepath"
+	fixedChildNoNetworkCodepath    = VMPIDAIndexNoNetworkBoundary
 )
 
 type VMPIDAIndexChildResult struct {
@@ -189,14 +191,16 @@ func validateVMPIDAIndexChildBinding(
 }
 
 type AuthorizedRunOptions struct {
-	RepoRoot            string
-	CaseRoot            string
-	Pack                string
-	GateEventID         string
-	ExecutionReportPath string
-	AdapterSession      string
-	Actor               string
-	testHooks           *hostTestHooks
+	RepoRoot                   string
+	CaseRoot                   string
+	Pack                       string
+	GateEventID                string
+	ExecutionReportPath        string
+	AdapterSession             string
+	Actor                      string
+	DeferSuccessfulTaskBinding bool
+	ExecutionControlBinding    *executioncontrol.Binding
+	testHooks                  *hostTestHooks
 }
 
 // RunAuthorizedGateProcess launches the exact adapter-host executable in its
@@ -223,6 +227,19 @@ func RunAuthorizedGateProcess(adapterPath string, opt AuthorizedRunOptions, time
 		"-execution-report-path", opt.ExecutionReportPath,
 		"-adapter-session", opt.AdapterSession,
 		"-actor", opt.Actor,
+	}
+	if opt.DeferSuccessfulTaskBinding {
+		args = append(args, "-defer-successful-task-binding")
+	}
+	if opt.ExecutionControlBinding != nil {
+		if err := executioncontrol.ValidateBinding(*opt.ExecutionControlBinding); err != nil {
+			return AuthorizedRunResult{}, 0, err
+		}
+		bindingData, err := json.Marshal(opt.ExecutionControlBinding)
+		if err != nil {
+			return AuthorizedRunResult{}, 0, err
+		}
+		args = append(args, "-execution-control-binding-json", string(bindingData))
 	}
 	stdout, _, processID, err := runContainedProcess(binding, args, nil, timeout)
 	if err != nil {
@@ -290,16 +307,18 @@ type AuthorizedRunResult struct {
 }
 
 // RunAuthorizedGate owns the product lifecycle after a durable authorized gate
-// exists. It records execution evidence, binds it for the current member, then
-// revokes only the exact generated preauthorized profile. It never creates a
-// gate, executes a catalog entry, or acknowledges the resulting evidence.
+// exists. It records execution evidence, optionally defers successful member
+// binding for independent review, then revokes only the exact generated
+// preauthorized profile. It never creates a gate, executes a catalog entry, or
+// acknowledges the resulting evidence.
 func RunAuthorizedGate(opt AuthorizedRunOptions) (AuthorizedRunResult, error) {
 	result, err := runAuthorizedGateExecution(opt)
 	if err != nil {
 		return result, err
 	}
 	if result.ObservationEventID == "" ||
-		(result.ExecutionStatus == "succeeded" && result.TaskBindingSHA256 == "") ||
+		(result.ExecutionStatus == "succeeded" && !opt.DeferSuccessfulTaskBinding && result.TaskBindingSHA256 == "") ||
+		(result.ExecutionStatus == "succeeded" && opt.DeferSuccessfulTaskBinding && result.TaskBindingSHA256 != "") ||
 		((result.ExecutionStatus == "failed" || result.ExecutionStatus == "aborted") && result.TaskBindingSHA256 != "") {
 		return result, fmt.Errorf("authorized VMP IDA run cannot revoke profile before terminal observation and status-appropriate member evidence binding")
 	}
@@ -468,7 +487,8 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		hostResult, err = Run(Options{
 			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: result.Pack,
 			GateEventID: result.GateEventID, ExpectedDispatchSHA256: dispatchSHA,
-			testHooks: opt.testHooks,
+			ExecutionControlBinding: executioncontrol.CloneBinding(opt.ExecutionControlBinding),
+			testHooks:               opt.testHooks,
 		})
 		if err != nil {
 			return result, err
@@ -808,6 +828,9 @@ func completeVMPIDAEvidenceLifecycle(
 		}
 	}
 	if result.ExecutionStatus == "succeeded" {
+		if opt.DeferSuccessfulTaskBinding {
+			return result, nil
+		}
 		owner, ownerErr := laneowner.Read(caseRoot, lane)
 		if ownerErr != nil ||
 			owner.CurrentExecutor != dispatch.Owner.CurrentExecutor ||
@@ -1153,6 +1176,11 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 	current, currentPath, currentSHA, _, err := gate.ReadCurrentAdapterExecutionDispatch(opt.RepoRoot, result.CaseRoot, result.Pack, result.GateEventID)
 	if err != nil || currentPath != dispatchPath || !strings.EqualFold(currentSHA, dispatchSHA) || !adapterexecution.DispatchSemanticEqual(current, dispatch) {
 		return result, fmt.Errorf("VMP IDA adapter dispatch changed while acquiring lane lease: %w", err)
+	}
+	if opt.ExecutionControlBinding != nil {
+		if err := executioncontrol.RequireCurrentBindingWithLease(result.CaseRoot, lease, *opt.ExecutionControlBinding); err != nil {
+			return result, fmt.Errorf("VMP IDA adapter launch execution control is stale: %w", err)
+		}
 	}
 	requestArtifact, err := readVMPIDAIndexRequestArtifact(result.CaseRoot, result.InputPath)
 	if err != nil {

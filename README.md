@@ -30,7 +30,7 @@ claude
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 
-> Batch 828 的 Windows 自包含闭环与 Batch 829 的 canonical GitHub repository identity 已完成并归档。当前按 `steamai-product-optimization-v1` 严格串行推进核心闭环、唯一 `binary-re`、durable pause/resume/stop 和 actual binary analysis；真实状态与解锁条件只见 `docs/real-usage-hardening-roadmap.md`。Go module/internal/legacy identity 暂保留兼容，完成态只由 Git-local machine receipt 和本地 tracking ref 判定，本地 readiness 不冒充 remote CI green。
+> Batch 828 的 Windows 自包含闭环与 Batch 829 的 canonical GitHub repository identity 已完成并归档。`steamai-product-optimization-v1` 的核心闭环、唯一 `binary-re`、durable pause/resume/stop 和 ordinary actual binary analysis 四个实现阶段已完成，当前只做路线级完整验证与清理；真实状态与验收条件只见 `docs/real-usage-hardening-roadmap.md`。Go module/internal/legacy identity 暂保留兼容，完成态只由 Git-local machine receipt 和本地 tracking ref 判定，本地 readiness 不冒充 remote CI green。
 
 STeamAI 不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。heavy action 只在 strict durable profile 与 fresh `authorized-gate` 覆盖的 exact scope/budget/stop/output 内执行并留证；`bounded-autonomous-v1` 只是显式、短时、有界的免逐次询问，不是无限权限。
 

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -134,20 +135,32 @@ func CurrentTaskBinding(caseRoot, lane string) (*TaskBinding, error) {
 	if err != nil {
 		return nil, err
 	}
+	binding, _, _, err := ReadTaskBindingForOwner(caseRoot, lane, ownerGeneration)
+	return binding, err
+}
+
+// ReadTaskBindingForOwner inspects one immutable owner-generation binding
+// without treating it as the current owner. Callers remain responsible for
+// currentness when the binding is used to progress work.
+func ReadTaskBindingForOwner(caseRoot, lane string, ownerGeneration int) (*TaskBinding, string, string, error) {
+	lane = strings.TrimSpace(lane)
+	if !segment.MatchString(lane) || ownerGeneration < 1 {
+		return nil, "", "", fmt.Errorf("member execution task binding owner is invalid")
+	}
 	rel, err := currentTaskBindingRel(caseRoot, lane, ownerGeneration)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	path, err := rekitfs.SafeJoin(caseRoot, rel)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, path, "member execution task binding", maxJSONBytes)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, rel, "", nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	var envelope struct {
 		SchemaVersion   int         `json:"schemaVersion"`
@@ -158,20 +171,20 @@ func CurrentTaskBinding(caseRoot, lane string) (*TaskBinding, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("decode member execution task binding: %w", err)
+		return nil, "", "", fmt.Errorf("decode member execution task binding: %w", err)
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
-		return nil, fmt.Errorf("member execution task binding must contain exactly one JSON object")
+		return nil, "", "", fmt.Errorf("member execution task binding must contain exactly one JSON object")
 	}
-	if envelope.SchemaVersion != SchemaVersion || strings.TrimSpace(envelope.Lane) != strings.TrimSpace(lane) || envelope.OwnerGeneration != ownerGeneration {
-		return nil, fmt.Errorf("member execution task binding does not match current lane owner generation")
+	if envelope.SchemaVersion != SchemaVersion || envelope.Lane != lane || envelope.OwnerGeneration != ownerGeneration {
+		return nil, "", "", fmt.Errorf("member execution task binding does not match the exact lane owner generation")
 	}
 	binding, err := validateTaskBinding(envelope.Binding)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
-	return &binding, nil
+	return &binding, rel, hash(data), nil
 }
 
 func WriteTaskBinding(caseRoot, lane string, binding TaskBinding) (string, string, error) {
@@ -179,7 +192,7 @@ func WriteTaskBinding(caseRoot, lane string, binding TaskBinding) (string, strin
 	if err != nil {
 		return "", "", err
 	}
-	return writeTaskBinding(caseRoot, lane, "", generation, false, binding)
+	return writeTaskBinding(caseRoot, lane, "", generation, false, nil, binding)
 }
 
 func WriteTaskBindingForOwner(
@@ -195,6 +208,26 @@ func WriteTaskBindingForOwner(
 		strings.TrimSpace(expectedExecutor),
 		expectedGeneration,
 		true,
+		nil,
+		binding,
+	)
+}
+
+func WriteTaskBindingForOwnerWithControlBinding(
+	caseRoot,
+	lane,
+	expectedExecutor string,
+	expectedGeneration int,
+	controlBinding executioncontrol.Binding,
+	binding TaskBinding,
+) (string, string, error) {
+	return writeTaskBinding(
+		caseRoot,
+		lane,
+		strings.TrimSpace(expectedExecutor),
+		expectedGeneration,
+		true,
+		&controlBinding,
 		binding,
 	)
 }
@@ -205,6 +238,7 @@ func writeTaskBinding(
 	expectedExecutor string,
 	expectedGeneration int,
 	requireExpectedOwner bool,
+	controlBinding *executioncontrol.Binding,
 	binding TaskBinding,
 ) (_ string, _ string, retErr error) {
 	binding, err := validateTaskBinding(binding)
@@ -219,6 +253,11 @@ func writeTaskBinding(
 	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
 	if err := lease.Validate(); err != nil {
 		return "", "", err
+	}
+	if controlBinding != nil {
+		if err := executioncontrol.RequireCurrentBindingWithLease(caseRoot, lease, *controlBinding); err != nil {
+			return "", "", fmt.Errorf("member execution task binding control is stale: %w", err)
+		}
 	}
 	currentExecutor, ownerGeneration, err := currentTaskBindingOwner(caseRoot, lane)
 	if err != nil {

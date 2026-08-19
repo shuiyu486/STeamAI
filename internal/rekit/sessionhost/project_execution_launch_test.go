@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
@@ -36,6 +37,9 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	if handled, code := adapterhost.RunEmbeddedPrivate(os.Args[1:], os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
 	if specPath, specSHA, ok := projectExecutionInternalSupervisorArgs(os.Args); ok {
 		supervisorChildStageHook = projectExecutionSupervisorChildHook
 		_ = os.Setenv(projectExecutionHelperRoleEnv, "claude")

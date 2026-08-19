@@ -29,6 +29,16 @@
 
 ## 近期已完成批次与验证
 
+### Batch 832：durable execution control
+
+状态：已完成。
+
+用户断点：用户需要从自然语言或`/steamai` review-first地暂停、恢复或停止exact lane；旧结果、relay/claim/writer progression与本地supervisor必须在同一durable control head下继续，control本身不能成为授权来源。
+
+实现：新增Go-owned public `control`与per-lane append-only intent/receipt、独立control generation和exact stamp/hash Apply。member、Reviewer、external-session与supervisor result捕获control birth；paused/stopped/旧generation只保留raw truth和held/late/stale receipt，不进入live output、intake、Reviewer writeback、completion或checkpoint progression。`stop`先durable提交，再由exact local supervisor owner关闭自己持有的Windows Job/containment并追加observation；pause不做OS suspend，opaque Remote Control session不受本路径管理。
+
+验证结果：focused fresh state/root、CLI、result currentness、consumer progression、external-session、sessionhost recovery与真实Windows Job close测试，以及façade smoke和32-command inventory通过。control generation不复用executor/attempt/supervisor/gate generation；process termination不是durable stop成功判据，actuation failure不回滚stopped。本批未提前声称Batch 833 ordinary actual analysis、remote CI green或formal release。
+
 ### Batch 831：binary-re convergence
 
 状态：已完成。

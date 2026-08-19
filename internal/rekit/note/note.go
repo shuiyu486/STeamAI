@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -24,57 +25,58 @@ const (
 )
 
 type Options struct {
-	Kind                      string
-	Lane                      string
-	Subject                   string
-	Summary                   string
-	Actor                     string
-	Risk                      string
-	Related                   string
-	Confidence                string
-	Decision                  string
-	Reason                    string
-	Status                    string
-	BatchID                   string
-	Target                    string
-	Verifier                  string
-	Verdict                   string
-	Action                    string
-	ApprovedBy                string
-	Scope                     string
-	Expires                   string
-	EvidenceRefs              string
-	EventID                   string
-	CreatedAt                 string
-	ExpectedEventSHA256       string
-	PacketID                  string
-	RouteID                   string
-	ShardID                   string
-	PacketPath                string
-	ReviewerResultPath        string
-	ReviewerSession           string
-	ReviewerHarness           string
-	ReviewerDispatchID        string
-	ReviewerDispatchPath      string
-	ReviewerDispatchSHA256    string
-	ReviewerCompletionPath    string
-	ReviewerCompletionSHA256  string
-	ReviewerResultInputPath   string
-	ReviewerResultInputSHA256 string
-	ReviewerResultInputBytes  string
-	ReviewerResultSHA256      string
-	ReviewerManifestSHA256    string
-	ReviewerVerificationID    string
-	ReviewerDecisionID        string
-	OwnerExecutor             string
-	OwnerGeneration           string
-	OwnerBindingMode          string
-	OwnerBindingTarget        string
-	ReviewerDecision          string
-	RecommendedVerdict        string
-	ReviewerRisks             []string
-	ReviewerConflicts         []string
-	RouteOutput               map[string]any
+	Kind                            string
+	Lane                            string
+	Subject                         string
+	Summary                         string
+	Actor                           string
+	Risk                            string
+	Related                         string
+	Confidence                      string
+	Decision                        string
+	Reason                          string
+	Status                          string
+	BatchID                         string
+	Target                          string
+	Verifier                        string
+	Verdict                         string
+	Action                          string
+	ApprovedBy                      string
+	Scope                           string
+	Expires                         string
+	EvidenceRefs                    string
+	EventID                         string
+	CreatedAt                       string
+	ExpectedEventSHA256             string
+	PacketID                        string
+	RouteID                         string
+	ShardID                         string
+	PacketPath                      string
+	ReviewerResultPath              string
+	ReviewerSession                 string
+	ReviewerHarness                 string
+	ReviewerDispatchID              string
+	ReviewerDispatchPath            string
+	ReviewerDispatchSHA256          string
+	ReviewerCompletionPath          string
+	ReviewerCompletionSHA256        string
+	ReviewerResultInputPath         string
+	ReviewerResultInputSHA256       string
+	ReviewerResultInputBytes        string
+	ReviewerResultSHA256            string
+	ReviewerManifestSHA256          string
+	ReviewerVerificationID          string
+	ReviewerDecisionID              string
+	OwnerExecutor                   string
+	OwnerGeneration                 string
+	OwnerBindingMode                string
+	OwnerBindingTarget              string
+	ReviewerDecision                string
+	RecommendedVerdict              string
+	ReviewerRisks                   []string
+	ReviewerConflicts               []string
+	RouteOutput                     map[string]any
+	ExpectedExecutionControlBinding *executioncontrol.Binding
 }
 
 type AppendResult struct {
@@ -245,6 +247,10 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 	if err != nil {
 		return AppendResult{}, err
 	}
+	replayArgs, err := recordArgs(inst.CaseRoot, pack, event, eventSHA256, opt.ExpectedExecutionControlBinding)
+	if err != nil {
+		return AppendResult{}, err
+	}
 	result = AppendResult{
 		SchemaVersion:               1,
 		Command:                     "note",
@@ -257,8 +263,8 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 		Path:                        relPath,
 		EventSHA256:                 eventSHA256,
 		ExpectedEventSHA256:         strings.TrimSpace(opt.ExpectedEventSHA256),
-		RecordCommand:               recordCommand(inst.CaseRoot, pack, event, eventSHA256),
-		RecordArgs:                  recordArgs(inst.CaseRoot, pack, event, eventSHA256),
+		RecordCommand:               recordCommand(replayArgs),
+		RecordArgs:                  replayArgs,
 		Event:                       event,
 		MissionBrief:                brief,
 		ExecutorAction:              action,
@@ -277,7 +283,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 	if err != nil {
 		return AppendResult{}, err
 	}
-	if exists {
+	if exists && (whatIf || opt.ExpectedExecutionControlBinding == nil) {
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -291,25 +297,30 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 		result.Reason = "what-if"
 		return result, nil
 	}
-	var interventionLease *lanemutation.Lease
-	if kind == "intervention" {
-		if interventionBeforeLeaseHook != nil {
+	var mutationLease *lanemutation.Lease
+	if kind == "intervention" || opt.ExpectedExecutionControlBinding != nil {
+		if kind == "intervention" && interventionBeforeLeaseHook != nil {
 			if err := interventionBeforeLeaseHook(); err != nil {
 				return AppendResult{}, err
 			}
 		}
-		interventionLease, err = lanemutation.AcquireOpenLane(inst.CaseRoot, lane, "note")
+		mutationLease, err = lanemutation.AcquireOpenLane(inst.CaseRoot, lane, "note")
 		if err != nil {
 			return AppendResult{}, err
 		}
 		defer func() {
-			if unlockErr := interventionLease.Unlock(); unlockErr != nil {
+			if unlockErr := mutationLease.Unlock(); unlockErr != nil {
 				err = errors.Join(err, unlockErr)
 				result = AppendResult{}
 			}
 		}()
-		if err := interventionLease.Validate(); err != nil {
+		if err := mutationLease.Validate(); err != nil {
 			return AppendResult{}, err
+		}
+		if opt.ExpectedExecutionControlBinding != nil {
+			if err := executioncontrol.RequireCurrentBindingWithLease(inst.CaseRoot, mutationLease, *opt.ExpectedExecutionControlBinding); err != nil {
+				return AppendResult{}, fmt.Errorf("note execution control binding is stale: %w", err)
+			}
 		}
 		exists, err = eventIDExists(inst.CaseRoot, eventID)
 		if err != nil {
@@ -322,6 +333,11 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 	}
 	if _, _, err := mission.AppendFact(inst.CaseRoot, kind, event); err != nil {
 		return AppendResult{}, err
+	}
+	if mutationLease != nil {
+		if err := mutationLease.Validate(); err != nil {
+			return AppendResult{}, fmt.Errorf("note event may already be durable: %w", err)
+		}
 	}
 	result.Applied = true
 	result.MissionBrief, result.ExecutorAction, _, boardLane, err = laneExecutorSnapshot(inst.CaseRoot, lane)
@@ -465,6 +481,14 @@ func validateAppendOptions(kind string, opt Options) error {
 	for _, ref := range strings.FieldsFunc(opt.EvidenceRefs, func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
 		if strings.TrimSpace(ref) == "" {
 			return fmt.Errorf("EvidenceRefs contains empty element")
+		}
+	}
+	if opt.ExpectedExecutionControlBinding != nil {
+		if err := executioncontrol.ValidateBinding(*opt.ExpectedExecutionControlBinding); err != nil {
+			return fmt.Errorf("invalid note execution control binding: %w", err)
+		}
+		if opt.ExpectedExecutionControlBinding.Lane != strings.TrimSpace(opt.Lane) {
+			return fmt.Errorf("note execution control binding belongs to a different lane")
 		}
 	}
 	return nil
@@ -706,8 +730,7 @@ var recordCommandReplayableKeys = map[string]bool{
 	"ownerGeneration":                 true,
 }
 
-func recordCommand(caseRoot, pack string, event map[string]any, eventSHA256 string) string {
-	args := recordArgs(caseRoot, pack, event, eventSHA256)
+func recordCommand(args []string) string {
 	if len(args) == 0 {
 		return ""
 	}
@@ -718,9 +741,9 @@ func recordCommand(caseRoot, pack string, event map[string]any, eventSHA256 stri
 	return strings.Join(parts, " ")
 }
 
-func recordArgs(caseRoot, pack string, event map[string]any, eventSHA256 string) []string {
+func recordArgs(caseRoot, pack string, event map[string]any, eventSHA256 string, binding *executioncontrol.Binding) ([]string, error) {
 	if !recordCommandReplayable(event) {
-		return nil
+		return nil, nil
 	}
 	args := []string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", stringValue(event, "kind"), "-Lane", stringValue(event, "lane")}
 	for _, item := range []struct{ flag, key string }{
@@ -773,7 +796,17 @@ func recordArgs(caseRoot, pack string, event map[string]any, eventSHA256 string)
 			args = append(args, item.flag, value)
 		}
 	}
-	return append(args, "-Format", "json")
+	if binding != nil {
+		if err := executioncontrol.ValidateBinding(*binding); err != nil {
+			return nil, fmt.Errorf("record note execution control binding: %w", err)
+		}
+		data, err := json.Marshal(binding)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "-ExpectedExecutionControlBindingJson", string(data))
+	}
+	return append(args, "-Format", "json"), nil
 }
 
 func quoteCommandArg(value string) string {

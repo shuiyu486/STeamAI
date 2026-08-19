@@ -191,6 +191,7 @@ type LiveAcceptanceVMPIDA struct {
 	DeniedActions           []string                        `json:"deniedActions"`
 	GateEventID             string                          `json:"gateEventId"`
 	Authorization           string                          `json:"authorization"`
+	Lifecycle               *BinaryREAdapterLifecycleResult `json:"ordinaryLifecycle,omitempty"`
 	Run                     adapterhost.AuthorizedRunResult `json:"run"`
 	AcknowledgementEventID  string                          `json:"acknowledgementEventId"`
 	EvidenceReviewSessionID string                          `json:"evidenceReviewSessionId"`
@@ -404,11 +405,12 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		},
 	}
 	if strings.EqualFold(pack, liveAcceptancePack) {
+		dailyOpt.binaryREAdapterPath = receipt.VMPIDA.AdapterPath
 		dailyOpt.beforeMemberRun = func(root, currentPack, lane string) error {
 			if strings.TrimSpace(dailyOpt.Correction) == "" {
 				return nil
 			}
-			return prepareLiveAcceptanceVMPIDA(parent, dailyOpt, root, currentPack, lane, receipt.VMPIDA)
+			return prepareLiveAcceptanceVMPIDA(root, currentPack, lane, receipt.VMPIDA)
 		}
 	}
 	firstResult, err := RunDaily(parent, dailyOpt)
@@ -488,6 +490,11 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	if correctedResult.CorrectionEventID == "" || correctedResult.ExecutorGeneration != 2 || correctedResult.SessionLaunches < 2 || correctedResult.SessionCompletions < 2 || correctedResult.Completion == nil || correctedResult.Completion.Lane.Status != "closed" {
 		return receipt, fmt.Errorf("daily correction did not replace, review, and close the lane: %+v", correctedResult)
 	}
+	if strings.EqualFold(pack, liveAcceptancePack) {
+		if err := projectLiveAcceptanceVMPIDALifecycle(caseRoot, lane, correctedResult.BinaryREAdapter, receipt.VMPIDA); err != nil {
+			return receipt, err
+		}
+	}
 	receipt.CorrectionEventID = correctedResult.CorrectionEventID
 	second, ok, err := memberexecution.Latest(caseRoot, lane)
 	if err != nil || !ok || second.State != "intake-ready" || second.Owner.ExecutorGeneration != 2 || second.TaskContext == nil || second.TaskContext.Correction == nil || second.TaskContext.Correction.ReviewerRejection == nil || second.Manifest == nil {
@@ -560,16 +567,8 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	}
 	receipt.TerminalReplay = LiveAcceptanceReplay{Verified: true, FinalState: replayResult.FinalState, SessionLaunches: replayResult.SessionLaunches, SessionCompletions: replayResult.SessionCompletions, MutationSHA256: afterReplay}
 	if strings.EqualFold(pack, liveAcceptancePack) {
-		replayOpt, err := liveAcceptanceVMPIDARunOptions(caseRoot, lane, receipt.VMPIDA)
-		if err != nil {
-			return receipt, fmt.Errorf("prepare terminal VMP IDA adapter replay: %w", err)
-		}
-		adapterReplay, processID, err := adapterhost.RunAuthorizedGateProcess(receipt.VMPIDA.AdapterPath, replayOpt, 20*time.Second)
-		if err != nil {
-			return receipt, fmt.Errorf("replay terminal VMP IDA adapter lifecycle: %w", err)
-		}
-		if !adapterReplay.Replay || adapterReplay.ChildLaunched || processID <= 0 || adapterReplay.PacketSHA256 != receipt.VMPIDA.Run.PacketSHA256 || adapterReplay.TaskBindingSHA256 != receipt.VMPIDA.Run.TaskBindingSHA256 || !adapterReplay.ProfileAlreadyManual {
-			return receipt, fmt.Errorf("terminal VMP IDA replay was not child-free and lineage-stable: %+v", adapterReplay)
+		if receipt.VMPIDA == nil || receipt.VMPIDA.Lifecycle == nil || replayResult.BinaryREAdapter != nil {
+			return receipt, fmt.Errorf("terminal VMP IDA replay unexpectedly re-entered the ordinary adapter lifecycle: %+v", replayResult.BinaryREAdapter)
 		}
 		receipt.VMPIDA.TerminalReplayNoChild = true
 		receipt.VMPIDA.TerminalReplayNoClaude = replayResult.SessionLaunches == 0

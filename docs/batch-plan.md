@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1`。四个阶段严格串行：core product closure → 唯一 `binary-re` → durable pause/resume/stop → `binary-re` actual analysis。Batch 830～832 已完成，当前只允许领取 Batch 833；source-clone-first、Go + Claude Code 预期依赖和无 installer 是稳定边界。
+当前路线是 `steamai-product-optimization-v1`。四个实现阶段 Batch 830～833 已严格串行完成：core product closure → 唯一 `binary-re` → durable pause/resume/stop → ordinary `binary-re` actual analysis。当前只允许路线级完整验证与清理；source-clone-first、Go + Claude Code 预期依赖和无 installer 是稳定边界。
 
 ## 执行清单
 
@@ -16,39 +16,40 @@
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `Batch 832` durable execution control |
-| 状态 | `completed` |
-| 唯一允许领取 | `Batch 833` |
-| 上一批 | `Batch 831` binary-re convergence 已归档 |
-| 下一批 | `Batch 833` binary-re actual analysis |
+| 当前批次 | `路线收口` full validation and cleanup |
+| 状态 | `in_progress` |
+| 唯一允许领取 | `路线收口` |
+| 上一批 | `Batch 833` binary-re actual analysis 已完成 |
+| 下一批 | `无（路线完成后等待明确新路线）` |
 
 ### Current batch state
 
-Batch 832 已完成：public `control` 以per-lane append-only generation和exact preview stamp/hash发布durable pause/resume/stop；result birth、relay/claim/writer progression与local supervisor均重验同一binding。pause不做OS suspend，stop先durable提交、只由exact local supervisor owner关闭自己持有的containment；actuation失败不回滚stopped，process termination不是durable成功判据，opaque Remote Control session不受本路径管理。Batch 833是唯一允许领取的下一批。
+Batch 833 已完成：ordinary goal/resume/correction在real member前复用同一project-local VMP/IDA actual adapter lifecycle；strict gate、actual embedded parent/child、report/packet/receipt/observation、independent evidence review、public acknowledgement与accepted-review后task binding形成durable闭环。terminal result、缺closure或缺binding可exact恢复，不重启child/Reviewer、不重复acknowledgement；完整terminal replay零写入，stale control fail-closed。focused tests使用harmless synthetic indexes和deterministic strict Reviewer hook，真实Claude acceptance仍由当前路线收口执行。
 
-### Batch 832：durable execution control
+### 路线收口：full validation and cleanup
 
-状态：已完成。
+状态：进行中。
 
-目标：从自然语言或`/steamai`安全控制exact lane，让paused/stopped/旧generation结果保留raw truth与held/late receipt但不能推进live output、Reviewer、completion或checkpoint；control不授予authority/confirmed、gate或heavy action。
+目标：用完整fresh tests、vet、module verify、public release/status/packs/doctor、移动/复制E2E、真实Claude member→Reviewer→correction→completion和harmless synthetic actual adapter E2E验证四阶段组合行为；核查README/CLAUDE/reference/config/examples，删除两份临时计划与评估文件并完成最终commit/push和Git-local inspection。
 
-验证结果：executioncontrol、CLI、externalsession、member/reviewer progression和sessionhost focused fresh tests覆盖状态机、current/legacy单写、dual-root拒绝、sticky held/late、三层consumer竞争、replacement project lease与durable-first Windows Job actuation；façade smoke和32-command release/default-doc inventory通过。路线级完整fresh tests、vet、module verify、移动/复制E2E与真实Claude acceptance留到四阶段收口，不声称remote CI green。
+当前边界：不新增Batch 834或新产品功能；不把focused hook、cross-compile、本地receipt、tracking ref或Markdown claim冒充remote CI green、跨平台runtime E2E或formal release。
 
 ### Locked sequence
 
-| Batch | 目标 | 解锁条件 |
-|---|---|---|
-| 833 | `binary-re` VMP/IDA actual adapter 与真实分析闭环 | Batch 832 完成（已满足） |
+| 工作 | 解锁条件 |
+|---|---|
+| 路线级完整验证与清理 | Batch 833 完成（已满足） |
+| 新路线或新批次 | 当前路线完成后由用户明确批准 |
 
 ## 验证标准
 
 - 本文件与路线图的 route/current/state/claim/next 必须一致；冲突时 fail-closed。
 - active plan只保留一个compact最近完成批次摘要；更早批次只在`docs/batch-history.md`。
-- Batch 833 focused tests、临时项目E2E与真实分析证据通过后才移动指针。
-- 每批完成 focused/fresh local validation 后提交、推送并做 Git-local post-push inspection，再继续唯一解锁批次；四阶段结束后另做 route-level full validation和临时文档清理。不声称未读取的 remote CI green。
+- 完整fresh gates、移动/复制E2E、真实Claude acceptance、临时文件清理与Git-local post-push inspection全部通过后，路线才能标记completed。
+- 不声称未读取的remote CI green，不用cross-compile代替非Windows runtime E2E。
 
 ## 风险与注意事项
 
-- Batch 833 已解锁为唯一下一批；不得把其设计蓝图或partial code写成完成事实。
+- Batch 833代码闭环已完成，但整条路线尚在验证与清理；不得把两种状态混为一谈。
 - 不全局替换兼容 `rekit` identity，不新增PowerShell runtime logic，不引入installer或PATH fallback。
 - authority/confirmed、heavy action、sync/promote和schema migration继续遵守exact review/gate边界。

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/hostcmd"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -31,6 +32,13 @@ func run(args []string) int {
 		return 1
 	}
 	switch mode {
+	case "adapter":
+		handled, code := adapterhost.RunEmbeddedPrivate(modeArgs, os.Stdout, os.Stderr)
+		if !handled {
+			fmt.Fprintln(os.Stderr, "private STeamAI adapter mode was not recognized")
+			return 2
+		}
+		return code
 	case "host":
 		if process.recoveryOnly {
 			return hostcmd.RunProjectLocalRecovery(
@@ -158,6 +166,8 @@ func invocationProjectLocalTarget(mode string, args []string) (string, error) {
 			return "", nil
 		}
 		return hostInvocationTarget(args)
+	case "adapter":
+		return hostInvocationTarget(args)
 	default:
 		return "", fmt.Errorf("unsupported STeamAI invocation mode: %s", mode)
 	}
@@ -235,6 +245,9 @@ func hostInvocationTarget(args []string) (string, error) {
 func invocationMode(args []string) (string, []string, error) {
 	if hostcmd.IsInternalInvocation(args) {
 		return "host", args, nil
+	}
+	if adapterhost.IsEmbeddedPrivateInvocation(args) {
+		return "adapter", args, nil
 	}
 	if len(args) == 0 || strings.HasPrefix(strings.TrimSpace(args[0]), "-") {
 		return "runtime", args, nil

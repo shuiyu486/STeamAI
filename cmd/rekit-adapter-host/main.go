@@ -15,6 +15,18 @@ func main() {
 }
 
 func run(args []string) int {
+	if adapterhost.IsEmbeddedPrivateInvocation(args) {
+		for _, arg := range args {
+			name, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(arg)), "=")
+			if name == "-prepare-vmp-ida-index-request" {
+				fmt.Fprintln(os.Stderr, "request prepare, authorized parent run, and private child modes are mutually exclusive")
+				return 2
+			}
+		}
+		if handled, code := adapterhost.RunEmbeddedPrivate(args, os.Stdout, os.Stderr); handled {
+			return code
+		}
+	}
 	flags := flag.NewFlagSet("rekit-adapter-host", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	flags.Usage = func() {
