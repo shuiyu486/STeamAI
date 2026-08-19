@@ -119,7 +119,7 @@ func TestRunDailyFreshGoalCommitsAndStartsBeforeClaudeUnavailable(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
 		t.Fatalf("RunDaily result=%+v err=%v", result, err)
 	}
-	if !result.OnboardingApplied || result.Pack != defaults.DefaultPack || result.Lane != "feature-mission" || result.SessionLaunches != 0 {
+	if !result.OnboardingApplied || result.Pack != defaults.DefaultPack || result.Lane != "binary-analysis-mission" || result.SessionLaunches != 0 {
 		t.Fatalf("fresh daily result = %+v", result)
 	}
 	if result.Failure == nil || result.Failure.Code != "claude-executable-unavailable" || result.Failure.Stage != "executable-resolution" || !result.Failure.Recoverable || !result.Failure.MutationApplied || result.Failure.MutationBoundary != "durable-runtime-step-may-have-committed" {
@@ -198,7 +198,7 @@ func TestRunDailyMultipleLanesRequiresChoiceWithoutLaunchOrWrite(t *testing.T) {
 		seen[choice.ID] = true
 		ids = append(ids, choice.ID)
 	}
-	if !slices.Contains(ids, "feature-login") {
+	if !slices.Contains(ids, "binary-analysis-login") {
 		t.Fatalf("multi-lane choices lost started lane: %+v", result.Action.Choices)
 	}
 	if memberRunCalled || result.SessionLaunches != 0 || len(result.HostRuns) != 0 {
@@ -242,7 +242,7 @@ func TestRunDailyCorrectionMultipleLanesRequiresChoiceWithoutWrite(t *testing.T)
 	for _, choice := range result.Action.Choices {
 		ids = append(ids, choice.ID)
 	}
-	if !slices.Contains(ids, "feature-login") || result.SessionLaunches != 0 || len(result.HostRuns) != 0 || len(result.DriverSteps) != 0 {
+	if !slices.Contains(ids, "binary-analysis-login") || result.SessionLaunches != 0 || len(result.HostRuns) != 0 || len(result.DriverSteps) != 0 {
 		t.Fatalf("multi-lane correction crossed the zero-write/launch boundary: choices=%+v result=%+v", result.Action.Choices, result)
 	}
 	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
@@ -870,7 +870,7 @@ func TestRunDailyCommittedTerminalCorrectionDoesNotClaimDifferentExplicitLane(t 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	closed := []string{bootstrap.Lane, "feature-login"}
+	closed := []string{bootstrap.Lane, "binary-analysis-login"}
 	for _, lane := range closed {
 		evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", lane, "workspace", "completion-evidence.md")
 		evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
@@ -899,11 +899,11 @@ func TestRunDailyCommittedTerminalCorrectionDoesNotClaimDifferentExplicitLane(t 
 		t.Fatalf("first explicit terminal correction crossed its boundary: %+v", first)
 	}
 
-	second, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: "feature-login", Actor: actor})
+	second, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: "binary-analysis-login", Actor: actor})
 	if err != nil {
 		t.Fatalf("second terminal correction: result=%+v err=%v", second, err)
 	}
-	if second.Lane != "feature-login" || second.FinalState != "terminal-correction-reopened" || second.ReopenOperationID == "" || second.ReopenOperationID == first.ReopenOperationID || second.Replay || second.SessionLaunches != 0 || len(second.HostRuns) != 0 {
+	if second.Lane != "binary-analysis-login" || second.FinalState != "terminal-correction-reopened" || second.ReopenOperationID == "" || second.ReopenOperationID == first.ReopenOperationID || second.Replay || second.SessionLaunches != 0 || len(second.HostRuns) != 0 {
 		t.Fatalf("different explicit lane did not create its own terminal correction: first=%+v second=%+v", first, second)
 	}
 	operations, err := lanecompletion.InspectOperations(caseRoot)
@@ -912,11 +912,11 @@ func TestRunDailyCommittedTerminalCorrectionDoesNotClaimDifferentExplicitLane(t 
 	}
 
 	beforeReplay := snapshotDailyCaseFiles(t, caseRoot)
-	replayed, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: "feature-login", Actor: actor})
+	replayed, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: "binary-analysis-login", Actor: actor})
 	if err != nil {
 		t.Fatalf("same explicit lane replay: result=%+v err=%v", replayed, err)
 	}
-	if !replayed.Replay || replayed.Lane != "feature-login" || replayed.ReopenOperationID != second.ReopenOperationID || replayed.SessionLaunches != 0 || len(replayed.HostRuns) != 0 {
+	if !replayed.Replay || replayed.Lane != "binary-analysis-login" || replayed.ReopenOperationID != second.ReopenOperationID || replayed.SessionLaunches != 0 || len(replayed.HostRuns) != 0 {
 		t.Fatalf("same explicit lane did not replay its exact committed operation: %+v", replayed)
 	}
 	assertDailyCaseFilesEqual(t, beforeReplay, snapshotDailyCaseFiles(t, caseRoot))
@@ -949,7 +949,7 @@ func TestRunDailyTerminalCorrectionMultipleClosedLanesRequiresChoiceWithoutWrite
 	}); err != nil {
 		t.Fatal(err)
 	}
-	closed := []string{bootstrap.Lane, "feature-login"}
+	closed := []string{bootstrap.Lane, "binary-analysis-login"}
 	for _, lane := range closed {
 		evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", lane, "workspace", "completion-evidence.md")
 		evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))

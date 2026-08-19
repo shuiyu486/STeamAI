@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -204,9 +205,42 @@ func runCurrentStep(opt Options, extra []string, apply bool) (currentStepPlan, e
 }
 
 func runCurrentStepWithReviewerSnapshot(opt Options, extra []string, apply bool, snapshot *subagents.ReviewerResultInputSnapshot) (currentStepPlan, error) {
+	return runCurrentStepWithReviewerPublication(opt, extra, apply, snapshot, nil)
+}
+
+func runCurrentStepWithReviewerPublication(
+	opt Options,
+	extra []string,
+	apply bool,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	publication *executioncontrol.ResultPublicationOptions,
+) (currentStepPlan, error) {
 	if opt.reviewerBinding != nil {
-		return runBoundReviewerStep(opt, extra, apply, snapshot)
+		return runBoundReviewerStepWithPublication(opt, extra, apply, snapshot, publication)
 	}
+	return runCurrentStepWithPrivatePublication(opt, extra, apply, snapshot, publication, nil)
+}
+
+func runCurrentStepWithReplacementPublication(
+	opt Options,
+	extra []string,
+	apply bool,
+	publication *executioncontrol.ResultPublicationOptions,
+) (currentStepPlan, error) {
+	if opt.reviewerBinding != nil {
+		return currentStepPlan{}, fmt.Errorf("bound Reviewer route does not support external attempt replacement")
+	}
+	return runCurrentStepWithPrivatePublication(opt, extra, apply, nil, nil, publication)
+}
+
+func runCurrentStepWithPrivatePublication(
+	opt Options,
+	extra []string,
+	apply bool,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	reviewerPublication,
+	replacementPublication *executioncontrol.ResultPublicationOptions,
+) (currentStepPlan, error) {
 	args := []string{"-Command", "run-current-step", "-Target", opt.Target}
 	if strings.TrimSpace(opt.Pack) != "" {
 		args = append(args, "-Pack", opt.Pack)
@@ -220,7 +254,16 @@ func runCurrentStepWithReviewerSnapshot(opt Options, extra []string, apply bool,
 	}
 	args = append(args, "-Format", "json")
 	var out bytes.Buffer
-	if err := cli.RunWithReviewerResultSnapshot(args, &out, snapshot); err != nil {
+	var err error
+	if replacementPublication != nil {
+		if snapshot != nil || reviewerPublication != nil {
+			return currentStepPlan{}, fmt.Errorf("replacement and Reviewer result publication provenance cannot be combined")
+		}
+		err = cli.RunWithReplacementResultPublication(args, &out, replacementPublication)
+	} else {
+		err = cli.RunWithReviewerResultPublication(args, &out, snapshot, reviewerPublication)
+	}
+	if err != nil {
 		return currentStepPlan{}, err
 	}
 	var plan currentStepPlan
@@ -236,6 +279,16 @@ func runCurrentStepWithReviewerSnapshot(opt Options, extra []string, apply bool,
 }
 
 func runBoundReviewerStep(opt Options, extra []string, apply bool, snapshot *subagents.ReviewerResultInputSnapshot) (currentStepPlan, error) {
+	return runBoundReviewerStepWithPublication(opt, extra, apply, snapshot, nil)
+}
+
+func runBoundReviewerStepWithPublication(
+	opt Options,
+	extra []string,
+	apply bool,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	publication *executioncontrol.ResultPublicationOptions,
+) (currentStepPlan, error) {
 	if err := validateReviewerBinding(opt); err != nil {
 		return currentStepPlan{}, err
 	}
@@ -252,7 +305,7 @@ func runBoundReviewerStep(opt Options, extra []string, apply bool, snapshot *sub
 	}
 	args = append(args, "-Format", "json")
 	var out bytes.Buffer
-	if err := cli.RunWithReviewerResultSnapshot(args, &out, snapshot); err != nil {
+	if err := cli.RunWithReviewerResultPublication(args, &out, snapshot, publication); err != nil {
 		return currentStepPlan{}, err
 	}
 	var plan boundReviewerStepPlan
@@ -426,6 +479,16 @@ func applyCurrentStep(opt Options, plan currentStepPlan, transitionArgs []string
 }
 
 func applyCurrentStepWithReviewerSnapshot(opt Options, plan currentStepPlan, transitionArgs []string, snapshot *subagents.ReviewerResultInputSnapshot) error {
+	return applyCurrentStepWithReviewerPublication(opt, plan, transitionArgs, snapshot, nil)
+}
+
+func applyCurrentStepWithReviewerPublication(
+	opt Options,
+	plan currentStepPlan,
+	transitionArgs []string,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	publication *executioncontrol.ResultPublicationOptions,
+) error {
 	if strings.TrimSpace(plan.ExpectedCurrentStepPlanSHA256) == "" {
 		return fmt.Errorf("current external session step has no deterministic apply hash")
 	}
@@ -435,11 +498,16 @@ func applyCurrentStepWithReviewerSnapshot(opt Options, plan currentStepPlan, tra
 		expectedFlag = "-ExpectedReviewerStepPlanSha256"
 	}
 	args = append(args, expectedFlag, plan.ExpectedCurrentStepPlanSHA256)
-	_, err := runCurrentStepWithReviewerSnapshot(opt, args, true, snapshot)
+	_, err := runCurrentStepWithReviewerPublication(opt, args, true, snapshot, publication)
 	return err
 }
 
-func applyReplacementAttempt(opt Options, running currentStepPlan, actor string) (string, error) {
+func applyReplacementAttempt(
+	opt Options,
+	running currentStepPlan,
+	actor string,
+	publication executioncontrol.ResultPublicationOptions,
+) (string, error) {
 	step := running.ExternalSessionStep
 	if step == nil || step.Mode != "running-handoff" || step.HarnessPackage == nil || step.HarnessPackage.Launch == nil {
 		return "", fmt.Errorf("replacement requires the current accepted running handoff")
@@ -453,14 +521,15 @@ func applyReplacementAttempt(opt Options, running currentStepPlan, actor string)
 		return "", err
 	}
 	args := attemptArgs(actor, session, currentAttemptSHA)
-	plan, err := runCurrentStep(opt, args, false)
+	plan, err := runCurrentStepWithReplacementPublication(opt, args, false, &publication)
 	if err != nil {
 		return "", err
 	}
 	if plan.ExternalSessionStep == nil || plan.ExternalSessionStep.Mode != "replacement-attempt" || plan.ExternalSessionStep.Attempt == nil {
 		return "", fmt.Errorf("replacement preview omitted the exact next attempt")
 	}
-	if err := applyCurrentStep(opt, plan, args); err != nil {
+	args = append(args, "-ExpectedCurrentStepPlanSha256", plan.ExpectedCurrentStepPlanSHA256)
+	if _, err := runCurrentStepWithReplacementPublication(opt, args, true, &publication); err != nil {
 		return "", err
 	}
 	return session, nil
@@ -506,11 +575,12 @@ func claudeLaunchLimitReached(attemptGeneration, launchOrdinal, attemptsLimit in
 	return attemptsLimit > 0 && (attemptGeneration > attemptsLimit || launchOrdinal >= attemptsLimit)
 }
 
-func claudeRunForSupervisionFence(err *supervisionFencedError, recovered bool) claudeRun {
+func claudeRunForSupervisionFence(err *supervisionFencedError, binding *claudeLaunchControlBinding, recovered bool) claudeRun {
 	return claudeRun{
-		failureCode: "claude-supervision-fenced",
-		waitErr:     err,
-		recovered:   recovered,
+		launchControlBinding: cloneClaudeLaunchControlBinding(binding),
+		failureCode:          "claude-supervision-fenced",
+		waitErr:              err,
+		recovered:            recovered,
 	}
 }
 

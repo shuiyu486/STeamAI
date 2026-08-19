@@ -12,6 +12,7 @@ const (
 	Bootstrap       = "bootstrap"
 	Complete        = "complete"
 	Continue        = "continue"
+	Control         = "control"
 	Doctor          = "doctor"
 	Gate            = "gate"
 	Handoff         = "handoff"
@@ -122,6 +123,7 @@ var publicCommands = []string{
 	Bootstrap,
 	Complete,
 	Continue,
+	Control,
 	Doctor,
 	Gate,
 	Handoff,
@@ -156,6 +158,7 @@ var publicProfiles = []PublicProfile{
 	{Command: Bootstrap, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Complete, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Continue, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Control, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Doctor, MutationBoundary: BoundaryReadOnly},
 	{Command: Gate, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Handoff, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
@@ -205,6 +208,7 @@ func SymbolValues() map[string]string {
 		"Bootstrap":       Bootstrap,
 		"Complete":        Complete,
 		"Continue":        Continue,
+		"Control":         Control,
 		"Doctor":          Doctor,
 		"Gate":            Gate,
 		"Handoff":         Handoff,

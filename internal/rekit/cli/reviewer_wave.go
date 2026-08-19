@@ -327,10 +327,21 @@ func pauseReviewerOperatorItem(item *workstream.ReviewerDispatchOperatorPackageI
 	item.NextAction = ""
 }
 
-func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, whatIf bool, execute func() (T, error)) (result T, err error) {
+func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, whatIf bool, execute func() (T, error)) (T, error) {
+	return executeReviewerMutationWithInterventionLease(caseRoot, lane, whatIf, func(_ *lanemutation.Lease) (T, error) {
+		return execute()
+	})
+}
+
+func executeReviewerMutationWithInterventionLease[T any](
+	caseRoot,
+	lane string,
+	whatIf bool,
+	execute func(*lanemutation.Lease) (T, error),
+) (result T, err error) {
 	lane = strings.TrimSpace(lane)
 	if lane == "" {
-		return execute()
+		return execute(nil)
 	}
 	if whatIf {
 		if err := lanemutation.AssertLaneOpen(caseRoot, lane, "reviewer mutation"); err != nil {
@@ -339,7 +350,7 @@ func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, 
 		if err := ensureReviewerWaveLaneNotIntervened(caseRoot, lane); err != nil {
 			return result, err
 		}
-		return execute()
+		return execute(nil)
 	}
 	lease, err := lanemutation.AcquireOpenLane(caseRoot, lane, "reviewer mutation")
 	if err != nil {
@@ -356,7 +367,7 @@ func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, 
 	if err := ensureReviewerWaveLaneNotIntervened(caseRoot, lane); err != nil {
 		return result, currentStepZeroProgressError{cause: err}
 	}
-	return execute()
+	return execute(lease)
 }
 
 func readReviewerWaveObservations(caseRoot, requested string) (string, []byte, reviewerWaveObservationFile, error) {

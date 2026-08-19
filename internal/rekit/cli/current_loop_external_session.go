@@ -11,8 +11,10 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -202,6 +204,7 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 			Actor: attempt.Current.Actor, StartedAt: attempt.Current.StartedAt, SupersedesSHA256: attempt.Current.SupersedesSHA256,
 			Path: attempt.Path, SubmissionPath: attempt.Current.SubmissionPath,
 			SubmissionOutputs: attempt.Current.SubmissionOutputs, SubmissionResult: attempt.Current.SubmissionResult,
+			LaunchControl: executioncontrol.CloneBinding(attempt.Current.LaunchControl),
 		}
 		typed.SubmissionPath = attempt.Current.SubmissionPath
 		typed.SubmissionOutputs = attempt.Current.SubmissionOutputs
@@ -339,12 +342,18 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 		receipt.ReviewerHarness != attempt.Receipt.Harness || receipt.ReviewerSession != attempt.Receipt.Session {
 		return externalsession.Job{}, fmt.Errorf("external session reviewer job does not match exact durable dispatch receipt")
 	}
+	effectiveOwner := laneowner.Snapshot{
+		Lane:               receipt.TargetLane,
+		CurrentExecutor:    receipt.EffectiveOwner.CurrentExecutor,
+		ExecutorGeneration: receipt.EffectiveOwner.ExecutorGeneration,
+	}
 	reviewer := externalsession.ReviewerIdentity{
 		AttemptSHA256: attempt.AttemptSnapshotSHA256,
 		PacketID:      receipt.PacketID, RouteID: receipt.RouteID, ShardID: receipt.ShardID,
 		Items: append([]string{}, receipt.Items...), OutputFields: fields,
 		DispatchPath: attempt.Receipt.DispatchPath, DispatchSHA256: attempt.Receipt.DispatchSHA256,
 		DispatchID: receipt.DispatchID, Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession,
+		TargetLane: receipt.TargetLane, EffectiveOwner: &effectiveOwner,
 	}
 	job, err := externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
 	if err != nil {
@@ -617,7 +626,8 @@ func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, a
 	value := externalsession.Submission{
 		SchemaVersion: externalsession.SchemaVersion, Kind: externalsession.KindSubmission, JobID: job.JobID, JobSHA256: jobSHA,
 		Outcome: outcome, Actor: "<actor>", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
-		Harness: attempt.Current.Harness, Session: attempt.Current.Session, NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+		LaunchControl: executioncontrol.CloneBinding(attempt.Current.LaunchControl),
+		Harness:       attempt.Current.Harness, Session: attempt.Current.Session, NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	}
 	replacements := []string{"<actor>"}
 	if dispatcher != nil && dispatcher.Ticket != nil {
@@ -637,9 +647,11 @@ func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, a
 			)
 		}
 	}
-	if job.SessionKind == "member" {
+	if job.SessionKind == "member" || value.LaunchControl != nil {
 		value.ObservedAt = "<rfc3339nano>"
 		replacements = append(replacements, "<rfc3339nano>")
+	}
+	if job.SessionKind == "member" {
 		switch outcome {
 		case "returned":
 			value.Summary = "<summary>"

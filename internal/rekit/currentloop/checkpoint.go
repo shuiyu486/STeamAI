@@ -209,7 +209,15 @@ func Write(repoRoot, caseRoot, pack string, payload Payload) (Inspection, error)
 	return WriteValidated(repoRoot, caseRoot, pack, payload, nil)
 }
 
-func WriteValidated(repoRoot, caseRoot, pack string, payload Payload, validate func() error) (inspection Inspection, resultErr error) {
+func WriteValidated(repoRoot, caseRoot, pack string, payload Payload, validate func() error) (Inspection, error) {
+	var validateWithLease func(*lanemutation.Lease) error
+	if validate != nil {
+		validateWithLease = func(*lanemutation.Lease) error { return validate() }
+	}
+	return WriteValidatedWithProjectLease(repoRoot, caseRoot, pack, payload, validateWithLease)
+}
+
+func WriteValidatedWithProjectLease(repoRoot, caseRoot, pack string, payload Payload, validate func(*lanemutation.Lease) error) (inspection Inspection, resultErr error) {
 	lease, err := acquireProject(caseRoot)
 	if err != nil {
 		return Inspection{}, fmt.Errorf("acquire current-loop checkpoint publication lease: %w", err)
@@ -220,7 +228,7 @@ func WriteValidated(repoRoot, caseRoot, pack string, payload Payload, validate f
 		}
 	}()
 	if validate != nil {
-		if err := validate(); err != nil {
+		if err := validate(lease); err != nil {
 			return Inspection{}, fmt.Errorf("validate current-loop checkpoint publication currentness: %w", err)
 		}
 	}
@@ -356,7 +364,15 @@ func ClaimResume(repoRoot, caseRoot, pack string, claim Claim) error {
 	return ClaimResumeValidated(repoRoot, caseRoot, pack, claim, nil)
 }
 
-func ClaimResumeValidated(repoRoot, caseRoot, pack string, claim Claim, validate func() error) (resultErr error) {
+func ClaimResumeValidated(repoRoot, caseRoot, pack string, claim Claim, validate func() error) error {
+	var validateWithLease func(*lanemutation.Lease) error
+	if validate != nil {
+		validateWithLease = func(*lanemutation.Lease) error { return validate() }
+	}
+	return ClaimResumeValidatedWithProjectLease(repoRoot, caseRoot, pack, claim, validateWithLease)
+}
+
+func ClaimResumeValidatedWithProjectLease(repoRoot, caseRoot, pack string, claim Claim, validate func(*lanemutation.Lease) error) (resultErr error) {
 	if !isSHA256(claim.SourceArtifactSHA256) || !isSHA256(claim.ExpectedCurrentLoopPlanSHA256) || !isSHA256(claim.CurrentDriverRequestSHA256) {
 		return fmt.Errorf("current-loop resume claim hashes are invalid")
 	}
@@ -374,7 +390,7 @@ func ClaimResumeValidated(repoRoot, caseRoot, pack string, claim Claim, validate
 		}
 	}()
 	if validate != nil {
-		if err := validate(); err != nil {
+		if err := validate(lease); err != nil {
 			return fmt.Errorf("validate current-loop resume claim currentness: %w", err)
 		}
 	}

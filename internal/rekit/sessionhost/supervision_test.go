@@ -153,7 +153,7 @@ func TestSupervisionTerminalRoundTripsExactClaudeRun(t *testing.T) {
 		DurationNanos:          int64(time.Second),
 		ObservedAt:             "2026-08-07T00:00:00Z",
 	}
-	run := claudeRunFromTerminal(receipt, true)
+	run := claudeRunFromTerminal(receipt, nil, true)
 	if !run.success() || !run.recovered || run.sessionID != receipt.SessionID || run.duration != time.Second || run.observedAt != receipt.ObservedAt || !bytes.Equal(run.structuredOutput, output) {
 		t.Fatalf("terminal reconstruction drifted: %+v", run)
 	}

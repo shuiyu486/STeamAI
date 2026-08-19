@@ -771,7 +771,16 @@ func Apply(plan Plan, expected string) (Result, error) {
 	return ApplyCurrent(plan, expected, nil)
 }
 
-func ApplyCurrent(plan Plan, expected string, validateCurrent func() error) (_ Result, retErr error) {
+func ApplyCurrent(plan Plan, expected string, validateCurrent func() error) (Result, error) {
+	if validateCurrent == nil {
+		return ApplyCurrentWithLease(plan, expected, nil)
+	}
+	return ApplyCurrentWithLease(plan, expected, func(_ *lanemutation.Lease) error {
+		return validateCurrent()
+	})
+}
+
+func ApplyCurrentWithLease(plan Plan, expected string, validateCurrent func(*lanemutation.Lease) error) (_ Result, retErr error) {
 	if !validSHA(expected) || !strings.EqualFold(expected, plan.ExpectedPlanSHA256) {
 		return Result{}, fmt.Errorf("member execution expected plan sha256 mismatch")
 	}
@@ -786,7 +795,7 @@ func ApplyCurrent(plan Plan, expected string, validateCurrent func() error) (_ R
 		}
 	}
 	if validateCurrent != nil {
-		if err := validateCurrent(); err != nil {
+		if err := validateCurrent(lease); err != nil {
 			return Result{}, err
 		}
 	}

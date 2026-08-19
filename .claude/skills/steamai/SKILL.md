@@ -1,7 +1,7 @@
 ---
 name: steamai
-description: STeamAI 项目内 Mission Control 入口；用自然语言开始、继续、查看、纠偏、接手与有界授权。
-argument-hint: "[目标、继续请求、状态查询、纠偏或授权意图]"
+description: STeamAI 项目内 Mission Control 入口；用自然语言开始、继续、查看、纠偏、暂停、恢复、停止、接手与有界授权。
+argument-hint: "[目标、继续请求、状态查询、纠偏、暂停/恢复/停止、接手或授权意图]"
 ---
 
 # STeamAI
@@ -21,12 +21,17 @@ argument-hint: "[目标、继续请求、状态查询、纠偏或授权意图]"
 
 - “现在到哪了”“下一步是什么”：只调用项目内 runtime 的 compact status；零写入、零 Claude launch。
 - “开始/继续/纠偏”：只走 typed daily owner；多任务时先展示 typed choices。
+- “暂停、恢复或停止某条 lane”：从 fresh compact status 唯一解析 exact lane；多 lane 时先展示 typed choices，选择前零写入。
 - 默认只告诉用户：**现在**、**原因**、**下一步**；内部路径、SHA、lane/session ID 仅在维护诊断时展开。
 - 完整 status 只用于按需诊断，不作为默认模型上下文。
 
 ## 确定性边界
 
 - 查询不能顺便 Apply、启动 Claude 或执行 heavy action。
+- `control` 始终 review-first：先运行 exact lane/action/actor/reason 的 `-WhatIf`，向用户说明状态变化和影响；只有用户确认该 exact preview 后才原样消费 preview 返回的 publication stamp 与 plan SHA 执行 `-Apply`。不要让用户填写或记忆 hash。
+- `pause` 只提交 durable paused 状态，不做 OS suspend；`resume` 只允许新 control generation 下的未来结果继续，暂停期间已经返回的结果仍保留 held receipt，不自动释放进 live progression。
+- `stop` 先提交 durable stopped receipt，再由持有 exact local supervisor run containment handle 的 owner 尝试关闭该 containment；actuation 失败不回滚 stopped，process termination 也不是 durable stop 成功判据。不得按裸 PID 管理进程，不得用本路径管理 opaque Remote Control session。
+- control receipt、request SHA、transport 或 process observation 都不授予 authority/confirmed、gate 或 heavy action 权限；旧 control generation 的结果不得进入 live outputs、Reviewer writeback、completion 或 checkpoint progression。
 - `sync` 是项目包 → 当前项目，`promote` 是当前项目 → 可复用包；两者始终 review-first。
 - `continue -Apply` 不写 authority/confirmed，不执行 heavy tool。
 - heavy action 必须有 strict durable autonomy profile 与 fresh `authorized-gate`；全权档位也只是当前项目、当前 lane、显式 action/target/budget/output/expiry 内免逐次询问，每次仍机器校验并写证据。
@@ -43,6 +48,8 @@ argument-hint: "[目标、继续请求、状态查询、纠偏或授权意图]"
 - 新目标：`& "${CLAUDE_PROJECT_DIR}\.steamai\runtime\bin\steamai.exe" host -daily -target "${CLAUDE_PROJECT_DIR}" -goal "<GOAL>"`
 - 继续：`& "${CLAUDE_PROJECT_DIR}\.steamai\runtime\bin\steamai.exe" host -daily -target "${CLAUDE_PROJECT_DIR}" -lane "<TYPED_LANE>"`
 - 纠偏：`& "${CLAUDE_PROJECT_DIR}\.steamai\runtime\bin\steamai.exe" host -daily -target "${CLAUDE_PROJECT_DIR}" -lane "<TYPED_LANE>" -correction "<CORRECTION>"`
+- execution control preview：调用同一项目内 executable 的 `runtime -Command control -Target "${CLAUDE_PROJECT_DIR}" -Lane "<TYPED_LANE>" -Action "<pause|resume|stop>" -Actor "<ACTOR>" -Reason "<REASON>" -WhatIf -Format json`。
+- execution control Apply：仅在用户确认 preview 后，保持 preview 的 lane/action/actor/reason 不变，并原样追加 `-ControlPublicationStamp "<PREVIEW_STAMP>" -ExpectedControlPlanSha256 "<PREVIEW_SHA>" -Apply -Format json`；执行后重新读取 fresh compact status。
 - 有界自治 preview：调用同一项目内 executable 的 `runtime -Command gate -ProvisionProfile -ProfilePreset bounded-autonomous-v1 -ProfileExplicitOptIn`，并传入 fresh typed `-Lane`、逗号分隔 exact `-Action` / `-TargetRef`、`-RuntimeSeconds` / `-DiskMB` / `-Requests`、完整 `-StopConditions`、case-relative `-OutputPaths`、`-ProfileGrantedBy` / `-ProfileGrantedAt` / `-ProfileExpiresAt`；network action 还必须传与 targets 完全相同的 `-ProfileExternalTargetScope`。默认 `-Format json`，不加 `-Apply`。
 - 有界自治 Apply：仅在用户确认 preview 后，原参数追加 `-Apply -ExpectedProfilePlanSha256 "<PREVIEW_SHA>"`。撤销则用 `runtime -Command gate -RevokeProfile -Lane "<TYPED_LANE>" -Format json` preview，再按相同规则 exact Apply。
 

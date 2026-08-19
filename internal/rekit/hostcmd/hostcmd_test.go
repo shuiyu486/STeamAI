@@ -2,12 +2,14 @@ package hostcmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 )
@@ -179,6 +181,130 @@ func TestRunProjectLocalRejectsOrdinaryDirectoryAdoptionControls(t *testing.T) {
 	}, &stdout, &stderr, projectRoot)
 	if code != 2 || !strings.Contains(stderr.String(), "cannot adopt an ordinary directory") || stdout.Len() != 0 {
 		t.Fatalf("project-local adoption controls exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunDailyControlFlagBridgePreviewApplyWithoutClaude(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "daily-control")
+	bootstrap, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              "provision host control bridge fixture",
+		Actor:                             "host-control-test",
+		ClaudePath:                        filepath.Join(caseRoot, "missing-claude.exe"),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: "Anthropic, PBC",
+	})
+	if err == nil || !bootstrap.OnboardingApplied || bootstrap.Lane == "" || bootstrap.SessionLaunches != 0 {
+		t.Fatalf("host control fixture result=%+v err=%v", bootstrap, err)
+	}
+
+	actor := "host-control-test"
+	invoke := func(action, reason string, preview *executioncontrol.Plan) sessionhost.DailyResult {
+		t.Helper()
+		args := []string{
+			"-target", caseRoot,
+			"-lane", bootstrap.Lane,
+			"-actor", actor,
+			"-control-action", action,
+			"-control-reason", reason,
+		}
+		if preview == nil {
+			args = append(args, "-control-what-if")
+		} else {
+			args = append(args,
+				"-control-apply",
+				"-control-publication-stamp", preview.PublicationStamp,
+				"-expected-control-plan-sha256", preview.ExpectedPlanSHA256,
+			)
+		}
+		var stdout, stderr bytes.Buffer
+		code := Run(args, &stdout, &stderr)
+		if code != 0 || stderr.Len() != 0 {
+			t.Fatalf("host control %s exit=%d stderr=%q", action, code, stderr.String())
+		}
+		var result sessionhost.DailyResult
+		if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+			t.Fatalf("host control %s JSON: %v\n%s", action, err, stdout.String())
+		}
+		if result.Mode != "control" || result.Lane != bootstrap.Lane || result.ExecutionControl == nil ||
+			result.ExecutionControl.Action != action || result.ExecutionControl.Actor != actor ||
+			result.SessionLaunches != 0 || result.SessionCompletions != 0 || result.Replacements != 0 ||
+			len(result.HostRuns) != 0 || len(result.DriverSteps) != 0 {
+			t.Fatalf("host control flags crossed the zero-Claude boundary: %+v", result)
+		}
+		return result
+	}
+
+	for generation, fixture := range []struct {
+		action string
+		reason string
+		state  string
+	}{
+		{executioncontrol.ActionPause, "reviewed pause from host flags", executioncontrol.StatePaused},
+		{executioncontrol.ActionResume, "reviewed resume from host flags", executioncontrol.StateRunning},
+		{executioncontrol.ActionStop, "reviewed stop from host flags", executioncontrol.StateStopped},
+	} {
+		before, err := executioncontrol.Inspect(caseRoot, bootstrap.Lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		previewResult := invoke(fixture.action, fixture.reason, nil)
+		preview := previewResult.ExecutionControl
+		if preview.Applied || !preview.RequiresConfirmation || len(preview.ExpectedPlanSHA256) != 64 || preview.PublicationStamp == "" {
+			t.Fatalf("host control preview = %+v", preview)
+		}
+		afterPreview, err := executioncontrol.Inspect(caseRoot, bootstrap.Lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if afterPreview.Pending || afterPreview.State != before.State || afterPreview.CurrentGeneration != before.CurrentGeneration || afterPreview.CurrentReceiptSHA256 != before.CurrentReceiptSHA256 {
+			t.Fatalf("host control preview wrote durable state: before=%+v after=%+v", before, afterPreview)
+		}
+		applied := invoke(fixture.action, fixture.reason, preview).ExecutionControl
+		if !applied.Applied || applied.State != fixture.state || applied.ControlGeneration != generation+1 {
+			t.Fatalf("host control Apply = %+v", applied)
+		}
+	}
+}
+
+func TestRunDailyControlFlagConflictsFailBeforeMutation(t *testing.T) {
+	for _, fixture := range []struct {
+		name string
+		args []string
+		want string
+		code int
+	}{
+		{
+			name: "goal",
+			args: []string{"-goal", "must not combine", "-control-action", "pause", "-control-reason", "conflict", "-control-what-if"},
+			want: "cannot be combined with -goal or -correction",
+			code: 1,
+		},
+		{
+			name: "acceptance",
+			args: []string{"-live-acceptance", "-adapter", "unused-adapter", "-control-action", "pause", "-control-reason", "conflict", "-control-what-if"},
+			want: "supported only by the external daily front door",
+			code: 2,
+		},
+		{
+			name: "directory adoption",
+			args: []string{"-directory-adoption-action", "initialize-in-place", "-control-action", "pause", "-control-reason", "conflict", "-control-what-if"},
+			want: "mutually exclusive",
+			code: 2,
+		},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := filepath.Join(t.TempDir(), "must-not-exist")
+			args := append([]string{"-target", caseRoot}, fixture.args...)
+			var stdout, stderr bytes.Buffer
+			code := Run(args, &stdout, &stderr)
+			if code != fixture.code || !strings.Contains(stderr.String(), fixture.want) {
+				t.Fatalf("control conflict exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
+				t.Fatalf("control conflict created target: %v", err)
+			}
+		})
 	}
 }
 

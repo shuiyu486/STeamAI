@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -52,11 +53,98 @@ func TestClaudeRecoveryRoundTripsExactAttemptSessionExecutableAndBytes(t *testin
 	if err := persistClaudeRecovery(caseRecoveryRoot, opt, pkg, run); err != nil {
 		t.Fatal(err)
 	}
-	if err := removeClaudeRecoveryForCase(caseRoot, opt, pkg); err != nil {
+	if err := removeClaudeRecoveryForCase(caseRoot, opt, pkg, run); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(caseRecoveryRoot, claudeRecoveryPath(pkg))); !os.IsNotExist(err) {
 		t.Fatalf("consumed recovery remains: %v", err)
+	}
+}
+
+func TestClaudeRecoveryBindsCurrentProjectControlHead(t *testing.T) {
+	caseRoot, opt, pkg, _, _ := projectExecutionLaunchFixture(t)
+	opt.ExpectedClaudeExecutableSHA256 = strings.Repeat("a", 64)
+	opt.ExpectedClaudeExecutablePublisher = liveAcceptanceClaudePublisher
+	bound, err := ensureClaudeLaunchControlBinding(opt, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := json.RawMessage(`{"opaque":"control-bound-result"}`)
+	run := claudeRun{
+		launchControlBinding: cloneClaudeLaunchControlBinding(bound.launchControlBinding),
+		envelope:             claudeEnvelope{Type: "result", Subtype: "success", SessionID: pkg.Launch.Attempt.Session},
+		sessionID:            pkg.Launch.Attempt.Session,
+		structuredOutput:     output,
+		started:              true,
+		exitCode:             0,
+		observedAt:           "2026-08-18T13:59:00Z",
+	}
+	if err := persistClaudeRecoveryForCase(caseRoot, bound, pkg, run); err != nil {
+		t.Fatal(err)
+	}
+	root, err := claudeRecoveryRoot(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+	recovered, ok, err := recoverClaudeRunForCase(caseRoot, opt, pkg)
+	if err != nil || !ok || !sameClaudeLaunchControlBinding(recovered.launchControlBinding, run.launchControlBinding) || !bytes.Equal(recovered.structuredOutput, output) {
+		t.Fatalf("control-bound recovery ok=%t err=%v run=%+v", ok, err, recovered)
+	}
+	if recovered.observedAt != run.observedAt || recovered.rawResultRef == "" || recovered.rawResultSHA256 == "" || recovered.rawResultBytes < 1 {
+		t.Fatalf("control-bound recovery lost observation or raw artifact identity: %+v", recovered)
+	}
+	if err := validateClaudeRawResultArtifact(caseRoot, recovered); err != nil {
+		t.Fatalf("validate recovered raw artifact: %v", err)
+	}
+}
+
+func TestClaudeRecoveryDiscoversResultFromPriorControlHeadForHeldClassification(t *testing.T) {
+	caseRoot, opt, pkg, _, _ := projectExecutionLaunchFixture(t)
+	opt.ExpectedClaudeExecutableSHA256 = strings.Repeat("a", 64)
+	opt.ExpectedClaudeExecutablePublisher = liveAcceptanceClaudePublisher
+	bound, err := ensureClaudeLaunchControlBinding(opt, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := json.RawMessage(`{"opaque":"prior-control-head-result"}`)
+	run := claudeRun{
+		launchControlBinding: cloneClaudeLaunchControlBinding(bound.launchControlBinding),
+		envelope:             claudeEnvelope{Type: "result", Subtype: "success", SessionID: pkg.Launch.Attempt.Session},
+		sessionID:            pkg.Launch.Attempt.Session,
+		structuredOutput:     output,
+		started:              true,
+		exitCode:             0,
+	}
+	if err := persistClaudeRecoveryForCase(caseRoot, bound, pkg, run); err != nil {
+		t.Fatal(err)
+	}
+	root, err := claudeRecoveryRoot(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	lane := bound.launchControlBinding.Lane
+	applyClaudeLaunchControlForTest(t, caseRoot, lane, executioncontrol.ActionPause, "2026-08-18T14:00:00Z")
+	applyClaudeLaunchControlForTest(t, caseRoot, lane, executioncontrol.ActionResume, "2026-08-18T14:01:00Z")
+
+	stale, ok, err := recoverClaudeRunForCase(caseRoot, opt, pkg)
+	if err != nil || !ok || !sameClaudeLaunchControlBinding(stale.launchControlBinding, bound.launchControlBinding) {
+		t.Fatalf("discovered prior-head recovery ok=%t err=%v run=%+v", ok, err, stale)
+	}
+	opt.Actor = defaultActor
+	publicationOpt, err := claudeResultPublicationOptions(opt, pkg, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := executioncontrol.PrepareResult(caseRoot, publicationOpt)
+	if err != nil || !prepared.Held || prepared.Disposition != executioncontrol.ResultDispositionStaleControl {
+		t.Fatalf("prior-head publication=%+v err=%v", prepared, err)
+	}
+	exact, ok, err := recoverClaudeRunForCase(caseRoot, bound, pkg)
+	if err != nil || !ok || !sameClaudeLaunchControlBinding(exact.launchControlBinding, bound.launchControlBinding) {
+		t.Fatalf("exact prior-head recovery ok=%t err=%v run=%+v", ok, err, exact)
 	}
 }
 
@@ -133,9 +221,10 @@ func TestClaudeReviewerRecoveryUsesDispatchAndSessionBinding(t *testing.T) {
 func TestClaudeRecoveryIgnoresCaseLocalForgery(t *testing.T) {
 	caseRoot := t.TempDir()
 	pkg := recoveryPackageForTest()
+	pkg.CaseRoot = caseRoot
 	opt := recoveryOptionsForTest()
 	output := json.RawMessage(`{"opaque":"case-local-forgery"}`)
-	recovery, _, err := claudeRecoveryFor(opt, pkg, pkg.Launch.Attempt.Session, output)
+	recovery, _, err := claudeRecoveryFor(opt, pkg, pkg.Launch.Attempt.Session, output, "")
 	if err != nil {
 		t.Fatal(err)
 	}

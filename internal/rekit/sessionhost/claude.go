@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -34,22 +35,27 @@ const (
 )
 
 type claudeRun struct {
-	envelope         claudeEnvelope
-	sessionID        string
-	structuredOutput json.RawMessage
-	failureCode      string
-	failureDetail    string
-	spawnErr         error
-	waitErr          error
-	startCallbackErr error
-	started          bool
-	recovered        bool
-	exitCode         int
-	timedOut         bool
-	duration         time.Duration
-	observedAt       string
-	stdoutTail       string
-	stderrTail       string
+	launchControlBinding *claudeLaunchControlBinding
+	rawResultRef         string
+	rawResultSHA256      string
+	rawResultBytes       int64
+	envelope             claudeEnvelope
+	sessionID            string
+	structuredOutput     json.RawMessage
+	failureCode          string
+	failureDetail        string
+	spawnErr             error
+	waitErr              error
+	startCallbackErr     error
+	started              bool
+	recovered            bool
+	exitCode             int
+	timedOut             bool
+	duration             time.Duration
+	observedAt           string
+	stdoutTail           string
+	stderrTail           string
+	stopActuation        supervisionStopActuationResult
 }
 
 type claudeEnvelope struct {
@@ -91,8 +97,16 @@ type evidenceReviewResponse struct {
 	ReceiptSHA256       string   `json:"receiptSha256"`
 }
 
-func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string, started func() error) claudeRun {
+func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string, started func() error) (result claudeRun) {
 	begin := time.Now()
+	boundOpt, bindErr := ensureClaudeLaunchControlBinding(opt, pkg)
+	if bindErr != nil {
+		return claudeRun{spawnErr: bindErr, duration: time.Since(begin)}
+	}
+	opt = boundOpt
+	defer func() {
+		result.launchControlBinding = cloneClaudeLaunchControlBinding(opt.launchControlBinding)
+	}()
 	ctx, cancel := context.WithTimeout(parent, opt.Timeout)
 	defer cancel()
 
@@ -156,32 +170,42 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	var containment *claudeProcessContainment
 	startProcess := func() error {
-		if executionLease != nil {
-			if err := executionLease.ValidateFor(opt.Target); err != nil {
-				return fmt.Errorf("revalidate project execution lease immediately before launch: %w", err)
+		startErr := withClaudeLaunchControl(opt.Target, opt.launchControlBinding, pkg, func() error {
+			if executionLease != nil {
+				if err := executionLease.ValidateFor(opt.Target); err != nil {
+					return fmt.Errorf("revalidate project execution lease immediately before launch: %w", err)
+				}
+				if recovery, err := inspectCurrentSyncRecoveryForHost(opt.Target); err != nil {
+					return fmt.Errorf("recheck current project update immediately before launch: %w", err)
+				} else if recovery.Pending {
+					return fmt.Errorf("%s; %s", recovery.Now, recovery.Next)
+				}
 			}
-			if recovery, err := inspectCurrentSyncRecoveryForHost(opt.Target); err != nil {
-				return fmt.Errorf("recheck current project update immediately before launch: %w", err)
-			} else if recovery.Pending {
-				return fmt.Errorf("%s; %s", recovery.Now, recovery.Next)
+			if launchBinding != nil {
+				if err := launchBinding.Validate(); err != nil {
+					return fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err)
+				}
 			}
-		}
-		if launchBinding != nil {
-			if err := launchBinding.Validate(); err != nil {
-				return fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err)
+			if err := cmd.Start(); err != nil {
+				return err
 			}
+			var err error
+			containment, err = validateContainAndResumeTrustedClaudeProcess(cmd.Process, launchBinding)
+			if err != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return err
+			}
+			return nil
+		})
+		if startErr != nil && cmd.Process != nil && cmd.ProcessState == nil {
+			startErr = errors.Join(startErr, cmd.Process.Kill(), cmd.Wait())
 		}
-		if err := cmd.Start(); err != nil {
-			return err
+		if startErr != nil && containment != nil {
+			startErr = errors.Join(startErr, containment.Close())
+			containment = nil
 		}
-		var err error
-		containment, err = validateContainAndResumeTrustedClaudeProcess(cmd.Process, launchBinding)
-		if err != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			return err
-		}
-		return nil
+		return startErr
 	}
 	if pkg.SessionKind == "member" {
 		inspection, err := validateClaudeMemberLaunchInput(opt.Target, *pkg.Launch)
@@ -199,21 +223,52 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	} else if err := startProcess(); err != nil {
 		return claudeRun{spawnErr: err, duration: time.Since(begin), stdoutTail: stdout.String(), stderrTail: stderr.String()}
 	}
-	if containment != nil {
-		defer containment.Close()
-	}
 	processStarted := true
 	if started != nil {
 		if err := started(); err != nil {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
+			if containment != nil {
+				_ = containment.Close()
+			}
 			return claudeRun{startCallbackErr: err, started: processStarted, duration: time.Since(begin), stdoutTail: stdout.String(), stderrTail: stderr.String()}
 		}
 	}
+	stopActuationDone := make(chan supervisionStopActuationResult, 1)
+	stopActuationCancel := func() {}
+	containmentForActuation := containment
+	containment = nil
+	if opt.stopActuation != nil {
+		actuationCtx, cancel := context.WithCancel(context.Background())
+		stopActuationCancel = cancel
+		go func(owned *claudeProcessContainment) {
+			stopActuationDone <- watchSupervisionStopActuation(
+				actuationCtx,
+				*opt.stopActuation,
+				func() error {
+					if owned == nil {
+						return fmt.Errorf("exact Claude supervisor run has no live owned containment")
+					}
+					return owned.Close()
+				},
+			)
+		}(containmentForActuation)
+	}
 	waitErr := cmd.Wait()
+	stopActuationCancel()
+	var stopActuation supervisionStopActuationResult
+	if opt.stopActuation != nil {
+		stopActuation = <-stopActuationDone
+	}
+	if containmentForActuation != nil {
+		closeErr := containmentForActuation.Close()
+		if stopActuation.ObservationSHA256 == "" {
+			waitErr = errors.Join(waitErr, closeErr)
+		}
+	}
 	run := claudeRun{
 		waitErr: waitErr, started: processStarted, duration: time.Since(begin), timedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
-		stdoutTail: stdout.String(), stderrTail: stderr.String(),
+		observedAt: nowRFC3339Nano(), stdoutTail: stdout.String(), stderrTail: stderr.String(), stopActuation: stopActuation,
 	}
 	if cmd.ProcessState != nil {
 		run.exitCode = cmd.ProcessState.ExitCode()
@@ -689,7 +744,103 @@ func validateClaudeStructuredResult(pkg mission.CurrentLoopExternalSessionHarnes
 	return nil
 }
 
-func publishClaudeResult(opt Options, plan currentStepPlan, run claudeRun) (string, error) {
+func claudeResultPublicationOptions(
+	opt Options,
+	pkg mission.CurrentLoopExternalSessionHarnessPackage,
+	run claudeRun,
+) (executioncontrol.ResultPublicationOptions, error) {
+	if run.launchControlBinding == nil {
+		return executioncontrol.ResultPublicationOptions{}, fmt.Errorf("Claude result omitted its birth execution control binding")
+	}
+	if err := validateClaudeLaunchControlBinding(*run.launchControlBinding); err != nil {
+		return executioncontrol.ResultPublicationOptions{}, err
+	}
+	if pkg.Launch == nil {
+		return executioncontrol.ResultPublicationOptions{}, fmt.Errorf("Claude result package omitted its exact launch binding")
+	}
+	observedAt := strings.TrimSpace(run.observedAt)
+	if observedAt == "" {
+		observedAt = nowRFC3339Nano()
+	}
+	run.observedAt = observedAt
+	run, err := ensureClaudeRawResultArtifact(opt.Target, run)
+	if err != nil {
+		return executioncontrol.ResultPublicationOptions{}, err
+	}
+	source, err := claudeResultSource(pkg, run)
+	if err != nil {
+		return executioncontrol.ResultPublicationOptions{}, err
+	}
+	return executioncontrol.ResultPublicationOptions{
+		Lane: run.launchControlBinding.Lane,
+		Birth: executioncontrol.ResultBirth{
+			ControlGeneration:    run.launchControlBinding.ControlGeneration,
+			ControlReceiptSHA256: run.launchControlBinding.ControlReceiptSHA256,
+			Owner:                run.launchControlBinding.Owner,
+		},
+		Source:     source,
+		Actor:      opt.Actor,
+		ObservedAt: observedAt,
+	}, nil
+}
+
+func publishClaudeResult(opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage, run claudeRun) (string, error) {
+	publicationOpt, err := claudeResultPublicationOptions(opt, pkg, run)
+	if err != nil {
+		return "host-failed", err
+	}
+	outcome := "host-failed"
+	publication, err := executioncontrol.PublishResult(opt.Target, publicationOpt, func() error {
+		fresh, err := runCurrentStep(opt, nil, false)
+		if err != nil {
+			return err
+		}
+		if err := requireRunningHandoffForPackage(pkg, fresh); err != nil {
+			return err
+		}
+		outcome, err = publishClaudeResultCanonical(opt, fresh, run)
+		return err
+	})
+	if err != nil {
+		return "host-failed", err
+	}
+	if publication.Held {
+		return publication.Disposition, nil
+	}
+	return outcome, nil
+}
+
+func claudeResultSource(pkg mission.CurrentLoopExternalSessionHarnessPackage, run claudeRun) (executioncontrol.ResultSource, error) {
+	if pkg.Launch == nil {
+		return executioncontrol.ResultSource{}, fmt.Errorf("Claude result source requires an exact launch binding")
+	}
+	if strings.TrimSpace(run.rawResultRef) == "" || len(strings.TrimSpace(run.rawResultSHA256)) != 64 || run.rawResultBytes < 1 {
+		return executioncontrol.ResultSource{}, fmt.Errorf("Claude result source requires a durable host-owned raw artifact identity")
+	}
+	attempt := pkg.Launch.Attempt
+	kind := "host-owned-claude-raw-terminal-truth"
+	if len(run.structuredOutput) > 0 {
+		kind = "host-owned-claude-raw-structured-result"
+	}
+	return executioncontrol.ResultSource{
+		Kind: kind,
+		Ref:  run.rawResultRef, SHA256: run.rawResultSHA256, Bytes: run.rawResultBytes,
+		SessionKind: pkg.SessionKind, AttemptID: attempt.AttemptID,
+		AttemptSHA256: attempt.AttemptSHA256, SessionID: attempt.Session,
+	}, nil
+}
+
+func claudeResultHeld(outcome string) bool {
+	return slices.Contains([]string{
+		executioncontrol.ResultDispositionHeldWhilePaused,
+		executioncontrol.ResultDispositionLateAfterStop,
+		executioncontrol.ResultDispositionStaleControl,
+		executioncontrol.ResultDispositionControlHeadChanged,
+		executioncontrol.ResultDispositionStaleExecutor,
+	}, outcome)
+}
+
+func publishClaudeResultCanonical(opt Options, plan currentStepPlan, run claudeRun) (string, error) {
 	if plan.ExternalSessionStep == nil || plan.ExternalSessionStep.Mode != "running-handoff" || plan.ExternalSessionStep.HarnessPackage == nil {
 		return "host-failed", fmt.Errorf("fresh current step is not the accepted running handoff")
 	}
@@ -775,8 +926,13 @@ func publishClaudeResult(opt Options, plan currentStepPlan, run claudeRun) (stri
 		return "host-failed", err
 	}
 	submission["actor"] = opt.Actor
+	if pkg.Launch.Attempt.LaunchControl != nil {
+		submission["observedAt"] = run.observedAt
+	}
 	if pkg.SessionKind == "member" {
-		submission["observedAt"] = nowRFC3339Nano()
+		if pkg.Launch.Attempt.LaunchControl == nil {
+			submission["observedAt"] = nowRFC3339Nano()
+		}
 		if outcome == "returned" {
 			submission["summary"] = summary
 			if reviewerItemsPath != "" {

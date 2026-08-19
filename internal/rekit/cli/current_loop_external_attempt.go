@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -105,6 +106,7 @@ func externalSessionDispatchTicket(job externalsession.Job, inspection externals
 		Actor: plan.Attempt.Actor, StartedAt: plan.Attempt.StartedAt, SupersedesSHA256: plan.Attempt.SupersedesSHA256,
 		Path: plan.AttemptPath, SubmissionPath: plan.Attempt.SubmissionPath,
 		SubmissionOutputs: plan.Attempt.SubmissionOutputs, SubmissionResult: plan.Attempt.SubmissionResult,
+		LaunchControl: executioncontrol.CloneBinding(plan.Attempt.LaunchControl),
 	}
 	typed := mission.CurrentLoopExternalSessionJob{
 		CurrentAttempt: typedAttempt, SubmissionPath: plan.Attempt.SubmissionPath,

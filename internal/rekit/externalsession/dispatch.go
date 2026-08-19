@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -507,6 +508,17 @@ func ApplyDispatchTransitionCurrent(plan DispatchPlan, expectedJobSHA256, expect
 	if fresh.ExpectedPlanSHA256 != plan.ExpectedPlanSHA256 || !bytes.Equal(fresh.data, plan.data) {
 		return DispatchPlan{}, fmt.Errorf("external session dispatch changed after preview; rerun WhatIf")
 	}
+	alreadyCommitted := (plan.Outcome == "claimed" && fresh.Inspection.Claim != nil) ||
+		(plan.Outcome != "claimed" && fresh.Inspection.Launch != nil)
+	if !alreadyCommitted && attempt.Current.LaunchControl != nil {
+		if err := executioncontrol.RequireCurrentBindingWithProjectLease(
+			plan.Job.CaseRoot,
+			lease,
+			*attempt.Current.LaunchControl,
+		); err != nil {
+			return DispatchPlan{}, err
+		}
+	}
 	replayed, err := rekitfs.WriteExclusiveRegularFileAnchored(plan.Job.CaseRoot, plan.ArtifactPath, "external session dispatch transition", plan.data)
 	if err != nil {
 		return DispatchPlan{}, err
@@ -564,6 +576,7 @@ func equalAttempt(left, right Attempt) bool {
 		left.SubmissionPath == right.SubmissionPath &&
 		left.SubmissionOutputs == right.SubmissionOutputs &&
 		left.SubmissionResult == right.SubmissionResult &&
+		sameAttemptLaunchControl(left.LaunchControl, right.LaunchControl) &&
 		slices.Equal(left.AllowedOutcomes, right.AllowedOutcomes) &&
 		left.NoSessionManagement == right.NoSessionManagement &&
 		left.NoHeavyTool == right.NoHeavyTool &&

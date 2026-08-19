@@ -2313,6 +2313,9 @@ func bindCurrentLoopExternalSubmissionAttempt(t *testing.T, job *mission.Current
 	submission["attemptSha256"] = job.CurrentAttempt.AttemptSHA256
 	submission["harness"] = job.CurrentAttempt.Harness
 	submission["session"] = job.CurrentAttempt.Session
+	if job.CurrentAttempt.LaunchControl != nil {
+		submission["launchControl"] = job.CurrentAttempt.LaunchControl
+	}
 	if job.Dispatcher != nil && job.Dispatcher.Ticket != nil {
 		if job.Dispatcher.Claim == nil || job.Dispatcher.LaunchReceipt == nil || job.Dispatcher.LaunchReceipt.State != "accepted" {
 			t.Fatalf("dispatcher submission requires accepted launch lineage: %+v", job.Dispatcher)

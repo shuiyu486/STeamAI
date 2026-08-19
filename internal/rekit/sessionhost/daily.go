@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
@@ -34,6 +35,9 @@ type DailyOptions struct {
 	Goal                              string
 	Correction                        string
 	SelectedLane                      string
+	Control                           executioncontrol.Options
+	ControlWhatIf                     bool
+	ControlApply                      bool
 	DirectoryAdoptionAction           string
 	ExpectedInitPlanSHA256            string
 	InitializationRepoRoot            string
@@ -78,6 +82,7 @@ type DailyResult struct {
 	CurrentDriverRequestSHA256 string                                 `json:"currentDriverRequestSha256,omitempty"`
 	CurrentSyncRecovery        *syncreview.CurrentSyncRecovery        `json:"currentSyncRecovery,omitempty"`
 	DirectoryAdoption          *DailyDirectoryAdoption                `json:"directoryAdoption,omitempty"`
+	ExecutionControl           *executioncontrol.Plan                 `json:"executionControl,omitempty"`
 	Boundary                   []string                               `json:"boundary"`
 }
 
@@ -106,18 +111,22 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		if result.Failure != nil || result.Action == nil {
 			result.Action = dailyUserAction(result)
 		}
-		if result.CaseRoot != "" && result.Pack != "" && result.FinalState != "not-started" {
+		if result.Mode != "control" && result.CaseRoot != "" && result.Pack != "" && result.FinalState != "not-started" {
 			bindDailyResultCurrentDriverRequest(&result)
 		}
 	}()
 	goal := strings.TrimSpace(opt.Goal)
 	correction := strings.TrimSpace(opt.Correction)
+	controlRequested := dailyControlRequested(opt)
 	mode := "resume"
 	if goal != "" {
 		mode = "goal"
 	}
 	if correction != "" {
 		mode = "correction"
+	}
+	if controlRequested {
+		mode = "control"
 	}
 	result = DailyResult{
 		SchemaVersion: 1,
@@ -132,6 +141,15 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 	}
 	if goal != "" && correction != "" {
 		return result, fmt.Errorf("daily front door accepts either -goal or -correction, not both")
+	}
+	if controlRequested && (goal != "" || correction != "") {
+		return result, fmt.Errorf("daily front door control cannot be combined with -goal or -correction")
+	}
+	if controlRequested {
+		if recoveryOnly {
+			return result, fmt.Errorf("project-local recovery front door does not apply lane execution control")
+		}
+		return runDailyControl(opt, result)
 	}
 	var err error
 	executionLease := opt.projectExecutionLease
@@ -297,6 +315,34 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		return result, err
 	}
 	result.Pack = pack
+	preflightOpt := Options{
+		Target:                            caseRoot,
+		Pack:                              pack,
+		SelectedLane:                      strings.TrimSpace(opt.SelectedLane),
+		Actor:                             opt.Actor,
+		ClaudePath:                        opt.ClaudePath,
+		ExpectedClaudeExecutableSHA256:    opt.ExpectedClaudeExecutableSHA256,
+		ExpectedClaudeExecutablePublisher: opt.ExpectedClaudeExecutablePublisher,
+		Model:                             opt.Model,
+		Timeout:                           opt.Timeout,
+		MaxAttempts:                       opt.MaxAttempts,
+		requireDailyClaudeTrust:           true,
+		projectExecutionLease:             opt.projectExecutionLease,
+	}
+	if preflightOpt.MaxAttempts <= 0 {
+		preflightOpt.MaxAttempts = defaultMaxAttempts
+	}
+	if hostResult, lane, held, preflightErr := prepareHeldClaudeResultWithControl(parent, preflightOpt); preflightErr != nil {
+		return result, preflightErr
+	} else if held {
+		addDailyHostRun(&result, hostResult)
+		result.Lane = lane
+		result.FinalState = hostResult.FinalMode
+		result.Replay = true
+		result.Blocked = true
+		result.Action = dailyHeldClaudeResultAction(hostResult.FinalMode)
+		return result, nil
+	}
 	if correction != "" {
 		if resumed, resumeResult, resumeErr := resumeDailyTerminalCorrection(caseRoot, pack, correction, opt.Actor, strings.TrimSpace(opt.SelectedLane), result); resumed || resumeErr != nil {
 			return resumeResult, resumeErr

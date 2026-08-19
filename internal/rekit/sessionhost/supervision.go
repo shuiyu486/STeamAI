@@ -57,18 +57,19 @@ func observeSupervisionCut(stage string) error {
 }
 
 type supervisionSpec struct {
-	SchemaVersion                     int                  `json:"schemaVersion"`
-	Kind                              string               `json:"kind"`
-	RunID                             string               `json:"runId"`
-	Target                            string               `json:"target"`
-	Pack                              string               `json:"pack"`
-	ClaudePath                        string               `json:"claudePath"`
-	ExpectedClaudeExecutableSHA256    string               `json:"expectedClaudeExecutableSha256"`
-	ExpectedClaudeExecutablePublisher string               `json:"expectedClaudeExecutablePublisher"`
-	Model                             string               `json:"model,omitempty"`
-	TimeoutNanos                      int64                `json:"timeoutNanos"`
-	SessionID                         string               `json:"sessionId"`
-	Execution                         supervisionExecution `json:"execution"`
+	SchemaVersion                     int                         `json:"schemaVersion"`
+	Kind                              string                      `json:"kind"`
+	RunID                             string                      `json:"runId"`
+	Target                            string                      `json:"target"`
+	Pack                              string                      `json:"pack"`
+	ClaudePath                        string                      `json:"claudePath"`
+	ExpectedClaudeExecutableSHA256    string                      `json:"expectedClaudeExecutableSha256"`
+	ExpectedClaudeExecutablePublisher string                      `json:"expectedClaudeExecutablePublisher"`
+	Model                             string                      `json:"model,omitempty"`
+	TimeoutNanos                      int64                       `json:"timeoutNanos"`
+	SessionID                         string                      `json:"sessionId"`
+	LaunchControl                     *claudeLaunchControlBinding `json:"launchControl,omitempty"`
+	Execution                         supervisionExecution        `json:"execution"`
 }
 
 type supervisionExecution struct {
@@ -140,26 +141,33 @@ type supervisionStarted struct {
 }
 
 type supervisionTerminal struct {
-	SchemaVersion          int            `json:"schemaVersion"`
-	Kind                   string         `json:"kind"`
-	RunID                  string         `json:"runId"`
-	SpecSHA256             string         `json:"specSha256"`
-	SessionID              string         `json:"sessionId,omitempty"`
-	Envelope               claudeEnvelope `json:"envelope"`
-	StructuredOutputBase64 string         `json:"structuredOutputBase64,omitempty"`
-	StructuredOutputSHA256 string         `json:"structuredOutputSha256,omitempty"`
-	FailureCode            string         `json:"failureCode,omitempty"`
-	FailureDetail          string         `json:"failureDetail,omitempty"`
-	SpawnError             string         `json:"spawnError,omitempty"`
-	WaitError              string         `json:"waitError,omitempty"`
-	StartError             string         `json:"startError,omitempty"`
-	Started                bool           `json:"started"`
-	ExitCode               int            `json:"exitCode"`
-	TimedOut               bool           `json:"timedOut"`
-	DurationNanos          int64          `json:"durationNanos"`
-	StdoutTail             string         `json:"stdoutTail,omitempty"`
-	StderrTail             string         `json:"stderrTail,omitempty"`
-	ObservedAt             string         `json:"observedAt"`
+	SchemaVersion                  int            `json:"schemaVersion"`
+	Kind                           string         `json:"kind"`
+	RunID                          string         `json:"runId"`
+	SpecSHA256                     string         `json:"specSha256"`
+	SessionID                      string         `json:"sessionId,omitempty"`
+	Envelope                       claudeEnvelope `json:"envelope"`
+	StructuredOutputBase64         string         `json:"structuredOutputBase64,omitempty"`
+	StructuredOutputSHA256         string         `json:"structuredOutputSha256,omitempty"`
+	FailureCode                    string         `json:"failureCode,omitempty"`
+	FailureDetail                  string         `json:"failureDetail,omitempty"`
+	SpawnError                     string         `json:"spawnError,omitempty"`
+	WaitError                      string         `json:"waitError,omitempty"`
+	StartError                     string         `json:"startError,omitempty"`
+	Started                        bool           `json:"started"`
+	ExitCode                       int            `json:"exitCode"`
+	TimedOut                       bool           `json:"timedOut"`
+	DurationNanos                  int64          `json:"durationNanos"`
+	StdoutTail                     string         `json:"stdoutTail,omitempty"`
+	StderrTail                     string         `json:"stderrTail,omitempty"`
+	StopActuationRequestPath       string         `json:"stopActuationRequestPath,omitempty"`
+	StopActuationObservationPath   string         `json:"stopActuationObservationPath,omitempty"`
+	StopActuationObservationSHA256 string         `json:"stopActuationObservationSha256,omitempty"`
+	StopActuationError             string         `json:"stopActuationError,omitempty"`
+	ObservedAt                     string         `json:"observedAt"`
+	rawResultRef                   string
+	rawResultSHA256                string
+	rawResultBytes                 int64
 }
 
 type supervisionPaths struct {
@@ -175,6 +183,11 @@ type supervisionPaths struct {
 }
 
 func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string, started func() error) (claudeRun, bool, error) {
+	boundOpt, err := ensureClaudeLaunchControlBinding(opt, pkg)
+	if err != nil {
+		return claudeRun{}, false, err
+	}
+	opt = boundOpt
 	if !trustedRecoveryProvenance(opt) {
 		return runClaude(parent, opt, pkg, sessionID, started), true, nil
 	}
@@ -204,7 +217,7 @@ func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.Curren
 	if terminal, ok, err := readSupervisionTerminal(paths, spec, specSHA); err != nil {
 		return claudeRun{}, false, err
 	} else if ok {
-		run := claudeRunFromTerminal(terminal, true)
+		run := claudeRunFromTerminal(terminal, spec.LaunchControl, true)
 		if terminal.Started && supervisionStartedObserver != nil {
 			startedReceipt := supervisionStarted{SchemaVersion: 1, Kind: supervisionStartedKind, RunID: spec.RunID, SpecSHA256: specSHA, SessionID: spec.SessionID}
 			if err := supervisionStartedObserver(startedReceipt); err != nil {
@@ -258,7 +271,7 @@ func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.Curren
 		if terminal, ok, err := readSupervisionTerminal(paths, spec, specSHA); err != nil {
 			return claudeRun{}, launched, err
 		} else if ok {
-			run := claudeRunFromTerminal(terminal, !launched)
+			run := claudeRunFromTerminal(terminal, spec.LaunchControl, !launched)
 			if launched {
 				run.started = terminal.Started
 			}
@@ -391,47 +404,84 @@ func fenceSupervision(
 }
 
 func prepareSupervision(opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string) (supervisionPaths, supervisionSpec, []byte, string, error) {
-	if pkg.Launch == nil || strings.TrimSpace(pkg.Launch.Attempt.AttemptID) == "" || strings.TrimSpace(pkg.Launch.Attempt.AttemptSHA256) == "" || pkg.Launch.Attempt.Session != sessionID {
-		return supervisionPaths{}, supervisionSpec{}, nil, "", fmt.Errorf("Claude supervision requires exact attempt and session bindings")
+	var err error
+	opt, err = ensureClaudeLaunchControlBinding(opt, pkg)
+	if err != nil {
+		return supervisionPaths{}, supervisionSpec{}, nil, "", err
 	}
 	root, err := supervisionRoot(opt.Target)
 	if err != nil {
 		return supervisionPaths{}, supervisionSpec{}, nil, "", err
 	}
-	identity, err := json.Marshal(struct {
-		SessionKind   string `json:"sessionKind"`
-		AttemptID     string `json:"attemptId"`
-		AttemptSHA256 string `json:"attemptSha256"`
-		SessionID     string `json:"sessionId"`
-	}{pkg.SessionKind, pkg.Launch.Attempt.AttemptID, pkg.Launch.Attempt.AttemptSHA256, sessionID})
+	paths, spec, data, specSHA, err := supervisionSpecForRoot(root, opt, pkg, sessionID)
 	if err != nil {
 		return supervisionPaths{}, supervisionSpec{}, nil, "", err
 	}
-	runID := bytesSHA256(identity)
-	runRoot := filepath.Join(root, "runs", runID)
-	if err := os.MkdirAll(runRoot, 0o700); err != nil {
+	if err := os.MkdirAll(paths.runRoot, 0o700); err != nil {
 		return supervisionPaths{}, supervisionSpec{}, nil, "", err
 	}
-	if info, err := os.Lstat(runRoot); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return supervisionPaths{}, supervisionSpec{}, nil, "", fmt.Errorf("Claude supervision run root is not a stable directory: %s", runRoot)
+	if info, err := os.Lstat(paths.runRoot); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return supervisionPaths{}, supervisionSpec{}, nil, "", fmt.Errorf("Claude supervision run root is not a stable directory: %s", paths.runRoot)
 	}
+	return paths, spec, data, specSHA, nil
+}
+
+func supervisionSpecForRoot(
+	root string,
+	opt Options,
+	pkg mission.CurrentLoopExternalSessionHarnessPackage,
+	sessionID string,
+) (supervisionPaths, supervisionSpec, []byte, string, error) {
+	if pkg.Launch == nil || strings.TrimSpace(pkg.Launch.Attempt.AttemptID) == "" ||
+		strings.TrimSpace(pkg.Launch.Attempt.AttemptSHA256) == "" || pkg.Launch.Attempt.Session != sessionID {
+		return supervisionPaths{}, supervisionSpec{}, nil, "", fmt.Errorf("Claude supervision requires exact attempt and session bindings")
+	}
+	if opt.launchControlBinding != nil {
+		if err := validateClaudeLaunchControlBinding(*opt.launchControlBinding); err != nil {
+			return supervisionPaths{}, supervisionSpec{}, nil, "", err
+		}
+	}
+	runID, err := supervisionRunID(pkg, opt.launchControlBinding)
+	if err != nil {
+		return supervisionPaths{}, supervisionSpec{}, nil, "", err
+	}
+	paths := supervisionPathsForRun(root, runID)
 	spec := supervisionSpec{
 		SchemaVersion: 1, Kind: supervisionSpecKind, RunID: runID, Target: opt.Target, Pack: opt.Pack,
 		ClaudePath: opt.ClaudePath, ExpectedClaudeExecutableSHA256: strings.ToLower(strings.TrimSpace(opt.ExpectedClaudeExecutableSHA256)),
 		ExpectedClaudeExecutablePublisher: strings.TrimSpace(opt.ExpectedClaudeExecutablePublisher), Model: strings.TrimSpace(opt.Model),
-		TimeoutNanos: int64(opt.Timeout), SessionID: sessionID, Execution: supervisionExecutionFor(pkg),
+		TimeoutNanos: int64(opt.Timeout), SessionID: sessionID,
+		LaunchControl: cloneClaudeLaunchControlBinding(opt.launchControlBinding), Execution: supervisionExecutionFor(pkg),
 	}
 	data, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		return supervisionPaths{}, supervisionSpec{}, nil, "", err
 	}
 	data = append(data, '\n')
-	paths := supervisionPaths{
-		root: root, runID: runID, runRoot: runRoot,
-		spec: filepath.Join(runRoot, "spec.json"), claimed: filepath.Join(runRoot, "claimed.json"), started: filepath.Join(runRoot, "started.json"),
-		fenced: filepath.Join(runRoot, "fenced.json"), terminal: filepath.Join(runRoot, "terminal.json"), owner: filepath.Join(runRoot, "owner.lease"),
-	}
 	return paths, spec, data, bytesSHA256(data), nil
+}
+
+func supervisionRunID(pkg mission.CurrentLoopExternalSessionHarnessPackage, binding *claudeLaunchControlBinding) (string, error) {
+	if pkg.Launch == nil {
+		return "", fmt.Errorf("Claude supervision run identity requires a launch binding")
+	}
+	identity, err := json.Marshal(struct {
+		SessionKind   string                      `json:"sessionKind"`
+		AttemptID     string                      `json:"attemptId"`
+		AttemptSHA256 string                      `json:"attemptSha256"`
+		SessionID     string                      `json:"sessionId"`
+		LaunchControl *claudeLaunchControlBinding `json:"launchControl,omitempty"`
+	}{
+		SessionKind:   pkg.SessionKind,
+		AttemptID:     pkg.Launch.Attempt.AttemptID,
+		AttemptSHA256: pkg.Launch.Attempt.AttemptSHA256,
+		SessionID:     pkg.Launch.Attempt.Session,
+		LaunchControl: cloneClaudeLaunchControlBinding(binding),
+	})
+	if err != nil {
+		return "", err
+	}
+	return bytesSHA256(identity), nil
 }
 
 func supervisionExecutionFor(pkg mission.CurrentLoopExternalSessionHarnessPackage) supervisionExecution {
@@ -526,22 +576,9 @@ func acquireSupervisionControl(parent context.Context, caseRoot string) (*superv
 }
 
 func supervisionRoot(caseRoot string) (string, error) {
-	caseRoot, err := filepath.Abs(caseRoot)
+	root, caseSHA, err := supervisionRootIdentity(caseRoot)
 	if err != nil {
 		return "", err
-	}
-	cacheRoot, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve host-owned Claude supervision root: %w", err)
-	}
-	identity := filepath.Clean(caseRoot)
-	if runtime.GOOS == "windows" {
-		identity = strings.ToLower(identity)
-	}
-	caseSHA := bytesSHA256([]byte(identity))
-	root := filepath.Join(cacheRoot, "rekit", "session-host", "v2", "cases", caseSHA)
-	if pathsOverlap(caseRoot, root) {
-		return "", fmt.Errorf("host-owned Claude supervision root must be outside the attached case: %s", caseRoot)
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
@@ -551,6 +588,32 @@ func supervisionRoot(caseRoot string) (string, error) {
 		return "", err
 	}
 	return root, nil
+}
+
+func supervisionRootPath(caseRoot string) (string, error) {
+	root, _, err := supervisionRootIdentity(caseRoot)
+	return root, err
+}
+
+func supervisionRootIdentity(caseRoot string) (root, caseSHA string, err error) {
+	caseRoot, err = filepath.Abs(caseRoot)
+	if err != nil {
+		return "", "", err
+	}
+	cacheRoot, err := os.UserCacheDir()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve host-owned Claude supervision root: %w", err)
+	}
+	identity := filepath.Clean(caseRoot)
+	if runtime.GOOS == "windows" {
+		identity = strings.ToLower(identity)
+	}
+	caseSHA = bytesSHA256([]byte(identity))
+	root = filepath.Join(cacheRoot, "rekit", "session-host", "v2", "cases", caseSHA)
+	if pathsOverlap(caseRoot, root) {
+		return "", "", fmt.Errorf("host-owned Claude supervision root must be outside the attached case: %s", caseRoot)
+	}
+	return root, caseSHA, nil
 }
 
 func startSupervisorChild(specPath, specSHA string) error {
@@ -631,6 +694,7 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 	opt := Options{
 		Target: spec.Target, Pack: spec.Pack, ClaudePath: spec.ClaudePath, ExpectedClaudeExecutableSHA256: spec.ExpectedClaudeExecutableSHA256,
 		ExpectedClaudeExecutablePublisher: spec.ExpectedClaudeExecutablePublisher, Model: spec.Model, Timeout: time.Duration(spec.TimeoutNanos),
+		launchControlBinding: cloneClaudeLaunchControlBinding(spec.LaunchControl),
 	}
 	if supervisorChildStageHook != nil {
 		if err := supervisorChildStageHook("before-execution-acquire"); err != nil {
@@ -672,6 +736,13 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 	paths, expectedSpec, expectedData, specSHA, err := prepareSupervision(opt, runPackage, spec.SessionID)
 	if err != nil {
 		return err
+	}
+	if spec.LaunchControl != nil {
+		opt.stopActuation = &supervisionStopActuationContext{
+			paths:      paths,
+			spec:       expectedSpec,
+			specSHA256: specSHA,
+		}
 	}
 	expectedCanonical, err := json.Marshal(expectedSpec)
 	if err != nil {
@@ -730,7 +801,13 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 		StructuredOutputBase64: base64.StdEncoding.EncodeToString(run.structuredOutput), StructuredOutputSHA256: bytesSHA256(run.structuredOutput),
 		FailureCode: run.failureCode, FailureDetail: run.failureDetail, SpawnError: errorText(run.spawnErr), WaitError: errorText(run.waitErr),
 		StartError: errorText(run.startCallbackErr), Started: run.started, ExitCode: run.exitCode, TimedOut: run.timedOut,
-		DurationNanos: int64(run.duration), StdoutTail: run.stdoutTail, StderrTail: run.stderrTail, ObservedAt: nowRFC3339Nano(),
+		DurationNanos: int64(run.duration), StdoutTail: run.stdoutTail, StderrTail: run.stderrTail,
+		StopActuationError: errorText(run.stopActuation.Err), ObservedAt: nowRFC3339Nano(),
+	}
+	if validClaudeLaunchSHA256(run.stopActuation.ObservationSHA256) {
+		terminal.StopActuationRequestPath = run.stopActuation.RequestPath
+		terminal.StopActuationObservationPath = run.stopActuation.ObservationPath
+		terminal.StopActuationObservationSHA256 = run.stopActuation.ObservationSHA256
 	}
 	return writeSupervisionJSON(paths.runRoot, "terminal.json", "Claude supervision terminal receipt", terminal)
 }
@@ -773,12 +850,21 @@ func readSupervisionStarted(paths supervisionPaths, spec supervisionSpec, specSH
 
 func readSupervisionTerminal(paths supervisionPaths, spec supervisionSpec, specSHA string) (supervisionTerminal, bool, error) {
 	var receipt supervisionTerminal
-	ok, err := readSupervisionJSON(paths.runRoot, "terminal.json", "Claude supervision terminal receipt", &receipt)
-	if err != nil || !ok {
-		return receipt, ok, err
+	data, err := rekitfs.ReadStableRegularFileAnchored(paths.runRoot, paths.terminal, "Claude supervision terminal receipt", maxClaudeRawArtifactBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return receipt, false, nil
+	}
+	if err != nil {
+		return receipt, false, err
+	}
+	if err := strictJSON(data, &receipt); err != nil {
+		return receipt, false, fmt.Errorf("decode Claude supervision terminal receipt: %w", err)
 	}
 	if receipt.SchemaVersion != 1 || receipt.Kind != supervisionTerminalKind || receipt.RunID != spec.RunID || receipt.SpecSHA256 != specSHA || strings.TrimSpace(receipt.SessionID) == "" || receipt.SessionID != spec.SessionID || strings.TrimSpace(receipt.ObservedAt) == "" {
 		return receipt, false, fmt.Errorf("Claude supervision terminal receipt does not match the exact run and requested session")
+	}
+	if err := validateTerminalStopActuation(paths, spec, specSHA, receipt); err != nil {
+		return receipt, false, err
 	}
 	if receipt.Envelope.SessionID != "" && receipt.Envelope.SessionID != spec.SessionID {
 		return receipt, false, fmt.Errorf("Claude supervision terminal envelope does not match the requested session")
@@ -786,6 +872,10 @@ func readSupervisionTerminal(paths supervisionPaths, spec supervisionSpec, specS
 	output, err := base64.StdEncoding.DecodeString(receipt.StructuredOutputBase64)
 	if err != nil || (len(output) > 0 && !strings.EqualFold(bytesSHA256(output), receipt.StructuredOutputSHA256)) || (len(output) == 0 && receipt.StructuredOutputSHA256 != bytesSHA256(nil)) {
 		return receipt, false, fmt.Errorf("Claude supervision terminal structured output binding is invalid")
+	}
+	receipt.rawResultRef, receipt.rawResultSHA256, receipt.rawResultBytes, err = hostCacheArtifactIdentity(paths.terminal, data)
+	if err != nil {
+		return receipt, false, err
 	}
 	return receipt, true, nil
 }
@@ -815,16 +905,32 @@ func writeSupervisionJSON(root, rel, label string, value any) error {
 	return err
 }
 
-func claudeRunFromTerminal(receipt supervisionTerminal, recovered bool) claudeRun {
+func claudeRunFromTerminal(receipt supervisionTerminal, binding *claudeLaunchControlBinding, recovered bool) claudeRun {
 	output, err := base64.StdEncoding.DecodeString(receipt.StructuredOutputBase64)
 	if err != nil || (len(output) > 0 && !strings.EqualFold(bytesSHA256(output), receipt.StructuredOutputSHA256)) {
-		return claudeRun{failureCode: "claude-invalid-envelope", failureDetail: "Claude supervision terminal structured output binding is invalid", recovered: recovered}
+		return claudeRun{
+			launchControlBinding: cloneClaudeLaunchControlBinding(binding),
+			failureCode:          "claude-invalid-envelope",
+			failureDetail:        "Claude supervision terminal structured output binding is invalid",
+			recovered:            recovered,
+		}
 	}
 	run := claudeRun{
-		envelope: receipt.Envelope, sessionID: receipt.SessionID, structuredOutput: append(json.RawMessage{}, output...),
+		launchControlBinding: cloneClaudeLaunchControlBinding(binding),
+		rawResultRef:         receipt.rawResultRef,
+		rawResultSHA256:      receipt.rawResultSHA256,
+		rawResultBytes:       receipt.rawResultBytes,
+		envelope:             receipt.Envelope, sessionID: receipt.SessionID, structuredOutput: append(json.RawMessage{}, output...),
 		failureCode: receipt.FailureCode, failureDetail: receipt.FailureDetail, recovered: recovered, exitCode: receipt.ExitCode,
 		timedOut: receipt.TimedOut, duration: time.Duration(receipt.DurationNanos), stdoutTail: receipt.StdoutTail, stderrTail: receipt.StderrTail,
 		observedAt: receipt.ObservedAt,
+		stopActuation: supervisionStopActuationResult{
+			RequestPath: receipt.StopActuationRequestPath, ObservationPath: receipt.StopActuationObservationPath,
+			ObservationSHA256: receipt.StopActuationObservationSHA256,
+		},
+	}
+	if receipt.StopActuationError != "" {
+		run.stopActuation.Err = errors.New(receipt.StopActuationError)
 	}
 	if receipt.SpawnError != "" {
 		run.spawnErr = errors.New(receipt.SpawnError)

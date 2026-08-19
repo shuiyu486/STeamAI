@@ -25,9 +25,11 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -201,8 +203,16 @@ type Options struct {
 	MemberExecutionObservedAt                 string
 	skipMemberExecutionDispatch               bool
 	currentLoopObservationSnapshot            *currentLoopObservationSnapshot
+	currentLoopExecutionControlBinding        *executioncontrol.Binding
+	currentLoopExecutionControlRecovery       bool
 	currentLoopMemberResultSnapshot           *memberexecution.ResultSnapshot
 	currentLoopReviewerResultSnapshot         *subagents.ReviewerResultInputSnapshot
+	currentLoopReviewerResultPublication      *executioncontrol.ResultPublicationOptions
+	currentLoopReviewerMutationLease          *lanemutation.Lease
+	currentLoopReviewerResultPublished        *bool
+	currentLoopReplacementResultPublication   *executioncontrol.ResultPublicationOptions
+	currentLoopReplacementMutationLease       *lanemutation.Lease
+	currentLoopReplacementResultChecked       *bool
 	bindReviewerResultSnapshot                bool
 	currentLoopExternalTurnResume             bool
 	ExpectedDriverStepPlanSHA256              string
@@ -212,6 +222,7 @@ type Options struct {
 	Start                                     workstream.StartOptions
 	Handoff                                   workstream.HandoffOptions
 	Complete                                  workstream.CompleteOptions
+	Control                                   executioncontrol.Options
 	Reopen                                    workstream.ReopenOptions
 	Continue                                  workstream.ContinueOptions
 	Reconcile                                 workstream.ReconcileOptions
@@ -569,6 +580,18 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedReopenPlanSha256")
 			}
 			opt.Reopen.ExpectedPreviewSHA256 = args[i]
+		case "-ExpectedControlPlanSha256", "-ExpectedControlPlanSHA256", "--expected-control-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedControlPlanSha256")
+			}
+			opt.Control.ExpectedPlanSHA256 = args[i]
+		case "-ControlPublicationStamp", "--control-publication-stamp":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ControlPublicationStamp")
+			}
+			opt.Control.PublicationStamp = args[i]
 		case "-HandoffPublicationStamp", "--handoff-publication-stamp":
 			i++
 			if i >= len(args) {
@@ -1010,6 +1033,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Gate.Action = args[i]
 			opt.Note.Action = args[i]
+			opt.Control.Action = args[i]
 		case "-Lane", "--lane":
 			selectorArguments = append(selectorArguments, args[i])
 			i++
@@ -1025,6 +1049,7 @@ func Parse(args []string) (Options, error) {
 			opt.Complete.Selector = args[i]
 			opt.Handoff.Selector = args[i]
 			opt.Reopen.Selector = args[i]
+			opt.Control.Lane = args[i]
 			opt.Continue.Selector = args[i]
 			opt.Continue.ExactSelector = true
 			opt.Reconcile.Selector = args[i]
@@ -1067,6 +1092,7 @@ func Parse(args []string) (Options, error) {
 			opt.Note.Reason = args[i]
 			opt.Complete.Reason = args[i]
 			opt.Reopen.Reason = args[i]
+			opt.Control.Reason = args[i]
 			opt.Reconcile.Reason = args[i]
 			opt.Start.TakeoverReason = args[i]
 			opt.CandidateDecisionReason = args[i]
@@ -1179,6 +1205,7 @@ func Parse(args []string) (Options, error) {
 			opt.Note.Actor = args[i]
 			opt.Complete.Actor = args[i]
 			opt.Reopen.Actor = args[i]
+			opt.Control.Actor = args[i]
 			opt.Reconcile.Actor = args[i]
 			opt.Start.Actor = args[i]
 			opt.CandidateDecisionActor = args[i]
@@ -1678,25 +1705,69 @@ func validateCurrentSyncMaintenanceArguments(args []string) error {
 }
 
 func Run(args []string, stdout io.Writer) error {
-	return runWithOptions(args, stdout, nil, "")
+	return runWithOptions(args, stdout, nil, nil, nil, "")
 }
 
 // RunProjectLocal dispatches an ordinary project-local process against its
 // executable owner while preserving an omitted public target.
 func RunProjectLocal(args []string, stdout io.Writer, projectRoot string) error {
-	return runWithOptions(args, stdout, nil, projectRoot)
+	return runWithOptions(args, stdout, nil, nil, nil, projectRoot)
 }
 
 func RunWithReviewerResultSnapshot(args []string, stdout io.Writer, snapshot *subagents.ReviewerResultInputSnapshot) error {
-	return runWithOptions(args, stdout, snapshot, "")
+	return runWithOptions(args, stdout, snapshot, nil, nil, "")
 }
 
-func runWithOptions(args []string, stdout io.Writer, snapshot *subagents.ReviewerResultInputSnapshot, projectRoot string) error {
+func RunWithReviewerResultPublication(
+	args []string,
+	stdout io.Writer,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	publication *executioncontrol.ResultPublicationOptions,
+) error {
+	return runWithOptions(args, stdout, snapshot, publication, nil, "")
+}
+
+func RunWithReplacementResultPublication(
+	args []string,
+	stdout io.Writer,
+	publication *executioncontrol.ResultPublicationOptions,
+) error {
+	return runWithOptions(args, stdout, nil, nil, publication, "")
+}
+
+func runWithOptions(
+	args []string,
+	stdout io.Writer,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	reviewerPublication,
+	replacementPublication *executioncontrol.ResultPublicationOptions,
+	projectRoot string,
+) error {
 	opt, err := Parse(args)
 	if err != nil {
 		return err
 	}
 	opt.currentLoopReviewerResultSnapshot = snapshot
+	if reviewerPublication != nil {
+		if snapshot == nil {
+			return fmt.Errorf("reviewer result publication provenance requires the exact in-process result snapshot")
+		}
+		if replacementPublication != nil {
+			return fmt.Errorf("reviewer and replacement result publication provenance cannot be combined")
+		}
+		if opt.Command != commands.RunCurrentStep && opt.Command != commands.RunReviewerStep {
+			return fmt.Errorf("reviewer result publication provenance is supported only by current or bound reviewer step runners")
+		}
+		bound := *reviewerPublication
+		opt.currentLoopReviewerResultPublication = &bound
+	}
+	if replacementPublication != nil {
+		if snapshot != nil || opt.Command != commands.RunCurrentStep {
+			return fmt.Errorf("replacement result publication provenance is supported only by run-current-step without a Reviewer snapshot")
+		}
+		bound := *replacementPublication
+		opt.currentLoopReplacementResultPublication = &bound
+	}
 	opt.bindReviewerResultSnapshot = snapshot != nil
 	if opt.ExpectedExecutorGenerationProvided && opt.Command != commands.Continue && opt.Command != commands.Gate {
 		return fmt.Errorf("-ExpectedExecutorGeneration is supported only by continue and gate adapter execution provenance")
@@ -1771,6 +1842,9 @@ func runWithOptions(args []string, stdout io.Writer, snapshot *subagents.Reviewe
 	}
 	if (strings.TrimSpace(opt.Reopen.ExpectedPreviewSHA256) != "" || strings.TrimSpace(opt.Reopen.PublicationStamp) != "") && opt.Command != commands.Reopen {
 		return fmt.Errorf("reopen publication flags are supported only by reopen")
+	}
+	if (strings.TrimSpace(opt.Control.ExpectedPlanSHA256) != "" || strings.TrimSpace(opt.Control.PublicationStamp) != "") && opt.Command != commands.Control {
+		return fmt.Errorf("control publication flags are supported only by control")
 	}
 	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "" || strings.TrimSpace(opt.CurrentLoopObservationPath) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "" || opt.RelayExternalSessionSubmission || opt.ClaimExternalSessionDispatch || opt.RecordExternalSessionLaunch || strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionDispatchSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionClaimSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionDispatchPlanSHA256) != "") && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("current loop flags are supported only by run-current-loop")
@@ -1868,6 +1942,8 @@ func runWithOptions(args []string, stdout io.Writer, snapshot *subagents.Reviewe
 		return runHandoff(ctx, opt, stdout)
 	case commands.Complete:
 		return runComplete(ctx, opt, stdout)
+	case commands.Control:
+		return runControl(ctx, opt, stdout)
 	case commands.Reopen:
 		return runReopen(ctx, opt, stdout)
 	case commands.Continue:
@@ -3662,8 +3738,25 @@ type statusInventory struct {
 	Onboarding            *missionintent.Inspection       `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusMissionControlRunbook    `json:"missionControlRunbook,omitempty"`
 	MemberExecution       *memberExecutionStatus          `json:"memberExecution,omitempty"`
+	ExecutionControls     []statusExecutionControl        `json:"executionControls,omitempty"`
 	CurrentSyncRecovery   *syncreview.CurrentSyncRecovery `json:"currentSyncRecovery,omitempty"`
 	selectedCurrentLane   string
+}
+
+// statusExecutionControl is the selected lane's read-only durable control head.
+// RecoveryCommand is guidance only; status never applies it or launches work.
+type statusExecutionControl struct {
+	Lane                 string   `json:"lane"`
+	State                string   `json:"state"`
+	CurrentGeneration    int      `json:"currentGeneration"`
+	CurrentReceiptSHA256 string   `json:"currentReceiptSha256,omitempty"`
+	Pending              bool     `json:"pending"`
+	PendingGeneration    int      `json:"pendingGeneration,omitempty"`
+	PendingAction        string   `json:"pendingAction,omitempty"`
+	RecoveryCommand      string   `json:"recoveryCommand,omitempty"`
+	Blocked              bool     `json:"blocked"`
+	Reason               string   `json:"reason,omitempty"`
+	Boundary             []string `json:"boundary"`
 }
 
 type statusCase struct {
@@ -8757,6 +8850,9 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 	}
 	bindStatusMemberExecution(&status)
 	bindStatusReviewerCorrection(&status)
+	if err := bindStatusExecutionControls(&status); err != nil {
+		return statusInventory{}, err
+	}
 	return status, nil
 }
 
@@ -12194,6 +12290,42 @@ func runComplete(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeCompleteText(out, result)
 }
 
+func runControl(ctx runtime.Context, opt Options, out io.Writer) error {
+	target, err := commandTarget(ctx, commands.Control, "attached project")
+	if err != nil {
+		return err
+	}
+	if opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
+		return fmt.Errorf("control supports only review-first WhatIf or exact hash-bound Apply")
+	}
+	if opt.WhatIf == opt.Apply {
+		return fmt.Errorf("control requires exactly one of -WhatIf or -Apply")
+	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported control format: %s", opt.Format)
+	}
+	if format != "json" && format != "text" {
+		return fmt.Errorf("control supports only -Format json or text")
+	}
+	if opt.WhatIf && strings.TrimSpace(opt.Control.PublicationStamp) != "" {
+		return fmt.Errorf("control preview creates its own publication stamp")
+	}
+	var result executioncontrol.Plan
+	if opt.WhatIf {
+		result, err = executioncontrol.Preview(target, opt.Control)
+	} else {
+		result, err = executioncontrol.Apply(target, opt.Control)
+	}
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writeControlText(out, result)
+}
+
 func runReopen(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, "reopen", "attached case")
 	if err != nil {
@@ -12474,6 +12606,19 @@ func writeCompleteText(out io.Writer, result workstream.CompleteResult) error {
 		return err
 	}
 	_, err := fmt.Fprintf(out, "lane operationally complete: %s\nnext: run /rekit status\n", result.Lane.ID)
+	return err
+}
+
+func writeControlText(out io.Writer, result executioncontrol.Plan) error {
+	if !result.Applied {
+		_, err := fmt.Fprintf(out, "lane control preview: lane=%s action=%s state=%s generation=%d\nplan sha256: %s\npublication stamp: %s\n", result.Lane, result.Action, result.State, result.ControlGeneration, result.ExpectedPlanSHA256, result.PublicationStamp)
+		return err
+	}
+	state := "committed"
+	if result.AlreadyApplied {
+		state = "already-committed"
+	}
+	_, err := fmt.Fprintf(out, "lane control %s: lane=%s action=%s state=%s generation=%d\n", state, result.Lane, result.Action, result.State, result.ControlGeneration)
 	return err
 }
 

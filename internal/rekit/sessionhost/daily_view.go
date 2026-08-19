@@ -3,6 +3,7 @@ package sessionhost
 import (
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -13,6 +14,9 @@ const (
 	DailyActionDirectoryAdoptionRequired = "directory-adoption-required"
 	DailyActionConfirmationRequired      = "confirmation-required"
 	DailyActionReadyForEvidenceReview    = "ready-for-evidence-review"
+	DailyActionPaused                    = "paused"
+	DailyActionResumed                   = "resumed"
+	DailyActionStopped                   = "stopped"
 	DailyActionBlocked                   = "blocked"
 	DailyActionFailed                    = "failed"
 )
@@ -53,6 +57,19 @@ func dailyLaneSelectionAction(choices []DailyChoice) *DailyUserAction {
 	}
 }
 
+func dailyControlLaneSelectionAction(choices []DailyChoice) *DailyUserAction {
+	return &DailyUserAction{
+		Code:          DailyActionBlocked,
+		Message:       "当前有多个任务可以控制，请先选择一个；选择前不会写入控制状态或启动 Claude。",
+		RequiresInput: true,
+		Choices:       append([]DailyChoice{}, choices...),
+		Now:           "有多个任务可执行暂停、恢复或停止，系统已安全停下。",
+		Reason:        "durable control 必须绑定唯一任务，系统不能替你选择。",
+		Next:          "请选择一个任务，再复核该任务的精确控制计划。",
+		RecoveryState: DailyRecoveryUserDecisionRequired,
+	}
+}
+
 func dailySelectedLaneBlockedAction(choice DailyChoice) *DailyUserAction {
 	return &DailyUserAction{
 		Code:          DailyActionBlocked,
@@ -63,6 +80,32 @@ func dailySelectedLaneBlockedAction(choice DailyChoice) *DailyUserAction {
 		Next:          "请检查这个任务的最新要求，再决定如何处理。",
 		RecoveryState: DailyRecoveryUserDecisionRequired,
 	}
+}
+
+func dailyHeldClaudeResultAction(disposition string) *DailyUserAction {
+	action := &DailyUserAction{
+		Code:          DailyActionBlocked,
+		RequiresInput: false,
+		RecoveryState: DailyRecoveryUserDecisionRequired,
+	}
+	switch strings.ToLower(strings.TrimSpace(disposition)) {
+	case executioncontrol.ResultDispositionHeldWhilePaused:
+		action.Message = "任务暂停期间返回的结果已安全隔离，不会自动发布或推进。"
+		action.Now = "任务仍处于暂停状态；旧结果已单独保存。"
+		action.Reason = "暂停后到达的结果不能进入正式输出、复核或完成流程。"
+		action.Next = "如需继续，先恢复任务，再从最新状态启动新的有界执行；旧结果不会自动接收。"
+	case executioncontrol.ResultDispositionLateAfterStop:
+		action.Message = "任务停止后返回的结果已安全隔离，不会自动发布或推进。"
+		action.Now = "任务已停止；迟到结果已单独保存。"
+		action.Reason = "durable stop 已先提交，后到结果不能改变停止状态。"
+		action.Next = "如需重新开展工作，请创建新的明确执行，不要复用这份迟到结果。"
+	default:
+		action.Message = "旧执行上下文返回的结果已安全隔离，不会自动发布或推进。"
+		action.Now = "结果与当前任务控制或执行者身份不一致，系统已停下。"
+		action.Reason = "旧 control generation 或旧 executor 的结果不能进入当前正式流程。"
+		action.Next = "从最新状态重新开始有界执行；不要手动把隔离结果写回正式输出。"
+	}
+	return action
 }
 
 func dailyCurrentSyncRecoveryAction(recovery syncreview.CurrentSyncRecovery) *DailyUserAction {
@@ -99,6 +142,8 @@ func dailyUserAction(result DailyResult) *DailyUserAction {
 		action = dailyAction(DailyActionBlocked)
 	case DailyActionReadyForEvidenceReview:
 		action = dailyAction(DailyActionReadyForEvidenceReview)
+	case DailyActionPaused, DailyActionResumed, DailyActionStopped:
+		action = dailyAction(state)
 	case "reviewer-step", "attempt-input", "attempt-publication-recovery", "dispatch-claim", "dispatch-claim-input", "launch-accepted", "launch-failed", "launch-receipt-input", "result-turn", "running-handoff", "no-external-session":
 		action = dailyAction(DailyActionReadyToContinue)
 	case "not-started", "":
@@ -331,6 +376,21 @@ func dailyAction(code string) *DailyUserAction {
 			Reason:        "证据本身不能授予 authority 或 confirmed。",
 			Next:          "复核证据，或选择稍后处理。",
 			RecoveryState: DailyRecoveryUserDecisionRequired,
+		}
+	case DailyActionPaused:
+		return &DailyUserAction{
+			Code: code, Message: "当前任务已暂停；系统不会启动新会话、发布新结果或推进任务。",
+			Now: "当前任务已持久化暂停。", Reason: "暂停控制已成为 durable head。", Next: "需要继续时，先复核一份独立的恢复计划。",
+		}
+	case DailyActionResumed:
+		return &DailyUserAction{
+			Code: code, Message: "当前任务已恢复为可运行状态，但系统没有自动继续或接收暂停期间的结果。",
+			Now: "当前任务已持久化恢复。", Reason: "恢复只改变后续工作的控制状态。", Next: "刷新状态后，再明确决定是否继续下一步。",
+		}
+	case DailyActionStopped:
+		return &DailyUserAction{
+			Code: code, Message: "当前任务已持久化停止；进程处理结果不会改变停止状态。",
+			Now: "当前任务已停止。", Reason: "停止控制已先于可选进程处置成为 durable head。", Next: "保留现有诊断记录；停止状态不能隐式恢复。",
 		}
 	case DailyActionBlocked:
 		return &DailyUserAction{

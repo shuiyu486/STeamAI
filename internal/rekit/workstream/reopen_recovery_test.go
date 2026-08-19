@@ -22,7 +22,7 @@ func TestReopenApplyRecoversExactPendingOperationIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	opt := ReopenOptions{
-		Selector:     "bootstrap",
+		Selector:     "binary-analysis-bootstrap",
 		Actor:        "main-agent",
 		Reason:       "post-completion review requires additional feature evidence",
 		EvidenceRefs: ".rekit/reopen-evidence.md",
@@ -30,6 +30,9 @@ func TestReopenApplyRecoversExactPendingOperationIntent(t *testing.T) {
 	preview, err := ReopenPreview(repoRoot, caseRoot, defaults.DefaultPack, opt)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.HasPrefix(preview.ApplyCommand, "/rekit reopen binary-analysis-bootstrap ") {
+		t.Fatalf("reopen Apply command changed the reviewed selector: %q", preview.ApplyCommand)
 	}
 	if len(preview.EffectiveTargets) != 2 || len(preview.ReopenPlanSHA256) != 64 {
 		t.Fatalf("unexpected compound reopen preview: %+v", preview)

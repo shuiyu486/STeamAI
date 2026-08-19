@@ -18,6 +18,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -267,7 +268,11 @@ func CompletePreview(repoRoot, caseRoot, pack string, opt CompleteOptions) (Comp
 	return result, nil
 }
 
-func CompleteApply(repoRoot, caseRoot, pack string, opt CompleteOptions) (result CompleteResult, err error) {
+func CompleteApply(repoRoot, caseRoot, pack string, opt CompleteOptions) (CompleteResult, error) {
+	return CompleteApplyValidated(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func CompleteApplyValidated(repoRoot, caseRoot, pack string, opt CompleteOptions, validateCurrent func(*lanemutation.Lease) error) (result CompleteResult, err error) {
 	mutationStarted := false
 	defer func() {
 		if err != nil && !mutationStarted {
@@ -312,6 +317,11 @@ func CompleteApply(repoRoot, caseRoot, pack string, opt CompleteOptions) (result
 		if preview.Blocked || !strings.EqualFold(expected, preview.CompletionPlanSHA256) {
 			return CompleteResult{}, fmt.Errorf("complete preview sha256 mismatch: got %s want %s", expected, preview.CompletionPlanSHA256)
 		}
+		if validateCurrent != nil {
+			if err := validateCurrent(lease); err != nil {
+				return CompleteResult{}, err
+			}
+		}
 		intent := ctx.newIntent(expected, isoNow())
 		mutationStarted = true
 		if err := writeCompletionExclusive(ctx.inst.CaseRoot, ctx.intentPath(), intent); err != nil {
@@ -324,6 +334,11 @@ func CompleteApply(repoRoot, caseRoot, pack string, opt CompleteOptions) (result
 			}
 		}
 	} else {
+		if validateCurrent != nil {
+			if err := validateCurrent(lease); err != nil {
+				return CompleteResult{}, err
+			}
+		}
 		mutationStarted = true
 	}
 	ctx, err = newCompleteContext(repoRoot, caseRoot, pack, opt, true)

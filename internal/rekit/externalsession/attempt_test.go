@@ -1,12 +1,14 @@
 package externalsession
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 )
 
@@ -83,6 +85,111 @@ func TestExternalSessionAttemptApplyRejectsStaleJobAndReplaysCommittedReceipt(t 
 	applied, err := ApplyAttemptCurrent(replay, replay.JobSHA256, replay.ExpectedPlanSHA256, func() (Job, error) { return job, nil })
 	if err != nil || !applied.Applied || !applied.AlreadyApplied || applied.AttemptSHA256 != plan.AttemptSHA256 {
 		t.Fatalf("committed replay=%+v err=%v", applied, err)
+	}
+}
+
+func TestApplyAttemptCurrentWithLeaseRejectsReplacementBeforeAnyPublication(t *testing.T) {
+	caseRoot := externalSessionTestCaseRoot(t)
+	job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-replacement-guard", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, ".rekit/member/manifest.json", ".rekit/member/outputs", []string{"returned", "failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := dispatchTestAttemptPlan(t, job)
+	if _, err := ApplyAttempt(first, first.JobSHA256, first.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	current, err := InspectAttempt(job)
+	if err != nil || current.Current == nil {
+		t.Fatalf("current=%+v err=%v", current, err)
+	}
+	replacement, err := PreviewAttempt(job, "claude-code", "owner-session-b", "mission-commander", "2026-08-05T04:01:00Z", current.AttemptSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement = bindDispatchTestPlan(t, replacement)
+	lease, err := lanemutation.AcquireProject(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := lease.Unlock(); err != nil {
+			t.Errorf("unlock project lease: %v", err)
+		}
+	}()
+	held := errors.New("replacement result became held")
+	if _, err := ApplyAttemptCurrentWithLease(
+		replacement,
+		replacement.JobSHA256,
+		replacement.ExpectedPlanSHA256,
+		lease,
+		func() (Job, error) { return job, nil },
+		func(*lanemutation.Lease) error { return held },
+	); !errors.Is(err, held) {
+		t.Fatalf("replacement guard error=%v", err)
+	}
+	for _, rel := range []string{replacement.DispatchPath, replacement.AttemptPath} {
+		if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("rejected replacement published %s: err=%v", rel, err)
+		}
+	}
+	unchanged, err := InspectAttempt(job)
+	if err != nil || unchanged.Generations != 1 || unchanged.AttemptSHA256 != current.AttemptSHA256 {
+		t.Fatalf("rejected replacement changed attempt head: %+v err=%v", unchanged, err)
+	}
+}
+
+func TestApplyAttemptCurrentWithLeaseReplaysCommitBeforeLaterGuard(t *testing.T) {
+	job := dispatchTestJob(t)
+	plan := dispatchTestAttemptPlan(t, job)
+	lease, err := lanemutation.AcquireProject(job.CaseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardCalls := 0
+	applied, err := ApplyAttemptCurrentWithLease(
+		plan,
+		plan.JobSHA256,
+		plan.ExpectedPlanSHA256,
+		lease,
+		func() (Job, error) { return job, nil },
+		func(*lanemutation.Lease) error {
+			guardCalls++
+			return nil
+		},
+	)
+	if unlockErr := lease.Unlock(); err != nil || unlockErr != nil {
+		t.Fatalf("first Apply=%+v err=%v unlock=%v", applied, err, unlockErr)
+	}
+	if !applied.Applied || applied.AlreadyApplied || guardCalls != 1 {
+		t.Fatalf("first Apply=%+v guardCalls=%d", applied, guardCalls)
+	}
+
+	replayLease, err := lanemutation.AcquireProject(job.CaseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := replayLease.Unlock(); err != nil {
+			t.Errorf("unlock replay project lease: %v", err)
+		}
+	}()
+	laterHeld := errors.New("control head changed after commit")
+	replayed, err := ApplyAttemptCurrentWithLease(
+		plan,
+		plan.JobSHA256,
+		plan.ExpectedPlanSHA256,
+		replayLease,
+		func() (Job, error) { return job, nil },
+		func(*lanemutation.Lease) error {
+			guardCalls++
+			return laterHeld
+		},
+	)
+	if err != nil || !replayed.Applied || !replayed.AlreadyApplied {
+		t.Fatalf("committed replay=%+v err=%v", replayed, err)
+	}
+	if guardCalls != 1 {
+		t.Fatalf("committed replay reran later currentness guard: calls=%d", guardCalls)
 	}
 }
 

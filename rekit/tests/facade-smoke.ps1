@@ -344,6 +344,8 @@ try {
   }
   $migrationDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','migrate-state','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-ContainsText -Text $migrationDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled migrate-state no-fallback remains retired'
+  $controlDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','control','-Target',$CaseRoot,'-Pack',$Pack,'-Lane',$gateLane,'-Action','pause','-Actor','facade-smoke','-Reason','bounded operator pause','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $controlDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled control no-fallback remains retired'
   $onboardHash = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
   $onboardCapturePath = Join-Path $matrixRoot 'onboard-args.txt'
   Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $onboardCapturePath
@@ -388,6 +390,17 @@ try {
   }
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','control','-Target',$CaseRoot,'-Pack',$Pack,'-Lane',$gateLane,'-Action','pause','-Actor','facade-smoke','-Reason','bounded operator pause','-WhatIf','-Format','json') -CommandName 'control' -Label 'default control what-if fake delegation'
+  $controlPlanHash = 'abababababababababababababababababababababababababababababababab'
+  $controlPublicationStamp = '2026-08-19T02:00:00Z'
+  $controlCapturePath = Join-Path $matrixRoot 'control-apply-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $controlCapturePath
+  $controlApplyOut = Invoke-RekitSmoke -Arguments @('-Command','control','-Target',$CaseRoot,'-Pack',$Pack,'-Lane',$gateLane,'-Action','stop','-Actor','facade-smoke','-Reason','bounded operator stop','-ControlPublicationStamp',$controlPublicationStamp,'-ExpectedControlPlanSha256',$controlPlanHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $controlApplyOut -Expected '"delegatedByFake":true' -Label 'default control apply fake delegation'
+  $capturedControlArgs = [System.IO.File]::ReadAllText($controlCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedControlArg in @("-Lane $gateLane",'-Action stop','-Actor facade-smoke','-Reason "bounded operator stop"',"-ControlPublicationStamp $controlPublicationStamp","-ExpectedControlPlanSha256 $controlPlanHash",'-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedControlArgs -Expected $expectedControlArg -Label 'control facade args'
+  }
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'default-start-preview','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'default-start-apply','-Pack',$Pack,'-Apply','-Executor','facade-session','-Actor','facade-smoke','-Reason','facade explicit takeover') -CommandName 'start' -Label 'default start apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'handoff' -Label 'default handoff JSON preview fake delegation'

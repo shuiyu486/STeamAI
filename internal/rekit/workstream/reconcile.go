@@ -111,7 +111,11 @@ func ReconcilePreview(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Re
 	return ctx.result(false, false, true, writes)
 }
 
-func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (result ReconcileResult, err error) {
+func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (ReconcileResult, error) {
+	return ReconcileApplyValidated(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func ReconcileApplyValidated(repoRoot, caseRoot, pack string, opt ReconcileOptions, validateCurrent func(*lanemutation.Lease) error) (result ReconcileResult, err error) {
 	mutationStarted := false
 	defer func() {
 		if err != nil && !mutationStarted {
@@ -159,6 +163,11 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 		actual := hex.EncodeToString(sum[:])
 		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedPreviewSHA256), actual) {
 			return ReconcileResult{}, fmt.Errorf("reconcile preview sha256 mismatch: got %s want %s", opt.ExpectedPreviewSHA256, actual)
+		}
+	}
+	if validateCurrent != nil {
+		if err := validateCurrent(lease); err != nil {
+			return ReconcileResult{}, err
 		}
 	}
 	now := isoNow()

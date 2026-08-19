@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 )
 
 const DefaultMaxRows = 10
@@ -475,18 +476,19 @@ type CurrentLoopExternalSessionJobReviewer struct {
 }
 
 type CurrentLoopExternalSessionAttempt struct {
-	AttemptID         string `json:"attemptId"`
-	AttemptSHA256     string `json:"attemptSha256"`
-	Generation        int    `json:"generation"`
-	Harness           string `json:"harness"`
-	Session           string `json:"session"`
-	Actor             string `json:"actor"`
-	StartedAt         string `json:"startedAt"`
-	SupersedesSHA256  string `json:"supersedesSha256,omitempty"`
-	Path              string `json:"path"`
-	SubmissionPath    string `json:"submissionPath"`
-	SubmissionOutputs string `json:"submissionOutputs,omitempty"`
-	SubmissionResult  string `json:"submissionResult,omitempty"`
+	AttemptID         string                    `json:"attemptId"`
+	AttemptSHA256     string                    `json:"attemptSha256"`
+	Generation        int                       `json:"generation"`
+	Harness           string                    `json:"harness"`
+	Session           string                    `json:"session"`
+	Actor             string                    `json:"actor"`
+	StartedAt         string                    `json:"startedAt"`
+	SupersedesSHA256  string                    `json:"supersedesSha256,omitempty"`
+	Path              string                    `json:"path"`
+	SubmissionPath    string                    `json:"submissionPath"`
+	SubmissionOutputs string                    `json:"submissionOutputs,omitempty"`
+	SubmissionResult  string                    `json:"submissionResult,omitempty"`
+	LaunchControl     *executioncontrol.Binding `json:"launchControl,omitempty"`
 }
 
 type CurrentLoopExternalSessionHarnessInput struct {

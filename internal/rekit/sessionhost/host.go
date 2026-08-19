@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -60,6 +61,8 @@ type Options struct {
 	requireDailyClaudeTrust            bool
 	reviewerBinding                    *reviewerBinding
 	projectExecutionLease              *projectexecution.Lease
+	launchControlBinding               *claudeLaunchControlBinding
+	stopActuation                      *supervisionStopActuationContext
 }
 
 func (opt *Options) RequireCurrentDriverRequest() {
@@ -137,6 +140,50 @@ func inspectCurrentSyncRecoveryForHost(caseRoot string) (syncreview.CurrentSyncR
 	return syncreview.InspectCurrentSyncRecovery(caseRoot)
 }
 
+func newHostResult(caseRoot string, opt Options) Result {
+	return Result{
+		SchemaVersion: 1,
+		Command:       "rekit-host",
+		CaseRoot:      caseRoot,
+		Pack:          opt.Pack,
+		Actor:         opt.Actor,
+		ClaudePath:    strings.TrimSpace(opt.ClaudePath),
+		Boundary: []string{
+			"all LLM result bytes come from a real Claude Code process; the host generates only lifecycle metadata and submission bindings",
+			"the host consumes the canonical current-step route or an explicitly bound run-reviewer-step route and does not replace deterministic runtime currentness, authorization, or strict intake",
+			"submission is published only after every required real result artifact",
+		},
+	}
+}
+
+func heldClaudeResult(opt Options, held heldClaudeResultPreflight) Result {
+	result := newHostResult(opt.Target, opt)
+	result.Pack = held.Options.Pack
+	result.ClaudePath = held.Options.ClaudePath
+	attemptGeneration := 0
+	reservationID := ""
+	if held.Package.Launch != nil {
+		attemptGeneration = held.Package.Launch.Attempt.Generation
+		reservationID = held.Package.Launch.Attempt.Session
+	}
+	result.Sessions = append(result.Sessions, sessionResult(
+		held.Run,
+		attemptGeneration,
+		0,
+		reservationID,
+		held.Package.SessionKind,
+		held.Publication.Disposition,
+		opt.MaxAttempts,
+	))
+	result.FinalMode = held.Publication.Disposition
+	result.Boundary = append(result.Boundary,
+		"the raw Claude result was recovered from an exact host-owned supervision binding before public status routing",
+		"the raw Claude result is held outside canonical member and Reviewer observations",
+		"resume does not publish, intake, complete, or advance this held result",
+	)
+	return result
+}
+
 func Run(parent context.Context, opt Options) (result Result, retErr error) {
 	caseRoot, err := canonicalCaseRoot(opt.Target)
 	if err != nil {
@@ -184,19 +231,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 	if opt.MaxAttempts <= 0 {
 		opt.MaxAttempts = defaultMaxAttempts
 	}
-	result = Result{
-		SchemaVersion: 1,
-		Command:       "rekit-host",
-		CaseRoot:      caseRoot,
-		Pack:          opt.Pack,
-		Actor:         opt.Actor,
-		ClaudePath:    strings.TrimSpace(opt.ClaudePath),
-		Boundary: []string{
-			"all LLM result bytes come from a real Claude Code process; the host generates only lifecycle metadata and submission bindings",
-			"the host consumes the canonical current-step route or an explicitly bound run-reviewer-step route and does not replace deterministic runtime currentness, authorization, or strict intake",
-			"submission is published only after every required real result artifact",
-		},
-	}
+	result = newHostResult(caseRoot, opt)
 	defer func() {
 		if retErr != nil && result.Failure == nil {
 			result.Failure = diagnosisForError(retErr, len(result.Sessions), opt.MaxAttempts, result.AppliedSteps)
@@ -207,6 +242,19 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 	}()
 	if opt.MaxAttempts > 256 {
 		return result, hostError("claude-attempt-limit-invalid", "attempt-control", "none", "Set -max-attempts to a value from 1 through 256, then rerun the same host command.", false, fmt.Errorf("max attempts cannot exceed 256"))
+	}
+	var control *supervisionOwnerLease
+	if trustedRecoveryProvenance(opt) || opt.requireDailyClaudeTrust {
+		control, err = acquireSupervisionControl(parent, opt.Target)
+		if err != nil {
+			return result, err
+		}
+		defer control.Close()
+		if held, ok, err := prepareHeldClaudeResultBeforeStatus(opt); err != nil {
+			return result, err
+		} else if ok {
+			return heldClaudeResult(opt, held), nil
+		}
 	}
 	if !opt.StopAfterMemberIntake {
 		rejected, err := currentReviewerRejectionAwaitingCorrection(opt.Target, opt.Pack, opt.SelectedLane)
@@ -246,6 +294,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 		opt.ClaudePath = dailyOpt.ClaudePath
 		opt.ExpectedClaudeExecutableSHA256 = dailyOpt.ExpectedClaudeExecutableSHA256
 		opt.ExpectedClaudeExecutablePublisher = dailyOpt.ExpectedClaudeExecutablePublisher
+		result.ClaudePath = opt.ClaudePath
 	}
 	claudePath, err := resolveClaudePath(opt.ClaudePath)
 	if err != nil {
@@ -253,14 +302,6 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 	}
 	opt.ClaudePath = claudePath
 	result.ClaudePath = claudePath
-	var control *supervisionOwnerLease
-	if trustedRecoveryProvenance(opt) {
-		control, err = acquireSupervisionControl(parent, opt.Target)
-		if err != nil {
-			return result, err
-		}
-		defer control.Close()
-	}
 
 	reservationID := ""
 	launchAttempts := 0
@@ -353,18 +394,23 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				if err != nil {
 					return result, err
 				}
-				run, recovered, err := recoverClaudeRunForCase(opt.Target, opt, pkg)
+				runOpt := opt
+				run, recovered, err := recoverClaudeRunForCase(opt.Target, runOpt, pkg)
 				if err != nil {
 					return result, err
 				}
 				attemptGeneration := pkg.Launch.Attempt.Generation
 				launchOrdinal := 0
 				if !recovered {
+					runOpt, err = ensureClaudeLaunchControlBinding(opt, pkg)
+					if err != nil {
+						return result, err
+					}
 					if launchAttempts >= opt.MaxAttempts {
 						return result, fmt.Errorf("external session attempt limit reached after %d attempts", launchAttempts)
 					}
 					launched := false
-					run, launched, err = supervisedClaudeRun(parent, opt, pkg, receipt.ReviewerSession, nil)
+					run, launched, err = supervisedClaudeRun(parent, runOpt, pkg, receipt.ReviewerSession, nil)
 					if err != nil {
 						return result, err
 					}
@@ -378,7 +424,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 					if run.success() {
 						if err := validateClaudeStructuredResult(pkg, run); err != nil {
 							run.failureDetail = err.Error()
-						} else if err := persistClaudeRecoveryForCase(opt.Target, opt, pkg, run); err != nil {
+						} else if err := persistClaudeRecoveryForCase(opt.Target, runOpt, pkg, run); err != nil {
 							return result, fmt.Errorf("persist Claude reviewer structured output recovery: %w", err)
 						}
 					}
@@ -416,20 +462,45 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				snapshot := &subagents.ReviewerResultInputSnapshot{
 					Path: snapshotPath, SHA256: bytesSHA256(data), Bytes: int64(len(data)), Data: append([]byte{}, data...),
 				}
-				args := []string{"-ReviewerResultInputSourcePath", snapshotPath, "-Actor", opt.Actor}
-				plan, err := runCurrentStepWithReviewerSnapshot(opt, args, false, snapshot)
+				publicationOpt, err := claudeResultPublicationOptions(opt, pkg, run)
 				if err != nil {
 					return result, err
+				}
+				holdResult := func(disposition string) (Result, error) {
+					result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, receipt.ReviewerSession, "reviewer", disposition, opt.MaxAttempts))
+					result.FinalMode = disposition
+					result.Boundary = append(result.Boundary,
+						"the raw Claude result is held outside canonical member and Reviewer observations",
+						"resume does not publish, intake, complete, or advance this held result",
+					)
+					return result, nil
+				}
+				args := []string{"-ReviewerResultInputSourcePath", snapshotPath, "-Actor", opt.Actor}
+				var plan currentStepPlan
+				prepared, err := executioncontrol.PrepareResult(opt.Target, publicationOpt, func() error {
+					var err error
+					plan, err = runCurrentStepWithReviewerPublication(opt, args, false, snapshot, &publicationOpt)
+					return err
+				})
+				if err != nil {
+					return result, err
+				}
+				if prepared.Held {
+					return holdResult(prepared.Disposition)
 				}
 				if strings.TrimSpace(plan.ExpectedCurrentStepPlanSHA256) == "" {
 					return result, fmt.Errorf("reviewer result save preview omitted the hash-bound plan")
 				}
-				if err := applyCurrentStepWithReviewerSnapshot(opt, plan, args, snapshot); err != nil {
+				if err := applyCurrentStepWithReviewerPublication(opt, plan, args, snapshot, &publicationOpt); err != nil {
+					var held *executioncontrol.ResultHeldError
+					if errors.As(err, &held) {
+						return holdResult(held.Publication.Disposition)
+					}
 					return result, err
 				}
 				result.AppliedSteps++
 				result.SessionCompletions++
-				if err := removeClaudeRecoveryForCase(opt.Target, opt, pkg); err != nil {
+				if err := removeClaudeRecoveryForCase(opt.Target, runOpt, pkg, run); err != nil {
 					return result, err
 				}
 				outcome := "returned"
@@ -532,6 +603,10 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				return result, fmt.Errorf("external session launch package is not ready")
 			}
 			launch := step.HarnessPackage.Launch
+			runOpt, err := ensureClaudeLaunchControlBinding(opt, *step.HarnessPackage)
+			if err != nil {
+				return result, err
+			}
 			if claudeLaunchLimitReached(launch.Attempt.Generation, launchAttempts, opt.MaxAttempts) {
 				return result, fmt.Errorf("external session attempt limit reached after %d attempts", claudeRunAttemptsUsed(launch.Attempt.Generation, launchAttempts))
 			}
@@ -539,7 +614,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				reservationID = launch.Attempt.Session
 			}
 			accepted := false
-			run, launched, supervisionErr := supervisedClaudeRun(parent, opt, *step.HarnessPackage, reservationID, func() error {
+			run, launched, supervisionErr := supervisedClaudeRun(parent, runOpt, *step.HarnessPackage, reservationID, func() error {
 				args := []string{
 					"-ExternalSessionLaunchOutcome", "accepted",
 					"-ExternalSessionActor", opt.Actor,
@@ -621,26 +696,51 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			if run.success() {
 				if err := validateClaudeStructuredResult(*step.HarnessPackage, run); err != nil {
 					run.failureDetail = err.Error()
-				} else if err := persistClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage, run); err != nil {
+				} else if err := persistClaudeRecoveryForCase(opt.Target, runOpt, *step.HarnessPackage, run); err != nil {
 					return result, fmt.Errorf("persist Claude structured output recovery: %w", err)
 				}
 			}
 			if err := observeSupervisionCut("result-first"); err != nil {
 				return result, err
 			}
-			fresh, err := runCurrentStep(opt, nil, false)
-			if err != nil {
-				return result, err
-			}
-			if err := requireRunningHandoffForPackage(*step.HarnessPackage, fresh); err != nil {
-				return result, err
-			}
 			if outcome, replace := claudeRunReplacementOutcome(run, launch.Attempt.Generation, launchAttempts, opt.MaxAttempts); replace {
-				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
-				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor)
+				publicationOpt, err := claudeResultPublicationOptions(opt, *step.HarnessPackage, run)
 				if err != nil {
 					return result, err
 				}
+				holdResult := func(disposition string) (Result, error) {
+					result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, disposition, opt.MaxAttempts))
+					result.FinalMode = disposition
+					result.Boundary = append(result.Boundary,
+						"the raw Claude result is held outside canonical member and Reviewer observations",
+						"resume does not publish, intake, complete, or advance this held result",
+					)
+					return result, nil
+				}
+				var fresh currentStepPlan
+				prepared, err := executioncontrol.PrepareResult(opt.Target, publicationOpt, func() error {
+					var err error
+					fresh, err = runCurrentStep(opt, nil, false)
+					if err != nil {
+						return err
+					}
+					return requireRunningHandoffForPackage(*step.HarnessPackage, fresh)
+				})
+				if err != nil {
+					return result, err
+				}
+				if prepared.Held {
+					return holdResult(prepared.Disposition)
+				}
+				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor, publicationOpt)
+				if err != nil {
+					var held *executioncontrol.ResultHeldError
+					if errors.As(err, &held) {
+						return holdResult(held.Publication.Disposition)
+					}
+					return result, err
+				}
+				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
 				result.AppliedSteps++
 				result.Replacements++
 				if err := observeSupervisionCut("replacement"); err != nil {
@@ -648,16 +748,24 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				}
 				continue
 			}
-			outcome, publishErr := publishClaudeResult(opt, fresh, run)
+			outcome, publishErr := publishClaudeResult(opt, *step.HarnessPackage, run)
 			session := sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts)
 			result.Sessions = append(result.Sessions, session)
-			if publishErr == nil {
-				publishErr = observeSupervisionCut("submission")
-			}
 			if publishErr != nil {
 				return result, hostError("claude-submission-failed", "submission-publication", "result-artifact-publication-may-have-committed", "Refresh status, preserve any already-published result artifacts, and rerun the host to recover the exact current submission step.", true, publishErr)
 			}
-			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
+			if claudeResultHeld(outcome) {
+				result.FinalMode = outcome
+				result.Boundary = append(result.Boundary,
+					"the raw Claude result is held outside canonical member and Reviewer observations",
+					"resume does not publish, intake, complete, or advance this held result",
+				)
+				return result, nil
+			}
+			if publishErr = observeSupervisionCut("submission"); publishErr != nil {
+				return result, hostError("claude-submission-failed", "submission-publication", "result-artifact-publication-may-have-committed", "Refresh status, preserve any already-published result artifacts, and rerun the host to recover the exact current submission step.", true, publishErr)
+			}
+			if err := removeClaudeRecoveryForCase(opt.Target, runOpt, *step.HarnessPackage, run); err != nil {
 				return result, err
 			}
 			if outcome == "returned" {
@@ -673,13 +781,18 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			}
 			attemptGeneration := step.HarnessPackage.Launch.Attempt.Generation
 			launchOrdinal := 0
-			run, recovered, err := recoverClaudeRunForCase(opt.Target, opt, *step.HarnessPackage)
+			runOpt := opt
+			run, recovered, err := recoverClaudeRunForCase(opt.Target, runOpt, *step.HarnessPackage)
 			if err != nil {
 				return result, err
 			}
 			if !recovered {
+				runOpt, err = ensureClaudeLaunchControlBinding(opt, *step.HarnessPackage)
+				if err != nil {
+					return result, err
+				}
 				launched := false
-				run, launched, err = supervisedClaudeRun(parent, opt, *step.HarnessPackage, step.HarnessPackage.Launch.Attempt.Session, nil)
+				run, launched, err = supervisedClaudeRun(parent, runOpt, *step.HarnessPackage, step.HarnessPackage.Launch.Attempt.Session, nil)
 				if launched {
 					launchAttempts++
 					launchOrdinal = launchAttempts
@@ -687,7 +800,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				if err != nil {
 					var fencedErr *supervisionFencedError
 					if errors.As(err, &fencedErr) {
-						run = claudeRunForSupervisionFence(fencedErr, !launched)
+						run = claudeRunForSupervisionFence(fencedErr, runOpt.launchControlBinding, !launched)
 					} else {
 						return result, err
 					}
@@ -701,19 +814,44 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			if err := observeSupervisionCut("result-first"); err != nil {
 				return result, err
 			}
-			fresh, err := runCurrentStep(opt, nil, false)
-			if err != nil {
-				return result, err
-			}
-			if err := requireSameRunningHandoff(preview, fresh); err != nil {
-				return result, err
-			}
 			if outcome, replace := claudeRunReplacementOutcome(run, attemptGeneration, launchOrdinal, opt.MaxAttempts); replace {
-				result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
-				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor)
+				publicationOpt, err := claudeResultPublicationOptions(opt, *step.HarnessPackage, run)
 				if err != nil {
 					return result, err
 				}
+				holdResult := func(disposition string) (Result, error) {
+					result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, disposition, opt.MaxAttempts))
+					result.FinalMode = disposition
+					result.Boundary = append(result.Boundary,
+						"the raw Claude result is held outside canonical member and Reviewer observations",
+						"resume does not publish, intake, complete, or advance this held result",
+					)
+					return result, nil
+				}
+				var fresh currentStepPlan
+				prepared, err := executioncontrol.PrepareResult(opt.Target, publicationOpt, func() error {
+					var err error
+					fresh, err = runCurrentStep(opt, nil, false)
+					if err != nil {
+						return err
+					}
+					return requireSameRunningHandoff(preview, fresh)
+				})
+				if err != nil {
+					return result, err
+				}
+				if prepared.Held {
+					return holdResult(prepared.Disposition)
+				}
+				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor, publicationOpt)
+				if err != nil {
+					var held *executioncontrol.ResultHeldError
+					if errors.As(err, &held) {
+						return holdResult(held.Publication.Disposition)
+					}
+					return result, err
+				}
+				result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
 				result.AppliedSteps++
 				result.Replacements++
 				if err := observeSupervisionCut("replacement"); err != nil {
@@ -721,14 +859,23 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				}
 				continue
 			}
-			outcome, err := publishClaudeResult(opt, fresh, run)
+			outcome, err := publishClaudeResult(opt, *step.HarnessPackage, run)
 			if err != nil {
 				return result, err
+			}
+			if claudeResultHeld(outcome) {
+				result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
+				result.FinalMode = outcome
+				result.Boundary = append(result.Boundary,
+					"the raw Claude result is held outside canonical member and Reviewer observations",
+					"resume does not publish, intake, complete, or advance this held result",
+				)
+				return result, nil
 			}
 			if err := observeSupervisionCut("submission"); err != nil {
 				return result, err
 			}
-			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
+			if err := removeClaudeRecoveryForCase(opt.Target, runOpt, *step.HarnessPackage, run); err != nil {
 				return result, err
 			}
 			session := sessionResult(run, attemptGeneration, launchOrdinal, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome+"-recovered", opt.MaxAttempts)

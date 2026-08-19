@@ -21,6 +21,7 @@ var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`
 
 type Lease struct {
 	metadataRoot        *os.Root
+	laneID              string
 	stableCaseFile      *os.File
 	externalProjectFile *os.File
 	externalLaneFile    *os.File
@@ -181,7 +182,7 @@ func acquire(caseRoot, laneID string, pinInstance bool) (*Lease, error) {
 	if err != nil {
 		return nil, errors.Join(err, metadataRoot.Close())
 	}
-	lease := &Lease{metadataRoot: metadataRoot, metadataPath: metadataPath, metadataInfo: metadataInfo, unlockFile: projectlock.Unlock}
+	lease := &Lease{metadataRoot: metadataRoot, laneID: laneID, metadataPath: metadataPath, metadataInfo: metadataInfo, unlockFile: projectlock.Unlock}
 	casePathRoot, err := os.OpenRoot(casePath)
 	if err != nil {
 		return nil, errors.Join(err, metadataRoot.Close())
@@ -441,6 +442,52 @@ func (lease *Lease) Validate() error {
 		if err != nil || !os.SameFile(check.info, current) {
 			return fmt.Errorf("workstream %s namespace changed while mutation lease is held: %s", check.kind, check.path)
 		}
+	}
+	return nil
+}
+
+func (lease *Lease) ValidateFor(caseRoot string) error {
+	if err := lease.Validate(); err != nil {
+		return err
+	}
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return err
+	}
+	current, err := os.Stat(stateRoot.Path)
+	if err != nil || !os.SameFile(lease.metadataInfo, current) {
+		return errors.Join(err, fmt.Errorf("workstream mutation lease belongs to a different metadata namespace: %s", stateRoot.Path))
+	}
+	return nil
+}
+
+func (lease *Lease) ValidateProjectFor(caseRoot string) error {
+	if err := lease.ValidateFor(caseRoot); err != nil {
+		return err
+	}
+	if lease.laneID != "" {
+		return fmt.Errorf("workstream mutation lease is lane-scoped, not project-scoped: %s", lease.laneID)
+	}
+	return nil
+}
+
+func (lease *Lease) ValidateLaneFor(caseRoot, laneID string) error {
+	if err := lease.ValidateFor(caseRoot); err != nil {
+		return err
+	}
+	if !safeLaneIDSegment.MatchString(laneID) {
+		return fmt.Errorf("invalid lane id for mutation lease validation: %q", laneID)
+	}
+	lanePath, err := projectstate.Join(caseRoot, "lanes", laneID, "lane.json")
+	if err != nil {
+		return err
+	}
+	if lease.laneID != laneID || lease.canonicalLaneFile == nil || lease.canonicalLaneInfo == nil {
+		return fmt.Errorf("workstream mutation lease belongs to a different canonical lane: %s", lanePath)
+	}
+	current, err := os.Stat(lanePath)
+	if err != nil || !os.SameFile(lease.canonicalLaneInfo, current) {
+		return errors.Join(err, fmt.Errorf("workstream mutation lease belongs to a different canonical lane: %s", lanePath))
 	}
 	return nil
 }

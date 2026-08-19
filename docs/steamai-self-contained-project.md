@@ -22,7 +22,7 @@ claude
 /steamai
 ```
 
-用户也可以直接说“开始这个项目，目标是……”“继续推进”“现在到哪了”“按这条意见纠偏”。主 Agent / Mission Commander 负责解释意图，项目内 deterministic runtime 负责状态、currentness、授权、写入和恢复。
+用户也可以直接说“开始这个项目，目标是……”“继续推进”“现在到哪了”“按这条意见纠偏”“暂停/恢复/停止 verifier lane”。主 Agent / Mission Commander 负责解释意图，项目内 deterministic runtime 负责状态、currentness、授权、写入和恢复。
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一可变状态根 `.steamai/`、项目内 runtime 和所选 pack。项目复制或移动后不能依赖旧绝对路径、机器全局 PATH 或原中央 kit 仓库。旧 `/rekit` 与 `.rekit` 在迁移期间只作为兼容入口；迁移必须显式 preview、确认 exact hash 后 Apply，不能自动双写、合并或择优。
 
@@ -38,6 +38,7 @@ claude
 - [x] 完成 `.rekit` → `.steamai` 的 zero-write preview、hash-bound Apply、durable receipt、replay 和 drift/dual-root/reparse 负例。
 - [x] production owner 通过 shared `projectstate` 选择 current/legacy root，并保留明确的 legacy compatibility 测试。
 - [x] case public JSON 按 resolved state root 投影全部 project-local typed command：current `.steamai` 只显示 `/steamai`，legacy `.rekit` 只显示 `/rekit`；投影不改 prose、durable artifact identity 或 source snapshot SHA。
+- [x] exact lane的`pause` / `resume` / `stop`使用独立append-only control generation与review-first exact Apply；paused/stopped/旧generation结果不进入live progression，stop保持durable-first并只允许exact local supervisor owned-containment actuation。
 - [x] Batch 828 的独立恢复边界复核与完整 Windows release minimum 已关闭；当前产品优化路线与完成证据以 `docs/real-usage-hardening-roadmap.md` 和 fresh validation 为准。
 
 ## 1. 日常使用
@@ -62,6 +63,7 @@ claude
 | “现在到哪了”“下一步是什么” | 项目内 runtime 的 compact status；零写入、零 Claude launch |
 | “开始/继续推进” | fresh typed daily owner；多 lane 先显示 typed choices |
 | “按这条意见纠偏” | fresh rejection/reopen route；不自建第二状态机 |
+| “暂停/恢复/停止某条 lane” | fresh exact lane的`control` WhatIf→确认→exact Apply；多lane先选择 |
 | “换新会话接手” | fresh status + scope-bound handoff preview/Apply |
 | “同步模板”“沉淀经验” | `sync` / `promote` review-first，等待精确范围确认 |
 | heavy action | strict profile + fresh `authorized-gate`；超范围立即停止 |
@@ -174,7 +176,19 @@ compact recovery status 只输出 state、pending/blocked/recoverable 和“现�
 
 Claude Code executable、登录、配额或模型不可用时，STeamAI 只说明当前 Claude Code 调用条件不可用；它不承担安装、登录或 provider 配置。
 
-## 7. 有界自治档位
+## 7. Durable execution control
+
+`control` 是独立于 lane status、executor generation、external attempt generation、supervisor run ID 和 gate authorization 的 per-lane append-only stream。genesis 为 `running` / generation 0；合法转换只有 `running → paused|stopped` 与 `paused → running|stopped`，每次成功动作递增 control generation；`stopped` 是终态。
+
+用户从自然语言或 `/steamai` 发起 `pause`、`resume`、`stop` 时，主 Agent必须先从 fresh typed state唯一选择exact lane；多lane先给typed choices。WhatIf零写入并绑定lane/action/actor/reason、current owner、publication stamp与plan SHA；只有用户确认同一preview后才能原样Apply。current-only只写`.steamai`，legacy-only只写`.rekit`，dual root在preview或写入前fail-closed。
+
+每个可能推进状态的结果在birth时捕获exact owner与control binding。raw execution truth始终可记录；但paused结果只生成stable `held-while-paused` receipt，stopped后的结果只生成`late-after-stop`，旧generation或head漂移只生成对应stale/changed receipt。它们不得进入live outputs、intake、Reviewer writeback、completion或checkpoint progression；resume只允许新generation下未来结果继续，不自动释放旧held result。
+
+`pause`只改变durable状态，不做OS suspend。`stop`先提交durable stopped receipt；exact local supervisor child观察该head后发布run-scoped actuation request，只能关闭自己持有的Windows Job/containment handle并追加observation。actuation失败不回滚stopped，terminal raw truth仍独立记录，process termination不是durable stop成功判据；不得按裸PID管理进程，也不得用本路径管理opaque Remote Control session。
+
+control receipt、request SHA、transport/endpoint/delivery observation与actuation observation都只证明各自currentness或事实，不授予authority/confirmed、strict profile、`authorized-gate`或heavy action。consumer writer必须在自己的mutation lease内重新验证binding，不能依靠旧preview或公开status projection绕过paused/stopped head。
+
+## 8. 有界自治档位
 
 `bounded-autonomous-v1` 是“在已经确认的窄范围内免逐次询问”，不是无限权限。它必须显式 opt-in，并绑定：
 
@@ -190,7 +204,7 @@ Claude Code executable、登录、配额或模型不可用时，STeamAI 只说�
 
 每次 Evaluate 都重新检查 owner、profile、expiry、action、target、budget、stop conditions 和 outputs。Profile 不能授予 authority/confirmed，不能自动执行 sync/promote/schema migration，不能把 transport delivery、request SHA 或自然语言当成授权。v1 不包含多 lane/case-wide grant、renewal/rotation 或自动 heavy action。
 
-## 8. Legacy 迁移
+## 9. Legacy 迁移
 
 迁移是独立 review-first operation，不是 `repair` 的隐式副作用：
 

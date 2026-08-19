@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -21,6 +22,7 @@ const testCheckpointSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 func TestExternalSessionUsesSTeamAIStateRoot(t *testing.T) {
 	caseRoot := externalSessionTestCaseRootWithStateDir(t, projectstate.CurrentDir)
+	writeTestFile(t, caseRoot, projectstate.CurrentRel("lanes", "analysis", "lane.json"), []byte(`{"schemaVersion":1,"id":"analysis","status":"open","currentExecutor":"member-a","executorGeneration":1}`+"\n"))
 	job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-steamai", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, projectstate.CurrentRel("member", "manifest.json"), projectstate.CurrentRel("member", "outputs"), []string{"returned"})
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +94,108 @@ func TestMemberRelayPublishesManifestOutputsAndObservationLast(t *testing.T) {
 	replayed, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256)
 	if err != nil || !replayed.AlreadyApplied {
 		t.Fatalf("replay=%+v err=%v", replayed, err)
+	}
+}
+
+func TestControlBoundRelayHoldsSubmissionWhenPausedBeforePublication(t *testing.T) {
+	caseRoot := externalSessionTestCaseRootWithStateDir(t, projectstate.CurrentDir)
+	laneRoot := filepath.Join(caseRoot, projectstate.CurrentDir, "lanes", "analysis")
+	if err := os.MkdirAll(laneRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, caseRoot, projectstate.CurrentRel("lanes", "analysis", "lane.json"), []byte(`{"schemaVersion":1,"id":"analysis","status":"open","currentExecutor":"member-a","executorGeneration":1}`+"\n"))
+	job, err := NewMemberJob(
+		caseRoot,
+		defaults.DefaultPack,
+		testCheckpointSHA,
+		"g000001-a000001-control-bound-relay",
+		memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1},
+		projectstate.CurrentRel("lanes", "analysis", "member-executions", "attempt", "result", "manifest.json"),
+		projectstate.CurrentRel("lanes", "analysis", "member-executions", "attempt", "result", "outputs"),
+		[]string{"returned"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "result.txt"), []byte("bounded result\n"))
+	writeTestSubmission(t, caseRoot, job, Submission{
+		SchemaVersion: SchemaVersion, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256,
+		Outcome: "returned", Actor: "bounded-harness", ObservedAt: "2026-08-19T01:00:00Z", Summary: "bounded result",
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	})
+	plan, err := Preview(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pauseExternalSessionTestLane(t, caseRoot, executioncontrol.ActionPause, "pause before relay", "2026-08-19T01:01:00Z")
+
+	held, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held.Mode != executioncontrol.ResultDispositionHeldWhilePaused || held.Applied || held.ResultPublication == nil ||
+		!held.ResultPublication.Held || held.ResultPublication.Disposition != executioncontrol.ResultDispositionHeldWhilePaused {
+		t.Fatalf("paused relay crossed canonical publication: %+v", held)
+	}
+	for _, rel := range []string{
+		job.MemberManifestPath,
+		filepath.ToSlash(filepath.Join(filepath.FromSlash(job.MemberOutputsRoot), "result.txt")),
+		job.PublicationPath,
+		job.ObservationPath,
+	} {
+		if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("paused relay published live artifact %s: %v", rel, err)
+		}
+	}
+	heldRoot := filepath.Join(caseRoot, projectstate.CurrentDir, "lanes", "analysis", "execution-control", "held-results")
+	entries, err := os.ReadDir(heldRoot)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("paused relay held receipts=%d err=%v", len(entries), err)
+	}
+	receiptPath := filepath.Join(heldRoot, entries[0].Name())
+	beforeResume, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pauseExternalSessionTestLane(t, caseRoot, executioncontrol.ActionResume, "resume future work only", "2026-08-19T01:02:00Z")
+	replayed, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterResume, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Mode != executioncontrol.ResultDispositionHeldWhilePaused || replayed.ResultPublication == nil ||
+		!replayed.ResultPublication.Held || !bytes.Equal(beforeResume, afterResume) {
+		t.Fatalf("resume released or changed sticky held relay: %+v", replayed)
+	}
+	for _, rel := range []string{job.MemberManifestPath, job.PublicationPath, job.ObservationPath} {
+		if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("sticky held relay published after resume %s: %v", rel, err)
+		}
+	}
+}
+
+func pauseExternalSessionTestLane(t *testing.T, caseRoot, action, reason, observedAt string) {
+	t.Helper()
+	preview, err := executioncontrol.Preview(caseRoot, executioncontrol.Options{
+		Lane: "analysis", Action: action, Actor: "main-agent", Reason: reason, PublicationStamp: observedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executioncontrol.Apply(caseRoot, executioncontrol.Options{
+		Lane: preview.Lane, Action: preview.Action, Actor: preview.Actor, Reason: preview.Reason,
+		PublicationStamp: preview.PublicationStamp, ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -384,6 +488,7 @@ func bindTestSubmissionAttempt(t *testing.T, job Job, submission *Submission) {
 	}
 	submission.AttemptID = inspection.Current.AttemptID
 	submission.AttemptSHA256 = inspection.AttemptSHA256
+	submission.LaunchControl = executioncontrol.CloneBinding(inspection.Current.LaunchControl)
 	submission.Harness = inspection.Current.Harness
 	submission.Session = inspection.Current.Session
 	if job.SessionKind == "member" {

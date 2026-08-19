@@ -67,6 +67,7 @@
 | Go runtime / command owner | CodeGraph 查询 `internal/rekit/**`，必要时读 `docs/go-first-convergence-plan.md` 或 `docs/go-runtime-migration.md` 顶部 | 不先读历史 migration 全文 |
 | ledger / evidence / intervention 字段 | `docs/evidence-ledger.md` 顶部和对应事件类型 | 不读取完整 case ledger 或复制大 sidecar |
 | reviewer / lane / external-session transport / gate product path | CodeGraph 查询相关 Go symbols + `docs/agent-team-usage.md` 顶部及对应 transport 小节；真实 Claude host/live gate 按需读 `docs/health-recovery-and-real-executor-plan.md` 顶部；长期分层按需读 `docs/orchestration-plan.md` 顶部 | 不读全部 batch 历史，不把一次性 transport 评估当 canonical 入口 |
+| durable pause/resume/stop 与 late-result isolation | CodeGraph 查询 `executioncontrol` / result publication / `sessionhost` stop actuation symbols；用户方式读 `docs/agent-team-usage.md` 的 durable control 小节，自包含边界读 `docs/steamai-self-contained-project.md` 对应章节 | 不把pause理解成OS suspend，不用PID或Remote Control endpoint猜stop，不把control receipt当授权 |
 | pack authoring / promote/sync | `docs/pack-authoring.md`、`docs/promote-sync.md` 对应章节 | 不把 case artifact 写回仓库 |
 | 旧 case 迁移 / moved metadata | `docs/case-migration.md` 顶部和对应步骤 | 不记录真实 case 路径或 case-specific 进度 |
 | 文档减压 / 路由审计 | 本文件 + 目标文档顶部；用搜索定位旧 read-first 列表 | 不批量重写所有历史文档、不把索引当必读清单 |

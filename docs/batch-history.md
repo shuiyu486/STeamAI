@@ -29,6 +29,16 @@
 
 ## 近期已完成批次与验证
 
+### Batch 831：binary-re convergence
+
+状态：已完成。
+
+用户断点：成熟 `vmp-re` 与通用 `generic-binary-re` 能力重复，默认 pack、public/attached metadata、embedded bundle、文档和smoke仍可能暴露两个active identity；产品获取方式也需固定为canonical source-clone-first，而不是 installer 或PATH fallback。
+
+实现：以成熟VMP/IDA能力为主体发布唯一active `packs/binary-re`，吸收通用static triage、function/API behavior review、recipes、task types、deny patterns与Agent Team route；新增集中pack identity policy，旧`vmp-re`/`generic-binary-re`在public参数、attached metadata或embedded bundle进入写入/输出前返回typed `pack-migration-required`，不提供alias、双写、自动映射或自动迁移。canonical repository/clone固定为`shuiyu486/STeamAI`，Go+Claude Code保持预期依赖，current项目只使用project-local verified runtime bundle。
+
+验证结果：受影响packidentity、manifest、instance、runtime/runtimebundle、adapterhost、hostcmd、onboarding、workstream、CLI与defaultdocs fresh tests，以及catalog/inventory/discovery、compatibility façade和current `binary-re` hash-bound dry-run smoke通过。该批未提前实现pause/resume/stop或Batch 833 ordinary actual analysis；本地证据不冒充remote CI green或formal release。
+
 ### Batch 830：core product closure
 
 状态：已完成。

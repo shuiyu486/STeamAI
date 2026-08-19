@@ -167,8 +167,13 @@ func TestRunRecoveredStructuredFailurePublishesFailedWithoutCompletion(t *testin
 	opt, running := runningSessionhostAttemptFixture(t, 1)
 	pkg := *running.ExternalSessionStep.HarnessPackage
 	bindTrustedSupervisionOptionsForTest(t, &opt, 3)
+	bound, err := ensureClaudeLaunchControlBinding(opt, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	run := claudeRun{
+		launchControlBinding: cloneClaudeLaunchControlBinding(bound.launchControlBinding),
 		envelope: claudeEnvelope{
 			Type:      "result",
 			Subtype:   "success",
@@ -240,7 +245,7 @@ func TestRunRecoveredStructuredFailurePublishesFailedWithoutCompletion(t *testin
 		submission.Reason != "bounded member could not complete" {
 		t.Fatalf("recovered structured failure submission=%+v", submission)
 	}
-	if _, statErr := os.Lstat(filepath.Join(recoveryRoot, claudeRecoveryPath(pkg))); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Lstat(filepath.Join(recoveryRoot, claudeRecoveryPath(pkg, run.launchControlBinding))); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("recovered structured failure left consumed recovery: %v", statErr)
 	}
 }

@@ -31,6 +31,7 @@ type statusCompactInventory struct {
 	CaseMission           *statusCompactMission                    `json:"caseMission,omitempty"`
 	Onboarding            *statusCompactOnboarding                 `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusCompactMissionControlRunbook      `json:"missionControlRunbook,omitempty"`
+	ExecutionControls     []statusCompactExecutionControl          `json:"executionControls,omitempty"`
 	CurrentSyncRecovery   *statusCompactCurrentSyncRecovery        `json:"currentSyncRecovery,omitempty"`
 	Choices               []mission.MissionCommanderNextActionItem `json:"choices,omitempty"`
 }
@@ -64,6 +65,19 @@ type statusCompactMission struct {
 type statusCompactOnboarding struct {
 	State     string `json:"state,omitempty"`
 	Committed bool   `json:"committed,omitempty"`
+}
+
+type statusCompactExecutionControl struct {
+	Lane                 string `json:"lane"`
+	State                string `json:"state"`
+	CurrentGeneration    int    `json:"currentGeneration"`
+	CurrentReceiptSHA256 string `json:"currentReceiptSha256,omitempty"`
+	Pending              bool   `json:"pending"`
+	PendingGeneration    int    `json:"pendingGeneration,omitempty"`
+	PendingAction        string `json:"pendingAction,omitempty"`
+	RecoveryCommand      string `json:"recoveryCommand,omitempty"`
+	Blocked              bool   `json:"blocked"`
+	Reason               string `json:"reason,omitempty"`
 }
 
 type statusCompactCurrentSyncRecovery struct {
@@ -139,6 +153,20 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 			PackMatchesMetadata: status.Case.PackMatchesMetadata,
 			Moved:               status.Case.Moved,
 		}
+	}
+	for _, control := range status.ExecutionControls {
+		compact.ExecutionControls = append(compact.ExecutionControls, statusCompactExecutionControl{
+			Lane:                 control.Lane,
+			State:                control.State,
+			CurrentGeneration:    control.CurrentGeneration,
+			CurrentReceiptSHA256: control.CurrentReceiptSHA256,
+			Pending:              control.Pending,
+			PendingGeneration:    control.PendingGeneration,
+			PendingAction:        control.PendingAction,
+			RecoveryCommand:      control.RecoveryCommand,
+			Blocked:              control.Blocked,
+			Reason:               control.Reason,
+		})
 	}
 	if status.Onboarding != nil {
 		compact.Onboarding = &statusCompactOnboarding{

@@ -63,32 +63,49 @@ func Path(caseRoot, laneID string) (string, string, error) {
 }
 
 func Read(caseRoot, laneID string) (Snapshot, error) {
-	_, path, err := Path(caseRoot, laneID)
+	owner, found, err := ReadOptional(caseRoot, laneID)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	data, err := readStableRegularFile(path, 1<<20)
+	if !found {
+		return Snapshot{}, fmt.Errorf("lane %s has no current durable executor owner", laneID)
+	}
+	return owner, nil
+}
+
+func ReadOptional(caseRoot, laneID string) (Snapshot, bool, error) {
+	_, path, err := Path(caseRoot, laneID)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("read durable lane owner %s: %w", laneID, err)
+		return Snapshot{}, false, err
+	}
+	data, err := readStableRegularFile(path, 1<<20)
+	if os.IsNotExist(err) {
+		return Snapshot{}, false, nil
+	}
+	if err != nil {
+		return Snapshot{}, false, fmt.Errorf("read durable lane owner %s: %w", laneID, err)
 	}
 	var lane laneFile
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&lane); err != nil {
-		return Snapshot{}, fmt.Errorf("invalid lane json %s: %w", path, err)
+		return Snapshot{}, false, fmt.Errorf("invalid lane json %s: %w", path, err)
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
-		return Snapshot{}, fmt.Errorf("invalid lane json %s: trailing data", path)
+		return Snapshot{}, false, fmt.Errorf("invalid lane json %s: trailing data", path)
 	}
 	if !strings.EqualFold(strings.TrimSpace(lane.ID), strings.TrimSpace(laneID)) {
-		return Snapshot{}, fmt.Errorf("lane id mismatch for %s: lane.json declares %s", laneID, lane.ID)
+		return Snapshot{}, false, fmt.Errorf("lane id mismatch for %s: lane.json declares %s", laneID, lane.ID)
 	}
 	owner := Snapshot{Lane: lane.ID, CurrentExecutor: strings.TrimSpace(lane.CurrentExecutor), ExecutorGeneration: lane.ExecutorGeneration}
-	if owner.CurrentExecutor == "" || owner.ExecutorGeneration <= 0 {
-		return Snapshot{}, fmt.Errorf("lane %s has no current durable executor owner", laneID)
+	if owner.CurrentExecutor == "" && owner.ExecutorGeneration == 0 {
+		return Snapshot{}, false, nil
 	}
-	return owner, nil
+	if owner.CurrentExecutor == "" || owner.ExecutorGeneration <= 0 {
+		return Snapshot{}, false, fmt.Errorf("lane %s has incomplete durable executor owner", laneID)
+	}
+	return owner, true, nil
 }
 
 func Exists(caseRoot, laneID string) (bool, error) {

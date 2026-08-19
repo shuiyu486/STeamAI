@@ -23,6 +23,9 @@ claude
 继续推进。
 现在到哪了？
 按这条意见纠偏……
+暂停 verifier lane。
+恢复 verifier lane。
+停止 verifier lane。
 ```
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
@@ -131,6 +134,8 @@ claude
 ```
 
 主 Agent 会把这些意图交给 `/steamai` 背后的 typed daily owner 和项目内 runtime；状态、继续、开工作线、接手、授权、记录、同步和回流都是确定性内部动作，不是用户需要记忆的命令。runtime 只执行 fresh typed request：`commandExecutable=true`、未 blocked、typed invocation 与 expected receipt 一致，并且用户当前意图覆盖 exact request；guidance、model-tool handoff 和 command template 不会被当成 shell 命令执行。
+
+暂停、恢复或停止同样只需自然语言。主 Agent先从fresh status确定exact lane并展示review-first preview；多lane先让用户选择。`pause`只提交durable paused状态，不做OS suspend；`resume`只允许新generation的未来结果继续，旧held结果不自动释放；`stop`先提交durable stopped receipt，再由exact local supervisor owner尝试关闭自己持有的containment。actuation失败不回滚stopped，process termination不是durable成功判据，opaque Remote Control session不受本地actuation管理；control也不授予authority/confirmed、gate或heavy action。
 
 需要外部 member 或 Reviewer 时，Mission Commander 返回 bounded typed handoff，保存 durable checkpoint、attempt、owner 与 output hash lineage。accepted 只证明外部会话已被接收，不证明任务完成；迟到或旧代结果不能推进 current state，uncertain delivery 不自动重发。中断后由 fresh status 给出唯一恢复动作，不靠 PID、文件存在或 prose 猜测状态。详细 dispatcher、claim、launch、submission 与 result-first/submission-last 合同按需见 `docs/agent-team-usage.md`。
 

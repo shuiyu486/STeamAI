@@ -34,7 +34,7 @@
 
 ## 当前推进原则
 
-当前已批准路线是 `steamai-product-optimization-v1`，Batch 830～833 严格串行；Batch 830～831 已完成，当前只实施 Batch 832，fresh 验证后再解锁 Batch 833。保持 source-clone-first，Go + Claude Code 是预期依赖，不做 installer。canonical repository/clone 使用 `shuiyu486/STeamAI`；Go module/internal `rekit`、legacy `/rekit` / `.rekit` 暂保留兼容。完成态只认 Git-local machine receipt 和本地 tracking ref；远程 CI、跨平台 runtime E2E 仅作专项证据，cross-compile 不等于运行证据。
+当前已批准路线是 `steamai-product-optimization-v1`，Batch 830～833 严格串行；Batch 830～832 已完成，当前只实施 Batch 833，完成后再做路线级完整验证与清理。保持 source-clone-first，Go + Claude Code 是预期依赖，不做 installer。canonical repository/clone 使用 `shuiyu486/STeamAI`；Go module/internal `rekit`、legacy `/rekit` / `.rekit` 暂保留兼容。完成态只认 Git-local machine receipt 和本地 tracking ref；远程 CI、跨平台 runtime E2E 仅作专项证据，cross-compile 不等于运行证据。
 
 保持 PowerShell-free/Go-native；禁止新增 PowerShell runtime logic。避免单字段 contract/inventory/metadata 微批次，把支撑改动并入产品闭环。PowerShell replacement/removal 有 Go-native 替代、文档和验证时可继续；公共入口删除门禁不完整则升级。
 
@@ -52,6 +52,7 @@
 - `.steamai` 与 `.rekit` dual-read/single-write：current-only 单写 `.steamai`，legacy-only 单写 `.rekit`，neither 的新项目选择 `.steamai`，both fail-closed；禁止双写、自动合并、自动择优或 reparse alias。
 - case public JSON 的 project-local typed command 由 resolved state root 统一投影：current `.steamai` 只显示 `/steamai`，legacy `.rekit` 只显示 `/rekit`；只遍历显式 typed structure，不做 JSON 文本替换，不改 prose 或 durable/source identity。
 - `bounded-autonomous-v1` 只是显式 opt-in 的单 lane/exact action/exact target/有限预算/短 expiry 档位，每次仍重验并留证；不是无限权限，也不授予 authority/confirmed、sync/promote 或 schema migration。
+- exact lane `control` 使用独立 append-only generation 与 review-first stamp/hash Apply；pause 不做 OS suspend，stop 先 durable 提交且只允许 exact local supervisor owner 关闭自己持有的 containment。actuation 失败不回滚 stopped，process termination 不是 durable stop 成功判据，opaque Remote Control session 不受本路径管理；旧 generation 结果不得推进 live output、Reviewer、completion 或 checkpoint。
 - current-sync Apply 与 current `.steamai` durable detached-supervisor handoff 依赖 handle-bound exact filesystem mutation；Windows提供该能力，非 Windows 在 lease/spec/intent/cancellation 等持久化副作用前 fail-closed。Read-only/preview 与 legacy `.rekit` zero-handoff compatibility 不应被一并禁用。
 
 ## 验证命令

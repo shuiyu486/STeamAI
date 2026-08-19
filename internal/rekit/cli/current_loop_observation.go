@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -22,21 +23,22 @@ const (
 )
 
 type currentLoopObservationEnvelope struct {
-	SchemaVersion            int    `json:"schemaVersion"`
-	Kind                     string `json:"kind"`
-	CheckpointSHA256         string `json:"checkpointSha256"`
-	ObservationKind          string `json:"observationKind"`
-	Actor                    string `json:"actor"`
-	ObservedAt               string `json:"observedAt,omitempty"`
-	Reason                   string `json:"reason,omitempty"`
-	MemberAttemptID          string `json:"memberAttemptId,omitempty"`
-	ReviewerAttemptSHA256    string `json:"reviewerAttemptSha256,omitempty"`
-	ReviewerHarness          string `json:"reviewerHarness,omitempty"`
-	ReviewerSession          string `json:"reviewerSession,omitempty"`
-	ReviewerResultSourcePath string `json:"reviewerResultSourcePath,omitempty"`
-	ReviewerExitStatus       string `json:"reviewerExitStatus,omitempty"`
-	NoAuthorityOrConfirmed   bool   `json:"noAuthorityOrConfirmed"`
-	NoHeavyTool              bool   `json:"noHeavyTool"`
+	SchemaVersion            int                       `json:"schemaVersion"`
+	Kind                     string                    `json:"kind"`
+	CheckpointSHA256         string                    `json:"checkpointSha256"`
+	ObservationKind          string                    `json:"observationKind"`
+	Actor                    string                    `json:"actor"`
+	ObservedAt               string                    `json:"observedAt,omitempty"`
+	Reason                   string                    `json:"reason,omitempty"`
+	MemberAttemptID          string                    `json:"memberAttemptId,omitempty"`
+	ReviewerAttemptSHA256    string                    `json:"reviewerAttemptSha256,omitempty"`
+	ReviewerHarness          string                    `json:"reviewerHarness,omitempty"`
+	ReviewerSession          string                    `json:"reviewerSession,omitempty"`
+	ReviewerResultSourcePath string                    `json:"reviewerResultSourcePath,omitempty"`
+	ReviewerExitStatus       string                    `json:"reviewerExitStatus,omitempty"`
+	LaunchControl            *executioncontrol.Binding `json:"launchControl,omitempty"`
+	NoAuthorityOrConfirmed   bool                      `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool              bool                      `json:"noHeavyTool"`
 }
 
 type currentLoopObservationSnapshot struct {
@@ -80,6 +82,18 @@ func applyCurrentLoopObservationSnapshot(ctx runtime.Context, opt *Options, insp
 	if err := qualifyCurrentLoopObservation(&snapshot.Envelope, inspection); err != nil {
 		return err
 	}
+	if snapshot.Envelope.LaunchControl != nil {
+		if err := executioncontrol.ValidateBinding(*snapshot.Envelope.LaunchControl); err != nil {
+			return fmt.Errorf("run-current-loop observation execution control binding is invalid: %w", err)
+		}
+		if snapshot.Envelope.LaunchControl.Lane != strings.TrimSpace(inspection.ExpectedLane) {
+			return fmt.Errorf("run-current-loop observation execution control lane does not match checkpoint continuation")
+		}
+	}
+	if opt.currentLoopExecutionControlBinding != nil && !executioncontrol.SameBinding(opt.currentLoopExecutionControlBinding, snapshot.Envelope.LaunchControl) {
+		return fmt.Errorf("run-current-loop observation execution control binding changed within the result turn")
+	}
+	opt.currentLoopExecutionControlBinding = executioncontrol.CloneBinding(snapshot.Envelope.LaunchControl)
 	if requireCanonical {
 		inCanonicalInbox, err := currentLoopObservationInCanonicalInbox(ctx.Target, snapshot.Path)
 		if err != nil {

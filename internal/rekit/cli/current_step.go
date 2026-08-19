@@ -11,7 +11,9 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
@@ -92,6 +94,15 @@ type currentStepPlanIdentity struct {
 	ExpectedNestedStepPlanSHA256 string                                `json:"expectedNestedStepPlanSha256"`
 	ExpectedMemberPlanSHA256     string                                `json:"expectedMemberPlanSha256,omitempty"`
 	External                     *currentStepExternalApplyIdentity     `json:"external,omitempty"`
+	ReplacementResultPublication *currentStepResultPublicationIdentity `json:"replacementResultPublication,omitempty"`
+}
+
+type currentStepResultPublicationIdentity struct {
+	Lane       string                        `json:"lane"`
+	Birth      executioncontrol.ResultBirth  `json:"birth"`
+	Source     executioncontrol.ResultSource `json:"source"`
+	Actor      string                        `json:"actor"`
+	ObservedAt string                        `json:"observedAt"`
 }
 
 type currentStepExternalApplyIdentity struct {
@@ -111,7 +122,7 @@ var (
 	currentStepWithPackMemoryConsumerTaskLease = packmemoryconsumption.WithCurrentConsumerTaskLease
 )
 
-func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
+func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) (retErr error) {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("run-current-step requires -Target for an attached case")
 	}
@@ -127,7 +138,44 @@ func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err := validateCurrentStepOuterArgs(opt); err != nil {
 		return err
 	}
+	releasePublication, err := acquireReviewerResultPublicationLease(ctx, &opt)
+	if err != nil {
+		return err
+	}
+	if releasePublication != nil {
+		defer func() { retErr = releasePublication(retErr) }()
+	}
+	releaseReplacement, err := acquireReplacementResultPublicationLease(ctx, &opt)
+	if err != nil {
+		return err
+	}
+	if releaseReplacement != nil {
+		defer func() { retErr = releaseReplacement(retErr) }()
+	}
 	plan, err := buildCurrentStepPlan(ctx, opt)
+	if err != nil && opt.Apply && !opt.WhatIf && strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" {
+		recoveryOpt := opt
+		recoveryOpt.currentLoopExecutionControlRecovery = true
+		recoveryStatus, recoveryErr := buildControlBoundResultRecoveryStatusInventory(ctx, recoveryOpt)
+		if recoveryErr == nil {
+			recoveryPlan, buildErr := buildCurrentStepPlanFromStatus(ctx, recoveryOpt, recoveryStatus)
+			if buildErr == nil && recoveryPlan.ExternalSessionStep != nil &&
+				recoveryPlan.ExternalSessionStep.Mode == "result-turn" &&
+				recoveryPlan.ExternalSessionStep.Turn != nil &&
+				recoveryPlan.ExternalSessionStep.Turn.Relay.Submission.LaunchControl != nil {
+				plan = recoveryPlan
+				opt = recoveryOpt
+				err = nil
+			} else if buildErr != nil {
+				recoveryErr = buildErr
+			} else {
+				recoveryErr = fmt.Errorf("recovered route is not one control-bound external result turn")
+			}
+		}
+		if err != nil && recoveryErr != nil {
+			return errors.Join(err, fmt.Errorf("control-bound result recovery: %w", recoveryErr))
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -166,6 +214,93 @@ func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
 		return err
 	}
 	return writeJSON(out, plan)
+}
+
+func acquireReplacementResultPublicationLease(
+	ctx runtime.Context,
+	opt *Options,
+) (func(error) error, error) {
+	if opt == nil || opt.currentLoopReplacementResultPublication == nil || !opt.Apply {
+		return nil, nil
+	}
+	if opt.currentLoopReplacementMutationLease != nil || opt.currentLoopReplacementResultChecked != nil {
+		return nil, fmt.Errorf("replacement result publication runner already carries mutation ownership")
+	}
+	publication := *opt.currentLoopReplacementResultPublication
+	lease, err := lanemutation.AcquireProject(ctx.Target)
+	if err != nil {
+		return nil, err
+	}
+	fail := func(cause error) (func(error) error, error) {
+		return nil, errors.Join(cause, lease.Unlock())
+	}
+	if err := lease.ValidateProjectFor(ctx.Target); err != nil {
+		return fail(err)
+	}
+	prepared, err := executioncontrol.PrepareResultWithProjectLease(ctx.Target, lease, publication)
+	if err != nil {
+		return fail(err)
+	}
+	if prepared.Held {
+		return fail(&executioncontrol.ResultHeldError{Publication: prepared})
+	}
+	if prepared.Disposition != executioncontrol.ResultDispositionCurrent {
+		return fail(fmt.Errorf("replacement result preparation returned unexpected disposition %q", prepared.Disposition))
+	}
+	checked := false
+	opt.currentLoopReplacementMutationLease = lease
+	opt.currentLoopReplacementResultChecked = &checked
+	return func(runErr error) error {
+		if runErr == nil && !checked {
+			runErr = fmt.Errorf("replacement result Apply completed without a currentness check or committed replay")
+		}
+		return errors.Join(runErr, lease.Unlock())
+	}, nil
+}
+
+func acquireReviewerResultPublicationLease(
+	ctx runtime.Context,
+	opt *Options,
+) (func(error) error, error) {
+	if opt == nil || opt.currentLoopReviewerResultPublication == nil || !opt.Apply {
+		return nil, nil
+	}
+	if opt.currentLoopReviewerMutationLease != nil || opt.currentLoopReviewerResultPublished != nil {
+		return nil, fmt.Errorf("reviewer result publication runner already carries mutation ownership")
+	}
+	publication := *opt.currentLoopReviewerResultPublication
+	lease, err := lanemutation.AcquireOpenLane(ctx.Target, publication.Lane, "reviewer result publication")
+	if err != nil {
+		return nil, err
+	}
+	fail := func(cause error) (func(error) error, error) {
+		return nil, errors.Join(cause, lease.Unlock())
+	}
+	if err := lease.ValidateLaneFor(ctx.Target, publication.Lane); err != nil {
+		return fail(err)
+	}
+	if err := ensureReviewerWaveLaneNotIntervened(ctx.Target, publication.Lane); err != nil {
+		return fail(err)
+	}
+	prepared, err := executioncontrol.PrepareResultWithLease(ctx.Target, lease, publication)
+	if err != nil {
+		return fail(err)
+	}
+	if prepared.Held {
+		return fail(&executioncontrol.ResultHeldError{Publication: prepared})
+	}
+	if prepared.Disposition != executioncontrol.ResultDispositionCurrent {
+		return fail(fmt.Errorf("reviewer result preparation returned unexpected disposition %q", prepared.Disposition))
+	}
+	published := false
+	opt.currentLoopReviewerMutationLease = lease
+	opt.currentLoopReviewerResultPublished = &published
+	return func(runErr error) error {
+		if runErr == nil && !published {
+			runErr = fmt.Errorf("reviewer result Apply completed without canonical publication")
+		}
+		return errors.Join(runErr, lease.Unlock())
+	}, nil
 }
 
 func buildCurrentStepPlan(ctx runtime.Context, opt Options) (currentStepPlan, error) {
@@ -372,6 +507,16 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 		externalIdentity := currentStepExternalIdentity(plan.ExternalSessionStep)
 		identity.External = &externalIdentity
 	}
+	if publication := opt.currentLoopReplacementResultPublication; publication != nil {
+		if plan.ExternalSessionStep == nil || plan.ExternalSessionStep.Mode != "replacement-attempt" ||
+			plan.ExternalSessionStep.Attempt == nil || strings.TrimSpace(plan.ExternalSessionStep.Attempt.Attempt.SupersedesSHA256) == "" {
+			return currentStepPlan{}, fmt.Errorf("replacement result publication provenance requires the exact replacement-attempt route")
+		}
+		identity.ReplacementResultPublication = &currentStepResultPublicationIdentity{
+			Lane: publication.Lane, Birth: publication.Birth, Source: publication.Source,
+			Actor: publication.Actor, ObservedAt: publication.ObservedAt,
+		}
+	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		return currentStepPlan{}, err
@@ -419,10 +564,17 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 			var memberResult memberexecution.Result
 			applyMember := func() error {
 				var err error
-				memberResult, err = memberexecution.ApplyCurrent(
+				memberResult, err = memberexecution.ApplyCurrentWithLease(
 					*plan.MemberExecution,
 					opt.ExpectedMemberExecutionPlanSHA256,
-					func() error { return validateCurrentMemberExecutionRequest(ctx, opt, plan.CurrentDriverRequest) },
+					func(lease *lanemutation.Lease) error {
+						if binding := opt.currentLoopExecutionControlBinding; binding != nil {
+							if err := executioncontrol.RequireCurrentBindingWithLease(ctx.Target, lease, *binding); err != nil {
+								return err
+							}
+						}
+						return validateCurrentMemberExecutionRequest(ctx, opt, plan.CurrentDriverRequest)
+					},
 				)
 				return err
 			}

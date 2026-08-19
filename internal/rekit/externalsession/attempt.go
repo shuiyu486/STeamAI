@@ -12,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
@@ -24,27 +26,28 @@ const (
 )
 
 type Attempt struct {
-	SchemaVersion       int      `json:"schemaVersion"`
-	Kind                string   `json:"kind"`
-	AttemptID           string   `json:"attemptId"`
-	JobID               string   `json:"jobId"`
-	JobSHA256           string   `json:"jobSha256"`
-	CheckpointSHA256    string   `json:"checkpointSha256"`
-	SessionKind         string   `json:"sessionKind"`
-	Generation          int      `json:"generation"`
-	Harness             string   `json:"harness"`
-	Session             string   `json:"session"`
-	Actor               string   `json:"actor"`
-	StartedAt           string   `json:"startedAt"`
-	SupersedesSHA256    string   `json:"supersedesSha256,omitempty"`
-	SubmissionPath      string   `json:"submissionPath"`
-	SubmissionOutputs   string   `json:"submissionOutputs,omitempty"`
-	SubmissionResult    string   `json:"submissionResult,omitempty"`
-	AllowedOutcomes     []string `json:"allowedOutcomes"`
-	NoSessionManagement bool     `json:"noSessionManagement"`
-	NoHeavyTool         bool     `json:"noHeavyTool"`
-	NoAuthority         bool     `json:"noAuthority"`
-	NoConfirmed         bool     `json:"noConfirmed"`
+	SchemaVersion       int                       `json:"schemaVersion"`
+	Kind                string                    `json:"kind"`
+	AttemptID           string                    `json:"attemptId"`
+	JobID               string                    `json:"jobId"`
+	JobSHA256           string                    `json:"jobSha256"`
+	CheckpointSHA256    string                    `json:"checkpointSha256"`
+	SessionKind         string                    `json:"sessionKind"`
+	Generation          int                       `json:"generation"`
+	Harness             string                    `json:"harness"`
+	Session             string                    `json:"session"`
+	Actor               string                    `json:"actor"`
+	StartedAt           string                    `json:"startedAt"`
+	SupersedesSHA256    string                    `json:"supersedesSha256,omitempty"`
+	SubmissionPath      string                    `json:"submissionPath"`
+	SubmissionOutputs   string                    `json:"submissionOutputs,omitempty"`
+	SubmissionResult    string                    `json:"submissionResult,omitempty"`
+	AllowedOutcomes     []string                  `json:"allowedOutcomes"`
+	LaunchControl       *executioncontrol.Binding `json:"launchControl,omitempty"`
+	NoSessionManagement bool                      `json:"noSessionManagement"`
+	NoHeavyTool         bool                      `json:"noHeavyTool"`
+	NoAuthority         bool                      `json:"noAuthority"`
+	NoConfirmed         bool                      `json:"noConfirmed"`
 }
 
 type AttemptInspection struct {
@@ -129,6 +132,18 @@ func InspectAttempt(job Job) (AttemptInspection, error) {
 }
 
 func PreviewAttempt(job Job, harness, session, actor, startedAt, supersedesSHA256 string) (AttemptPlan, error) {
+	return previewAttempt(job, harness, session, actor, startedAt, supersedesSHA256, nil)
+}
+
+func previewAttempt(
+	job Job,
+	harness,
+	session,
+	actor,
+	startedAt,
+	supersedesSHA256 string,
+	lease *lanemutation.Lease,
+) (AttemptPlan, error) {
 	inspection, err := InspectAttempt(job)
 	if err != nil {
 		return AttemptPlan{}, err
@@ -203,6 +218,10 @@ func PreviewAttempt(job Job, harness, session, actor, startedAt, supersedesSHA25
 	} else {
 		attempt.SubmissionResult = filepath.ToSlash(filepath.Join(attemptRoot, "reviewer-result.json"))
 	}
+	attempt.LaunchControl, err = captureAttemptLaunchControl(job, lease)
+	if err != nil {
+		return AttemptPlan{}, err
+	}
 	envelopeBytes, err := canonical(attemptEnvelope{SchemaVersion: SchemaVersion, Kind: KindAttempt, Attempt: attempt})
 	if err != nil {
 		return AttemptPlan{}, err
@@ -235,15 +254,50 @@ func PreviewAttempt(job Job, harness, session, actor, startedAt, supersedesSHA25
 }
 
 func ResolveAttemptApplyPlan(job Job, harness, session, actor, startedAt, supersedesSHA256, expectedPlanSHA256 string) (AttemptPlan, error) {
-	return resolveAttemptApplyPlan(job, harness, session, actor, startedAt, supersedesSHA256, expectedPlanSHA256, true)
+	return resolveAttemptApplyPlan(job, harness, session, actor, startedAt, supersedesSHA256, expectedPlanSHA256, true, nil)
 }
 
 func ResolveAttemptApplyPlanUnbound(job Job, harness, session, actor, startedAt, supersedesSHA256 string) (AttemptPlan, error) {
-	return resolveAttemptApplyPlan(job, harness, session, actor, startedAt, supersedesSHA256, "", false)
+	return resolveAttemptApplyPlan(job, harness, session, actor, startedAt, supersedesSHA256, "", false, nil)
 }
 
-func resolveAttemptApplyPlan(job Job, harness, session, actor, startedAt, supersedesSHA256, expectedPlanSHA256 string, validateExpected bool) (AttemptPlan, error) {
-	plan, err := PreviewAttempt(job, harness, session, actor, startedAt, supersedesSHA256)
+func ResolveAttemptApplyPlanUnboundWithProjectLease(
+	job Job,
+	harness,
+	session,
+	actor,
+	startedAt,
+	supersedesSHA256 string,
+	lease *lanemutation.Lease,
+) (AttemptPlan, error) {
+	if lease == nil {
+		return AttemptPlan{}, fmt.Errorf("external session attempt plan requires an existing project mutation lease")
+	}
+	if err := lease.ValidateProjectFor(job.CaseRoot); err != nil {
+		return AttemptPlan{}, err
+	}
+	plan, err := resolveAttemptApplyPlan(job, harness, session, actor, startedAt, supersedesSHA256, "", false, lease)
+	if err != nil {
+		return AttemptPlan{}, err
+	}
+	if err := lease.ValidateProjectFor(job.CaseRoot); err != nil {
+		return AttemptPlan{}, err
+	}
+	return plan, nil
+}
+
+func resolveAttemptApplyPlan(
+	job Job,
+	harness,
+	session,
+	actor,
+	startedAt,
+	supersedesSHA256,
+	expectedPlanSHA256 string,
+	validateExpected bool,
+	lease *lanemutation.Lease,
+) (AttemptPlan, error) {
+	plan, err := previewAttempt(job, harness, session, actor, startedAt, supersedesSHA256, lease)
 	if err == nil {
 		return plan, nil
 	}
@@ -288,14 +342,31 @@ func ApplyAttempt(plan AttemptPlan, expectedJobSHA256, expectedPlanSHA256 string
 }
 
 func ApplyAttemptCurrent(plan AttemptPlan, expectedJobSHA256, expectedPlanSHA256 string, current func() (Job, error)) (_ AttemptPlan, retErr error) {
-	if !strings.EqualFold(strings.TrimSpace(expectedJobSHA256), plan.JobSHA256) || !strings.EqualFold(strings.TrimSpace(expectedPlanSHA256), plan.ExpectedPlanSHA256) {
-		return AttemptPlan{}, fmt.Errorf("external session attempt job or plan sha256 mismatch; rerun WhatIf")
-	}
 	lease, err := lanemutation.AcquireProject(plan.Job.CaseRoot)
 	if err != nil {
 		return AttemptPlan{}, err
 	}
 	defer func() { retErr = errorsJoin(retErr, lease.Unlock()) }()
+	return ApplyAttemptCurrentWithLease(plan, expectedJobSHA256, expectedPlanSHA256, lease, current, nil)
+}
+
+func ApplyAttemptCurrentWithLease(
+	plan AttemptPlan,
+	expectedJobSHA256,
+	expectedPlanSHA256 string,
+	lease *lanemutation.Lease,
+	current func() (Job, error),
+	beforePublication func(*lanemutation.Lease) error,
+) (AttemptPlan, error) {
+	if !strings.EqualFold(strings.TrimSpace(expectedJobSHA256), plan.JobSHA256) || !strings.EqualFold(strings.TrimSpace(expectedPlanSHA256), plan.ExpectedPlanSHA256) {
+		return AttemptPlan{}, fmt.Errorf("external session attempt job or plan sha256 mismatch; rerun WhatIf")
+	}
+	if lease == nil {
+		return AttemptPlan{}, fmt.Errorf("external session attempt requires an existing project mutation lease")
+	}
+	if err := lease.ValidateProjectFor(plan.Job.CaseRoot); err != nil {
+		return AttemptPlan{}, err
+	}
 	if current != nil {
 		live, err := current()
 		if err != nil {
@@ -310,7 +381,7 @@ func ApplyAttemptCurrent(plan AttemptPlan, expectedJobSHA256, expectedPlanSHA256
 	if dispatched && (plan.Dispatch == nil || len(plan.dispatchData) == 0 || plan.DispatchPath == "" || !isSHA(plan.DispatchSHA256)) {
 		return AttemptPlan{}, fmt.Errorf("external session attempt requires an exact immutable dispatch ticket")
 	}
-	fresh, err := PreviewAttempt(plan.Job, plan.Attempt.Harness, plan.Attempt.Session, plan.Attempt.Actor, plan.Attempt.StartedAt, plan.Attempt.SupersedesSHA256)
+	fresh, err := previewAttempt(plan.Job, plan.Attempt.Harness, plan.Attempt.Session, plan.Attempt.Actor, plan.Attempt.StartedAt, plan.Attempt.SupersedesSHA256, lease)
 	if err != nil {
 		if inspection, inspectErr := InspectAttempt(plan.Job); inspectErr == nil && inspection.Current != nil && inspection.AttemptSHA256 == hash(plan.data) {
 			if dispatched {
@@ -353,6 +424,14 @@ func ApplyAttemptCurrent(plan AttemptPlan, expectedJobSHA256, expectedPlanSHA256
 			return AttemptPlan{}, err
 		}
 	}
+	if beforePublication != nil {
+		if err := beforePublication(lease); err != nil {
+			return AttemptPlan{}, err
+		}
+		if err := lease.ValidateProjectFor(plan.Job.CaseRoot); err != nil {
+			return AttemptPlan{}, err
+		}
+	}
 	dispatchReplayed := true
 	if dispatched {
 		dispatchReplayed, err = rekitfs.WriteExclusiveRegularFileAnchored(plan.Job.CaseRoot, plan.DispatchPath, "external session dispatch ticket", fresh.dispatchData)
@@ -363,6 +442,9 @@ func ApplyAttemptCurrent(plan AttemptPlan, expectedJobSHA256, expectedPlanSHA256
 	receiptReplayed, err := rekitfs.WriteExclusiveRegularFileAnchored(plan.Job.CaseRoot, plan.AttemptPath, "external session attempt", fresh.data)
 	if err != nil {
 		return AttemptPlan{}, err
+	}
+	if err := lease.ValidateProjectFor(plan.Job.CaseRoot); err != nil {
+		return AttemptPlan{}, fmt.Errorf("external session attempt publication may already be durable: %w", err)
 	}
 	plan.Applied = true
 	plan.AlreadyApplied = receiptReplayed && (!dispatched || dispatchReplayed)
@@ -394,6 +476,105 @@ func decodeAttemptEnvelope(data []byte) (Attempt, string, error) {
 	return envelope.Attempt, envelope.DispatchSHA256, nil
 }
 
+func captureAttemptLaunchControl(job Job, lease *lanemutation.Lease) (*executioncontrol.Binding, error) {
+	root, err := projectstate.Resolve(job.CaseRoot)
+	if err != nil {
+		return nil, err
+	}
+	owner, found, err := attemptLaunchOwner(job)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		if root.Existing && !root.Legacy {
+			return nil, fmt.Errorf("current external session attempt requires an exact durable lane owner")
+		}
+		return nil, nil
+	}
+	if root.Legacy {
+		current, found, err := laneowner.ReadOptional(job.CaseRoot, owner.Lane)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, nil
+		}
+		if current != owner {
+			return nil, fmt.Errorf("legacy external session attempt durable lane owner does not match its job owner")
+		}
+	}
+	var binding executioncontrol.Binding
+	if lease != nil {
+		binding, err = executioncontrol.CaptureBindingWithProjectLease(job.CaseRoot, lease, owner)
+	} else {
+		binding, err = executioncontrol.CaptureBinding(job.CaseRoot, owner)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return executioncontrol.CloneBinding(&binding), nil
+}
+
+func attemptLaunchOwner(job Job) (laneowner.Snapshot, bool, error) {
+	switch job.SessionKind {
+	case "member":
+		if job.MemberOwner == nil {
+			return laneowner.Snapshot{}, false, nil
+		}
+		owner := laneowner.Snapshot{
+			Lane:               job.MemberOwner.Lane,
+			CurrentExecutor:    job.MemberOwner.Executor,
+			ExecutorGeneration: job.MemberOwner.ExecutorGeneration,
+		}
+		if strings.TrimSpace(owner.Lane) == "" || strings.TrimSpace(owner.CurrentExecutor) == "" || owner.ExecutorGeneration <= 0 {
+			return laneowner.Snapshot{}, false, fmt.Errorf("external member job has an invalid durable lane owner")
+		}
+		return owner, true, nil
+	case "reviewer":
+		if job.Reviewer == nil || job.Reviewer.EffectiveOwner == nil || strings.TrimSpace(job.Reviewer.TargetLane) == "" {
+			return laneowner.Snapshot{}, false, nil
+		}
+		owner := *job.Reviewer.EffectiveOwner
+		if owner.Lane != job.Reviewer.TargetLane || strings.TrimSpace(owner.CurrentExecutor) == "" || owner.ExecutorGeneration <= 0 {
+			return laneowner.Snapshot{}, false, fmt.Errorf("external reviewer job has an invalid durable lane owner")
+		}
+		return owner, true, nil
+	default:
+		return laneowner.Snapshot{}, false, fmt.Errorf("external session job has unsupported session kind %q", job.SessionKind)
+	}
+}
+
+func sameAttemptLaunchControl(left, right *executioncontrol.Binding) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func validateAttemptLaunchControl(job Job, binding *executioncontrol.Binding) error {
+	root, err := projectstate.Resolve(job.CaseRoot)
+	if err != nil {
+		return err
+	}
+	owner, found, err := attemptLaunchOwner(job)
+	if err != nil {
+		return err
+	}
+	if binding == nil {
+		if root.Existing && !root.Legacy {
+			return fmt.Errorf("current external session attempt omitted its execution control binding")
+		}
+		return nil
+	}
+	if err := executioncontrol.ValidateBinding(*binding); err != nil {
+		return err
+	}
+	if !found || binding.Owner != owner || binding.Lane != owner.Lane {
+		return fmt.Errorf("external session attempt execution control binding does not match its durable job owner")
+	}
+	return nil
+}
+
 func validateAttempt(job Job, jobSHA string, attempt Attempt, generation int, supersedesSHA string) error {
 	root, err := projectstate.Rel(job.CaseRoot, "external-session-attempt-inputs", job.JobID, fmt.Sprintf("%06d", generation))
 	if err != nil {
@@ -409,6 +590,9 @@ func validateAttempt(job Job, jobSHA string, attempt Attempt, generation int, su
 	}
 	if attempt.SchemaVersion != SchemaVersion || attempt.Kind != KindAttempt || attempt.JobID != job.JobID || !strings.EqualFold(attempt.JobSHA256, jobSHA) || attempt.CheckpointSHA256 != job.CheckpointSHA256 || attempt.SessionKind != job.SessionKind || attempt.Generation != generation || attempt.AttemptID != fmt.Sprintf("%s-g%06d", job.JobID, generation) || !strings.EqualFold(attempt.SupersedesSHA256, supersedesSHA) || attempt.SubmissionPath != expectedSubmission || attempt.SubmissionOutputs != expectedOutputs || attempt.SubmissionResult != expectedResult || !slices.Equal(attempt.AllowedOutcomes, job.AllowedOutcomes) || !validSingleLine(attempt.Harness) || !validSingleLine(attempt.Session) || !validSingleLine(attempt.Actor) || !attempt.NoSessionManagement || !attempt.NoHeavyTool || !attempt.NoAuthority || !attempt.NoConfirmed {
 		return fmt.Errorf("external session attempt contract is invalid")
+	}
+	if err := validateAttemptLaunchControl(job, attempt.LaunchControl); err != nil {
+		return err
 	}
 	if parsed, err := time.Parse(time.RFC3339Nano, attempt.StartedAt); err != nil || parsed.Format(time.RFC3339Nano) != attempt.StartedAt {
 		return fmt.Errorf("external session attempt startedAt is invalid")

@@ -838,7 +838,7 @@ func publicationByRole(items []lanecompletion.OperationPublication, role string)
 }
 
 func reopenApplyCommand(ctx reopenContext, hash string) string {
-	args := []string{"/rekit", "reopen", workstreamLabel(ctx.requested), "-Actor", ctx.actor, "-Reason", ctx.reason, "-EvidenceRefs", strings.Join(ctx.evidenceRefs, ","), "-ReopenPublicationStamp", ctx.publicationStamp, "-ExpectedReopenPlanSha256", hash, "-Apply", "-Format", "json"}
+	args := []string{"/rekit", "reopen", ctx.selector, "-Actor", ctx.actor, "-Reason", ctx.reason, "-EvidenceRefs", strings.Join(ctx.evidenceRefs, ","), "-ReopenPublicationStamp", ctx.publicationStamp, "-ExpectedReopenPlanSha256", hash, "-Apply", "-Format", "json"}
 	for i := range args {
 		args[i] = quoteCompleteCommandArg(args[i])
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -29,45 +30,47 @@ const (
 )
 
 type observationEnvelope struct {
-	SchemaVersion            int    `json:"schemaVersion"`
-	Kind                     string `json:"kind"`
-	CheckpointSHA256         string `json:"checkpointSha256"`
-	ObservationKind          string `json:"observationKind"`
-	Actor                    string `json:"actor"`
-	ObservedAt               string `json:"observedAt,omitempty"`
-	Reason                   string `json:"reason,omitempty"`
-	MemberAttemptID          string `json:"memberAttemptId,omitempty"`
-	ReviewerAttemptSHA256    string `json:"reviewerAttemptSha256,omitempty"`
-	ReviewerHarness          string `json:"reviewerHarness,omitempty"`
-	ReviewerSession          string `json:"reviewerSession,omitempty"`
-	ReviewerResultSourcePath string `json:"reviewerResultSourcePath,omitempty"`
-	ReviewerExitStatus       string `json:"reviewerExitStatus,omitempty"`
-	NoAuthorityOrConfirmed   bool   `json:"noAuthorityOrConfirmed"`
-	NoHeavyTool              bool   `json:"noHeavyTool"`
+	SchemaVersion            int                       `json:"schemaVersion"`
+	Kind                     string                    `json:"kind"`
+	CheckpointSHA256         string                    `json:"checkpointSha256"`
+	ObservationKind          string                    `json:"observationKind"`
+	Actor                    string                    `json:"actor"`
+	ObservedAt               string                    `json:"observedAt,omitempty"`
+	Reason                   string                    `json:"reason,omitempty"`
+	MemberAttemptID          string                    `json:"memberAttemptId,omitempty"`
+	ReviewerAttemptSHA256    string                    `json:"reviewerAttemptSha256,omitempty"`
+	ReviewerHarness          string                    `json:"reviewerHarness,omitempty"`
+	ReviewerSession          string                    `json:"reviewerSession,omitempty"`
+	ReviewerResultSourcePath string                    `json:"reviewerResultSourcePath,omitempty"`
+	ReviewerExitStatus       string                    `json:"reviewerExitStatus,omitempty"`
+	LaunchControl            *executioncontrol.Binding `json:"launchControl,omitempty"`
+	NoAuthorityOrConfirmed   bool                      `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool              bool                      `json:"noHeavyTool"`
 }
 
 type publicationReceipt struct {
-	SchemaVersion       int        `json:"schemaVersion"`
-	Kind                string     `json:"kind"`
-	JobID               string     `json:"jobId"`
-	JobSHA256           string     `json:"jobSha256"`
-	CheckpointSHA256    string     `json:"checkpointSha256"`
-	SessionKind         string     `json:"sessionKind"`
-	AttemptID           string     `json:"attemptId"`
-	AttemptSHA256       string     `json:"attemptSha256"`
-	Harness             string     `json:"harness"`
-	Session             string     `json:"session"`
-	Outcome             string     `json:"outcome"`
-	Actor               string     `json:"actor"`
-	SubmissionPath      string     `json:"submissionPath"`
-	SubmissionSHA256    string     `json:"submissionSha256"`
-	Artifacts           []Artifact `json:"artifacts"`
-	ObservationPath     string     `json:"observationPath"`
-	ObservationSHA256   string     `json:"observationSha256"`
-	NoSessionManagement bool       `json:"noSessionManagement"`
-	NoHeavyTool         bool       `json:"noHeavyTool"`
-	NoAuthority         bool       `json:"noAuthority"`
-	NoConfirmed         bool       `json:"noConfirmed"`
+	SchemaVersion       int                       `json:"schemaVersion"`
+	Kind                string                    `json:"kind"`
+	JobID               string                    `json:"jobId"`
+	JobSHA256           string                    `json:"jobSha256"`
+	CheckpointSHA256    string                    `json:"checkpointSha256"`
+	SessionKind         string                    `json:"sessionKind"`
+	AttemptID           string                    `json:"attemptId"`
+	AttemptSHA256       string                    `json:"attemptSha256"`
+	Harness             string                    `json:"harness"`
+	Session             string                    `json:"session"`
+	Outcome             string                    `json:"outcome"`
+	Actor               string                    `json:"actor"`
+	SubmissionPath      string                    `json:"submissionPath"`
+	SubmissionSHA256    string                    `json:"submissionSha256"`
+	LaunchControl       *executioncontrol.Binding `json:"launchControl,omitempty"`
+	Artifacts           []Artifact                `json:"artifacts"`
+	ObservationPath     string                    `json:"observationPath"`
+	ObservationSHA256   string                    `json:"observationSha256"`
+	NoSessionManagement bool                      `json:"noSessionManagement"`
+	NoHeavyTool         bool                      `json:"noHeavyTool"`
+	NoAuthority         bool                      `json:"noAuthority"`
+	NoConfirmed         bool                      `json:"noConfirmed"`
 }
 
 func NewMemberJob(caseRoot, pack, checkpointSHA256, attemptID string, owner memberexecution.Owner, manifestPath, outputsRoot string, allowedOutcomes []string) (Job, error) {
@@ -233,7 +236,8 @@ func Preview(job Job) (Plan, error) {
 	}
 	envelope := observationEnvelope{
 		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: job.CheckpointSHA256,
-		Actor: submission.Actor, NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+		Actor: submission.Actor, LaunchControl: executioncontrol.CloneBinding(submission.LaunchControl),
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	}
 	writes := []plannedWrite{}
 	artifacts := []Artifact{}
@@ -326,7 +330,8 @@ func Preview(job Job) (Plan, error) {
 		CheckpointSHA256: job.CheckpointSHA256, SessionKind: job.SessionKind,
 		AttemptID: submission.AttemptID, AttemptSHA256: submission.AttemptSHA256, Harness: submission.Harness, Session: submission.Session,
 		Outcome: submission.Outcome, Actor: submission.Actor,
-		SubmissionPath: attempt.Current.SubmissionPath, SubmissionSHA256: plan.SubmissionSHA256, Artifacts: artifacts,
+		SubmissionPath: attempt.Current.SubmissionPath, SubmissionSHA256: plan.SubmissionSHA256,
+		LaunchControl: executioncontrol.CloneBinding(submission.LaunchControl), Artifacts: artifacts,
 		ObservationPath: job.ObservationPath, ObservationSHA256: hash(envelopeBytes),
 		NoSessionManagement: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
 	}
@@ -355,6 +360,8 @@ func Preview(job Job) (Plan, error) {
 	}
 	plan.ExpectedPlanSHA256 = hash(identityBytes)
 	plan.writes = writes
+	plan.submissionPath = attempt.Current.SubmissionPath
+	plan.submissionData = append([]byte{}, submissionBytes...)
 	return plan, nil
 }
 
@@ -368,16 +375,6 @@ func ApplyCurrent(plan Plan, expectedJobSHA256, expectedSubmissionSHA256, expect
 		return Plan{}, err
 	}
 	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
-	if current != nil {
-		live, err := current()
-		if err != nil {
-			return Plan{}, err
-		}
-		liveSHA, err := jobSHA256(live)
-		if err != nil || !strings.EqualFold(liveSHA, plan.JobSHA256) {
-			return Plan{}, fmt.Errorf("external session relay job is no longer current")
-		}
-	}
 	fresh, err := Preview(plan.Job)
 	if err != nil {
 		return Plan{}, err
@@ -389,45 +386,112 @@ func ApplyCurrent(plan Plan, expectedJobSHA256, expectedSubmissionSHA256, expect
 			return Plan{}, fmt.Errorf("external session %s sha256 mismatch: got %s want %s", name, strings.TrimSpace(pair[0]), pair[1])
 		}
 	}
-	firstMissing := len(fresh.writes)
-	for index, write := range fresh.writes {
-		path := filepath.Join(fresh.Job.CaseRoot, filepath.FromSlash(write.rel))
-		info, statErr := os.Lstat(path)
-		if os.IsNotExist(statErr) {
-			if firstMissing == len(fresh.writes) {
+	firstMissing, err := inspectRelayPublicationPrefix(fresh)
+	if err != nil {
+		return Plan{}, err
+	}
+	if firstMissing == len(fresh.writes) {
+		if fresh.Submission.LaunchControl != nil {
+			publication := executioncontrol.ResultPublication{Published: true, Disposition: executioncontrol.ResultDispositionPublished}
+			fresh.ResultPublication = &publication
+		}
+		return finishRelayApply(fresh, true), nil
+	}
+	publishCurrent := func() error {
+		if current != nil {
+			live, err := current()
+			if err != nil {
+				return err
+			}
+			liveSHA, err := jobSHA256(live)
+			if err != nil || !strings.EqualFold(liveSHA, fresh.JobSHA256) {
+				return fmt.Errorf("external session relay job is no longer current")
+			}
+		}
+		for index := firstMissing; index < len(fresh.writes); index++ {
+			write := fresh.writes[index]
+			if _, err := rekitfs.WriteExclusiveRegularFileAnchored(fresh.Job.CaseRoot, write.rel, "external session relay artifact", write.data); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if fresh.Submission.LaunchControl != nil {
+		publication, err := executioncontrol.PublishResultWithProjectLease(
+			fresh.Job.CaseRoot,
+			lease,
+			relayResultPublicationOptions(fresh),
+			publishCurrent,
+		)
+		if err != nil {
+			return Plan{}, err
+		}
+		fresh.ResultPublication = &publication
+		if publication.Held {
+			fresh.Mode = publication.Disposition
+			fresh.ReviewRequired = false
+			fresh.RequiresConfirmation = false
+			fresh.writes = nil
+			fresh.submissionData = nil
+			return fresh, nil
+		}
+	} else if err := publishCurrent(); err != nil {
+		return Plan{}, err
+	}
+	return finishRelayApply(fresh, false), nil
+}
+
+func inspectRelayPublicationPrefix(plan Plan) (int, error) {
+	firstMissing := len(plan.writes)
+	for index, write := range plan.writes {
+		path := filepath.Join(plan.Job.CaseRoot, filepath.FromSlash(write.rel))
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			if firstMissing == len(plan.writes) {
 				firstMissing = index
 			}
 			continue
 		}
-		if statErr != nil {
-			return Plan{}, statErr
+		if err != nil {
+			return 0, err
 		}
-		if firstMissing != len(fresh.writes) {
-			return Plan{}, fmt.Errorf("external session relay publication is non-prefix at %s", write.rel)
+		if firstMissing != len(plan.writes) {
+			return 0, fmt.Errorf("external session relay publication is non-prefix at %s", write.rel)
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return Plan{}, fmt.Errorf("external session relay existing artifact must be a regular non-symlink file: %s", write.rel)
+			return 0, fmt.Errorf("external session relay existing artifact must be a regular non-symlink file: %s", write.rel)
 		}
-		current, readErr := rekitfs.ReadStableRegularFileAnchored(fresh.Job.CaseRoot, path, "external session relay artifact", int64(len(write.data))+1)
+		current, readErr := rekitfs.ReadStableRegularFileAnchored(plan.Job.CaseRoot, path, "external session relay artifact", int64(len(write.data))+1)
 		if readErr != nil || !bytes.Equal(current, write.data) {
-			return Plan{}, fmt.Errorf("external session relay existing artifact differs: %s", write.rel)
+			return 0, fmt.Errorf("external session relay existing artifact differs: %s", write.rel)
 		}
 	}
-	allReplayed := firstMissing == len(fresh.writes)
-	for index := firstMissing; index < len(fresh.writes); index++ {
-		write := fresh.writes[index]
-		replayed, err := rekitfs.WriteExclusiveRegularFileAnchored(fresh.Job.CaseRoot, write.rel, "external session relay artifact", write.data)
-		if err != nil {
-			return Plan{}, err
-		}
-		allReplayed = allReplayed && replayed
+	return firstMissing, nil
+}
+
+func relayResultPublicationOptions(plan Plan) executioncontrol.ResultPublicationOptions {
+	binding := plan.Submission.LaunchControl
+	return executioncontrol.ResultPublicationOptions{
+		Lane:  binding.Lane,
+		Birth: binding.Birth(),
+		Source: executioncontrol.ResultSource{
+			Kind: "external-session-submission", Ref: plan.submissionPath,
+			SHA256: plan.SubmissionSHA256, Bytes: int64(len(plan.submissionData)),
+			SessionKind: plan.Job.SessionKind, AttemptID: plan.Submission.AttemptID,
+			AttemptSHA256: plan.Submission.AttemptSHA256, SessionID: plan.Submission.Session,
+		},
+		Actor: plan.Submission.Actor, ObservedAt: plan.Submission.ObservedAt,
 	}
-	fresh.Applied = true
-	fresh.AlreadyApplied = allReplayed
-	fresh.ReviewRequired = false
-	fresh.RequiresConfirmation = false
-	fresh.writes = nil
-	return fresh, nil
+}
+
+func finishRelayApply(plan Plan, replayed bool) Plan {
+	plan.Applied = true
+	plan.AlreadyApplied = replayed
+	plan.ReviewRequired = false
+	plan.RequiresConfirmation = false
+	plan.writes = nil
+	plan.submissionData = nil
+	return plan
 }
 
 func memberResultWrites(job Job, submission Submission) ([]plannedWrite, plannedWrite, []Artifact, error) {
@@ -501,8 +565,8 @@ func validateSubmission(job Job, jobSHA string, submission Submission) error {
 		return fmt.Errorf("external session submission does not match the current job and allowed outcomes")
 	}
 	attempt, err := InspectAttempt(job)
-	if err != nil || attempt.Current == nil || attempt.State != "committed" || submission.AttemptID != attempt.Current.AttemptID || !strings.EqualFold(submission.AttemptSHA256, attempt.AttemptSHA256) {
-		return fmt.Errorf("external session submission does not match the current durable harness attempt")
+	if err != nil || attempt.Current == nil || attempt.State != "committed" || submission.AttemptID != attempt.Current.AttemptID || !strings.EqualFold(submission.AttemptSHA256, attempt.AttemptSHA256) || !sameAttemptLaunchControl(submission.LaunchControl, attempt.Current.LaunchControl) {
+		return fmt.Errorf("external session submission does not match the current durable harness attempt and execution control binding")
 	}
 	dispatch, dispatchErr := InspectCurrentDispatch(job, attempt)
 	if dispatchErr != nil {
@@ -542,9 +606,13 @@ func validateSubmission(job Job, jobSHA string, submission Submission) error {
 		return fmt.Errorf("non-Remote-Control submission cannot claim a transport return receipt")
 	}
 	if submission.ObservedAt != "" {
-		if _, err := time.Parse(time.RFC3339Nano, submission.ObservedAt); err != nil {
-			return fmt.Errorf("external session submission observedAt must be RFC3339Nano")
+		parsed, err := time.Parse(time.RFC3339Nano, submission.ObservedAt)
+		if err != nil || (submission.LaunchControl != nil && parsed.Format(time.RFC3339Nano) != submission.ObservedAt) {
+			return fmt.Errorf("external session submission observedAt must be RFC3339Nano and canonical when control-bound")
 		}
+	}
+	if submission.LaunchControl != nil && submission.ObservedAt == "" {
+		return fmt.Errorf("control-bound external session submission requires observedAt")
 	}
 	if job.SessionKind == "member" {
 		if submission.ObservedAt == "" || (submission.Outcome == "returned" && strings.TrimSpace(submission.Summary) == "") || (submission.Outcome == "failed" && strings.TrimSpace(submission.Reason) == "") {
@@ -555,7 +623,8 @@ func validateSubmission(job Job, jobSHA string, submission Submission) error {
 		}
 		return nil
 	}
-	if submission.Summary != "" || submission.ReviewerItemsPath != "" || submission.ObservedAt != "" || submission.Reason != "" {
+	if submission.Summary != "" || submission.ReviewerItemsPath != "" || submission.Reason != "" ||
+		(submission.LaunchControl == nil && submission.ObservedAt != "") {
 		return fmt.Errorf("external reviewer submission contains member-only fields")
 	}
 	switch submission.Outcome {

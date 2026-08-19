@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
@@ -99,9 +100,10 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 
 	var opt sessionhost.Options
 	var liveOpt sessionhost.LiveAcceptanceOptions
+	var controlOpt executioncontrol.Options
 	internalSupervisor := flags.String("internal-supervisor", "", "internal exact host-run supervision spec")
 	internalSupervisorSHA256 := flags.String("internal-supervisor-sha256", "", "internal exact host-run supervision spec sha256")
-	daily := flags.Bool("daily", false, "run the natural-language daily front door; implied by -goal or -correction")
+	daily := flags.Bool("daily", false, "run the natural-language daily front door; implied by goal, correction, or lane control")
 	liveAcceptance := flags.Bool("live-acceptance", false, "run the explicit default or allowlisted cross-pack real-Claude acceptance gate")
 	liveSupervisionAcceptance := flags.Bool("live-supervision-acceptance", false, "run the explicit RH-04 real-Claude process-start recovery gate")
 	livePackMemoryAcceptance := flags.Bool("live-pack-memory-acceptance", false, "run the explicit RH-07 cross-case pack-memory real-Claude acceptance gate")
@@ -111,6 +113,12 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 	flags.StringVar(&opt.Target, "target", "", "fresh or attached case root")
 	flags.StringVar(&opt.Pack, "pack", "", "optional attached pack override")
 	flags.StringVar(&opt.SelectedLane, "lane", "", "exact current lane selected for this invocation")
+	flags.StringVar(&controlOpt.Action, "control-action", "", "typed lane control action: pause, resume, or stop")
+	flags.StringVar(&controlOpt.Reason, "control-reason", "", "bounded reason for the reviewed lane control")
+	controlWhatIf := flags.Bool("control-what-if", false, "preview the exact lane control without writing")
+	controlApply := flags.Bool("control-apply", false, "apply the exact reviewed lane control")
+	flags.StringVar(&controlOpt.PublicationStamp, "control-publication-stamp", "", "exact lane control preview publication stamp")
+	flags.StringVar(&controlOpt.ExpectedPlanSHA256, "expected-control-plan-sha256", "", "exact reviewed lane control plan sha256")
 	directoryAdoptionAction := flags.String("directory-adoption-action", "", "typed ordinary-directory adoption choice")
 	expectedInitPlanSHA256 := flags.String("expected-init-plan-sha256", "", "exact ordinary-directory init preview sha256")
 	flags.StringVar(&opt.ExpectedCurrentDriverRequestSHA256, "expected-current-driver-request-sha256", "", "exact fresh missionControlRunbook current driver request sha256")
@@ -127,12 +135,25 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
+	controlRequested := *controlWhatIf || *controlApply ||
+		strings.TrimSpace(controlOpt.Action) != "" ||
+		strings.TrimSpace(controlOpt.Reason) != "" ||
+		strings.TrimSpace(controlOpt.PublicationStamp) != "" ||
+		strings.TrimSpace(controlOpt.ExpectedPlanSHA256) != ""
 
 	if err := ValidateAdapterFlag(*liveAcceptance, opt.Pack, liveOpt.AdapterPath); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	adoptionRequested := strings.TrimSpace(*directoryAdoptionAction) != "" || strings.TrimSpace(*expectedInitPlanSHA256) != ""
+	if controlRequested && (*liveAcceptance || *liveSupervisionAcceptance || *livePackMemoryAcceptance || *liveSoakAcceptance || strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" || strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != "") {
+		fmt.Fprintln(stderr, "lane control is supported only by the external daily front door")
+		return 2
+	}
+	if controlRequested && adoptionRequested {
+		fmt.Fprintln(stderr, "lane control and directory adoption controls are mutually exclusive")
+		return 2
+	}
 	if adoptionRequested && (*liveAcceptance || *liveSupervisionAcceptance || *livePackMemoryAcceptance || *liveSoakAcceptance || strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" || strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != "") {
 		fmt.Fprintln(stderr, "directory adoption controls are supported only by the external daily front door")
 		return 2
@@ -142,7 +163,7 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		return 2
 	}
 	ordinaryHostRequested := !PublicModeRequested(*daily, *liveAcceptance, *liveSupervisionAcceptance, *livePackMemoryAcceptance, *liveSoakAcceptance) &&
-		strings.TrimSpace(liveOpt.Goal) == "" && strings.TrimSpace(liveOpt.Correction) == "" && !adoptionRequested &&
+		strings.TrimSpace(liveOpt.Goal) == "" && strings.TrimSpace(liveOpt.Correction) == "" && !adoptionRequested && !controlRequested &&
 		strings.TrimSpace(*internalSupervisor) == "" && strings.TrimSpace(*internalSupervisorSHA256) == "" &&
 		strings.TrimSpace(*internalPackMemoryAcceptance) == "" && strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) == ""
 	if err := ValidateExpectedCurrentDriverRequestFlag(opt.ExpectedCurrentDriverRequestSHA256, ordinaryHostRequested); err != nil {
@@ -266,7 +287,7 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		return printResult(stdout, stderr, result, err)
 	}
 
-	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" || adoptionRequested {
+	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" || adoptionRequested || controlRequested {
 		if strings.TrimSpace(projectRoot) != "" {
 			resolved, err := rekitruntime.ResolveProjectLocalTarget(
 				projectRoot,
@@ -301,11 +322,16 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 			}
 			initializationRepoRoot = ctx.RepoRoot
 		}
+		controlOpt.Lane = opt.SelectedLane
+		controlOpt.Actor = opt.Actor
 		result, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
 			Target:                  opt.Target,
 			Goal:                    liveOpt.Goal,
 			Correction:              liveOpt.Correction,
 			SelectedLane:            opt.SelectedLane,
+			Control:                 controlOpt,
+			ControlWhatIf:           *controlWhatIf,
+			ControlApply:            *controlApply,
 			DirectoryAdoptionAction: *directoryAdoptionAction,
 			ExpectedInitPlanSHA256:  *expectedInitPlanSHA256,
 			InitializationRepoRoot:  initializationRepoRoot,

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
@@ -197,7 +199,20 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 			if err := validateCurrentStepExternalAttemptInputs(opt); err != nil {
 				return nil, "", true, err
 			}
-			attemptPlan, err := externalsession.ResolveAttemptApplyPlanUnbound(job, opt.ExternalSessionHarness, opt.ExternalSessionID, opt.ExternalSessionActor, opt.ExternalSessionStartedAt, opt.ExpectedExternalSessionAttemptSHA256)
+			var attemptPlan externalsession.AttemptPlan
+			if opt.currentLoopReplacementMutationLease != nil {
+				attemptPlan, err = externalsession.ResolveAttemptApplyPlanUnboundWithProjectLease(
+					job,
+					opt.ExternalSessionHarness,
+					opt.ExternalSessionID,
+					opt.ExternalSessionActor,
+					opt.ExternalSessionStartedAt,
+					opt.ExpectedExternalSessionAttemptSHA256,
+					opt.currentLoopReplacementMutationLease,
+				)
+			} else {
+				attemptPlan, err = externalsession.ResolveAttemptApplyPlanUnbound(job, opt.ExternalSessionHarness, opt.ExternalSessionID, opt.ExternalSessionActor, opt.ExternalSessionStartedAt, opt.ExpectedExternalSessionAttemptSHA256)
+			}
 			if err != nil {
 				return nil, "", true, err
 			}
@@ -243,7 +258,20 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 			plan.Dispatch = &dispatchPlan
 			return plan, dispatchPlan.ExpectedPlanSHA256, true, nil
 		case dispatch.State == "queued" && attempt.Current != nil && strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "":
-			attemptPlan, err := externalsession.ResolveAttemptApplyPlanUnbound(job, attempt.Current.Harness, attempt.Current.Session, attempt.Current.Actor, attempt.Current.StartedAt, attempt.Current.SupersedesSHA256)
+			var attemptPlan externalsession.AttemptPlan
+			if opt.currentLoopReplacementMutationLease != nil {
+				attemptPlan, err = externalsession.ResolveAttemptApplyPlanUnboundWithProjectLease(
+					job,
+					attempt.Current.Harness,
+					attempt.Current.Session,
+					attempt.Current.Actor,
+					attempt.Current.StartedAt,
+					attempt.Current.SupersedesSHA256,
+					opt.currentLoopReplacementMutationLease,
+				)
+			} else {
+				attemptPlan, err = externalsession.ResolveAttemptApplyPlanUnbound(job, attempt.Current.Harness, attempt.Current.Session, attempt.Current.Actor, attempt.Current.StartedAt, attempt.Current.SupersedesSHA256)
+			}
 			if err != nil {
 				return nil, "", true, err
 			}
@@ -536,9 +564,51 @@ func applyCurrentStepExternalSession(ctx runtime.Context, opt Options, outer cur
 		return currentStepPlan{}, currentStepZeroProgressError{cause: fmt.Errorf("run-current-step external session plan is missing")}
 	}
 	if step.Attempt != nil {
-		applied, err := externalsession.ApplyAttemptCurrent(*step.Attempt, step.Attempt.JobSHA256, step.Attempt.ExpectedPlanSHA256, func() (externalsession.Job, error) {
+		current := func() (externalsession.Job, error) {
 			return currentExternalSessionJob(ctx, opt)
-		})
+		}
+		var applied externalsession.AttemptPlan
+		var err error
+		if publication := opt.currentLoopReplacementResultPublication; publication != nil {
+			if step.Mode != "replacement-attempt" || opt.currentLoopReplacementMutationLease == nil ||
+				opt.currentLoopReplacementResultChecked == nil {
+				return currentStepPlan{}, currentStepZeroProgressError{cause: fmt.Errorf("replacement result publication requires the runner-owned project mutation lease")}
+			}
+			applied, err = externalsession.ApplyAttemptCurrentWithLease(
+				*step.Attempt,
+				step.Attempt.JobSHA256,
+				step.Attempt.ExpectedPlanSHA256,
+				opt.currentLoopReplacementMutationLease,
+				current,
+				func(lease *lanemutation.Lease) error {
+					prepared, err := executioncontrol.PrepareResultWithProjectLease(ctx.Target, lease, *publication)
+					if err != nil {
+						return err
+					}
+					if prepared.Held {
+						return &executioncontrol.ResultHeldError{Publication: prepared}
+					}
+					if prepared.Disposition != executioncontrol.ResultDispositionCurrent {
+						return fmt.Errorf("replacement result preparation returned unexpected disposition %q", prepared.Disposition)
+					}
+					*opt.currentLoopReplacementResultChecked = true
+					return nil
+				},
+			)
+			if err == nil && applied.AlreadyApplied {
+				*opt.currentLoopReplacementResultChecked = true
+			}
+		} else {
+			if opt.currentLoopReplacementMutationLease != nil || opt.currentLoopReplacementResultChecked != nil {
+				return currentStepPlan{}, currentStepZeroProgressError{cause: fmt.Errorf("replacement mutation ownership omitted its exact result provenance")}
+			}
+			applied, err = externalsession.ApplyAttemptCurrent(
+				*step.Attempt,
+				step.Attempt.JobSHA256,
+				step.Attempt.ExpectedPlanSHA256,
+				current,
+			)
+		}
 		if err != nil {
 			return currentStepPlan{}, currentStepZeroProgressError{cause: err}
 		}
@@ -586,6 +656,11 @@ func applyCurrentStepExternalSession(ctx runtime.Context, opt Options, outer cur
 		step.Turn = &applied
 		outer.ExternalSessionStep = step
 		outer.Applied, outer.IsMutation = applied.Applied, applied.Applied
+		if applied.Relay.ResultPublication != nil && applied.Relay.ResultPublication.Held {
+			outer.ReviewRequired = false
+			outer.RequiresConfirmation = false
+			return outer, nil
+		}
 		if err != nil {
 			if !applied.Applied {
 				return currentStepPlan{}, currentStepZeroProgressError{cause: err}

@@ -11,13 +11,30 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 )
 
-var currentLoopExternalTurnBeforeClaimHook func() error
+var (
+	currentLoopExternalTurnBeforeClaimHook func() error
+	currentLoopExternalTurnAfterClaimHook  func() error
+)
+
+func currentLoopExternalTurnAllowsControlRecovery(opt Options) bool {
+	if opt.currentLoopExecutionControlRecovery {
+		return true
+	}
+	return opt.Apply && !opt.WhatIf && opt.AdvanceExternalSessionResult &&
+		strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256) != "" &&
+		strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" &&
+		strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" &&
+		strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" &&
+		strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != ""
+}
 
 type currentLoopExternalSessionTurnPlan struct {
 	SchemaVersion        int                  `json:"schemaVersion"`
@@ -113,6 +130,15 @@ func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan 
 	plan.Relay = appliedRelay
 	plan.AlreadyApplied = appliedRelay.AlreadyApplied
 	plan.Applied = appliedRelay.Applied
+	if appliedRelay.ResultPublication != nil && appliedRelay.ResultPublication.Held {
+		plan.ReviewRequired = false
+		plan.RequiresConfirmation = false
+		plan.FailureStage = "relay-held"
+		plan.Boundary = append(plan.Boundary,
+			"the exact raw submission was held by durable execution control; no observation intake, checkpoint claim, nested resume, or live progression occurred",
+		)
+		return plan, nil
+	}
 
 	freshResume, freshStatus, err := buildCurrentLoopPlan(ctx, resumeOpt)
 	if err != nil {
@@ -139,12 +165,18 @@ func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan 
 			return partial("before-checkpoint-claim", fmt.Errorf("external session turn relay committed before checkpoint claim hook failed: %w", err))
 		}
 	}
-	if err := currentloop.ClaimResumeValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, currentloop.Claim{
+	binding := executioncontrol.CloneBinding(resumeOpt.currentLoopExecutionControlBinding)
+	if err := currentloop.ClaimResumeValidatedWithProjectLease(ctx.RepoRoot, ctx.Target, ctx.Pack, currentloop.Claim{
 		SourceArtifactSHA256:          freshResume.ExpectedResumeCheckpointSHA256,
 		ExpectedCurrentLoopPlanSHA256: freshResume.ExpectedCurrentLoopPlanSHA256,
 		CurrentDriverRequestSHA256:    requestSHA256,
 		Actor:                         freshResume.Actor,
-	}, func() error {
+	}, func(lease *lanemutation.Lease) error {
+		if binding != nil {
+			if err := executioncontrol.RequireCurrentBindingWithProjectLease(ctx.Target, lease, *binding); err != nil {
+				return err
+			}
+		}
 		facts, err := mission.ReadStrictLedgerFacts(ctx.Target)
 		if err != nil {
 			return err
@@ -155,6 +187,11 @@ func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan 
 		return nil
 	}); err != nil {
 		return partial("checkpoint-claim", fmt.Errorf("external session turn relay committed but checkpoint claim failed: %w", err))
+	}
+	if currentLoopExternalTurnAfterClaimHook != nil {
+		if err := currentLoopExternalTurnAfterClaimHook(); err != nil {
+			return partial("after-checkpoint-claim", fmt.Errorf("external session turn checkpoint claim committed but after-claim hook failed: %w", err))
+		}
 	}
 	plan.Resume, err = applyBuiltCurrentLoop(ctx, resumeOpt, freshResume, resumeStatus)
 	if err != nil {
@@ -171,11 +208,31 @@ func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan 
 }
 
 func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (currentLoopExternalSessionTurnPlan, Options, statusInventory, error) {
-	status, err := buildInvocationStatusInventory(ctx, opt)
-	if err != nil {
-		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	status, statusErr := buildInvocationStatusInventory(ctx, opt)
+	recovered := false
+	statusReady := func(candidate statusInventory) bool {
+		return candidate.MissionControlRunbook != nil &&
+			candidate.MissionControlRunbook.CurrentLoopOperator != nil &&
+			candidate.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob != nil &&
+			candidate.MissionControlRunbook.CurrentLoopSegment != nil
 	}
-	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopOperator == nil || status.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob == nil || status.MissionControlRunbook.CurrentLoopSegment == nil {
+	if (statusErr != nil || !statusReady(status)) && currentLoopExternalTurnAllowsControlRecovery(opt) {
+		recoveryStatus, recoveryErr := buildControlBoundResultRecoveryStatusInventory(ctx, opt)
+		if recoveryErr == nil && statusReady(recoveryStatus) {
+			status = recoveryStatus
+			statusErr = nil
+			recovered = true
+		} else if statusErr != nil {
+			if recoveryErr != nil {
+				return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, errors.Join(statusErr, fmt.Errorf("control-bound result recovery status: %w", recoveryErr))
+			}
+			return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, statusErr
+		}
+	}
+	if statusErr != nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, statusErr
+	}
+	if !statusReady(status) {
 		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("run-current-loop external session turn requires a current externalSessionJob")
 	}
 	inspection := status.MissionControlRunbook.CurrentLoopSegment
@@ -193,10 +250,25 @@ func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (
 	if expected := strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256); expected == "" || !strings.EqualFold(expected, relay.JobSHA256) {
 		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("external session turn expected job sha256 mismatch: got %s want %s", expected, relay.JobSHA256)
 	}
+	binding := relay.Submission.LaunchControl
+	if recovered && binding == nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("control-bound result recovery requires submission execution control lineage")
+	}
+	if binding != nil {
+		if err := executioncontrol.ValidateBinding(*binding); err != nil {
+			return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("external session turn execution control binding is invalid: %w", err)
+		}
+		if binding.Lane != strings.TrimSpace(inspection.ExpectedLane) {
+			return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("external session turn execution control lane does not match checkpoint continuation")
+		}
+	}
 	observationPath := filepath.Join(ctx.Target, filepath.FromSlash(relay.Observation.Path))
 	snapshot, err := decodeCurrentLoopObservationSnapshot(observationPath, relay.Observation.Data())
 	if err != nil {
 		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	}
+	if !executioncontrol.SameBinding(binding, snapshot.Envelope.LaunchControl) {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("external session turn observation execution control binding does not match submission lineage")
 	}
 	resumeOpt := opt
 	resumeOpt.AdvanceExternalSessionResult = false
@@ -209,6 +281,8 @@ func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (
 	resumeOpt.currentLoopObservationSnapshot = &snapshot
 	resumeOpt.currentLoopMemberResultSnapshot = relay.MemberResultSnapshot()
 	resumeOpt.currentLoopExternalTurnResume = true
+	resumeOpt.currentLoopExecutionControlBinding = executioncontrol.CloneBinding(binding)
+	resumeOpt.currentLoopExecutionControlRecovery = recovered && binding != nil
 	if relay.ReviewerResult != nil {
 		resumeOpt.currentLoopReviewerResultSnapshot = &subagents.ReviewerResultInputSnapshot{
 			Path:   filepath.Join(ctx.Target, filepath.FromSlash(relay.ReviewerResult.Path)),

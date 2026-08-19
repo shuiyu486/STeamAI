@@ -714,6 +714,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"overview",
 		"note",
 		"gate",
+		"control",
 		"start",
 		"handoff",
 		"complete",
@@ -760,6 +761,8 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"Add-RekitGoArg ([ref]$goArgs) '-ItemsFile' (Resolve-RekitCallerPath $ItemsFile)",
 		"Add-RekitGoArg ([ref]$goArgs) '-Executor' $Executor",
 		"Add-RekitGoArg ([ref]$goArgs) '-Reason' $Reason",
+		"Add-RekitGoArg ([ref]$goArgs) '-ControlPublicationStamp' $ControlPublicationStamp",
+		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedControlPlanSha256' $ExpectedControlPlanSha256",
 	} {
 		assertTextContains(t, facade, required, "PowerShell facade freeze guard")
 	}
@@ -776,6 +779,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"| `overview` text/JSON 与缺 board 初始化 | Go default | façade delegate + no PowerShell fallback |",
 		"| `note -List` text/table/tsv/JSON、`note` append、`note -WhatIf` | Go default | façade delegate + no PowerShell fallback |",
 		"| `gate -WhatIf` / `gate -Apply` gate decision/evidence ledger | Go default | façade delegate + no PowerShell fallback |",
+		"| `control -WhatIf` / exact-hash `control -Apply` | Go default | façade delegate + no PowerShell fallback |",
 		"| `start` / `handoff` preview/apply/text/default | Go default | façade delegate + no PowerShell fallback |",
 		"| `reopen -WhatIf` / exact-hash `reopen -Apply` | Go default | façade delegate + no PowerShell fallback |",
 		"| `continue -WhatIf` / explicit `continue -Apply` text/JSON | Go default | façade delegate + no PowerShell fallback |",

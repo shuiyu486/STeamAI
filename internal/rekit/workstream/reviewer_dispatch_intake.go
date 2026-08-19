@@ -715,11 +715,27 @@ func PauseReviewerDispatchesForOpenInterventions(items []ReviewerDispatchIntakeH
 		}
 		interventionID := mission.Value(interventions[0], "eventId")
 		reason := fmt.Sprintf("reviewer work is paused by open intervention %q on lane %q; reconcile the intervention and refresh status before dispatching or recording reviewer observations", interventionID, items[idx].TargetLane)
-		pauseReviewerDispatchHandoff(&items[idx], interventionID, reason)
+		pauseReviewerDispatchHandoff(&items[idx], interventionID, reason, "open lane intervention makes this reviewer handoff diagnostic only; reconcile before reviewer dispatch or result-pipeline work")
 	}
 }
 
-func pauseReviewerDispatchHandoff(item *ReviewerDispatchIntakeHandoff, interventionID, reason string) {
+// PauseReviewerDispatchesForLane makes matching handoffs diagnostic-only.
+// Callers supply the durable reason; this function does not mutate case state.
+func PauseReviewerDispatchesForLane(items []ReviewerDispatchIntakeHandoff, lane, reason string) {
+	lane = strings.TrimSpace(lane)
+	reason = strings.TrimSpace(reason)
+	if lane == "" || reason == "" {
+		return
+	}
+	for idx := range items {
+		if strings.TrimSpace(items[idx].TargetLane) != lane {
+			continue
+		}
+		pauseReviewerDispatchHandoff(&items[idx], "", reason, "durable lane execution control makes this reviewer handoff diagnostic only; resume affects only future work")
+	}
+}
+
+func pauseReviewerDispatchHandoff(item *ReviewerDispatchIntakeHandoff, interventionID, reason, boundary string) {
 	if item == nil {
 		return
 	}
@@ -755,7 +771,7 @@ func pauseReviewerDispatchHandoff(item *ReviewerDispatchIntakeHandoff, intervent
 		item.ManagedDispatch.DispatchCommand = ""
 		item.ManagedDispatch.NextAction = ""
 	}
-	item.Boundary = mission.UniqueStrings(append(item.Boundary, "open lane intervention makes this reviewer handoff diagnostic only; reconcile before reviewer dispatch or result-pipeline work"))
+	item.Boundary = mission.UniqueStrings(append(item.Boundary, boundary))
 }
 
 func ReviewerPacketRetirementHandoffs(caseRoot, laneID string) ([]ReviewerPacketRetirementHandoff, error) {
@@ -1138,7 +1154,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		if item.State == "attach-required-before-reviewer-intake" || item.State == "reviewer-packet-owner-adoption-required" {
 			summary.AttachRequired++
 		}
-		eligible := !(item.VerificationRecorded && item.DecisionRecorded)
+		eligible := !item.Paused && !(item.VerificationRecorded && item.DecisionRecorded)
 		if item.State == "ready-for-reviewer-intake-preview" {
 			eligible = packetReadyForIntake[firstText(item.PacketID, item.PacketPath)]
 		}

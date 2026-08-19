@@ -4,12 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -290,6 +293,14 @@ func applyBuiltCurrentLoop(ctx runtime.Context, opt Options, plan currentLoopPla
 
 func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, statusInventory, error) {
 	status, err := buildInvocationStatusInventory(ctx, opt)
+	if err != nil && opt.currentLoopExecutionControlRecovery {
+		recoveryStatus, recoveryErr := buildControlBoundResultRecoveryStatusInventory(ctx, opt)
+		if recoveryErr != nil {
+			return currentLoopPlan{}, statusInventory{}, errors.Join(err, fmt.Errorf("control-bound result recovery status: %w", recoveryErr))
+		}
+		status = recoveryStatus
+		err = nil
+	}
 	if err != nil {
 		return currentLoopPlan{}, statusInventory{}, err
 	}
@@ -1072,9 +1083,18 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan cu
 	if plan.ContinuationRequest != nil {
 		payload.Continuation = currentLoopCheckpointContinuation(plan.ContinuationRequest)
 	}
-	validate := (func() error)(nil)
-	if payload.ZeroProgressRecovery {
-		validate = func() error {
+	binding := executioncontrol.CloneBinding(opt.currentLoopExecutionControlBinding)
+	var validate func(*lanemutation.Lease) error
+	if payload.ZeroProgressRecovery || binding != nil {
+		validate = func(lease *lanemutation.Lease) error {
+			if binding != nil {
+				if err := executioncontrol.RequireCurrentBindingWithProjectLease(ctx.Target, lease, *binding); err != nil {
+					return err
+				}
+			}
+			if !payload.ZeroProgressRecovery {
+				return nil
+			}
 			fresh, err := buildInvocationStatusInventory(ctx, opt)
 			if err != nil {
 				return err
@@ -1094,7 +1114,7 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan cu
 			return nil
 		}
 	}
-	inspection, err := currentloop.WriteValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, payload, validate)
+	inspection, err := currentloop.WriteValidatedWithProjectLease(ctx.RepoRoot, ctx.Target, ctx.Pack, payload, validate)
 	if err != nil {
 		return currentloop.FailedInspection(err.Error()), err
 	}

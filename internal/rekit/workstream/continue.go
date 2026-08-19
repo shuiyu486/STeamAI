@@ -343,7 +343,11 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 	return result, nil
 }
 
-func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result ContinueResult, err error) {
+func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (ContinueResult, error) {
+	return ContinueApplyValidated(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions, validateCurrent func(*lanemutation.Lease) error) (result ContinueResult, err error) {
 	mutationStarted := false
 	defer func() {
 		if err != nil && !mutationStarted {
@@ -420,6 +424,11 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 			if err := opt.AfterPreviewValidation(); err != nil {
 				return ContinueResult{}, err
 			}
+		}
+	}
+	if validateCurrent != nil {
+		if err := validateCurrent(lease); err != nil {
+			return ContinueResult{}, err
 		}
 	}
 	stamp := time.Now().UTC().Format("20060102-150405000")

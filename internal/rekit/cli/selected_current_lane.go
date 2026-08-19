@@ -21,7 +21,7 @@ func usesSelectedCurrentLaneProjection(command string) bool {
 
 func selectedCurrentLaneRequiresExecutable(command string) bool {
 	switch strings.ToLower(strings.TrimSpace(command)) {
-	case "handoff", "run-reviewer-wave":
+	case "status", "handoff", "run-reviewer-wave":
 		return false
 	default:
 		return true
@@ -52,6 +52,32 @@ func buildInvocationStatusInventoryAfterMutation(ctx runtime.Context, opt Option
 	return buildInvocationStatusInventoryWithExecutableRequirement(ctx, opt, false)
 }
 
+func buildControlBoundResultRecoveryStatusInventory(ctx runtime.Context, opt Options) (statusInventory, error) {
+	selected := strings.TrimSpace(opt.SelectedCurrentLane)
+	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
+		return statusInventory{}, fmt.Errorf("control-bound result recovery requires one selected current lane")
+	}
+	status, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return statusInventory{}, err
+	}
+	if err := bindStatusSelectedCurrentLane(&status, selected); err != nil {
+		return statusInventory{}, err
+	}
+	bindStatusMemberExecution(&status)
+	bindStatusReviewerCorrection(&status)
+	bindStatusSelectedCurrentLaneCommands(&status, selected)
+	bindStatusCurrentLoop(status.Target, status.CaseMission, status.MissionControlRunbook)
+	bindStatusSelectedCurrentLaneCommands(&status, selected)
+	if err := projectStatusPublicEntrypoint(&status); err != nil {
+		return statusInventory{}, err
+	}
+	if err := validateStatusSelectedCurrentLane(status, selected, true); err != nil {
+		return statusInventory{}, err
+	}
+	return status, nil
+}
+
 func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context, opt Options, requireExecutable bool) (statusInventory, error) {
 	selected := strings.TrimSpace(opt.SelectedCurrentLane)
 	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
@@ -76,6 +102,11 @@ func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context
 	bindStatusSelectedCurrentLaneCommands(&status, selected)
 	bindStatusCurrentLoop(status.Target, status.CaseMission, status.MissionControlRunbook)
 	bindStatusSelectedCurrentLaneCommands(&status, selected)
+	if err := bindStatusExecutionControls(&status); err != nil {
+		return statusInventory{}, err
+	}
+	bindStatusSelectedCurrentLaneCommands(&status, selected)
+	bindStatusExecutionControlRunbook(&status)
 	if err := projectStatusPublicEntrypoint(&status); err != nil {
 		return statusInventory{}, err
 	}
@@ -511,11 +542,7 @@ func selectedLanePositionalSelectorMatches(selector, selected string) bool {
 	if selector == selected {
 		return true
 	}
-	if selector == "main" && strings.HasSuffix(selected, "-main") {
-		return true
-	}
-	label, ok := strings.CutPrefix(selected, "feature-")
-	return ok && label != "" && selector == label
+	return strings.HasSuffix(selected, "-"+selector)
 }
 
 func selectedLaneCommandPositionalIndex(fields []string) (int, bool) {

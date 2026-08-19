@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -97,7 +99,12 @@ func runDriverStep(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) (driverStepPlan, error) {
-	result, err := applyDriverStep(ctx, plan.ApplyDriverRequest, plan.ExpectedDriverStepPreviewSHA256)
+	result, err := applyDriverStep(
+		ctx,
+		plan.ApplyDriverRequest,
+		plan.ExpectedDriverStepPreviewSHA256,
+		opt.currentLoopExecutionControlBinding,
+	)
 	if err != nil {
 		return driverStepPlan{}, err
 	}
@@ -534,7 +541,12 @@ var (
 	driverStepAfterPreviewValidationHook func() error
 )
 
-func applyDriverStep(ctx runtime.Context, request mission.MissionCommanderDriverRequest, expectedPreviewSHA256 string) (any, error) {
+func applyDriverStep(
+	ctx runtime.Context,
+	request mission.MissionCommanderDriverRequest,
+	expectedPreviewSHA256 string,
+	binding *executioncontrol.Binding,
+) (any, error) {
 	opt, err := parseBoundedDriverRequest(ctx, request, true)
 	if err != nil {
 		return nil, currentStepZeroProgressError{cause: err}
@@ -544,10 +556,22 @@ func applyDriverStep(ctx runtime.Context, request mission.MissionCommanderDriver
 			return nil, currentStepZeroProgressError{cause: err}
 		}
 	}
+	validateLane := func(lease *lanemutation.Lease) error {
+		if binding == nil {
+			return nil
+		}
+		return executioncontrol.RequireCurrentBindingWithLease(ctx.Target, lease, *binding)
+	}
+	validateProject := func(lease *lanemutation.Lease) error {
+		if binding == nil {
+			return nil
+		}
+		return executioncontrol.RequireCurrentBindingWithProjectLease(ctx.Target, lease, *binding)
+	}
 	switch opt.Command {
 	case commands.Start:
 		opt.Start.ExpectedPreviewSHA256 = expectedPreviewSHA256
-		result, err := workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Start)
+		result, err := workstream.StartApplyValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Start, validateLane)
 		if workstream.IsZeroProgress(err) {
 			return nil, currentStepZeroProgressError{cause: err}
 		}
@@ -555,20 +579,20 @@ func applyDriverStep(ctx runtime.Context, request mission.MissionCommanderDriver
 	case commands.Continue:
 		opt.Continue.ExpectedPreviewSHA256 = expectedPreviewSHA256
 		opt.Continue.AfterPreviewValidation = driverStepAfterPreviewValidationHook
-		result, err := workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+		result, err := workstream.ContinueApplyValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue, validateLane)
 		if workstream.IsZeroProgress(err) {
 			return nil, currentStepZeroProgressError{cause: err}
 		}
 		return result, err
 	case commands.Reconcile:
 		opt.Reconcile.ExpectedPreviewSHA256 = expectedPreviewSHA256
-		result, err := workstream.ReconcileApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+		result, err := workstream.ReconcileApplyValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile, validateLane)
 		if workstream.IsZeroProgress(err) {
 			return nil, currentStepZeroProgressError{cause: err}
 		}
 		return result, err
 	case commands.Complete:
-		return workstream.CompleteApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Complete)
+		return workstream.CompleteApplyValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Complete, validateProject)
 	default:
 		return nil, fmt.Errorf("unsupported bounded driver apply: %s", opt.Command)
 	}

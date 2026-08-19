@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectlock"
@@ -232,14 +233,7 @@ func TestLegacyDetachedSupervisorRunsDoNotPublishProjectExecutionHandoff(t *test
 	supervisorChildCommandTestHook = configureContainedSupervisorCommandForTest
 	t.Cleanup(func() { supervisorChildCommandTestHook = previousCommandHook })
 	caseRoot, opt, first, beforeAcquirePath, releasePath :=
-		projectExecutionLaunchFixture(t)
-	if err := os.Rename(
-		filepath.Join(caseRoot, ".steamai"),
-		filepath.Join(caseRoot, ".rekit"),
-	); err != nil {
-		t.Fatal(err)
-	}
-	first.Launch.Input.Path = ".rekit/execution-lease-input.json"
+		legacyProjectExecutionLaunchFixture(t)
 	opt.ExpectedClaudeExecutableSHA256 = strings.Repeat("e", 64)
 	opt.ExpectedClaudeExecutablePublisher = liveAcceptanceClaudePublisher
 	t.Setenv(projectExecutionHelperBeforeEnv, beforeAcquirePath)
@@ -480,7 +474,7 @@ func TestProjectExecutionSupervisorHelperProcess(t *testing.T) {
 	}
 }
 
-func projectExecutionLaunchFixture(t *testing.T) (
+func legacyProjectExecutionLaunchFixture(t *testing.T) (
 	string,
 	Options,
 	mission.CurrentLoopExternalSessionHarnessPackage,
@@ -489,17 +483,13 @@ func projectExecutionLaunchFixture(t *testing.T) (
 ) {
 	t.Helper()
 	caseRoot := t.TempDir()
-	stateRoot := filepath.Join(caseRoot, ".steamai")
+	stateRoot := filepath.Join(caseRoot, ".rekit")
 	if err := os.Mkdir(stateRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	inputRel := ".steamai/execution-lease-input.json"
+	inputRel := ".rekit/execution-lease-input.json"
 	input := []byte("{}\n")
-	if err := os.WriteFile(
-		filepath.Join(caseRoot, filepath.FromSlash(inputRel)),
-		input,
-		0o600,
-	); err != nil {
+	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(inputRel)), input, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	executable, err := os.Executable()
@@ -540,12 +530,94 @@ func projectExecutionLaunchFixture(t *testing.T) (
 	return caseRoot, opt, pkg, readyPath, releasePath
 }
 
+func projectExecutionLaunchFixture(t *testing.T) (
+	string,
+	Options,
+	mission.CurrentLoopExternalSessionHarnessPackage,
+	string,
+	string,
+) {
+	t.Helper()
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	intent, err := applyDailyOnboarding(
+		caseRoot,
+		"exercise project execution launch ownership",
+		"project-execution-launch-test",
+		&bootstrap,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = intent.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, intent.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	memberPlan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{
+		CaseRoot:      caseRoot,
+		Pack:          intent.Identity.Pack,
+		Lane:          bootstrap.Lane,
+		RequestSHA256: strings.Repeat("a", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberApplied, err := memberexecution.Apply(memberPlan, memberPlan.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member := memberApplied.Plan.Inspection
+	input, err := os.ReadFile(member.TaskContextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signals := t.TempDir()
+	readyPath := filepath.Join(signals, "ready")
+	releasePath := filepath.Join(signals, "release")
+	opt := Options{
+		Target:     caseRoot,
+		Pack:       intent.Identity.Pack,
+		ClaudePath: executable,
+		Timeout:    20 * time.Second,
+	}
+	pkg := mission.CurrentLoopExternalSessionHarnessPackage{
+		SchemaVersion:    1,
+		CaseRoot:         caseRoot,
+		JobID:            "execution-lease-job",
+		JobSHA256:        strings.Repeat("b", 64),
+		CheckpointSHA256: strings.Repeat("c", 64),
+		SessionKind:      "member",
+		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
+			Ready: true,
+			Input: mission.CurrentLoopExternalSessionHarnessInput{
+				Path:   member.TaskContextPath,
+				SHA256: bytesSHA256(input),
+				Role:   "member-task-context",
+			},
+			Attempt: mission.CurrentLoopExternalSessionAttempt{
+				AttemptID:     "execution-lease-attempt",
+				AttemptSHA256: strings.Repeat("d", 64),
+				Generation:    1,
+				Session:       "execution-lease-session",
+			},
+		},
+	}
+	return caseRoot, opt, pkg, readyPath, releasePath
+}
+
 func runProjectExecutionClaudeHelper() int {
 	sessionID := ""
+	schema := ""
 	for index := 0; index+1 < len(os.Args); index++ {
-		if os.Args[index] == "--session-id" {
+		switch os.Args[index] {
+		case "--session-id":
 			sessionID = os.Args[index+1]
-			break
+		case "--json-schema":
+			schema = os.Args[index+1]
 		}
 	}
 	readyPath := os.Getenv(projectExecutionHelperReadyEnv)
@@ -573,13 +645,22 @@ func runProjectExecutionClaudeHelper() int {
 		time.Sleep(10 * time.Millisecond)
 	}
 	output := map[string]any{
-		"decision":            "accepted",
-		"summary":             "exact execution lease fixture",
-		"reason":              "all bounded bindings agree",
-		"evidenceRefs":        []string{"packet.json", "receipt.json"},
-		"selectedEvidenceRef": "receipt.json",
-		"observationEventId":  "execution-lease-observation",
-		"receiptSha256":       strings.Repeat("d", 64),
+		"outcome":           "failed",
+		"summary":           "",
+		"reason":            "bounded process-launch fixture",
+		"outputs":           []any{},
+		"reviewerItemsPath": "",
+	}
+	if strings.Contains(schema, `"decision"`) {
+		output = map[string]any{
+			"decision":            "accepted",
+			"summary":             "exact execution lease fixture",
+			"reason":              "all bounded bindings agree",
+			"evidenceRefs":        []string{"packet.json", "receipt.json"},
+			"selectedEvidenceRef": "receipt.json",
+			"observationEventId":  "execution-lease-observation",
+			"receiptSha256":       strings.Repeat("d", 64),
+		}
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"type":               "result",

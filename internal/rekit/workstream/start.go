@@ -275,7 +275,11 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	}, nil
 }
 
-func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result StartResult, err error) {
+func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult, error) {
+	return StartApplyValidated(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func StartApplyValidated(repoRoot, caseRoot, pack string, opt StartOptions, validateCurrent func(*lanemutation.Lease) error) (result StartResult, err error) {
 	mutationStarted := false
 	defer func() {
 		if err != nil && !mutationStarted {
@@ -335,6 +339,11 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 		actual := hex.EncodeToString(sum[:])
 		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedPreviewSHA256), actual) {
 			return StartResult{}, fmt.Errorf("start preview sha256 mismatch: got %s want %s", opt.ExpectedPreviewSHA256, actual)
+		}
+	}
+	if validateCurrent != nil {
+		if err := validateCurrent(lease); err != nil {
+			return StartResult{}, err
 		}
 	}
 	writes := []StartWrite{}

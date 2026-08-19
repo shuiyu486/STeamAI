@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
@@ -94,18 +96,27 @@ type reviewerStepResultSnapshotIdentity struct {
 	Bytes  int64  `json:"bytes"`
 }
 
-type reviewerStepPlanIdentity struct {
-	PacketID               string                                `json:"packetId"`
-	PacketPath             string                                `json:"packetPath"`
-	TargetLane             string                                `json:"targetLane"`
-	ShardID                string                                `json:"shardId"`
-	CurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
-	PreviewDriverRequest   mission.MissionCommanderDriverRequest `json:"previewDriverRequest"`
-	ApplyDriverRequest     mission.MissionCommanderDriverRequest `json:"applyDriverRequest"`
-	ReviewerResultSnapshot *reviewerStepResultSnapshotIdentity   `json:"reviewerResultSnapshot,omitempty"`
+type reviewerStepResultPublicationIdentity struct {
+	Lane       string                        `json:"lane"`
+	Birth      executioncontrol.ResultBirth  `json:"birth"`
+	Source     executioncontrol.ResultSource `json:"source"`
+	Actor      string                        `json:"actor"`
+	ObservedAt string                        `json:"observedAt"`
 }
 
-func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) error {
+type reviewerStepPlanIdentity struct {
+	PacketID                  string                                 `json:"packetId"`
+	PacketPath                string                                 `json:"packetPath"`
+	TargetLane                string                                 `json:"targetLane"`
+	ShardID                   string                                 `json:"shardId"`
+	CurrentDriverRequest      mission.MissionCommanderDriverRequest  `json:"currentDriverRequest"`
+	PreviewDriverRequest      mission.MissionCommanderDriverRequest  `json:"previewDriverRequest"`
+	ApplyDriverRequest        mission.MissionCommanderDriverRequest  `json:"applyDriverRequest"`
+	ReviewerResultSnapshot    *reviewerStepResultSnapshotIdentity    `json:"reviewerResultSnapshot,omitempty"`
+	ReviewerResultPublication *reviewerStepResultPublicationIdentity `json:"reviewerResultPublication,omitempty"`
+}
+
+func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) (retErr error) {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("run-reviewer-step requires -Target for an attached case")
 	}
@@ -120,6 +131,13 @@ func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	if err := validateReviewerStepOuterArgs(opt); err != nil {
 		return err
+	}
+	releasePublication, err := acquireReviewerResultPublicationLease(ctx, &opt)
+	if err != nil {
+		return err
+	}
+	if releasePublication != nil {
+		defer func() { retErr = releasePublication(retErr) }()
 	}
 	plan, err := buildReviewerStepPlan(ctx, opt)
 	if err != nil {
@@ -159,7 +177,15 @@ func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPl
 	if !opt.bindReviewerResultSnapshot {
 		snapshot = nil
 	}
-	result, err := applyReviewerStep(ctx, *plan.ApplyDriverRequest, snapshot)
+	result, err := applyReviewerStep(
+		ctx,
+		*plan.ApplyDriverRequest,
+		snapshot,
+		opt.currentLoopExecutionControlBinding,
+		opt.currentLoopReviewerResultPublication,
+		opt.currentLoopReviewerMutationLease,
+		opt.currentLoopReviewerResultPublished,
+	)
 	if err != nil {
 		return reviewerStepPlan{}, err
 	}
@@ -240,6 +266,7 @@ func buildReviewerStepPlanFromStatus(ctx runtime.Context, opt Options, status st
 		return reviewerStepPlan{}, err
 	}
 	previewOpt.currentLoopReviewerResultSnapshot = opt.currentLoopReviewerResultSnapshot
+	previewOpt.currentLoopReviewerResultPublication = opt.currentLoopReviewerResultPublication
 	preview, err := previewReviewerStep(ctx, previewOpt)
 	if err != nil {
 		return reviewerStepPlan{}, err
@@ -265,15 +292,26 @@ func buildReviewerStepPlanFromStatus(ctx runtime.Context, opt Options, status st
 			Path: snapshot.Path, SHA256: snapshot.SHA256, Bytes: snapshot.Bytes,
 		}
 	}
+	var publicationIdentity *reviewerStepResultPublicationIdentity
+	if publication := opt.currentLoopReviewerResultPublication; publication != nil {
+		if snapshotIdentity == nil {
+			return reviewerStepPlan{}, fmt.Errorf("reviewer result publication provenance requires the exact result snapshot identity")
+		}
+		publicationIdentity = &reviewerStepResultPublicationIdentity{
+			Lane: publication.Lane, Birth: publication.Birth, Source: publication.Source,
+			Actor: publication.Actor, ObservedAt: publication.ObservedAt,
+		}
+	}
 	identity := reviewerStepPlanIdentity{
-		PacketID:               pkg.PacketID,
-		PacketPath:             pkg.PacketPath,
-		TargetLane:             pkg.TargetLane,
-		ShardID:                pkg.Current.ShardID,
-		CurrentDriverRequest:   request,
-		PreviewDriverRequest:   previewRequest,
-		ApplyDriverRequest:     applyRequest,
-		ReviewerResultSnapshot: snapshotIdentity,
+		PacketID:                  pkg.PacketID,
+		PacketPath:                pkg.PacketPath,
+		TargetLane:                pkg.TargetLane,
+		ShardID:                   pkg.Current.ShardID,
+		CurrentDriverRequest:      request,
+		PreviewDriverRequest:      previewRequest,
+		ApplyDriverRequest:        applyRequest,
+		ReviewerResultSnapshot:    snapshotIdentity,
+		ReviewerResultPublication: publicationIdentity,
 	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
@@ -719,18 +757,42 @@ func previewReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 	return executeReviewerStep(ctx, opt)
 }
 
-func applyReviewerStep(ctx runtime.Context, request mission.MissionCommanderDriverRequest, snapshot *subagents.ReviewerResultInputSnapshot) (any, error) {
+func applyReviewerStep(
+	ctx runtime.Context,
+	request mission.MissionCommanderDriverRequest,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	binding *executioncontrol.Binding,
+	publication *executioncontrol.ResultPublicationOptions,
+	lease *lanemutation.Lease,
+	published *bool,
+) (any, error) {
 	opt, err := parseBoundedReviewerRequest(ctx, request, true)
 	if err != nil {
 		return nil, currentStepZeroProgressError{cause: err}
 	}
 	opt.currentLoopReviewerResultSnapshot = snapshot
+	opt.currentLoopExecutionControlBinding = executioncontrol.CloneBinding(binding)
+	if publication != nil {
+		bound := *publication
+		opt.currentLoopReviewerResultPublication = &bound
+	}
+	opt.currentLoopReviewerMutationLease = lease
+	opt.currentLoopReviewerResultPublished = published
 	return executeReviewerStep(ctx, opt)
 }
 
 func executeReviewerStep(ctx runtime.Context, opt Options) (any, error) {
-	return executeReviewerMutationWithInterventionGuard(ctx.Target, opt.Note.Lane, opt.WhatIf, func() (any, error) {
-		switch reviewerStepMode(opt) {
+	mode := reviewerStepMode(opt)
+	if opt.currentLoopReviewerResultPublication != nil && mode != "save-result-input" {
+		return nil, fmt.Errorf("reviewer result publication provenance is valid only for save-result-input")
+	}
+	execute := func(lease *lanemutation.Lease) (any, error) {
+		if binding := opt.currentLoopExecutionControlBinding; binding != nil {
+			if err := executioncontrol.RequireCurrentBindingWithLease(ctx.Target, lease, *binding); err != nil {
+				return nil, err
+			}
+		}
+		switch mode {
 		case "repair-prompt":
 			return subagents.RepairReviewerPromptArtifact(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerPromptArtifactRepairOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedPromptSHA256: opt.ExpectedPromptSHA256, WhatIf: opt.WhatIf})
 		case "record-dispatch":
@@ -738,7 +800,37 @@ func executeReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 		case "record-completion":
 			return subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
 		case "save-result-input":
-			return subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: opt.ReviewerDispatchID, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf, ResultSnapshot: opt.currentLoopReviewerResultSnapshot})
+			save := func() (any, error) {
+				return subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: opt.ReviewerDispatchID, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf, ResultSnapshot: opt.currentLoopReviewerResultSnapshot})
+			}
+			if opt.WhatIf || opt.currentLoopReviewerResultPublication == nil {
+				return save()
+			}
+			if lease == nil || opt.currentLoopReviewerResultPublished == nil {
+				return nil, fmt.Errorf("reviewer result publication requires the runner-owned lane lease")
+			}
+			var saved any
+			publication, err := executioncontrol.PublishResultWithLease(
+				ctx.Target,
+				lease,
+				*opt.currentLoopReviewerResultPublication,
+				func() error {
+					var err error
+					saved, err = save()
+					return err
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+			if publication.Held {
+				return nil, &executioncontrol.ResultHeldError{Publication: publication}
+			}
+			if !publication.Published {
+				return nil, fmt.Errorf("reviewer result publication did not commit canonical output")
+			}
+			*opt.currentLoopReviewerResultPublished = true
+			return saved, nil
 		case "source-capture":
 			return subagents.CaptureReviewerResultSource(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
 		case "stage-candidate":
@@ -750,7 +842,20 @@ func executeReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 		default:
 			return nil, fmt.Errorf("unsupported bounded reviewer step")
 		}
-	})
+	}
+	if opt.currentLoopReviewerMutationLease == nil {
+		return executeReviewerMutationWithInterventionLease(ctx.Target, opt.Note.Lane, opt.WhatIf, execute)
+	}
+	if opt.currentLoopReviewerResultPublication == nil || opt.currentLoopReviewerResultPublished == nil {
+		return nil, fmt.Errorf("runner-owned reviewer mutation lease requires exact result publication provenance")
+	}
+	if err := opt.currentLoopReviewerMutationLease.ValidateLaneFor(ctx.Target, opt.Note.Lane); err != nil {
+		return nil, currentStepZeroProgressError{cause: err}
+	}
+	if err := ensureReviewerWaveLaneNotIntervened(ctx.Target, opt.Note.Lane); err != nil {
+		return nil, currentStepZeroProgressError{cause: err}
+	}
+	return execute(opt.currentLoopReviewerMutationLease)
 }
 
 func reviewerStepApplyRequest(result any) (mission.MissionCommanderDriverRequest, error) {

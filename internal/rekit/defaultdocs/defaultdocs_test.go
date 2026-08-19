@@ -35,16 +35,21 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "README.md", canonicalCloneURL)
 	assertPhrase(t, readiness, "README.md", moduleCompatibilityIdentity)
 	assertPhrase(t, readiness, "README.md", "旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认")
+	assertPhrase(t, readiness, "README.md", "暂停、恢复或停止同样只需自然语言")
 	assertPhrase(t, readiness, ".claude/skills/steamai/SKILL.md", "新项目唯一可变状态根是 `${CLAUDE_PROJECT_DIR}/.steamai`")
+	assertPhrase(t, readiness, ".claude/skills/steamai/SKILL.md", "`control` 始终 review-first")
 	assertPhrase(t, readiness, ".claude/skills/steamai/SKILL.md", "不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退")
 	assertPhrase(t, readiness, "rekit/templates/steamai-project/SKILL.md", "新项目唯一可变状态根是 `${CLAUDE_PROJECT_DIR}/.steamai`")
 	assertPhrase(t, readiness, "rekit/templates/steamai-project/SKILL.md", "不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退")
+	assertPhrase(t, readiness, "rekit/templates/steamai-project/SKILL.md", "`control` 始终 review-first")
 	assertPhrase(t, readiness, "CLAUDE.md", "`/steamai` canonical skill")
 	assertPhrase(t, readiness, "CLAUDE.md", "legacy `/rekit` compatibility skill")
 	assertPhrase(t, readiness, "CLAUDE.md", "case public JSON 的 project-local typed command 由 resolved state root 统一投影")
 	assertPhrase(t, readiness, "CLAUDE.md", "当前已批准路线是 `steamai-product-optimization-v1`")
 	assertPhrase(t, readiness, "CLAUDE.md", "不做 installer")
+	assertPhrase(t, readiness, "CLAUDE.md", "exact lane `control` 使用独立 append-only generation")
 	assertPhrase(t, readiness, "docs/context-routing.md", "STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移")
+	assertPhrase(t, readiness, "docs/context-routing.md", "durable pause/resume/stop 与 late-result isolation")
 	assertPhrase(t, readiness, "docs/context-routing.md", "GitHub repository identity / clone / rename / Go module compatibility")
 	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "当前路线是 `steamai-product-optimization-v1`")
 	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "source-clone-first")
@@ -56,6 +61,7 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "一个真实项目目录 = 一个自包含 STeamAI 项目")
 	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "旧 `/rekit` 与 `.rekit` 在迁移期间只作为兼容入口")
 	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "case public JSON 按 resolved state root 投影全部 project-local typed command")
+	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "## 7. Durable execution control")
 	assertPhrase(t, readiness, "docs/reference-absorption.md", "git clone "+canonicalCloneURL)
 	assertPhrase(t, readiness, "docs/release-readiness.md", canonicalRepository)
 	assertPhrase(t, readiness, "docs/release-readiness.md", canonicalCloneURL)
@@ -63,6 +69,7 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "docs/release-readiness.md", "current STeamAI entry readiness")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "legacy `/rekit` / `.rekit` compatibility readiness")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "`docs/promote-sync.md` 纳入 current guidance inventory")
+	assertPhrase(t, readiness, "docs/release-readiness.md", "Public `control` 是Go-owned、case-local、review-first mutation")
 	assertPhrase(t, readiness, "docs/promote-sync.md", "current 项目使用 `/steamai` 或自然语言")
 	assertPhrase(t, readiness, "docs/promote-sync.md", "legacy-only 项目才使用 `/rekit`")
 	assertPhrase(t, readiness, "docs/promote-sync.md", "<active-state-root>")
@@ -334,6 +341,7 @@ Canonical repository: https://github.com/shuiyu486/STeamAI；clone: https://gith
 新项目使用 /steamai，唯一 current 状态根 ` + "`.steamai/`" + `。
 项目内 verified runtime 不能依赖旧绝对路径、机器 PATH 或原中央 kit。
 旧 ` + "`/rekit`" + `、` + "`.rekit`" + ` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
+暂停、恢复或停止同样只需自然语言。
 `
 
 const readySTeamAISkill = `# STeamAI 项目内 Mission Control 入口
@@ -342,6 +350,7 @@ const readySTeamAISkill = `# STeamAI 项目内 Mission Control 入口
 旧 ` + "`.rekit`" + ` 项目只走兼容入口。
 不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退。
 bounded-autonomous-v1 preview 后 exact Apply；不要让用户记 SHA。
+` + "`control`" + ` 始终 review-first。
 typed ` + "`invocation`" + ` 是唯一通用命令桥，按 ["runtime", "-Command", invocation.command] 传 argv；` + "`commandExecutable=false`" + ` 不执行。
 `
 
@@ -353,6 +362,7 @@ Canonical repository: https://github.com/shuiyu486/STeamAI；module compatibilit
 ` + "`/steamai`" + ` canonical skill；legacy ` + "`/rekit`" + ` compatibility skill。
 新项目不得回退机器 PATH 或外部 kit。
 case public JSON 的 project-local typed command 由 resolved state root 统一投影。
+exact lane ` + "`control`" + ` 使用独立 append-only generation。
 当前已批准路线是 ` + "`steamai-product-optimization-v1`" + `；不做 installer。
 `
 
@@ -361,6 +371,7 @@ const readyContextRouting = `# context routing
 本项目文档必须做成按需路由、渐进式披露的样式。
 STeamAI 自包含项目 / ` + "`.steamai`" + ` / ` + "`/steamai`" + ` / runtime bundle / legacy 迁移。
 GitHub repository identity / clone / rename / Go module compatibility。
+durable pause/resume/stop 与 late-result isolation。
 不把旧中央 kit/thin-shim 流程当新项目默认。
 `
 
@@ -392,6 +403,7 @@ const readySTeamAISelfContainedProject = `# self-contained project
 项目复制或移动后不能依赖旧绝对路径、机器全局 PATH 或原中央 kit 仓库。
 旧 ` + "`/rekit`" + ` 与 ` + "`.rekit`" + ` 在迁移期间只作为兼容入口。
 case public JSON 按 resolved state root 投影全部 project-local typed command。
+## 7. Durable execution control
 `
 
 const readyAutonomousGoal = `# goal
@@ -412,6 +424,7 @@ Canonical repository: https://github.com/shuiyu486/STeamAI；clone: https://gith
 普通 batch 默认依赖 Go-owned ` + "`release-check`" + ` inventory。
 current STeamAI entry readiness 与 legacy ` + "`/rekit`" + ` / ` + "`.rekit`" + ` compatibility readiness 分开验证且都参与 ready。
 ` + "`docs/promote-sync.md`" + ` 纳入 current guidance inventory。
+Public ` + "`control`" + ` 是Go-owned、case-local、review-first mutation。
 默认本机验证路径不依赖 PowerShell。
 `
 

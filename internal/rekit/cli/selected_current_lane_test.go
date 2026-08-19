@@ -13,7 +13,7 @@ func TestSelectedCurrentLaneRequiresExecutable(t *testing.T) {
 		command string
 		want    bool
 	}{
-		{command: "status", want: true},
+		{command: "status", want: false},
 		{command: "run-current-step", want: true},
 		{command: "run-current-loop", want: true},
 		{command: "run-driver-step", want: true},
@@ -100,6 +100,12 @@ func TestSelectedLaneCommandBindsExactLane(t *testing.T) {
 			command:  `/rekit start mission -Apply -Target "C:\case root" -Format json`,
 			selected: "feature-mission",
 			want:     `/rekit start -Name mission -Lane feature-mission -Apply -Target "C:\case root" -Format json`,
+		},
+		{
+			name:     "normalize typed lane start",
+			command:  `/steamai start -Target "C:\case root" mission -Executor session-1 -Actor main-agent -WhatIf -Format json`,
+			selected: "binary-analysis-mission",
+			want:     `/steamai start -Target "C:\case root" -Executor session-1 -Actor main-agent -Name mission -Lane binary-analysis-mission -WhatIf -Format json`,
 		},
 		{
 			name:     "normalize positional continue",
