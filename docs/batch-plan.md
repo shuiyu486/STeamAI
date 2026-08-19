@@ -24,15 +24,21 @@
 
 ### Current batch state
 
-Batch 833 已完成：ordinary goal/resume/correction在real member前复用同一project-local VMP/IDA actual adapter lifecycle；strict gate、actual embedded parent/child、report/packet/receipt/observation、independent evidence review、public acknowledgement与accepted-review后task binding形成durable闭环。terminal result、缺closure或缺binding可exact恢复，不重启child/Reviewer、不重复acknowledgement；完整terminal replay零写入，stale control fail-closed。focused tests使用harmless synthetic indexes和deterministic strict Reviewer hook，真实Claude acceptance仍由当前路线收口执行。
+### Batch 833：binary-re actual analysis
+
+状态：已完成 ordinary `binary-re` actual adapter lifecycle、直接相关 fresh validation 与 implementation commit/push；路线级完整验证与清理是当前独立收口工作，不创建 Batch 834。
+
+目标：以 `Batch 833` 作为 latest numbered implementation identity，供 Git-local machine receipt 绑定随后同批路线收口修复；`路线收口` 继续由 active route 独立表达，不冒充新产品批次。
+
+验证结果：Batch 833 focused fresh lifecycle tests 已实际启动 embedded authorized parent/fixed child，并覆盖 strict gate、independent evidence review、accepted-only binding、terminal recovery 与 stale control fail-closed；路线级 frozen-tree release minimum、真实 Claude acceptance 和最终 Git-local receipt 仍由当前收口工作完成，本段不宣称它们已通过。
 
 ### 路线收口：full validation and cleanup
 
 状态：进行中。
 
-目标：用完整fresh tests、vet、module verify、public release/status/packs/doctor、移动/复制E2E、真实Claude member→Reviewer→correction→completion和harmless synthetic actual adapter E2E验证四阶段组合行为；核查README/CLAUDE/reference/config/examples，删除两份临时计划与评估文件并完成最终commit/push和Git-local inspection。
+目标：用完整 fresh tests、vet、module verify、public release/status/packs/doctor、移动/复制 E2E、真实 Claude member→Reviewer→correction→completion 和 harmless synthetic actual adapter E2E 验证四阶段组合行为；核查 README/CLAUDE/reference/config/examples，删除两份临时计划与评估文件并完成最终 commit/push 和 Git-local inspection。
 
-当前边界：不新增Batch 834或新产品功能；不把focused hook、cross-compile、本地receipt、tracking ref或Markdown claim冒充remote CI green、跨平台runtime E2E或formal release。
+当前边界：不新增 Batch 834 或新产品功能；不把 focused hook、cross-compile、本地 receipt、tracking ref 或 Markdown claim 冒充 remote CI green、跨平台 runtime E2E 或 formal release。
 
 ### Locked sequence
 
@@ -44,12 +50,13 @@ Batch 833 已完成：ordinary goal/resume/correction在real member前复用同�
 ## 验证标准
 
 - 本文件与路线图的 route/current/state/claim/next 必须一致；冲突时 fail-closed。
-- active plan只保留一个compact最近完成批次摘要；更早批次只在`docs/batch-history.md`。
-- 完整fresh gates、移动/复制E2E、真实Claude acceptance、临时文件清理与Git-local post-push inspection全部通过后，路线才能标记completed。
-- 不声称未读取的remote CI green，不用cross-compile代替非Windows runtime E2E。
+- active plan 只保留一个 compact 最近完成 numbered batch handoff；更早批次只在 `docs/batch-history.md`。
+- 完整 fresh gates、移动/复制 E2E、真实 Claude acceptance、临时文件清理与 Git-local post-push inspection 全部通过后，路线才能标记 completed。
+- `Batch 833` 只作为 latest numbered receipt identity；路线收口不创建 Batch 834，machine receipt 而非本段 prose 决定 local validation readiness。
+- 不声称未读取的 remote CI green，不用 cross-compile 代替非 Windows runtime E2E。
 
 ## 风险与注意事项
 
-- Batch 833代码闭环已完成，但整条路线尚在验证与清理；不得把两种状态混为一谈。
-- 不全局替换兼容 `rekit` identity，不新增PowerShell runtime logic，不引入installer或PATH fallback。
-- authority/confirmed、heavy action、sync/promote和schema migration继续遵守exact review/gate边界。
+- Batch 833 代码闭环已完成，但整条路线尚在验证与清理；不得把两种状态混为一谈。
+- 不全局替换兼容 `rekit` identity，不新增 PowerShell runtime logic，不引入 installer 或 PATH fallback。
+- authority/confirmed、heavy action、sync/promote 和 schema migration 继续遵守 exact review/gate 边界。
