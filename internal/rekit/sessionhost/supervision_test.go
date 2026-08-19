@@ -159,6 +159,43 @@ func TestSupervisionTerminalRoundTripsExactClaudeRun(t *testing.T) {
 	}
 }
 
+func TestSupervisionTerminalReusesStructuredOutputRecoveryObservationTime(t *testing.T) {
+	opt := recoveryOptionsForTest()
+	opt.Target = t.TempDir()
+	pkg := recoveryPackageForTest()
+	output := json.RawMessage(`{"outcome":"returned","summary":"exact","reason":"","outputs":[{"path":"out.txt","content":"exact"}],"reviewerItemsPath":""}`)
+	run := claudeRun{
+		envelope:         claudeEnvelope{Type: "result", Subtype: "success", SessionID: pkg.Launch.Attempt.Session},
+		sessionID:        pkg.Launch.Attempt.Session,
+		structuredOutput: output,
+		started:          true,
+		exitCode:         0,
+		observedAt:       "2026-08-07T00:00:00Z",
+	}
+	if err := persistClaudeRecoveryForCase(opt.Target, opt, pkg, run); err != nil {
+		t.Fatal(err)
+	}
+	root, err := claudeRecoveryRootPath(opt.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("clean supervision recovery fixture: %v", err)
+		}
+	})
+
+	spec := supervisionSpec{RunID: strings.Repeat("a", 64), SessionID: run.sessionID}
+	terminal := supervisionTerminalForRun(spec, strings.Repeat("b", 64), run)
+	if terminal.ObservedAt != run.observedAt {
+		t.Fatalf("terminal observedAt = %q, want recovery observation %q", terminal.ObservedAt, run.observedAt)
+	}
+	recovered := claudeRunFromTerminal(terminal, nil, true)
+	if err := persistClaudeRecoveryForCase(opt.Target, opt, pkg, recovered); err != nil {
+		t.Fatalf("parent replay changed child recovery bytes: %v", err)
+	}
+}
+
 func TestSupervisionRejectsTerminalBindingDrift(t *testing.T) {
 	opt := recoveryOptionsForTest()
 	opt.Target = t.TempDir()

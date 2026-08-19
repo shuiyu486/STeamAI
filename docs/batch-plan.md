@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1`。四个实现阶段 Batch 830～833 已严格串行完成：core product closure → 唯一 `binary-re` → durable pause/resume/stop → ordinary `binary-re` actual analysis。当前只允许路线级完整验证与清理；source-clone-first、Go + Claude Code 预期依赖和无 installer 是稳定边界。
+当前路线是 `steamai-product-optimization-v1`，且已完成：四个实现阶段 Batch 830～833 严格串行落地，并通过路线级真实验收收口。当前没有已批准的新路线；source-clone-first、Go + Claude Code 预期依赖和无 installer 是稳定边界。
 
 ## 执行清单
 
@@ -17,10 +17,10 @@
 | 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
 | 当前批次 | `路线收口` full validation and cleanup |
-| 状态 | `in_progress` |
-| 唯一允许领取 | `路线收口` |
+| 状态 | `completed` |
+| 唯一允许领取 | `无` |
 | 上一批 | `Batch 833` binary-re actual analysis 已完成 |
-| 下一批 | `无（路线完成后等待明确新路线）` |
+| 下一批 | `无（等待明确新路线）` |
 
 ### Current batch state
 
@@ -34,24 +34,24 @@
 
 ### 路线收口：full validation and cleanup
 
-状态：进行中。
+状态：已完成；当前无已批准下一批。
 
-目标：用完整 fresh tests、vet、module verify、public release/status/packs/doctor、移动/复制 E2E、真实 Claude member→Reviewer→correction→completion 和 harmless synthetic actual adapter E2E 验证四阶段组合行为；核查 README/CLAUDE/reference/config/examples，删除两份临时计划与评估文件并完成最终 commit/push 和 Git-local inspection。
+完成结果：默认 `binary-re` 真实 Claude gate 从 fresh 与 attached 自包含项目走通 member→独立 Reviewer rejection→zero-launch replay→人工纠偏→actual embedded adapter parent/fixed child→independent evidence review→replacement member→独立 Reviewer acceptance→completion→terminal/attached recovery；3 个 member 与 3 个 Reviewer 全部来自真实 Claude Code envelope，`manualPlaceholders=0`、`manualResultWrites=0`，fresh/attached case cleanup 均为 `removed`。README、CLAUDE、reference、config/example 与测试漂移已同步收敛；复制/移动 E2E 由 canonical full suite 覆盖。
 
-当前边界：不新增 Batch 834 或新产品功能；不把 focused hook、cross-compile、本地 receipt、tracking ref 或 Markdown claim 冒充 remote CI green、跨平台 runtime E2E 或 formal release。
+完成证据：本段保存真实 gate 边界；frozen 7-step local minimum、exact changed artifacts、唯一 direct implementation commit 与 Git-local tracking ref 只由 v2 machine receipt/post-push inspection 判定，不由 Markdown 预写。未读取 remote CI，因此不声称 remote CI green、跨平台 runtime E2E 或 formal release。
 
 ### Locked sequence
 
 | 工作 | 解锁条件 |
 |---|---|
 | 路线级完整验证与清理 | Batch 833 完成（已满足） |
-| 新路线或新批次 | 当前路线完成后由用户明确批准 |
+| 新路线或新批次 | 由用户明确批准（当前无） |
 
 ## 验证标准
 
 - 本文件与路线图的 route/current/state/claim/next 必须一致；冲突时 fail-closed。
 - active plan 只保留一个 compact 最近完成 numbered batch handoff；更早批次只在 `docs/batch-history.md`。
-- 完整 fresh gates、移动/复制 E2E、真实 Claude acceptance、临时文件清理与 Git-local post-push inspection 全部通过后，路线才能标记 completed。
+- 路线 tracked completion 只是候选终态；只有 v2 machine receipt 验证 frozen fresh gates、exact artifacts、direct commit 与本地 tracking ref 后，local completion 才可信。
 - `Batch 833` 只作为 latest numbered receipt identity；路线收口不创建 Batch 834，machine receipt 而非本段 prose 决定 local validation readiness。
 - 不声称未读取的 remote CI green，不用 cross-compile 代替非 Windows runtime E2E。
 

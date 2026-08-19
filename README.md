@@ -30,7 +30,7 @@ claude
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 
-> Batch 828 的 Windows 自包含闭环与 Batch 829 的 canonical GitHub repository identity 已完成并归档。`steamai-product-optimization-v1` 的核心闭环、唯一 `binary-re`、durable pause/resume/stop 和 ordinary actual binary analysis 四个实现阶段已完成，当前只做路线级完整验证与清理；真实状态与验收条件只见 `docs/real-usage-hardening-roadmap.md`。Go module/internal/legacy identity 暂保留兼容，完成态只由 Git-local machine receipt 和本地 tracking ref 判定，本地 readiness 不冒充 remote CI green。
+> Batch 828 的 Windows 自包含闭环与 Batch 829 的 canonical GitHub repository identity 已完成并归档。`steamai-product-optimization-v1` 的核心闭环、唯一 `binary-re`、durable pause/resume/stop、ordinary actual binary analysis 与路线级真实验收已收口；后续等待用户明确批准新路线，不自动创建 Batch 834。完成证据只认 Git-local machine receipt、本地 tracking ref 和 `docs/real-usage-hardening-roadmap.md` 记录的真实 gate，本地 readiness 不冒充 remote CI green。
 
 STeamAI 不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。heavy action 只在 strict durable profile 与 fresh `authorized-gate` 覆盖的 exact scope/budget/stop/output 内执行并留证；`bounded-autonomous-v1` 只是显式、短时、有界的免逐次询问，不是无限权限。
 
@@ -206,6 +206,11 @@ Handoff currentness：`status` 或 generic runbook 中尚未绑定 publication p
 维护真实 session 产品链时，普通 `go test ./...` 不会启动 Claude。只有维护者显式运行以下 live gate，才会创建无敏感内容的临时 case，依次启动第一代真实 member、真实 Reviewer reject、证据绑定的人工 correction、replacement member 和独立新 Reviewer accept，验证旧 rejected manifest 不会自动复审、strict writeback、accepted-only feature-lane completion 与自动清理。省略 `-pack` 时保持 fresh 默认 `binary-re`；RH-08 跨 pack 维护验收只允许显式选择 `_template` 或 `web-security`，ordinary `-daily` 仍拒绝 `-pack` 并只从 fresh default 或 attached metadata 派生 pack：
 
 ```text
+# 默认 binary-re：actual adapter + ordinary evidence/member/Reviewer lifecycle
+go build -o "<outside-repository>/rekit-adapter-host.exe" ./cmd/rekit-adapter-host
+go run ./cmd/rekit-host -live-acceptance -adapter "<outside-repository>/rekit-adapter-host.exe" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
+
+# allowlisted cross-pack maintenance（不进入 binary-re adapter lifecycle）
 go run ./cmd/rekit-host -live-acceptance -pack "<_template-or-web-security>" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
 ```
 

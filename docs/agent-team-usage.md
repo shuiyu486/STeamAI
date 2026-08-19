@@ -83,6 +83,12 @@
 ```text
 go run ./cmd/rekit-host -daily -target <attached-case> -lane <typed-choice-id> -correction "<human-correction>"
 go run ./cmd/rekit-host -target <attached-case>
+
+# 默认 binary-re actual adapter lifecycle
+go build -o "<outside-repository>/rekit-adapter-host.exe" ./cmd/rekit-adapter-host
+go run ./cmd/rekit-host -live-acceptance -adapter "<outside-repository>/rekit-adapter-host.exe" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
+
+# allowlisted cross-pack maintenance
 go run ./cmd/rekit-host -live-acceptance -pack <_template-or-web-security> -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
 go run ./cmd/rekit-host -live-soak-acceptance -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-repository-receipt.json>"
 go run ./cmd/rekit-host -live-pack-memory-acceptance -goal "<bounded-generic-pack-memory-goal>" -receipt "<outside-repository-receipt.json>"
@@ -348,10 +354,13 @@ current 项目推荐流程：
 
 ```text
 /rekit status
-/rekit attach -Target <caseRoot> -Pack vmp-re -Apply
+# 缺少 attached metadata 时，先审核 binary-re attach preview，再执行其 exact Apply
+/rekit attach -Target <caseRoot> -Pack binary-re -WhatIf
 /rekit sync
 /rekit doctor
 ```
+
+若 fresh status/attach 报告旧 `vmp-re` 或 `generic-binary-re`，按 typed `pack-migration-required` 停止并单独审核迁移；不要把旧 identity 自动映射、作为 alias 继续运行或直接覆盖 metadata。
 
 如果 case 被移动过：
 
@@ -383,9 +392,9 @@ current 项目推荐流程：
 
 ## 4. 当前路线与后续边界
 
-当前唯一实施路线是 `steamai-self-contained-project-v1` / Batch 828。append-only evidence ledger、Reviewer strict intake、lane handoff、heavy-action gate、authorized execution evidence 和 adapter 基础已经存在，不再作为“未来待实现”重复立项。
+`steamai-product-optimization-v1` 已完成 Batch 830～833 与路线级真实验收。append-only evidence ledger、Reviewer strict intake、lane handoff、heavy-action gate、durable execution control、authorized execution evidence 和 ordinary `binary-re` actual adapter lifecycle 已存在，不再作为“未来待实现”重复立项。
 
-本轮只收口自包含产品闭环：strict active state root、project-local verified runtime/pack、copied-directory 无中央 kit运行、compact status、人话 recovery、`bounded-autonomous-v1`、legacy migration 和完整 Windows 验证。其它 pack 深化、新 adapter、GUI/TUI、安装器、跨平台产品 E2E 或更大自治范围，都要等本轮完成后重新评估，不能从本指南自行领取。
+当前没有已批准的新路线或下一批；等待用户明确选择后再更新 active route。GUI/TUI、installer、跨平台专项产品 E2E、新 pack 或更大自治范围都不能从本指南自行领取。
 
 ## 5. 推荐使用决策表
 

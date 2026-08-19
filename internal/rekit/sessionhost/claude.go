@@ -465,7 +465,15 @@ func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnes
 	common := fmt.Sprintf("Read the immutable task input at the exact absolute path %q using the Read tool before answering. Follow it exactly within its no-authority/no-heavy-tool boundary. Resolve any case-relative evidence paths inside that input from the current case root %q. Your actual Claude Code session ID is %s. Return only the requested structured output through the schema. Use Read only for the immutable input and the minimum listed evidence needed for the verdict; do not explore unrelated files or repeat reads. After those bounded reads, immediately return the structured output and never end the response with another Read call. Do not write external-session result or submission files; the host will persist your real returned bytes.", inputPath, caseRoot, sessionID)
 	if pkg.SessionKind == "member" {
 		schema := `{"type":"object","properties":{"outcome":{"type":"string","enum":["returned","failed"]},"summary":{"type":"string"},"reason":{"type":"string"},"outputs":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"reviewerItemsPath":{"type":"string"}},"required":["outcome","summary","reason","outputs","reviewerItemsPath"],"additionalProperties":false}`
-		return common + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Read the task context outputContract.fields and make the returned analysis explicitly address every field using the currently inspected evidence; use a clear unknown, none, or not-applicable value when the evidence supports no stronger claim, and never invent a value. If the task context contains a correction and historical Reviewer rejection, treat them as instructions and provenance for replacing the old result: cite the current correction evidence path and report the corrected current analysis rather than repeating the historical gap as current. The independent Reviewer is a later runtime-owned segment: do not require a Reviewer result inside the member output, do not defer merely because that later review has not happened, and do not claim that it has happened. Judge only whether the member evidence and analysis you can produce now support the requested factual conclusion; the later Reviewer will independently accept or reject that output. An unmet semantic acceptance requirement or missing bounded evidence is not a process failure: return a bounded output that states the concrete gap so an independent Reviewer can reject it; use outcome=failed only when you cannot return any bounded output. If the TaskContext binding kind is vmp-ida-index-evidence, read its exact packet, report, dispatch, and receipt paths and put the exact selected row (preserving TSV text or its exact JSON string escaping), selected evidence ref, packet path, receipt path, and observation event ID in the returned reviewerItemsPath output; a query-term-only echo is invalid. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
+		submissionOutputs := strings.TrimSpace(pkg.Launch.Attempt.SubmissionOutputs)
+		if pkg.Return != nil && strings.TrimSpace(pkg.Return.SubmissionOutputs) != "" {
+			submissionOutputs = strings.TrimSpace(pkg.Return.SubmissionOutputs)
+		}
+		outputPathContract := " Every outputs[].path and reviewerItemsPath must be relative to the current host-owned submission output root (for example member-output/result.json); never return a case-relative .steamai or .rekit path."
+		if submissionOutputs != "" {
+			outputPathContract = fmt.Sprintf(" Every outputs[].path and reviewerItemsPath must be relative to the host-owned submission output root %q (for example member-output/result.json); never return a case-relative .steamai or .rekit path.", submissionOutputs)
+		}
+		return common + outputPathContract + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Read the task context outputContract.fields and make the returned analysis explicitly address every field using the currently inspected evidence; use a clear unknown, none, or not-applicable value when the evidence supports no stronger claim, and never invent a value. If the task context contains a correction and historical Reviewer rejection, treat them as instructions and provenance for replacing the old result: cite the current correction evidence path and report the corrected current analysis rather than repeating the historical gap as current. The independent Reviewer is a later runtime-owned segment: do not require a Reviewer result inside the member output, do not defer merely because that later review has not happened, and do not claim that it has happened. Judge only whether the member evidence and analysis you can produce now support the requested factual conclusion; the later Reviewer will independently accept or reject that output. An unmet semantic acceptance requirement or missing bounded evidence is not a process failure: return a bounded output that states the concrete gap so an independent Reviewer can reject it; use outcome=failed only when you cannot return any bounded output. If the TaskContext binding kind is vmp-ida-index-evidence, read its exact packet, report, dispatch, and receipt paths and put the exact selected row (preserving TSV text or its exact JSON string escaping), selected evidence ref, packet path, receipt path, and observation event ID in the returned reviewerItemsPath output; a query-term-only echo is invalid. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
 	}
 	if pkg.SessionKind == "mission-commander-evidence-review" {
 		schema := `{"type":"object","properties":{"decision":{"type":"string","enum":["accepted","rejected"]},"summary":{"type":"string"},"reason":{"type":"string"},"evidenceRefs":{"type":"array","minItems":2,"maxItems":8,"items":{"type":"string"}},"selectedEvidenceRef":{"type":"string"},"observationEventId":{"type":"string"},"receiptSha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["decision","summary","reason","evidenceRefs","selectedEvidenceRef","observationEventId","receiptSha256"],"additionalProperties":false}`
@@ -695,6 +703,10 @@ func validateClaudeStructuredResult(pkg mission.CurrentLoopExternalSessionHarnes
 	}
 	switch pkg.SessionKind {
 	case "member":
+		if pkg.Launch == nil || pkg.Return == nil ||
+			strings.TrimSpace(pkg.Return.SubmissionOutputs) == "" {
+			return fmt.Errorf("Claude member result package omitted its submission output root")
+		}
 		var response memberResponse
 		if err := strictJSON(run.structuredOutput, &response); err != nil {
 			return fmt.Errorf("invalid Claude member structured output: %w", err)
@@ -704,6 +716,10 @@ func validateClaudeStructuredResult(pkg mission.CurrentLoopExternalSessionHarnes
 		}
 		if strings.TrimSpace(response.Summary) == "" {
 			return fmt.Errorf("Claude member returned an empty summary")
+		}
+		response, err := normalizeMemberResponseOutputPaths(pkg.CaseRoot, *pkg.Launch, response)
+		if err != nil {
+			return err
 		}
 		if _, err := validateMemberOutputs(pkg.Return.SubmissionOutputs, response); err != nil {
 			return err
@@ -864,6 +880,12 @@ func publishClaudeResultCanonical(opt Options, plan currentStepPlan, run claudeR
 					reason = "Claude member returned an empty summary"
 					break
 				}
+				normalized, normalizeErr := normalizeMemberResponseOutputPaths(opt.Target, *pkg.Launch, response)
+				if normalizeErr != nil {
+					reason = normalizeErr.Error()
+					break
+				}
+				response = normalized
 				if _, err := validateMemberOutputs(pkg.Return.SubmissionOutputs, response); err != nil {
 					reason = err.Error()
 					break
@@ -953,6 +975,79 @@ func publishClaudeResultCanonical(opt Options, plan currentStepPlan, run claudeR
 		return "host-failed", err
 	}
 	return outcome, nil
+}
+
+func normalizeMemberResponseOutputPaths(
+	caseRoot string,
+	launch mission.CurrentLoopExternalSessionHarnessLaunch,
+	response memberResponse,
+) (memberResponse, error) {
+	inspection, err := validateClaudeMemberLaunchInput(caseRoot, launch)
+	if err != nil {
+		return memberResponse{}, err
+	}
+	knownRoots := []string{
+		launch.Attempt.SubmissionOutputs,
+		inspection.OutputsRoot,
+		filepath.Join(inspection.AttemptRoot, "evidence", "outputs"),
+	}
+	outputs := make([]memberOutput, len(response.Outputs))
+	copy(outputs, response.Outputs)
+	for index := range outputs {
+		path, err := normalizeMemberOutputPath(caseRoot, knownRoots, outputs[index].Path)
+		if err != nil {
+			return memberResponse{}, err
+		}
+		outputs[index].Path = path
+	}
+	response.Outputs = outputs
+	if strings.TrimSpace(response.ReviewerItemsPath) != "" {
+		path, err := normalizeMemberOutputPath(caseRoot, knownRoots, response.ReviewerItemsPath)
+		if err != nil {
+			return memberResponse{}, fmt.Errorf("reviewerItemsPath is invalid: %w", err)
+		}
+		response.ReviewerItemsPath = path
+	}
+	return response, nil
+}
+
+func normalizeMemberOutputPath(caseRoot string, knownRoots []string, value string) (string, error) {
+	raw := strings.TrimSpace(value)
+	if raw == "" || filepath.IsAbs(raw) || strings.HasPrefix(raw, "/") ||
+		strings.HasPrefix(raw, "\\") || strings.Contains(raw, ":") {
+		return "", fmt.Errorf("Claude member output path is invalid: %q", value)
+	}
+	path := filepath.ToSlash(filepath.Clean(filepath.FromSlash(raw)))
+	if path == "." || path == ".." || strings.HasPrefix(path, "../") {
+		return "", fmt.Errorf("Claude member output path is invalid: %q", value)
+	}
+	candidate, err := rekitfs.SafeJoin(caseRoot, path)
+	if err != nil {
+		return "", fmt.Errorf("Claude member output path is invalid: %q: %w", value, err)
+	}
+	for _, root := range knownRoots {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		rootPath, err := anchoredPath(caseRoot, root)
+		if err != nil {
+			return "", err
+		}
+		rel, err := filepath.Rel(rootPath, candidate)
+		if err == nil && rel != "." && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.ToSlash(rel), nil
+		}
+	}
+	if memberOutputPathUsesStateRoot(path) {
+		return "", fmt.Errorf("Claude member output path must be relative to the submission output root: %q", value)
+	}
+	return path, nil
+}
+
+func memberOutputPathUsesStateRoot(path string) bool {
+	first, _, _ := strings.Cut(filepath.ToSlash(path), "/")
+	return strings.EqualFold(first, ".steamai") || strings.EqualFold(first, ".rekit")
 }
 
 func publishMemberOutputs(caseRoot, root string, response memberResponse) error {

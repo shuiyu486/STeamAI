@@ -2298,7 +2298,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
 	}
 	activeRoute := status.ProjectHandoff.ActiveRoute
-	if !activeRoute.Present || activeRoute.Route != "steamai-product-optimization-v1" || !strings.HasPrefix(activeRoute.CurrentBatch, "路线收口") || activeRoute.State != "in_progress" || activeRoute.ExclusiveClaim != "路线收口" || activeRoute.NextBatchUnlocked || !activeRoute.ProjectionConsistent {
+	if !activeRoute.Present || activeRoute.Route != "steamai-product-optimization-v1" || !strings.HasPrefix(activeRoute.CurrentBatch, "路线收口") || activeRoute.State != "completed" || activeRoute.ExclusiveClaim != "无" || activeRoute.NextBatchUnlocked || !activeRoute.ProjectionConsistent {
 		t.Fatalf("unexpected project handoff active route: %+v", activeRoute)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
@@ -2315,8 +2315,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("project handoff omitted latest batch remote gate detail: %+v", status.ProjectHandoff)
 	}
 	projectCurrent := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
-	if projectCurrent == nil || projectCurrent.ActionID != "active-route-current-batch" || projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.State != "in_progress" || projectCurrent.Label != "路线收口" {
-		t.Fatalf("active route did not expose the route closure action: route=%+v current=%+v", activeRoute, projectCurrent)
+	if projectCurrent == nil || projectCurrent.ActionID != "active-route-completed" || projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.State != "completed-no-next-batch" || projectCurrent.Label != "路线收口" {
+		t.Fatalf("completed route did not expose terminal no-selection guidance: route=%+v current=%+v", activeRoute, projectCurrent)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
 		t.Fatalf("completed release-run batch should not repeat local validation as current action: %+v", projectCurrent)

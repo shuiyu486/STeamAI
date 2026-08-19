@@ -24,7 +24,7 @@ fixed runtime path 只读取已有 `function_index.tsv`（必需）和可选 `st
 ## 验证标准
 
 - packet 中所有路径使用 case-relative 或 export-relative 路径，不写本机绝对路径。
-- packet 明确 `mode: read-only-index`、`sideEffects: ["filesystem-read"]`，且不包含 rename/comment/patch/debug/dump/network 动作。
+- packet 明确 `mode: read-only-index`、`sideEffects: ["filesystem-read", "bounded-packet-write"]`；写入只限 exact output root 的 bounded packet，不包含 rename/comment/patch/debug/dump/network 动作。
 - 单个 packet 的 selected functions / strings / imports / xrefs 有上限；超限时写 `truncated: true` 与 `droppedCount`。
 - Markdown / handoff / candidate 只写摘要和 evidence refs，不粘贴完整 decompile/disasm/hexdump。
 - adapter 失败时写 dispatch-bound `failed` / `aborted` terminal report，零 packet artifact，且同一 dispatch 不重启 child；packet 内的 `errors[]` / `nextActions[]` 只用于已成功解析的有界检查结果。
@@ -73,6 +73,7 @@ outputs:
   - evidence refs to index rows or sidecar line ranges
 side_effects:
   - filesystem-read
+  - bounded-packet-write
 risks:
   - stale export compared with current IDB
   - large index/decompile output if not bounded
@@ -82,7 +83,7 @@ stop_conditions:
   - query would require full decompile/disasm dump
   - selected output exceeds packet limits
   - task needs rename/comment/patch/debug/dump/network
-confirmation_required: false for reading existing bounded exports; true for export generation or any write/heavy action
+confirmation_required: false for reading existing bounded exports; the fixed bounded packet write requires its strict profile + authorized-gate; export generation or any other write/heavy action requires a separate confirmation
 ```
 
 ## Packet schema
@@ -94,7 +95,7 @@ Adapter 输出建议为 JSON sidecar，最小字段如下：
   "schemaVersion": 1,
   "tool": "ida-agent-bridge",
   "mode": "read-only-index",
-  "sideEffects": ["filesystem-read"],
+  "sideEffects": ["filesystem-read", "bounded-packet-write"],
   "source": {
     "exportRoot": "tooling/ida-agent-bridge/export",
     "idbRef": "<idb-hash-or-human-label>",

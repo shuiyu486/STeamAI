@@ -128,6 +128,69 @@ func TestValidateClaudeMemberLaunchInputKeepsAttemptNamespacesDistinct(t *testin
 			launch.Attempt.AttemptID,
 		)
 	}
+
+	launch.Attempt.SubmissionOutputs = ".steamai/external-session-attempt-inputs/member-job/000001/outputs"
+	canonicalOutput, err := filepath.Rel(
+		caseRoot,
+		filepath.Join(inspection.AttemptRoot, "evidence", "outputs", "member-output", "result.json"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalOutput = filepath.ToSlash(canonicalOutput)
+	response := memberResponse{
+		Outcome:           "returned",
+		Summary:           "bounded member result",
+		Outputs:           []memberOutput{{Path: canonicalOutput, Content: "bounded result\n"}},
+		ReviewerItemsPath: canonicalOutput,
+	}
+	normalized, err := normalizeMemberResponseOutputPaths(caseRoot, launch, response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := normalized.Outputs[0].Path; got != "member-output/result.json" {
+		t.Fatalf("normalized output path=%q", got)
+	}
+	if normalized.ReviewerItemsPath != "member-output/result.json" {
+		t.Fatalf("normalized reviewerItemsPath=%q", normalized.ReviewerItemsPath)
+	}
+	validatedOutputs, err := validateMemberOutputs(launch.Attempt.SubmissionOutputs, normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPublished := filepath.ToSlash(filepath.Join(
+		filepath.FromSlash(launch.Attempt.SubmissionOutputs),
+		"member-output",
+		"result.json",
+	))
+	if len(validatedOutputs) != 1 || validatedOutputs[0].path != wantPublished {
+		t.Fatalf("validated publication paths=%+v want=%q", validatedOutputs, wantPublished)
+	}
+	response.Outputs[0].Path = ".steamai/lanes/unrelated/result.json"
+	response.ReviewerItemsPath = response.Outputs[0].Path
+	if _, err := normalizeMemberResponseOutputPaths(caseRoot, launch, response); err == nil ||
+		!strings.Contains(err.Error(), "submission output root") {
+		t.Fatalf("unrelated state-root path error=%v", err)
+	}
+
+	launch.Ready = true
+	launch.Attempt.Session = "member-session"
+	pkg := mission.CurrentLoopExternalSessionHarnessPackage{
+		CaseRoot:    caseRoot,
+		SessionKind: "member",
+		Launch:      &launch,
+		Return: &mission.CurrentLoopExternalSessionReturnContract{
+			SubmissionOutputs: launch.Attempt.SubmissionOutputs,
+		},
+	}
+	prompt, _, err := claudeRequest(caseRoot, pkg, launch.Attempt.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, launch.Attempt.SubmissionOutputs) ||
+		!strings.Contains(prompt, "never return a case-relative .steamai or .rekit path") {
+		t.Fatalf("member prompt omitted exact output path contract: %s", prompt)
+	}
 }
 
 func TestClaudeAdditionalReadDirsAreReviewerOnlyAndAttachedKitBound(t *testing.T) {
@@ -508,9 +571,15 @@ func hostPackageForTest(caseRoot, inputRel string, input []byte) mission.Current
 		CaseRoot:    caseRoot,
 		SessionKind: "member",
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
-			Ready:   true,
-			Input:   mission.CurrentLoopExternalSessionHarnessInput{Path: inputRel, SHA256: bytesSHA256(input)},
-			Attempt: mission.CurrentLoopExternalSessionAttempt{Session: "session-id"},
+			Ready: true,
+			Input: mission.CurrentLoopExternalSessionHarnessInput{Path: inputRel, SHA256: bytesSHA256(input)},
+			Attempt: mission.CurrentLoopExternalSessionAttempt{
+				Session:           "session-id",
+				SubmissionOutputs: ".rekit/external-session-attempt-inputs/member-job/000001/outputs",
+			},
+		},
+		Return: &mission.CurrentLoopExternalSessionReturnContract{
+			SubmissionOutputs: ".rekit/external-session-attempt-inputs/member-job/000001/outputs",
 		},
 	}
 }

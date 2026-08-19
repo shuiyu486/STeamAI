@@ -621,7 +621,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", manifestItem}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", manifestItem, "-Lane", "feature-review"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	external := runCurrentLoopPreview(t, caseRoot, 10)
@@ -672,7 +672,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err := json.Unmarshal(handoffPreviewOut.Bytes(), &handoffPreview); err != nil {
 		t.Fatalf("current-loop operator handoff preview did not decode: %v\n%s", err, handoffPreviewOut.String())
 	}
-	if handoffPreview.Selector != "main" ||
+	if handoffPreview.Selector != "feature-review" ||
 		handoffPreview.DailyMissionControlRunbook == nil ||
 		handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil {
 		t.Fatalf("handoff JSON omitted exact Reviewer target lane apply request: %+v", handoffPreview)
@@ -688,7 +688,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err := Run(handoffApplyArgs, &handoffApplyOut); err != nil {
 		t.Fatal(err)
 	}
-	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "feature-review-latest.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +758,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("result continuation did not separate shared command from guarded alternatives: shared=%s returned=%+v failed=%+v", continuation.WhatIfCommand, returnedContinuation, failedContinuation)
 	}
 	var operatorStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &operatorStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-review", "-Format", "json"}, &operatorStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var operatorStatus statusInventory
@@ -825,7 +825,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 	reviewerSubmission := map[string]any{
 		"schemaVersion": 1, "kind": "current-loop-external-session-submission", "jobId": resultJob.JobID, "jobSha256": resultJob.JobSHA256,
-		"outcome": "returned", "actor": "go-cli-test-harness", "reviewerSession": "reviewer-session-runner", "noAuthorityOrConfirmed": true, "noHeavyTool": true,
+		"outcome": "returned", "actor": "go-cli-test-harness", "observedAt": "2026-08-05T00:30:02Z", "reviewerSession": "reviewer-session-runner", "noAuthorityOrConfirmed": true, "noHeavyTool": true,
 	}
 	bindCurrentLoopExternalSubmissionAttempt(t, resultJob, reviewerSubmission)
 	reviewerSubmissionData, _ := json.MarshalIndent(reviewerSubmission, "", "  ")
@@ -833,7 +833,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reviewerRelayStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &reviewerRelayStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-review", "-Format", "json"}, &reviewerRelayStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var reviewerRelayStatus statusInventory
@@ -847,7 +847,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if harness := reviewerRelayOperator.ExternalSessionJob.HarnessPackage; harness == nil || harness.State != "return-review-required" || harness.Launch == nil || harness.Launch.Ready || harness.Return == nil || harness.Return.ReviewRequest == nil || harness.Return.ReviewRequest.Command != reviewerRelayOperator.SelectedDriverRequest.Command || harness.Return.RelayRecoveryRequest == nil || harness.Return.RelayRecoveryRequest.Command != reviewerRelayOperator.ExternalSessionJob.RelayPreviewRequest.Command {
 		t.Fatalf("reviewer submission-ready package omitted reviewed return and relay recovery requests: %+v", harness)
 	}
-	reviewerCurrent := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	reviewerCurrent := runMemberCurrentStepForLane(t, caseRoot, "feature-review", []string{"-WhatIf"})
 	if reviewerCurrent.Route != "reviewer" || reviewerCurrent.ExternalSessionStep == nil || reviewerCurrent.ExternalSessionStep.Mode != "result-turn" || reviewerCurrent.ExternalSessionStep.Turn == nil || reviewerCurrent.ExpectedCurrentStepPlanSHA256 == "" {
 		t.Fatalf("reviewer external result did not enter unified current-step route: %+v", reviewerCurrent)
 	}
@@ -879,7 +879,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		ObservationKind: "reviewer-session-failed", Actor: actor, ReviewerAttemptSHA256: resultAttempt.AttemptSnapshotSHA256, ReviewerExitStatus: "reviewer-error",
 		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	})
-	failedPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, "-Lane", "main", "-CurrentLoopObservationPath", failedObservationPath)
+	failedPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, "-Lane", "feature-review", "-CurrentLoopObservationPath", failedObservationPath)
 	if failedPreview.ObservationSHA256 == "" || !strings.Contains(failedPreview.ApplyCommand, "-CurrentLoopObservationPath") || strings.Contains(failedPreview.ApplyCommand, "-ReviewerOutcome") || strings.Contains(failedPreview.ApplyCommand, "-Actor") {
 		t.Fatalf("failed reviewer envelope preview did not preserve path-only apply: %+v", failedPreview)
 	}
@@ -900,7 +900,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		ObservationKind: "reviewer-session-accepted", Actor: actor, ReviewerAttemptSHA256: replacementSpawnAttempt.AttemptSnapshotSHA256, ReviewerHarness: externalsession.RemoteControlHarness, ReviewerSession: "reviewer-session-replacement",
 		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	})
-	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, "-Lane", "main", "-CurrentLoopObservationPath", replacementDispatchObservationPath)
+	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, "-Lane", "feature-review", "-CurrentLoopObservationPath", replacementDispatchObservationPath)
 	replacementDispatchApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, replacementDispatchPreview.ApplyCommand))
 	if replacementDispatchApplied.AppliedSteps != 1 || replacementDispatchApplied.StopReason.Code != "external-reviewer-handoff" || replacementDispatchApplied.SegmentCheckpoint == nil {
 		t.Fatalf("replacement reviewer dispatch did not reach result handoff: %+v", replacementDispatchApplied)
@@ -929,7 +929,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	staleResultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, replacementDispatchApplied.SegmentCheckpoint.ArtifactSHA256,
-		"-Lane", "main",
+		"-Lane", "feature-review",
 		"-ExpectedCurrentLoopReviewerAttemptSha256", replacementResultAttempt.AttemptSnapshotSHA256,
 		"-ReviewerResultInputSourcePath", staleResultSource,
 		"-Actor", actor,
@@ -942,7 +942,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 
 	var replacementStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &replacementStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-review", "-Format", "json"}, &replacementStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var replacementStatus statusInventory
@@ -959,7 +959,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		"-ExternalSessionActor", actor,
 		"-ExternalSessionStartedAt", "2026-08-12T10:00:00Z",
 	}
-	attemptPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, attemptInputs...), "-WhatIf"))
+	attemptPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-review", append(append([]string{}, attemptInputs...), "-WhatIf"))
 	if attemptPreview.Route != "reviewer" || attemptPreview.ExternalSessionStep == nil || attemptPreview.ExternalSessionStep.Mode != "attempt" || attemptPreview.ExternalSessionStep.Attempt == nil || attemptPreview.ExpectedCurrentStepPlanSHA256 == "" || attemptPreview.ExternalSessionStep.Attempt.ExpectedPlanSHA256 == "" || attemptPreview.ExternalSessionStep.Attempt.Attempt.Harness != externalsession.RemoteControlHarness || attemptPreview.ExternalSessionStep.Attempt.Attempt.Session != "reviewer-session-replacement" {
 		t.Fatalf("Remote Control attempt preview omitted exact durable binding: %+v", attemptPreview)
 	}
@@ -969,7 +969,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 
 	claimInputs := []string{"-ExternalSessionActor", actor, "-ExternalSessionObservedAt", "2026-08-12T10:00:01Z"}
-	claimPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, claimInputs...), "-WhatIf"))
+	claimPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-review", append(append([]string{}, claimInputs...), "-WhatIf"))
 	if claimPreview.ExternalSessionStep == nil || claimPreview.ExternalSessionStep.Mode != "dispatch-claim" || claimPreview.ExternalSessionStep.Dispatch == nil || claimPreview.ExternalSessionStep.Dispatch.Outcome != "claimed" || claimPreview.ExternalSessionStep.Dispatch.ExpectedPlanSHA256 == "" {
 		t.Fatalf("Remote Control dispatch claim preview is incomplete: %+v", claimPreview)
 	}
@@ -978,7 +978,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("Remote Control dispatch claim Apply did not reach claimed: %+v", claimApplied)
 	}
 
-	discovery := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	discovery := runMemberCurrentStepForLane(t, caseRoot, "feature-review", []string{"-WhatIf"})
 	if discovery.ExternalSessionStep == nil || discovery.ExternalSessionStep.Mode != "remote-control-discovery-input" || discovery.ExpectedCurrentStepPlanSHA256 != "" || !slices.Contains(discovery.ExternalSessionStep.InputRequired, "run ListAgents") || discovery.ExternalSessionStep.HarnessPackage == nil {
 		t.Fatalf("Remote Control discovery input stop is invalid: %+v", discovery)
 	}
@@ -987,7 +987,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		"-ExternalSessionActor", actor,
 		"-ExternalSessionObservedAt", "2026-08-12T10:00:02Z",
 	}
-	endpointPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, endpointInputs...), "-WhatIf"))
+	endpointPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-review", append(append([]string{}, endpointInputs...), "-WhatIf"))
 	transportEndpoint := endpointPreview.ExternalSessionStep
 	if transportEndpoint == nil || transportEndpoint.Mode != "remote-control-endpoint" || transportEndpoint.Transport == nil || transportEndpoint.Transport.Endpoint == nil || endpointPreview.ExpectedCurrentStepPlanSHA256 == "" || transportEndpoint.Transport.ExpectedPlanSHA256 == "" || transportEndpoint.Transport.Endpoint.DiscoveryTool != "ListAgents" || transportEndpoint.Transport.Endpoint.Envelope.Operation != "SendMessage" || transportEndpoint.Transport.Endpoint.Envelope.Recipient != "reviewer [opaque-ref]" || !transportEndpoint.Transport.Endpoint.Envelope.NoFileTransfer || transportEndpoint.Transport.BundlePath == "" || transportEndpoint.Transport.BundleSHA256 == "" || transportEndpoint.Transport.BundleBytes == 0 || !transportEndpoint.Transport.Endpoint.NoSessionManagement || !transportEndpoint.Transport.Endpoint.NoAutomaticRetry || !transportEndpoint.Transport.Endpoint.NoHeavyTool || !transportEndpoint.Transport.Endpoint.NoAuthority || !transportEndpoint.Transport.Endpoint.NoConfirmed || strings.Contains(strings.ToLower(transportEndpoint.Transport.Endpoint.Envelope.Message), strings.ToLower(caseRoot)) {
 		t.Fatalf("Remote Control endpoint preview omitted self-contained transport closure: %+v", endpointPreview)
@@ -1009,7 +1009,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		"-ExternalSessionActor", actor,
 		"-ExternalSessionObservedAt", "2026-08-12T10:00:03Z",
 	}
-	deliveryPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, deliveryInputs...), "-WhatIf"))
+	deliveryPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-review", append(append([]string{}, deliveryInputs...), "-WhatIf"))
 	transportDelivery := deliveryPreview.ExternalSessionStep
 	if transportDelivery == nil || transportDelivery.Mode != "remote-control-delivery" || transportDelivery.Transport == nil || transportDelivery.Transport.Delivery == nil || deliveryPreview.ExpectedCurrentStepPlanSHA256 == "" || transportDelivery.Transport.Delivery.Operation != "SendMessage" || transportDelivery.Transport.Delivery.Outcome != "accepted" || transportDelivery.Transport.Delivery.EndpointSnapshotSHA256 != transportEndpoint.Transport.ArtifactSHA256 || transportDelivery.Transport.Delivery.EnvelopeSHA256 == "" || !transportDelivery.Transport.Delivery.NoSessionManagement || !transportDelivery.Transport.Delivery.NoAutomaticRetry || !transportDelivery.Transport.Delivery.NoHeavyTool || !transportDelivery.Transport.Delivery.NoAuthority || !transportDelivery.Transport.Delivery.NoConfirmed {
 		t.Fatalf("Remote Control delivery preview omitted exact endpoint/message binding: %+v", deliveryPreview)
@@ -1020,7 +1020,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("Remote Control accepted delivery Apply did not retain transport truth: %+v", deliveryApplied)
 	}
 
-	launchPreview := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	launchPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-review", []string{"-WhatIf"})
 	if launchPreview.ExternalSessionStep == nil || launchPreview.ExternalSessionStep.Mode != "launch-accepted" || launchPreview.ExternalSessionStep.Dispatch == nil || launchPreview.ExternalSessionStep.Dispatch.Actor != actor || launchPreview.ExternalSessionStep.Dispatch.ObservedAt != "2026-08-12T10:00:03Z" || launchPreview.ExternalSessionStep.Dispatch.ActualHarness != externalsession.RemoteControlHarness || launchPreview.ExternalSessionStep.Dispatch.ActualSession != "reviewer-session-replacement" {
 		t.Fatalf("Remote Control launch preview was not derived from accepted delivery: %+v", launchPreview)
 	}
@@ -1044,7 +1044,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		"-ExternalSessionActor", actor,
 		"-ExternalSessionObservedAt", "2026-08-12T10:00:04Z",
 	}
-	returnPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, returnInputs...), "-WhatIf"))
+	returnPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-review", append(append([]string{}, returnInputs...), "-WhatIf"))
 	transportReturn := returnPreview.ExternalSessionStep
 	if transportReturn == nil || transportReturn.Mode != "remote-control-return" || transportReturn.TransportReturn == nil {
 		t.Fatalf("Remote Control return preview omitted typed plan: %+v", returnPreview)
@@ -1103,7 +1103,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 
 	replacementStatusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &replacementStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-review", "-Format", "json"}, &replacementStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, replacementStatusOut.Bytes(), &replacementStatus)
@@ -1176,7 +1176,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("reviewer-to-case segment checkpoint is invalid: %+v", resultApplied.SegmentCheckpoint)
 	}
 	var campaignStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &campaignStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", campaign.ExpectedLane, "-Format", "json"}, &campaignStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var campaignStatus statusInventory
@@ -1202,6 +1202,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", durableCampaign.ArtifactSHA256,
 		"-Lane", campaign.ExpectedLane,
 		"-ExpectedCurrentLoopPlanSha256", turn.Resume.ExpectedCurrentLoopPlanSHA256,
+		"-ExpectedMemberExecutionPlanSha256", casePreview.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256,
 		"-Apply", "-Format", "json",
 	}, &out)
 	if err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {

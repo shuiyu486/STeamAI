@@ -119,14 +119,14 @@ func testRecovery(identity Identity) RecoveryEnvelope {
 	}
 	state = append(stateJSON, '\n')
 	writes = append(writes, testRecoveryWrite(".rekit/state.json", "initial-state", state))
-	blockSource, err := os.ReadFile(filepath.Join(testKitRoot(), "packs", identity.Pack, "CLAUDE.local.snippet.md"))
+	blockSource, err := sourceartifact.ReadCanonical(filepath.Join(testKitRoot(), "packs", identity.Pack, "CLAUDE.local.snippet.md"))
 	if err != nil {
 		panic(err)
 	}
 	block := []byte("# Project Context\r\n\r\n" + strings.TrimSpace(string(blockSource)) + "\r\n")
 	writes = append(writes, testRecoveryWrite("CLAUDE.local.md", "managed-block", block))
 	for _, support := range caseshim.ExpectedSupportPaths(identity.Pack) {
-		content, err := os.ReadFile(filepath.Join(testKitRoot(), "packs", identity.Pack, "examples", "gitignore.example"))
+		content, err := sourceartifact.ReadCanonical(filepath.Join(testKitRoot(), "packs", identity.Pack, "examples", "gitignore.example"))
 		if err != nil {
 			panic(err)
 		}
@@ -195,14 +195,14 @@ func currentTestRecovery(identity Identity) RecoveryEnvelope {
 		panic(err)
 	}
 	writes = append(writes, testRecoveryWrite(".steamai/state.json", "initial-state", append(stateJSON, '\n')))
-	blockSource, err := os.ReadFile(filepath.Join(testKitRoot(), "packs", identity.Pack, "CLAUDE.local.snippet.md"))
+	blockSource, err := sourceartifact.ReadCanonical(filepath.Join(testKitRoot(), "packs", identity.Pack, "CLAUDE.local.snippet.md"))
 	if err != nil {
 		panic(err)
 	}
 	block := []byte("# Project Context\r\n\r\n" + strings.TrimSpace(string(blockSource)) + "\r\n")
 	writes = append(writes, testRecoveryWrite("CLAUDE.local.md", "managed-block", block))
 	for _, support := range caseshim.ExpectedSupportPaths(identity.Pack) {
-		content, err := os.ReadFile(filepath.Join(testKitRoot(), "packs", identity.Pack, "examples", "gitignore.example"))
+		content, err := sourceartifact.ReadCanonical(filepath.Join(testKitRoot(), "packs", identity.Pack, "examples", "gitignore.example"))
 		if err != nil {
 			panic(err)
 		}
@@ -221,7 +221,7 @@ func recoveryContractSource(identity Identity, targetPath, kind string) ([]byte,
 	if kind == "template-file" {
 		sourcePath = strings.TrimSuffix(targetPath, ".md") + ".template.md"
 	}
-	content, err := os.ReadFile(filepath.Join(testKitRoot(), "packs", packPath, filepath.FromSlash(sourcePath)))
+	content, err := sourceartifact.ReadCanonical(filepath.Join(testKitRoot(), "packs", packPath, filepath.FromSlash(sourcePath)))
 	if err != nil {
 		return nil, err
 	}

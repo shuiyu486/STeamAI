@@ -303,7 +303,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		NaturalLanguageGoal: goalInput,
 		HumanCorrection:     correctionInput,
 		Claude:              claude,
-		PublicRoute:         "one RunDaily exact-pack goal operation with isolated member and Reviewer segments + intentional bounded evidence gap + reviewer rejection + rejection stop replay + correction-time bounded evidence publication + replacement review + exact terminal replay; default VMP pack additionally proves public profile preview/Apply, canonical authorized-gate, real fixed adapter parent and contained child, evidence review acknowledgement, exact profile revoke, and child-free replay; one attached exact-pack goal resumes across member and Reviewer cutpoints into zero-Claude completion recovery and exact terminal replay",
+		PublicRoute:         "one RunDaily exact-pack goal operation with isolated member and Reviewer segments + intentional bounded evidence gap + reviewer rejection + rejection stop replay + correction-time bounded evidence publication + replacement review + exact terminal replay; default binary-re pack additionally proves public profile preview/Apply, canonical authorized-gate, real fixed adapter parent and contained child, evidence review acknowledgement, exact profile revoke, and child-free replay; one attached exact-pack goal resumes across member and Reviewer cutpoints into zero-Claude completion recovery and exact terminal replay",
 		ManualPlaceholders:  0,
 		ManualResultWrites:  0,
 		LLMSource:           "member outputs and ReviewerResult bytes are accepted only from spawned Claude Code JSON envelopes with exact session_id matching",
@@ -317,7 +317,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 			"the gate calls the same Go-owned daily front door used by ordinary operation and binds one exact allowlisted pack",
 			"the gate does not fabricate member output or ReviewerResult bytes",
 			"bounded correction input is published only after the first canonical rejection; it is never member output or ReviewerResult content",
-			"default VMP pack alone executes the exact authorized inspect adapter; debug, patch, dump, network, and all other heavy actions remain denied",
+			"default binary-re pack alone executes the exact authorized inspect adapter; debug, patch, dump, network, and all other heavy actions remain denied",
 			"the fixed adapter child has no network codepath, but this claim is not OS-enforced socket isolation",
 			"completion scope is the feature lane; the authority main lane remains outside this acceptance claim",
 			"no authority or confirmed state is written; daily completion itself executes no heavy tool",
@@ -369,11 +369,11 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	} else {
 		adapterPath := strings.TrimSpace(opt.AdapterPath)
 		if adapterPath == "" {
-			return receipt, fmt.Errorf("default VMP pack live acceptance requires the built rekit-adapter-host executable")
+			return receipt, fmt.Errorf("default binary-re pack live acceptance requires the built rekit-adapter-host executable")
 		}
 		adapterBinding, err := processguard.LockExecutable(adapterPath, 128<<20)
 		if err != nil {
-			return receipt, fmt.Errorf("bind default VMP pack live acceptance adapter executable: %w", err)
+			return receipt, fmt.Errorf("bind default binary-re pack live acceptance adapter executable: %w", err)
 		}
 		receipt.VMPIDA = &LiveAcceptanceVMPIDA{
 			AdapterPath:             adapterBinding.Path(),

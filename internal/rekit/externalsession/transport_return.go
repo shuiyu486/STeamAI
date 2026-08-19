@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -180,6 +181,7 @@ func PreviewTransportReturn(job Job, sourcePath, actor, observedAt string) (Tran
 		ReviewerSession:              transport.Binding.TransportBindingID,
 		AttemptID:                    attempt.Current.AttemptID,
 		AttemptSHA256:                attempt.AttemptSHA256,
+		LaunchControl:                executioncontrol.CloneBinding(attempt.Current.LaunchControl),
 		DispatchClaimSHA256:          dispatch.ClaimSHA256,
 		LaunchReceiptSHA256:          dispatch.LaunchSHA256,
 		TransportReturnReceiptPath:   returnPath,
@@ -188,6 +190,9 @@ func PreviewTransportReturn(job Job, sourcePath, actor, observedAt string) (Tran
 		Session:                      dispatch.Launch.ActualSession,
 		NoAuthorityOrConfirmed:       true,
 		NoHeavyTool:                  true,
+	}
+	if submission.LaunchControl != nil {
+		submission.ObservedAt = observedAt
 	}
 	submissionData, err := canonical(submission)
 	if err != nil {

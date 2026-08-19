@@ -127,7 +127,7 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 		writeCollectedReviewerResult(t, handoff, data)
 	}
 
-	preview, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	preview, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,14 +167,14 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 		t.Fatalf("reviewer batch preview omitted Mission Commander apply handoff: action=%+v next=%+v queue=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions, preview.MissionCommanderActionQueue)
 	}
 	previewReceipt := preview.MissionCommanderDriverReceipt
-	if previewReceipt == nil || previewReceipt.SchemaVersion != 1 || previewReceipt.State != "refreshed" || previewReceipt.Outcome != "reviewer-batch-intake-preview-result" || previewReceipt.Lane != "feature-intake" || previewReceipt.Command != reviewerPacketBatchPreviewCommand(plan.PacketPath, "feature-intake", "mission-commander") || previewReceipt.RefreshedActionQueueSummary != preview.MissionCommanderActionQueue.Summary || previewReceipt.RefreshedCurrentRunLoopStep != preview.MissionCommanderActionQueue.CurrentRunLoopStepID || previewReceipt.RefreshedCurrentDriverRequest == nil || previewReceipt.RefreshedCurrentDriverRequest.Command != preview.MissionCommanderAction.PrimaryCommand || previewReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != reviewerBatchIntakeStatusCommand(caseRoot) || !slices.ContainsFunc(previewReceipt.Boundary, func(boundary string) bool { return strings.Contains(boundary, "does not prove the Go runtime spawned") }) {
+	if previewReceipt == nil || previewReceipt.SchemaVersion != 1 || previewReceipt.State != "refreshed" || previewReceipt.Outcome != "reviewer-batch-intake-preview-result" || previewReceipt.Lane != reviewerIntakeLane || previewReceipt.Command != reviewerPacketBatchPreviewCommand(plan.PacketPath, reviewerIntakeLane, "mission-commander") || previewReceipt.RefreshedActionQueueSummary != preview.MissionCommanderActionQueue.Summary || previewReceipt.RefreshedCurrentRunLoopStep != preview.MissionCommanderActionQueue.CurrentRunLoopStepID || previewReceipt.RefreshedCurrentDriverRequest == nil || previewReceipt.RefreshedCurrentDriverRequest.Command != preview.MissionCommanderAction.PrimaryCommand || previewReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != reviewerBatchIntakeStatusCommand(caseRoot) || !slices.ContainsFunc(previewReceipt.Boundary, func(boundary string) bool { return strings.Contains(boundary, "does not prove the Go runtime spawned") }) {
 		t.Fatalf("reviewer batch preview omitted ready-result run-loop receipt: receipt=%+v queue=%+v", previewReceipt, preview.MissionCommanderActionQueue)
 	}
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
 		t.Fatalf("reviewer batch WhatIf wrote verification ledger:\n%s", got)
 	}
 
-	applied, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	applied, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 		t.Fatalf("reviewer batch apply omitted post-validation Mission Commander handoff: action=%+v next=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions, applied.MissionCommanderActionQueue)
 	}
 	appliedReceipt := applied.MissionCommanderDriverReceipt
-	if appliedReceipt == nil || appliedReceipt.SchemaVersion != 1 || appliedReceipt.State != "refreshed" || appliedReceipt.Outcome != "reviewer-batch-intake-apply-result" || appliedReceipt.Command != reviewerPacketBatchApplyCommand(plan.PacketPath, "feature-intake", "mission-commander") || appliedReceipt.RefreshedCurrentRunLoopStep != applied.MissionCommanderActionQueue.CurrentRunLoopStepID || appliedReceipt.RefreshedCurrentDriverRequest == nil || appliedReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != reviewerBatchIntakeStatusCommand(caseRoot) || !slices.ContainsFunc(appliedReceipt.Boundary, func(boundary string) bool { return strings.Contains(boundary, "does not write authority/confirmed") }) {
+	if appliedReceipt == nil || appliedReceipt.SchemaVersion != 1 || appliedReceipt.State != "refreshed" || appliedReceipt.Outcome != "reviewer-batch-intake-apply-result" || appliedReceipt.Command != reviewerPacketBatchApplyCommand(plan.PacketPath, reviewerIntakeLane, "mission-commander") || appliedReceipt.RefreshedCurrentRunLoopStep != applied.MissionCommanderActionQueue.CurrentRunLoopStepID || appliedReceipt.RefreshedCurrentDriverRequest == nil || appliedReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != reviewerBatchIntakeStatusCommand(caseRoot) || !slices.ContainsFunc(appliedReceipt.Boundary, func(boundary string) bool { return strings.Contains(boundary, "does not write authority/confirmed") }) {
 		t.Fatalf("reviewer batch apply omitted ready-result run-loop receipt: receipt=%+v queue=%+v", appliedReceipt, applied.MissionCommanderActionQueue)
 	}
 	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")), `"shardId"`); got != 2 {
@@ -195,7 +195,7 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 		t.Fatalf("decision shard writeback count = %d, want 2", got)
 	}
 
-	replay, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	replay, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestIntakeReadyReviewerResultsRequiresPacketDerivedCollection(t *testing.T)
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestIntakeReadyReviewerResultsRequiresPacketDerivedCollection(t *testing.T)
 		t.Fatal(err)
 	}
 
-	batch, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	batch, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err == nil || !strings.Contains(err.Error(), "requires staging and collection") || !batch.Stopped || batch.StopShardID != handoff.ShardID || batch.Ready != 0 || batch.Processed != 0 {
 		t.Fatalf("direct canonical reviewer result bypass was not blocked: result=%+v err=%v", batch, err)
 	}
@@ -243,7 +243,7 @@ func TestIntakeReviewerResultRequiresPacketDerivedCanonicalPathForCollectionBoun
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestIntakeReviewerResultRequiresPacketDerivedCanonicalPathForCollectionBoun
 			if err := os.WriteFile(path, data, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			_, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: path, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+			_, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: path, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 			if err == nil || !strings.Contains(err.Error(), "requires packet-derived canonical reviewerResultPath") {
 				t.Fatalf("noncanonical reviewer result intake path was not blocked: path=%s err=%v", path, err)
 			}
@@ -283,7 +283,7 @@ func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testin
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testin
 	if err := os.WriteFile(first.ReviewerResultPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	result, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander"})
 	if err == nil || !strings.Contains(err.Error(), "does not match expected packet handoff shard") || !result.Stopped || result.StopShardID != first.ShardID {
 		t.Fatalf("swapped reviewer result did not fail closed: result=%+v err=%v", result, err)
 	}
@@ -333,7 +333,7 @@ func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testin
 		t.Fatal(err)
 	}
 	writeReviewerSessionReceiptsForResult(t, first, data)
-	waiting, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	waiting, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestIntakeReadyReviewerResultsStopsBeforeLaterShardOnBlocker(t *testing.T) 
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestIntakeReadyReviewerResultsStopsBeforeLaterShardOnBlocker(t *testing.T) 
 		}
 		writeCollectedReviewerResult(t, handoff, data)
 	}
-	result, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	result, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestIntakeReviewerResultRejectsStaleOwnerBinding(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	packet := readReviewerPacket(t, plan.PacketPath)
 	if !packet.OwnerBinding.RequiredForIntake || packet.OwnerBinding.CurrentExecutor != "session-main" {
 		t.Fatalf("plan did not bind owner executor: %+v", packet.OwnerBinding)
@@ -511,7 +511,7 @@ func TestIntakeReviewerResultRejectsStaleOwnerBinding(t *testing.T) {
 	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err == nil || !strings.Contains(err.Error(), "ownerBinding is stale") {
 		t.Fatalf("error = %v, want stale owner binding rejection", err)
 	}
@@ -524,7 +524,7 @@ func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "adopt reviewer packet"}); err != nil {
 		t.Fatal(err)
 	}
-	preview, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "accept prior reviewer work", WhatIf: true})
+	preview, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "accept prior reviewer work", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T
 	if _, err := os.Stat(preview.AdoptionPath); !os.IsNotExist(err) {
 		t.Fatalf("adoption WhatIf wrote receipt: %v", err)
 	}
-	applied, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "accept prior reviewer work"})
+	applied, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "accept prior reviewer work"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +571,7 @@ func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T
 		t.Fatal("reviewer packet adoption modified immutable packet bytes")
 	}
 	resultPath := writeCollectedReviewerResult(t, packet.ShardHandoffs[0], reviewerResultForPacket(t, packet, "accept", "accepted", nil))
-	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +622,7 @@ func TestAdoptReviewerPacketRejectsSymlinkedAdoptionDirectory(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestAdoptReviewerPacketRejectsSymlinkedAdoptionDirectory(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(caseRoot, ".rekit", "reviewer-adoptions")); err != nil {
 		t.Fatal(err)
 	}
-	_, err = AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "reject symlink traversal"})
+	_, err = AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "reject symlink traversal"})
 	if err == nil || !strings.Contains(err.Error(), "must not traverse symlink") {
 		t.Fatalf("error = %v, want symlink traversal rejection", err)
 	}
@@ -650,7 +650,7 @@ func TestAdoptReviewerPacketRejectsSymlinkedLockDirectory(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +668,7 @@ func TestAdoptReviewerPacketRejectsSymlinkedLockDirectory(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), lockDir); err != nil {
 		t.Fatal(err)
 	}
-	_, err = AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "reject symlink lock traversal"})
+	_, err = AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "reject symlink lock traversal"})
 	if err == nil || !strings.Contains(err.Error(), "must not traverse symlink") {
 		t.Fatalf("error = %v, want symlink lock traversal rejection", err)
 	}
@@ -678,7 +678,7 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +696,7 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "first takeover"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "first adoption"}); err != nil {
+	if _, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "first adoption"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-third", Actor: "mission-commander", TakeoverReason: "second takeover"}); err != nil {
@@ -713,11 +713,11 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 		t.Fatal(err)
 	}
 	resultPath := packet.ShardHandoffs[0].ReviewerResultPath
-	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err == nil || !strings.Contains(err.Error(), "adoption is stale") {
 		t.Fatalf("error = %v, want stale adoption rejection", err)
 	}
-	second, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "second adoption"})
+	second, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "second adoption"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +729,7 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 		t.Fatalf("previous adoption receipt was not archived: %v", err)
 	}
 	writeReviewerSessionReceiptsForResult(t, packet.ShardHandoffs[0], resultData)
-	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,7 +742,7 @@ func TestIntakeReviewerResultRejectsForgedAdoptionOwnerContract(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,9 +762,9 @@ func TestIntakeReviewerResultRejectsForgedAdoptionOwnerContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, ok := mission.LookupBoardLane(board.Lanes, "feature-intake", false)
+	current, ok := mission.LookupBoardLane(board.Lanes, reviewerIntakeLane, false)
 	if !ok {
-		t.Fatal("feature-intake lane missing")
+		t.Fatalf("%s lane missing", reviewerIntakeLane)
 	}
 	forged := ReviewerPacketAdoption{
 		SchemaVersion: 1, Kind: "reviewer-packet-owner-adoption", PacketID: packet.PacketID,
@@ -791,7 +791,7 @@ func TestIntakeReviewerResultRejectsForgedAdoptionOwnerContract(t *testing.T) {
 	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err == nil || !strings.Contains(err.Error(), "valid replacement executor owner binding") {
 		t.Fatalf("error = %v, want forged adoption rejection", err)
 	}

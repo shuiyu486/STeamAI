@@ -786,6 +786,9 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 		started := supervisionStarted{SchemaVersion: 1, Kind: supervisionStartedKind, RunID: spec.RunID, SpecSHA256: specSHA, SessionID: spec.SessionID, StartedAt: nowRFC3339Nano()}
 		return writeSupervisionJSON(paths.runRoot, "started.json", "Claude supervision started receipt", started)
 	})
+	if strings.TrimSpace(run.observedAt) == "" {
+		run.observedAt = nowRFC3339Nano()
+	}
 	if run.success() {
 		if err := validateClaudeStructuredResult(runPackage, run); err != nil {
 			run.failureDetail = err.Error()
@@ -793,8 +796,17 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 			run.failureDetail = "persist exact Claude structured output recovery: " + err.Error()
 		}
 	}
+	terminal := supervisionTerminalForRun(spec, specSHA, run)
+	return writeSupervisionJSON(paths.runRoot, "terminal.json", "Claude supervision terminal receipt", terminal)
+}
+
+func supervisionTerminalForRun(spec supervisionSpec, specSHA string, run claudeRun) supervisionTerminal {
 	durableEnvelope := run.envelope
 	durableEnvelope.StructuredOutput = nil
+	observedAt := strings.TrimSpace(run.observedAt)
+	if observedAt == "" {
+		observedAt = nowRFC3339Nano()
+	}
 	terminal := supervisionTerminal{
 		SchemaVersion: 1, Kind: supervisionTerminalKind, RunID: spec.RunID, SpecSHA256: specSHA,
 		SessionID: spec.SessionID, Envelope: durableEnvelope,
@@ -802,14 +814,14 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 		FailureCode: run.failureCode, FailureDetail: run.failureDetail, SpawnError: errorText(run.spawnErr), WaitError: errorText(run.waitErr),
 		StartError: errorText(run.startCallbackErr), Started: run.started, ExitCode: run.exitCode, TimedOut: run.timedOut,
 		DurationNanos: int64(run.duration), StdoutTail: run.stdoutTail, StderrTail: run.stderrTail,
-		StopActuationError: errorText(run.stopActuation.Err), ObservedAt: nowRFC3339Nano(),
+		StopActuationError: errorText(run.stopActuation.Err), ObservedAt: observedAt,
 	}
 	if validClaudeLaunchSHA256(run.stopActuation.ObservationSHA256) {
 		terminal.StopActuationRequestPath = run.stopActuation.RequestPath
 		terminal.StopActuationObservationPath = run.stopActuation.ObservationPath
 		terminal.StopActuationObservationSHA256 = run.stopActuation.ObservationSHA256
 	}
-	return writeSupervisionJSON(paths.runRoot, "terminal.json", "Claude supervision terminal receipt", terminal)
+	return terminal
 }
 
 func readSupervisionFenced(paths supervisionPaths, spec supervisionSpec, specSHA string) (supervisionFenced, bool, error) {

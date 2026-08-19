@@ -22,7 +22,7 @@ func TestRecoverReviewerResultUnsupportedIsZeroWrite(t *testing.T) {
 			plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{
 				TaskType: "feature-analysis",
 				Items:    "alpha",
-				Lane:     "feature-intake",
+				Lane:     reviewerIntakeLane,
 			})
 			if err != nil {
 				t.Fatal(err)

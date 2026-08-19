@@ -774,6 +774,82 @@ func pauseReviewerDispatchHandoff(item *ReviewerDispatchIntakeHandoff, intervent
 	item.Boundary = mission.UniqueStrings(append(item.Boundary, boundary))
 }
 
+// PauseReviewerDispatchOperatorPackage keeps the current reviewer state
+// inspectable while removing every executable dispatch or result-pipeline path.
+func PauseReviewerDispatchOperatorPackage(pkg *ReviewerDispatchOperatorPackage, interventionID, reason, boundary string) {
+	if pkg == nil {
+		return
+	}
+	pkg.Ready = false
+	pkg.Paused = true
+	pkg.PauseReason = strings.TrimSpace(reason)
+	pkg.InterventionID = strings.TrimSpace(interventionID)
+	pkg.CurrentDriverRequest = nil
+	if pkg.PauseReason != "" {
+		pkg.Summary = pkg.PauseReason
+	}
+	pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, strings.TrimSpace(boundary)))
+	pauseReviewerDispatchOperatorItem(pkg.Current)
+	for idx := range pkg.RunLoop {
+		pkg.RunLoop[idx].Command = ""
+		pkg.RunLoop[idx].PreviewCommand = ""
+		pkg.RunLoop[idx].ApplyCommand = ""
+		pkg.RunLoop[idx].AgentToolRequest = nil
+	}
+
+	wave := pkg.Wave
+	if wave == nil {
+		return
+	}
+	wave.Ready = false
+	wave.Paused = true
+	wave.PauseReason = pkg.PauseReason
+	wave.InterventionID = pkg.InterventionID
+	wave.SnapshotSHA256 = ""
+	wave.AvailableSlots = 0
+	wave.SpawnWave = nil
+	wave.Boundary = mission.UniqueStrings(append(wave.Boundary, strings.TrimSpace(boundary)))
+	pauseReviewerDispatchWaveItems(wave.Shards)
+	pauseReviewerDispatchWaveItems(wave.Active)
+	pauseReviewerDispatchWaveItems(wave.Returned)
+	pauseReviewerDispatchWaveItems(wave.Failed)
+	pauseReviewerDispatchWaveItems(wave.Blocked)
+	pauseReviewerDispatchWaveItems(wave.Complete)
+}
+
+func pauseReviewerDispatchWaveItems(items []ReviewerDispatchWavePackageItem) {
+	for idx := range items {
+		items[idx].AgentToolRequest = nil
+		items[idx].RecordDispatchCommand = ""
+		items[idx].RecordCompletionCommand = ""
+		items[idx].CurrentDriverRequest = nil
+		pauseReviewerDispatchOperatorItem(items[idx].OperatorItem)
+	}
+}
+
+func pauseReviewerDispatchOperatorItem(item *ReviewerDispatchOperatorPackageItem) {
+	if item == nil {
+		return
+	}
+	item.DispatchPromptRepairCommand = ""
+	item.ReviewerDispatchRecordCommand = ""
+	item.ReviewerCompletionRecordCommand = ""
+	item.AgentToolRequest = nil
+	item.ReviewerResultInputSavePreviewCommand = ""
+	item.ReviewerResultInputSaveApplyCommand = ""
+	item.ReviewerResultSourceCapturePreviewCommand = ""
+	item.ReviewerResultSourceCaptureApplyCommand = ""
+	item.ReviewerResultStagingPreviewCommand = ""
+	item.ReviewerResultCollectionPreviewCommand = ""
+	item.ReviewerResultCollectionApplyCommand = ""
+	item.ReviewerResultIntakePreviewCommand = ""
+	item.ReviewerResultIntakeApplyCommand = ""
+	item.ReviewerResultBatchIntakePreviewCommand = ""
+	item.ReviewerResultBatchIntakeApplyCommand = ""
+	item.DispatchCommand = ""
+	item.NextAction = ""
+}
+
 func ReviewerPacketRetirementHandoffs(caseRoot, laneID string) ([]ReviewerPacketRetirementHandoff, error) {
 	packetPaths, err := reviewerDispatchPacketPaths(caseRoot)
 	if err != nil {
@@ -1129,6 +1205,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 	packets := map[string]bool{}
 	packetReadyForIntake := reviewerDispatchPacketReadyForIntake(items)
 	var nextAction *ReviewerDispatchIntakeHandoff
+	var diagnosticAction *ReviewerDispatchIntakeHandoff
 	for idx := range items {
 		item := items[idx]
 		summary.Total++
@@ -1161,6 +1238,10 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		if eligible && (nextAction == nil || reviewerDispatchActionPriority(item) < reviewerDispatchActionPriority(*nextAction)) {
 			nextAction = &items[idx]
 		}
+		if item.Paused && item.ManagedDispatch != nil && !(item.VerificationRecorded && item.DecisionRecorded) &&
+			(diagnosticAction == nil || reviewerDispatchActionPriority(item) < reviewerDispatchActionPriority(*diagnosticAction)) {
+			diagnosticAction = &items[idx]
+		}
 	}
 	for lane := range lanes {
 		summary.Lanes = append(summary.Lanes, lane)
@@ -1169,6 +1250,9 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 	summary.LaneCount = len(summary.Lanes)
 	summary.PacketCount = len(packets)
 	if len(items) > 0 {
+		if nextAction == nil {
+			nextAction = diagnosticAction
+		}
 		latest := items[len(items)-1]
 		summary.LatestPacketPath = latest.PacketPath
 		summary.LatestShardID = latest.ShardID
@@ -1241,6 +1325,14 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.OperatorPackage = reviewerDispatchOperatorPackageFor(*nextAction)
 			if summary.OperatorPackage != nil {
 				summary.OperatorPackage.Wave = reviewerDispatchWavePackageFor(*nextAction, items)
+				if nextAction.Paused {
+					PauseReviewerDispatchOperatorPackage(
+						summary.OperatorPackage,
+						nextAction.InterventionID,
+						nextAction.PauseReason,
+						"paused reviewer handoff keeps operator and wave state diagnostic only until the lane is reopened",
+					)
+				}
 			}
 		}
 		summary.Boundary = reviewerDispatchIntakeSummaryBoundary()

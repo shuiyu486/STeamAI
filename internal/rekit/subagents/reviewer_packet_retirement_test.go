@@ -16,7 +16,7 @@ func TestRetireInvalidReviewerPacketWhatIfApplyAndDrift(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestRetireInvalidReviewerPacketWhatIfApplyAndDrift(t *testing.T) {
 	if err := os.WriteFile(plan.PacketPath, append(tampered, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "retire exact corrupted reviewer packet", WhatIf: true}
+	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "retire exact corrupted reviewer packet", WhatIf: true}
 	preview, err := RetireInvalidReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, opt)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestRetireInvalidReviewerPacketWhatIfApplyAndDrift(t *testing.T) {
 	if _, err := os.Stat(preview.RetirementPath); !os.IsNotExist(err) {
 		t.Fatalf("retirement WhatIf wrote receipt: %v", err)
 	}
-	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, "feature-intake")
+	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, reviewerIntakeLane)
 	if err != nil || len(handoffs) != 1 || handoffs[0].State != "reviewer-packet-integrity-invalid" {
 		t.Fatalf("invalid packet blocker missing before retirement: handoffs=%+v err=%v", handoffs, err)
 	}
@@ -68,14 +68,14 @@ func TestRetireInvalidReviewerPacketWhatIfApplyAndDrift(t *testing.T) {
 	if !replayed.Applied || replayed.RetirementPath != applied.RetirementPath {
 		t.Fatalf("unexpected retirement replay: %+v", replayed)
 	}
-	handoffs, err = workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, "feature-intake")
+	handoffs, err = workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, reviewerIntakeLane)
 	if err != nil || len(handoffs) != 0 {
 		t.Fatalf("exact retirement did not close blocker: handoffs=%+v err=%v", handoffs, err)
 	}
 	if err := os.WriteFile(plan.PacketPath, append(tampered, '\n', ' '), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	handoffs, err = workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, "feature-intake")
+	handoffs, err = workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, reviewerIntakeLane)
 	if err != nil || len(handoffs) != 1 || handoffs[0].State != "reviewer-packet-integrity-invalid" {
 		t.Fatalf("changed packet did not invalidate retirement: handoffs=%+v err=%v", handoffs, err)
 	}
@@ -85,14 +85,14 @@ func TestRetireInvalidReviewerPacketApplyRequiresBothPreviewHashes(t *testing.T)
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(plan.PacketPath, []byte("{truncated"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "retire", WhatIf: false}
+	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "retire", WhatIf: false}
 	if _, err := RetireInvalidReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "expected packet SHA-256") {
 		t.Fatalf("missing expected hashes error = %v", err)
 	}
@@ -106,14 +106,14 @@ func TestRetireInvalidReviewerPacketApplyRejectsPreviewDrift(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(plan.PacketPath, []byte("{truncated"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "retire", WhatIf: true}
+	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "retire", WhatIf: true}
 	preview, err := RetireInvalidReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, opt)
 	if err != nil {
 		t.Fatal(err)
@@ -133,14 +133,14 @@ func TestRetireInvalidReviewerPacketRejectsForgedReceipt(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(plan.PacketPath, []byte("{truncated"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "retire", WhatIf: true}
+	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "retire", WhatIf: true}
 	preview, err := RetireInvalidReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, opt)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestRetireInvalidReviewerPacketRejectsForgedReceipt(t *testing.T) {
 	if err := os.WriteFile(applied.RetirementPath, append(forged, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, "feature-intake")
+	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, reviewerIntakeLane)
 	if err != nil || len(handoffs) != 1 || handoffs[0].State != "reviewer-packet-integrity-invalid" {
 		t.Fatalf("forged receipt suppressed blocker: handoffs=%+v err=%v", handoffs, err)
 	}
@@ -183,7 +183,7 @@ func TestRetireInvalidReviewerPacketRejectsMissingOrMalformedIntegrity(t *testin
 		t.Run(map[bool]string{false: "missing", true: "malformed"}[malformed], func(t *testing.T) {
 			caseRoot := filepath.Join(t.TempDir(), "case")
 			writeReviewerIntakeCase(t, repoRoot, caseRoot)
-			plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+			plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -198,7 +198,7 @@ func TestRetireInvalidReviewerPacketRejectsMissingOrMalformedIntegrity(t *testin
 			} else if err := os.Remove(integrityPath); err != nil {
 				t.Fatal(err)
 			}
-			opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "retire", WhatIf: true}
+			opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "retire", WhatIf: true}
 			if _, err := RetireInvalidReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil {
 				t.Fatal("retirement accepted packet without strict integrity provenance")
 			}
@@ -210,11 +210,11 @@ func TestRetireInvalidReviewerPacketRejectsValidAndWrongLane(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
-	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "retire", WhatIf: true}
+	opt := ReviewerPacketRetirementOptions{PacketPath: plan.PacketPath, Lane: reviewerIntakeLane, Actor: "mission-commander", Reason: "retire", WhatIf: true}
 	if _, err := RetireInvalidReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "packet is valid") {
 		t.Fatalf("valid packet retirement error = %v", err)
 	}

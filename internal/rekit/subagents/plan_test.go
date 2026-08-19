@@ -18,6 +18,8 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
+const reviewerIntakeLane = "binary-analysis-intake"
+
 func selectLegacySubagentTestStateRoot(t *testing.T, caseRoot, repoRoot, pack string) {
 	t.Helper()
 	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
@@ -242,11 +244,11 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-plan", Actor: "mission-commander", TakeoverReason: "plan owner binding fixture"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.TargetLane != "feature-intake" || result.OwnerBinding.CurrentExecutor != "session-plan" || result.OwnerBinding.ExecutorGeneration != 1 || !result.OwnerBinding.RequiredForIntake || result.OwnerBinding.BindingMode != "current-executor-generation" || result.OwnerBinding.LastTakeoverBy != "mission-commander" {
+	if result.TargetLane != reviewerIntakeLane || result.OwnerBinding.CurrentExecutor != "session-plan" || result.OwnerBinding.ExecutorGeneration != 1 || !result.OwnerBinding.RequiredForIntake || result.OwnerBinding.BindingMode != "current-executor-generation" || result.OwnerBinding.LastTakeoverBy != "mission-commander" {
 		t.Fatalf("unexpected attached case owner binding: %+v", result.OwnerBinding)
 	}
 	packet := readPlanPacket(t, result.PacketPath)
@@ -271,18 +273,18 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if integrity.PacketID != packet.PacketID || integrity.TargetLane != packet.TargetLane || !samePath(integrity.PacketPath, result.PacketPath) || integrity.PacketSHA256 != sha256Hex(packetData) || integrity.PacketBytes != len(packetData) {
 		t.Fatalf("canonical packet integrity does not bind exact packet: %+v", integrity)
 	}
-	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, "feature-intake")
+	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, reviewerIntakeLane)
 	if err != nil || len(handoffs) != 1 || handoffs[0].State != "ready-for-reviewer-dispatch" || handoffs[0].ReviewerResultCollectionCommands == nil || handoffs[0].ReviewerResultCandidatePath == "" {
 		t.Fatalf("fresh canonical packet did not survive durable integrity validation: handoffs=%+v err=%v", handoffs, err)
 	}
-	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != "feature-intake" || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {
+	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != reviewerIntakeLane || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {
 		t.Fatalf("attached case reviewer orchestration did not expose runnable intake: %+v", result.ReviewerOrchestration)
 	}
 	if !result.ReviewerOrchestration.Summary.IntakeAvailable || !result.ReviewerOrchestration.Summary.CollectionAvailable || result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Dispatches[0].CollectionCommands == nil || result.ReviewerOrchestration.Dispatches[0].ReviewerResultCandidatePath == "" || result.ReviewerOrchestration.Summary.OwnerBinding.CurrentExecutor != "session-plan" || result.ReviewerOrchestration.Summary.CurrentAction == nil || result.ReviewerOrchestration.Summary.ActionTotal == 0 || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.ApplyCommand, "-Apply -Format json") {
 		t.Fatalf("attached case reviewer orchestration summary omitted runnable intake: %+v", result.ReviewerOrchestration.Summary)
 	}
 	managed := result.ReviewerOrchestration.ManagedDispatchPacket
-	if managed == nil || managed.Mode != "manual-main-agent-intake" || managed.TargetLane != "feature-intake" || managed.PacketPath != result.PacketPath || managed.ReviewerCount != 1 || managed.MaxParallel == 0 || len(managed.Dispatches) != 1 || managed.BatchPreviewCommand == "" || managed.BatchApplyCommand == "" || !slices.Contains(managed.Boundary, "managed dispatch packet is read-only handoff; runtime does not spawn, stop, monitor, or manage reviewer sessions") {
+	if managed == nil || managed.Mode != "manual-main-agent-intake" || managed.TargetLane != reviewerIntakeLane || managed.PacketPath != result.PacketPath || managed.ReviewerCount != 1 || managed.MaxParallel == 0 || len(managed.Dispatches) != 1 || managed.BatchPreviewCommand == "" || managed.BatchApplyCommand == "" || !slices.Contains(managed.Boundary, "managed dispatch packet is read-only handoff; runtime does not spawn, stop, monitor, or manage reviewer sessions") {
 		t.Fatalf("attached case managed dispatch packet omitted runnable reviewer lifecycle: %+v", managed)
 	}
 	managedFirst := managed.Dispatches[0]
@@ -296,7 +298,7 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(summary), "owner binding current executor: `session-plan`") || !strings.Contains(string(summary), "owner binding required for intake: `true`") || !strings.Contains(string(summary), "reviewer orchestration summary owner: targetLane=`feature-intake`; mode=`current-executor-generation`; currentExecutor=`session-plan`") || !strings.Contains(string(summary), "intakeAvailable=`true`; collectionAvailable=`true`; dispatchOnly=`false`") {
+	if !strings.Contains(string(summary), "owner binding current executor: `session-plan`") || !strings.Contains(string(summary), "owner binding required for intake: `true`") || !strings.Contains(string(summary), "reviewer orchestration summary owner: targetLane=`"+reviewerIntakeLane+"`; mode=`current-executor-generation`; currentExecutor=`session-plan`") || !strings.Contains(string(summary), "intakeAvailable=`true`; collectionAvailable=`true`; dispatchOnly=`false`") {
 		t.Fatalf("summary omitted owner binding or compact orchestration summary:\n%s", string(summary))
 	}
 }
@@ -315,7 +317,7 @@ func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-plan", Actor: "mission-commander", TakeoverReason: "prompt repair fixture"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +330,7 @@ func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.
 		t.Fatal(err)
 	}
 
-	preview, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	preview, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +341,7 @@ func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.
 		t.Fatalf("prompt repair WhatIf wrote artifact: %v", err)
 	}
 
-	applied, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256})
+	applied, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: reviewerIntakeLane, Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +356,7 @@ func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.
 		t.Fatalf("prompt repair restored unexpected bytes: %q", string(restored))
 	}
 
-	replay, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256})
+	replay, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: reviewerIntakeLane, Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,14 +368,14 @@ func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.
 	if err := os.WriteFile(handoff.DispatchPromptPath, driftBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	blocked, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	blocked, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: reviewerIntakeLane, Actor: "mission-commander", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if blocked.Status != "blocked-existing-ready" || blocked.ApplyCommand != "" || blocked.ExistingPromptSHA256 == preview.PromptSHA256 {
 		t.Fatalf("drifted prompt repair preview did not block overwrite: %+v", blocked)
 	}
-	if _, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256}); err == nil || !strings.Contains(err.Error(), "refusing overwrite") {
+	if _, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: reviewerIntakeLane, Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256}); err == nil || !strings.Contains(err.Error(), "refusing overwrite") {
 		t.Fatalf("drifted prompt repair apply should refuse overwrite, err=%v", err)
 	}
 	current, err := os.ReadFile(handoff.DispatchPromptPath)
@@ -409,7 +411,7 @@ func TestWritePlanGatesCollectionForCustomArtifacts(t *testing.T) {
 		{name: "nested-packet", reviewRoot: filepath.Join(caseRoot, ".rekit", "reviews", "nested"), packetPath: filepath.Join(caseRoot, ".rekit", "reviews", "nested", "subdir", "packet.json"), wantCollection: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake", ReviewOutputDir: test.reviewRoot, PacketPath: test.packetPath})
+			result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane, ReviewOutputDir: test.reviewRoot, PacketPath: test.packetPath})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -456,7 +458,7 @@ func TestWritePlanRejectsCanonicalReviewSymlinkBeforeWriting(t *testing.T) {
 	if err := os.Symlink(outside, reviewRoot); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake", ReviewOutputDir: reviewRoot}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+	if _, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: reviewerIntakeLane, ReviewOutputDir: reviewRoot}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
 		t.Fatalf("canonical review symlink error = %v", err)
 	}
 	if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {

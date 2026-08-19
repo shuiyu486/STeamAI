@@ -265,66 +265,12 @@ func pauseReviewerWaveForOpenIntervention(summary *workstream.ReviewerDispatchIn
 	}
 	interventionID := mission.Value(interventions[0], "eventId")
 	reason := fmt.Sprintf("reviewer wave is paused by open intervention %q on lane %q; reconcile the intervention and refresh status before dispatching or recording reviewer observations", interventionID, wave.TargetLane)
-	pkg.Ready = false
-	pkg.Paused = true
-	pkg.PauseReason = reason
-	pkg.InterventionID = interventionID
-	pkg.CurrentDriverRequest = nil
-	pkg.Summary = reason
-	pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, "open lane intervention pauses reviewer dispatch and observation recording; active, returned, failed, blocked, and complete shards remain diagnostic only"))
-	pauseReviewerOperatorItem(pkg.Current)
-	for idx := range pkg.RunLoop {
-		pkg.RunLoop[idx].Command = ""
-		pkg.RunLoop[idx].PreviewCommand = ""
-		pkg.RunLoop[idx].ApplyCommand = ""
-		pkg.RunLoop[idx].AgentToolRequest = nil
-	}
-	wave.Ready = false
-	wave.Paused = true
-	wave.PauseReason = reason
-	wave.InterventionID = interventionID
-	wave.SnapshotSHA256 = ""
-	wave.AvailableSlots = 0
-	wave.SpawnWave = nil
-	wave.Boundary = mission.UniqueStrings(append(wave.Boundary, "open lane intervention pauses new reviewer dispatch and observation recording; reconcile before using this wave"))
-	pauseReviewerWaveItems(wave.Shards)
-	pauseReviewerWaveItems(wave.Active)
-	pauseReviewerWaveItems(wave.Returned)
-	pauseReviewerWaveItems(wave.Failed)
-	pauseReviewerWaveItems(wave.Blocked)
-	pauseReviewerWaveItems(wave.Complete)
-}
-
-func pauseReviewerWaveItems(items []workstream.ReviewerDispatchWavePackageItem) {
-	for idx := range items {
-		items[idx].AgentToolRequest = nil
-		items[idx].RecordDispatchCommand = ""
-		items[idx].RecordCompletionCommand = ""
-		items[idx].CurrentDriverRequest = nil
-	}
-}
-
-func pauseReviewerOperatorItem(item *workstream.ReviewerDispatchOperatorPackageItem) {
-	if item == nil {
-		return
-	}
-	item.DispatchPromptRepairCommand = ""
-	item.ReviewerDispatchRecordCommand = ""
-	item.ReviewerCompletionRecordCommand = ""
-	item.AgentToolRequest = nil
-	item.ReviewerResultInputSavePreviewCommand = ""
-	item.ReviewerResultInputSaveApplyCommand = ""
-	item.ReviewerResultSourceCapturePreviewCommand = ""
-	item.ReviewerResultSourceCaptureApplyCommand = ""
-	item.ReviewerResultStagingPreviewCommand = ""
-	item.ReviewerResultCollectionPreviewCommand = ""
-	item.ReviewerResultCollectionApplyCommand = ""
-	item.ReviewerResultIntakePreviewCommand = ""
-	item.ReviewerResultIntakeApplyCommand = ""
-	item.ReviewerResultBatchIntakePreviewCommand = ""
-	item.ReviewerResultBatchIntakeApplyCommand = ""
-	item.DispatchCommand = ""
-	item.NextAction = ""
+	workstream.PauseReviewerDispatchOperatorPackage(
+		pkg,
+		interventionID,
+		reason,
+		"open lane intervention pauses reviewer dispatch and observation recording; active, returned, failed, blocked, and complete shards remain diagnostic only",
+	)
 }
 
 func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, whatIf bool, execute func() (T, error)) (T, error) {
