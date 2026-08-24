@@ -29,7 +29,7 @@
 
 ## 当前推进原则
 
-当前已批准路线是 `steamai-product-optimization-v1`；Batch 830～833 与路线验收已完成，无下一路线；不创建 Batch 834 或自选功能。保持 source-clone-first，不做 installer；内部 `rekit` 与 legacy `/rekit` / `.rekit` 暂兼容。完成只认 Git-local receipt/本地 tracking ref；远程 CI、跨平台 E2E 仅作专项证据，cross-compile 不是运行证据。
+当前已批准路线是 `steamai-product-optimization-v1`，现处于获批 P0～P3 residual closure。Batch 830～833 与 validation repair 已完成各自局部闭环，但原始 P0～P3 task ledger 中 #50、#37、#52、#38 未被取消且明确保持 pending；此前 `completed / no-next` 是假收口。当前唯一工作按 `P0P3-C1` capability control sinks → `C2` orchestration non-authorization → `C3` DTO/receipt/session/skill → `C4` runtime ownership 顺序推进；不创建 Batch 834 或自选功能。保持 source-clone-first，不做 installer；内部 `rekit` 与 legacy `/rekit` / `.rekit` 暂兼容。局部 validation completion 只认 Git-local receipt/本地 tracking ref，但不得替代 route/product completion；远程 CI、跨平台 E2E 仅作专项证据，cross-compile 不是运行证据。
 
 保持 PowerShell-free/Go-native；禁止新增 PowerShell runtime logic。避免单字段微批次，把支撑改动并入产品闭环。公共入口删除门禁不完整则升级。
 
