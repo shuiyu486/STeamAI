@@ -11,15 +11,6 @@ import (
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
-func dailyControlRequested(opt DailyOptions) bool {
-	return opt.ControlWhatIf || opt.ControlApply ||
-		strings.TrimSpace(opt.Control.Lane) != "" ||
-		strings.TrimSpace(opt.Control.Action) != "" ||
-		strings.TrimSpace(opt.Control.Reason) != "" ||
-		strings.TrimSpace(opt.Control.PublicationStamp) != "" ||
-		strings.TrimSpace(opt.Control.ExpectedPlanSHA256) != ""
-}
-
 func runDailyControl(opt DailyOptions, result DailyResult) (DailyResult, error) {
 	if opt.ControlWhatIf == opt.ControlApply {
 		return result, fmt.Errorf("daily control requires exactly one of -WhatIf or -Apply")
@@ -74,15 +65,7 @@ func runDailyControl(opt DailyOptions, result DailyResult) (DailyResult, error) 
 	}
 	result.Pack = pack
 
-	selected := strings.TrimSpace(opt.SelectedLane)
-	controlLane := strings.TrimSpace(opt.Control.Lane)
-	if selected != "" && controlLane != "" && selected != controlLane {
-		return result, fmt.Errorf("daily control lane differs from the selected lane")
-	}
-	if selected == "" {
-		selected = controlLane
-	}
-	selected, action, err := dailyControlSelectedLane(target.Root, selected)
+	selected, action, err := dailyControlSelectedLane(target.Root, strings.TrimSpace(opt.SelectedLane))
 	if err != nil {
 		return result, err
 	}
@@ -95,14 +78,9 @@ func runDailyControl(opt DailyOptions, result DailyResult) (DailyResult, error) 
 
 	control := opt.Control
 	control.Lane = selected
-	dailyActor := strings.TrimSpace(opt.Actor)
-	if dailyActor == "" {
-		dailyActor = defaultDailyActor
-	}
-	if strings.TrimSpace(control.Actor) == "" {
-		control.Actor = dailyActor
-	} else if strings.TrimSpace(opt.Actor) != "" && strings.TrimSpace(control.Actor) != dailyActor {
-		return result, fmt.Errorf("daily control actor differs from the daily actor")
+	control.Actor = strings.TrimSpace(opt.Actor)
+	if control.Actor == "" {
+		control.Actor = defaultDailyActor
 	}
 
 	var plan executioncontrol.Plan

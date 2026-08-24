@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/skillcontract"
 )
 
 func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
@@ -207,11 +209,12 @@ func TestInspectDetectsMissingCurrentSTeamAIDefaultPhrase(t *testing.T) {
 func TestInspectDetectsCanonicalSTeamAISkillTemplateDrift(t *testing.T) {
 	repo := t.TempDir()
 	writeReadyDocs(t, repo)
-	writeFile(
-		t,
-		filepath.Join(repo, "rekit", "templates", "steamai-project", "SKILL.md"),
-		readySTeamAIProjectSkill+"\ntemplate-only drift\n",
-	)
+	templatePath := filepath.Join(repo, "rekit", "templates", "steamai-project", "SKILL.md")
+	template, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, templatePath, string(template)+"\ntemplate-only drift\n")
 
 	readiness := Inspect(repo)
 	if readiness.Ready {
@@ -220,8 +223,28 @@ func TestInspectDetectsCanonicalSTeamAISkillTemplateDrift(t *testing.T) {
 	assertWarningContains(
 		t,
 		readiness.Warnings,
-		"canonical /steamai skill differs semantically from its project-local delivery template",
+		"project-local /steamai template is not generated from the canonical skill",
 	)
+}
+
+func TestInspectDetectsStaleGeneratedSTeamAIAppendix(t *testing.T) {
+	repo := t.TempDir()
+	writeReadyDocs(t, repo)
+	for _, rel := range []string{skillcontract.CanonicalSkillPath, skillcontract.ProjectTemplatePath} {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stale := strings.Replace(string(data), "-ExpectedContinuePlanSha256", "-ExpectedStalePlanSha256", 1)
+		writeFile(t, path, stale)
+	}
+
+	readiness := Inspect(repo)
+	if readiness.Ready {
+		t.Fatalf("public default docs unexpectedly ready despite stale generated appendix: %+v", readiness)
+	}
+	assertWarningContains(t, readiness.Warnings, "generated STeamAI machine command appendix is stale")
 }
 
 func TestInspectAllowsModuleCompatibilityIdentityWithoutRepositoryURL(t *testing.T) {
@@ -289,8 +312,13 @@ func assertWarningContains(t *testing.T, warnings []string, want string) {
 func writeReadyDocs(t *testing.T, repo string) {
 	t.Helper()
 	writeFile(t, filepath.Join(repo, "README.md"), readyREADME)
-	writeFile(t, filepath.Join(repo, ".claude", "skills", "steamai", "SKILL.md"), readySTeamAISkill)
-	writeFile(t, filepath.Join(repo, "rekit", "templates", "steamai-project", "SKILL.md"), readySTeamAIProjectSkill)
+	readySkill := readySTeamAISkill + "\n" + skillcontract.MachineAppendixStart + "\nstale\n" + skillcontract.MachineAppendixEnd + "\n"
+	updatedSkill, err := skillcontract.ReplaceMachineAppendix([]byte(readySkill))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repo, ".claude", "skills", "steamai", "SKILL.md"), string(updatedSkill))
+	writeFile(t, filepath.Join(repo, "rekit", "templates", "steamai-project", "SKILL.md"), string(updatedSkill))
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), readyClaude)
 	writeFile(t, filepath.Join(repo, "docs", "context-routing.md"), readyContextRouting)
 	writeFile(t, filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"), readyRealUsageHardeningRoadmap)
@@ -351,10 +379,8 @@ const readySTeamAISkill = `# STeamAI 项目内 Mission Control 入口
 不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退。
 bounded-autonomous-v1 preview 后 exact Apply；不要让用户记 SHA。
 ` + "`control`" + ` 始终 review-first。
-typed ` + "`invocation`" + ` 是唯一通用命令桥，按 ["runtime", "-Command", invocation.command] 传 argv；` + "`commandExecutable=false`" + ` 不执行。
+typed ` + "`invocation`" + ` 是唯一通用命令桥；机器命令附录是固定 front door、deterministic owner bridge、argv 与 Apply binding 的唯一 owner；` + "`commandExecutable=false`" + ` 不执行。
 `
-
-const readySTeamAIProjectSkill = readySTeamAISkill
 
 const readyClaude = `# CLAUDE
 

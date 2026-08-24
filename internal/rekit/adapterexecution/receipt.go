@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 )
 
 type GateBinding struct {
@@ -67,31 +68,33 @@ type ExecutionBinding struct {
 }
 
 type DispatchReceipt struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Kind          string         `json:"kind"`
-	DispatchID    string         `json:"dispatchId"`
-	Gate          GateBinding    `json:"gate"`
-	Adapter       AdapterBinding `json:"adapter"`
-	Owner         OwnerBinding   `json:"owner"`
-	ReportPath    string         `json:"reportPath"`
-	Actor         string         `json:"actor"`
-	RecordedAt    string         `json:"recordedAt"`
-	NoExecute     bool           `json:"noAdapterOrHeavyToolExecution"`
-	NoObservation bool           `json:"noObservationWrite"`
-	NoAuthority   bool           `json:"noAuthorityOrConfirmed"`
+	SchemaVersion int                        `json:"schemaVersion"`
+	Kind          string                     `json:"kind"`
+	DispatchID    string                     `json:"dispatchId"`
+	Gate          GateBinding                `json:"gate"`
+	Adapter       AdapterBinding             `json:"adapter"`
+	Owner         OwnerBinding               `json:"owner"`
+	ReportPath    string                     `json:"reportPath"`
+	Actor         string                     `json:"actor"`
+	RecordedAt    string                     `json:"recordedAt"`
+	Capability    capabilitycontract.Binding `json:"capability"`
+	NoExecute     bool                       `json:"noAdapterOrHeavyToolExecution"`
+	NoObservation bool                       `json:"noObservationWrite"`
+	NoAuthority   bool                       `json:"noAuthorityOrConfirmed"`
 }
 
 type DispatchSemanticBinding struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Kind          string         `json:"kind"`
-	Gate          GateBinding    `json:"gate"`
-	Adapter       AdapterBinding `json:"adapter"`
-	Owner         OwnerBinding   `json:"owner"`
-	ReportPath    string         `json:"reportPath"`
-	Actor         string         `json:"actor"`
-	NoExecute     bool           `json:"noAdapterOrHeavyToolExecution"`
-	NoObservation bool           `json:"noObservationWrite"`
-	NoAuthority   bool           `json:"noAuthorityOrConfirmed"`
+	SchemaVersion int                        `json:"schemaVersion"`
+	Kind          string                     `json:"kind"`
+	Gate          GateBinding                `json:"gate"`
+	Adapter       AdapterBinding             `json:"adapter"`
+	Owner         OwnerBinding               `json:"owner"`
+	ReportPath    string                     `json:"reportPath"`
+	Actor         string                     `json:"actor"`
+	Capability    capabilitycontract.Binding `json:"capability"`
+	NoExecute     bool                       `json:"noAdapterOrHeavyToolExecution"`
+	NoObservation bool                       `json:"noObservationWrite"`
+	NoAuthority   bool                       `json:"noAuthorityOrConfirmed"`
 }
 
 type ReportDispatchBinding struct {
@@ -121,35 +124,37 @@ type ArtifactBinding struct {
 }
 
 type Receipt struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	Kind          string            `json:"kind"`
-	ReceiptID     string            `json:"receiptId"`
-	Dispatch      DispatchBinding   `json:"dispatch"`
-	Gate          GateBinding       `json:"gate"`
-	Adapter       AdapterBinding    `json:"adapter"`
-	Owner         OwnerBinding      `json:"owner"`
-	Execution     ExecutionBinding  `json:"execution"`
-	Report        FileBinding       `json:"report"`
-	Artifacts     []ArtifactBinding `json:"artifacts"`
-	Actor         string            `json:"actor"`
-	RecordedAt    string            `json:"recordedAt"`
-	NoExecute     bool              `json:"noAdapterOrHeavyToolExecution"`
-	NoAuthority   bool              `json:"noAuthorityOrConfirmed"`
+	SchemaVersion int                        `json:"schemaVersion"`
+	Kind          string                     `json:"kind"`
+	ReceiptID     string                     `json:"receiptId"`
+	Dispatch      DispatchBinding            `json:"dispatch"`
+	Gate          GateBinding                `json:"gate"`
+	Adapter       AdapterBinding             `json:"adapter"`
+	Owner         OwnerBinding               `json:"owner"`
+	Execution     ExecutionBinding           `json:"execution"`
+	Report        FileBinding                `json:"report"`
+	Artifacts     []ArtifactBinding          `json:"artifacts"`
+	Actor         string                     `json:"actor"`
+	RecordedAt    string                     `json:"recordedAt"`
+	Capability    capabilitycontract.Binding `json:"capability"`
+	NoExecute     bool                       `json:"noAdapterOrHeavyToolExecution"`
+	NoAuthority   bool                       `json:"noAuthorityOrConfirmed"`
 }
 
 type Binding struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	Kind          string            `json:"kind"`
-	Dispatch      DispatchBinding   `json:"dispatch"`
-	Gate          GateBinding       `json:"gate"`
-	Adapter       AdapterBinding    `json:"adapter"`
-	Owner         OwnerBinding      `json:"owner"`
-	Execution     ExecutionBinding  `json:"execution"`
-	Report        FileBinding       `json:"report"`
-	Artifacts     []ArtifactBinding `json:"artifacts"`
-	Actor         string            `json:"actor"`
-	NoExecute     bool              `json:"noAdapterOrHeavyToolExecution"`
-	NoAuthority   bool              `json:"noAuthorityOrConfirmed"`
+	SchemaVersion int                        `json:"schemaVersion"`
+	Kind          string                     `json:"kind"`
+	Dispatch      DispatchBinding            `json:"dispatch"`
+	Gate          GateBinding                `json:"gate"`
+	Adapter       AdapterBinding             `json:"adapter"`
+	Owner         OwnerBinding               `json:"owner"`
+	Execution     ExecutionBinding           `json:"execution"`
+	Report        FileBinding                `json:"report"`
+	Artifacts     []ArtifactBinding          `json:"artifacts"`
+	Actor         string                     `json:"actor"`
+	Capability    capabilitycontract.Binding `json:"capability"`
+	NoExecute     bool                       `json:"noAdapterOrHeavyToolExecution"`
+	NoAuthority   bool                       `json:"noAuthorityOrConfirmed"`
 }
 
 func BindingFor(receipt Receipt) Binding {
@@ -170,6 +175,7 @@ func BindingFor(receipt Receipt) Binding {
 		Report:        receipt.Report,
 		Artifacts:     artifacts,
 		Actor:         receipt.Actor,
+		Capability:    receipt.Capability,
 		NoExecute:     receipt.NoExecute,
 		NoAuthority:   receipt.NoAuthority,
 	}
@@ -192,6 +198,7 @@ func DispatchBindingFor(receipt DispatchReceipt) DispatchSemanticBinding {
 		Owner:         receipt.Owner,
 		ReportPath:    receipt.ReportPath,
 		Actor:         receipt.Actor,
+		Capability:    receipt.Capability,
 		NoExecute:     receipt.NoExecute,
 		NoObservation: receipt.NoObservation,
 		NoAuthority:   receipt.NoAuthority,
@@ -292,6 +299,9 @@ func ValidateDispatch(receipt DispatchReceipt) error {
 	if strings.TrimSpace(receipt.Actor) == "" || strings.TrimSpace(receipt.RecordedAt) == "" || !receipt.NoExecute || !receipt.NoObservation || !receipt.NoAuthority {
 		return fmt.Errorf("adapter execution dispatch receipt boundary is invalid")
 	}
+	if err := capabilitycontract.RequireBindingPolicy(receipt.Capability, capabilitycontract.PolicyClassAuthorizedHeavy); err != nil {
+		return fmt.Errorf("adapter execution dispatch capability contract is invalid: %w", err)
+	}
 	bindingSHA, err := DispatchBindingSHA256(receipt)
 	if err != nil || !strings.EqualFold(bindingSHA, receipt.DispatchID) {
 		return fmt.Errorf("adapter execution dispatch receipt id does not match semantic binding")
@@ -344,6 +354,9 @@ func Validate(receipt Receipt) error {
 	if strings.TrimSpace(receipt.Actor) == "" || strings.TrimSpace(receipt.RecordedAt) == "" || !receipt.NoExecute || !receipt.NoAuthority {
 		return fmt.Errorf("adapter execution receipt observation boundary is invalid")
 	}
+	if err := capabilitycontract.RequireBindingPolicy(receipt.Capability, capabilitycontract.PolicyClassAuthorizedHeavy); err != nil {
+		return fmt.Errorf("adapter execution receipt capability contract is invalid: %w", err)
+	}
 	bindingSHA, err := BindingSHA256(receipt)
 	if err != nil || !strings.EqualFold(bindingSHA, receipt.ReceiptID) {
 		return fmt.Errorf("adapter execution receipt id does not match semantic binding")
@@ -385,6 +398,9 @@ func ValidateCompletionDispatchLineage(receipt Receipt, dispatch DispatchReceipt
 	}
 	if err := ValidateDispatch(dispatch); err != nil {
 		return err
+	}
+	if receipt.Capability != dispatch.Capability {
+		return fmt.Errorf("adapter execution receipt capability contract does not match dispatch lineage")
 	}
 	if !validStateRootRelativePath(dispatchPath) || receipt.Dispatch.DispatchID != dispatch.DispatchID || receipt.Dispatch.Path != dispatchPath || !strings.EqualFold(receipt.Dispatch.SHA256, dispatchSHA256) || receipt.Dispatch.Bytes != dispatchBytes {
 		return fmt.Errorf("adapter execution receipt dispatch path/hash binding mismatch")

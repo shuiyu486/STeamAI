@@ -299,12 +299,12 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=32 handlers=32 symbols=32 profiles=32 boundaries=8 alternative=go run ./cmd/rekit -- -Command <command>")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=32 handlers=32 exactRuntimeOwners=69 symbols=32 profiles=32 boundaries=8 alternative=go run ./cmd/rekit -- -Command <command>")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=32 readOnly=5 mutating=27 writesCase=24 writesKit=2 reviewFirst=14 applyRequired=24 heavyTool=0 authorityConfirmed=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=complete,control,migrate-state,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKit=next-batch,promote")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=8 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=complete,control,migrate-state,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update kitReviewFirst=next-batch,promote readOnly=doctor,packs,release-check,status,validate")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=6")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "ready=true prerequisites=8")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalPlan=true planChecks=9")
@@ -368,7 +368,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
-	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "go-native-public-surface ready=true goNativeReady=true facadeRemovalReady=true prerequisites=5")
+	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "go-native-public-surface ready=true goNativeReady=true facadeRemovalReady=true prerequisites=6")
 	assertHandoffSignal(t, handoff, "case shim readiness")
 	assertHandoffSignalDetailContains(t, handoff, "case shim readiness", "model=legacy-rekit-case-shim-compatibility entrypoint=/rekit stateRoot=.rekit defaultForNewProjects=false")
 	assertHandoffSignal(t, handoff, "public default docs")
@@ -2833,7 +2833,7 @@ func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 	if inventory.Total != 9 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
 		t.Fatalf("unexpected pack maturity inventory: %+v", inventory)
 	}
-	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 7 {
+	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 2 || inventory.MaturityCounts["skeleton"] != 6 {
 		t.Fatalf("unexpected maturity counts: %+v", inventory.MaturityCounts)
 	}
 	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" {
@@ -2841,7 +2841,7 @@ func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 	}
 	assertHandoffMaturityPack(t, inventory, "template", "_template")
 	assertHandoffMaturityPack(t, inventory, "mature", defaults.DefaultPack)
-	assertHandoffMaturityPack(t, inventory, "skeleton", "web-security")
+	assertHandoffMaturityPack(t, inventory, "mature", "web-security")
 	counts := ReleaseHandoffPackMaturityCountsFor(inventory)
 	if counts.HeavyToolGatesByPack != counts.Total {
 		t.Fatalf("heavy-tool gate rows = %d, want total %d", counts.HeavyToolGatesByPack, counts.Total)

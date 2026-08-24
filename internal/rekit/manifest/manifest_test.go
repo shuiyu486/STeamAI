@@ -66,7 +66,7 @@ func TestLoadWebSecurityManifestSchema(t *testing.T) {
 	if m.SubagentRoutes[0].ID != "web-security:bounded-review" || m.SubagentRoutes[1].ID != "web-security:feature-analysis" {
 		t.Fatalf("unexpected web-security routes: %+v", m.SubagentRoutes)
 	}
-	assertHeavyToolGateSet(t, m)
+	assertHeavyToolGateSet(t, m, "inspect")
 }
 
 func TestSubagentRouteForTaskType(t *testing.T) {
@@ -1816,7 +1816,7 @@ func TestListPackSummaries(t *testing.T) {
 	if byID["binary-re"].Maturity != "mature" || byID["binary-re"].SchemaVersion != "1" || byID["binary-re"].DefaultAuthorityLane != "devirt-main" || byID["binary-re"].HeavyToolGates != 8 {
 		t.Fatalf("unexpected binary-re summary: %+v", byID["binary-re"])
 	}
-	if byID["web-security"].Maturity != "skeleton" || byID["web-security"].SchemaVersion != "1" || byID["web-security"].DefaultAuthorityLane != "main" || byID["web-security"].HeavyToolGates != 7 {
+	if byID["web-security"].Maturity != "mature" || byID["web-security"].SchemaVersion != "1" || byID["web-security"].DefaultAuthorityLane != "main" || byID["web-security"].HeavyToolGates != 8 {
 		t.Fatalf("unexpected web-security summary: %+v", byID["web-security"])
 	}
 }

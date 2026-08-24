@@ -1,6 +1,6 @@
 # 当前真实可用性评估（2026-08-11）
 
-> 本文件是完成 `daily-product-closure-v1` 与 `windows-mission-control-usability-v1` 后的 Windows-only 历史评估快照，不是新的路线或远程 release green 证明。后续 STeamAI 自包含路线的 copied-directory / project-local bundle、恢复、自治和 Windows local minimum 已完成；当前完成态与真实边界以 `docs/real-usage-hardening-roadmap.md`、`docs/steamai-self-contained-project.md` 和 fresh `release-check` 为准，不再用本快照的旧前置条件判断新产品模型。
+> 本文件是完成 `daily-product-closure-v1` 与 `windows-mission-control-usability-v1` 后的 Windows-only 历史评估快照，不是新的路线或远程 release green 证明。后续 STeamAI 自包含路线的 copied-directory / project-local bundle、恢复、自治和 Windows local minimum 已完成；`web-security` 也已完成本文当时列为候选的第二条 mature production vertical slice。因此本文保留的旧评分、“唯一成熟领域”与“第二个成熟 pack 待做”只代表 2026-08-11 时点，不是当前事实。当前完成态与真实边界以 `docs/real-usage-hardening-roadmap.md`、`docs/steamai-self-contained-project.md`、`docs/release-readiness.md` 和 fresh `release-check` 为准。
 
 ## 读取指南
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
@@ -34,6 +38,7 @@ const (
 	projectExecutionHelperSpecSHAEnv   = "REKIT_SESSIONHOST_EXECUTION_HELPER_SPEC_SHA256"
 	projectExecutionHelperBeforeEnv    = "REKIT_SESSIONHOST_EXECUTION_HELPER_BEFORE_ACQUIRE"
 	projectExecutionHelperChildDoneEnv = "REKIT_SESSIONHOST_EXECUTION_HELPER_CHILD_DONE"
+	projectExecutionHelperPromptEnv    = "REKIT_SESSIONHOST_EXECUTION_HELPER_PROMPT"
 )
 
 func TestMain(m *testing.M) {
@@ -57,6 +62,15 @@ func TestMain(m *testing.M) {
 		os.Exit(runProjectExecutionClaudeHelper())
 	}
 	os.Exit(m.Run())
+}
+
+func mustMarshalProjectExecutionTest(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func projectExecutionInternalSupervisorArgs(args []string) (string, string, bool) {
@@ -104,9 +118,11 @@ func projectExecutionSupervisorChildHook(stage string) error {
 
 func TestRunClaudeHoldsSharedExecutionLeaseAcrossLaunch(t *testing.T) {
 	caseRoot, opt, pkg, readyPath, releasePath := projectExecutionLaunchFixture(t)
+	promptPath := filepath.Join(t.TempDir(), "stdin-prompt.txt")
 	t.Setenv(projectExecutionHelperRoleEnv, "claude")
 	t.Setenv(projectExecutionHelperReadyEnv, readyPath)
 	t.Setenv(projectExecutionHelperReleaseEnv, releasePath)
+	t.Setenv(projectExecutionHelperPromptEnv, promptPath)
 	t.Cleanup(func() { _ = os.WriteFile(releasePath, nil, 0o600) })
 
 	runDone := make(chan claudeRun, 1)
@@ -136,8 +152,184 @@ func TestRunClaudeHoldsSharedExecutionLeaseAcrossLaunch(t *testing.T) {
 		if !run.success() || !run.started || run.sessionID != pkg.Launch.Attempt.Session {
 			t.Fatalf("Claude launch did not complete under the shared execution lease: %+v", run)
 		}
+		prompt, err := os.ReadFile(promptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, err := os.ReadFile(pkg.Launch.Input.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, expected := range []string{
+			`boundInput={"role":"member-task-context","sha256":"` + pkg.Launch.Input.SHA256 + `"`,
+			`"content":` + string(mustMarshalProjectExecutionTest(t, string(input))),
+			"Do not ask for, reconstruct, concatenate, or Read an input file path",
+		} {
+			if !strings.Contains(string(prompt), expected) {
+				t.Fatalf("stdin prompt omitted %q: %s", expected, prompt)
+			}
+		}
+		if strings.Contains(string(prompt), pkg.Launch.Input.Path) || strings.Contains(string(prompt), caseRoot) {
+			t.Fatalf("stdin prompt leaked bound input path: %s", prompt)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Claude launch did not finish after its helper was released")
+	}
+}
+
+func TestRunClaudeBinaryInventoryMemberConsumesTypedPolicyThroughStdin(t *testing.T) {
+	binding := memberexecution.TaskBinding{
+		Kind: "binary-inventory-evidence",
+		Values: map[string]string{
+			"source-path":           "inputs/synthetic-pe.bin",
+			"source-sha256":         strings.Repeat("1", 64),
+			"inventory-path":        "workspace/main/inventory/session-1/binary-inventory.json",
+			"inventory-sha256":      strings.Repeat("2", 64),
+			"report-path":           "workspace/main/inventory/session-1/adapter-report.json",
+			"dispatch-path":         ".steamai/lanes/main/adapter-executions/gate-a/dispatch.json",
+			"receipt-path":          ".steamai/lanes/main/adapter-executions/gate-a/receipt.json",
+			"selected-evidence-ref": "workspace/main/inventory/session-1/binary-inventory.json",
+			"observation-event-id":  "evt-binary-inventory",
+			"format-family":         "pe",
+			"section-count":         "1",
+			"import-count":          "0",
+			"export-count":          "0",
+		},
+	}
+	caseRoot, opt, pkg, readyPath, releasePath := projectExecutionLaunchFixtureWithBinding(t, &binding)
+	inputPath := pkg.Launch.Input.Path
+	if _, err := os.ReadFile(inputPath); err != nil {
+		t.Fatal(err)
+	}
+	productionInstructions, err := inlineProductionInstructions(caseRoot, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promptPath := filepath.Join(t.TempDir(), "binary-inventory-member-stdin.txt")
+	t.Setenv(projectExecutionHelperRoleEnv, "claude")
+	t.Setenv(projectExecutionHelperReadyEnv, readyPath)
+	t.Setenv(projectExecutionHelperReleaseEnv, releasePath)
+	t.Setenv(projectExecutionHelperPromptEnv, promptPath)
+	t.Cleanup(func() { _ = os.WriteFile(releasePath, nil, 0o600) })
+
+	runDone := make(chan claudeRun, 1)
+	go func() {
+		runDone <- runClaude(context.Background(), opt, pkg, pkg.Launch.Attempt.Session, nil)
+	}()
+	waitForProjectExecutionFile(t, readyPath)
+	if err := os.WriteFile(releasePath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case run := <-runDone:
+		if !run.success() || !run.started {
+			t.Fatalf("binary inventory member helper launch failed: %+v", run)
+		}
+		prompt, err := os.ReadFile(promptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, expected := range []string{
+			`boundInput={"role":"member-task-context","sha256":"` + pkg.Launch.Input.SHA256 + `"`,
+			`\"kind\": \"binary-inventory-evidence\"`,
+			productionInstructions,
+			"Packet SHA-256: `" + pkg.Launch.InstructionIdentity.SHA256 + "`",
+			"Receipt kind: `" + pkg.Launch.InstructionIdentity.ReceiptKind + "`",
+			"read its exact inventory, report, dispatch, and receipt paths",
+			"canonical PE/ELF inventory fields",
+			"source/inventory/report/dispatch/receipt hashes",
+			"format family, section/import/export counts",
+			"selected evidence ref, and observation event ID",
+		} {
+			if !strings.Contains(string(prompt), expected) {
+				t.Fatalf("binary inventory member stdin omitted %q: %s", expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{inputPath, caseRoot, "exact selected row", "query-term-only echo"} {
+			if strings.Contains(string(prompt), forbidden) {
+				t.Fatalf("binary inventory member stdin leaked or inherited %q: %s", forbidden, prompt)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("binary inventory member helper did not finish")
+	}
+}
+
+func TestRunClaudeProductionInstructionSourceDriftBlocksProcessStart(t *testing.T) {
+	caseRoot, opt, pkg, _, _ := projectExecutionLaunchFixture(t)
+	if pkg.Launch == nil || pkg.Launch.InstructionIdentity == nil || len(pkg.Launch.InstructionIdentity.Sources) == 0 {
+		t.Fatal("production launch fixture omitted instruction identity")
+	}
+	source := pkg.Launch.InstructionIdentity.Sources[0]
+	sourcePath := filepath.Join(caseRoot, ".steamai", filepath.FromSlash(source.Path))
+	original, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, append(original, []byte("\nsource drift\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started := false
+	run := runClaude(context.Background(), opt, pkg, pkg.Launch.Attempt.Session, func() error {
+		started = true
+		return nil
+	})
+	if run.started || started || run.spawnErr == nil || !strings.Contains(run.spawnErr.Error(), "instruction") {
+		t.Fatalf("drifted production source was not blocked before process start: %+v callback=%t", run, started)
+	}
+}
+
+func TestRunClaudeBinaryInventoryReviewConsumesTypedPolicyThroughStdin(t *testing.T) {
+	caseRoot, opt, pkg, readyPath, releasePath := legacyProjectExecutionLaunchFixture(t)
+	input := []byte(`{"schemaVersion":1,"kind":"binary-inventory-evidence-review","selectedEvidenceRef":"workspace/main/inventory/binary-inventory.json"}` + "\n")
+	inputPath := filepath.Join(caseRoot, filepath.FromSlash(pkg.Launch.Input.Path))
+	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg.Launch.Input.SHA256 = bytesSHA256(input)
+	pkg.Launch.Input.Role = "mission-commander-binary-inventory-evidence-review-input"
+	promptPath := filepath.Join(t.TempDir(), "binary-inventory-review-stdin.txt")
+	t.Setenv(projectExecutionHelperRoleEnv, "claude")
+	t.Setenv(projectExecutionHelperReadyEnv, readyPath)
+	t.Setenv(projectExecutionHelperReleaseEnv, releasePath)
+	t.Setenv(projectExecutionHelperPromptEnv, promptPath)
+	t.Cleanup(func() { _ = os.WriteFile(releasePath, nil, 0o600) })
+
+	runDone := make(chan claudeRun, 1)
+	go func() {
+		runDone <- runClaude(context.Background(), opt, pkg, pkg.Launch.Attempt.Session, nil)
+	}()
+	waitForProjectExecutionFile(t, readyPath)
+	if err := os.WriteFile(releasePath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case run := <-runDone:
+		if !run.success() || !run.started || run.sessionID != pkg.Launch.Attempt.Session {
+			t.Fatalf("binary inventory evidence review helper launch failed: %+v", run)
+		}
+		prompt, err := os.ReadFile(promptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, expected := range []string{
+			`boundInput={"role":"mission-commander-binary-inventory-evidence-review-input","sha256":"` + pkg.Launch.Input.SHA256 + `"`,
+			`"content":` + string(mustMarshalProjectExecutionTest(t, string(input))),
+			"exact source, canonical inventory, report, dispatch, receipt, and observation",
+			"all five safety boundaries",
+			"inventory path is the exact selectedEvidenceRef",
+		} {
+			if !strings.Contains(string(prompt), expected) {
+				t.Fatalf("binary inventory review stdin omitted %q: %s", expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{inputPath, caseRoot, "selected row is an exact source line", "matched term and evidence ref are exact"} {
+			if strings.Contains(string(prompt), forbidden) {
+				t.Fatalf("binary inventory review stdin leaked or inherited %q: %s", forbidden, prompt)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("binary inventory evidence review helper did not finish")
 	}
 }
 
@@ -517,8 +709,9 @@ func legacyProjectExecutionLaunchFixture(t *testing.T) (
 		CheckpointSHA256: strings.Repeat("b", 64),
 		SessionKind:      "mission-commander-evidence-review",
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
-			Ready:    true,
-			ReadOnly: true,
+			Ready:      true,
+			ReadOnly:   true,
+			Capability: readOnlyCapabilityForTest(),
 			Input: mission.CurrentLoopExternalSessionHarnessInput{
 				Path:   inputRel,
 				SHA256: bytesSHA256(input),
@@ -541,6 +734,16 @@ func projectExecutionLaunchFixture(t *testing.T) (
 	string,
 	string,
 ) {
+	return projectExecutionLaunchFixtureWithBinding(t, nil)
+}
+
+func projectExecutionLaunchFixtureWithBinding(t *testing.T, binding *memberexecution.TaskBinding) (
+	string,
+	Options,
+	mission.CurrentLoopExternalSessionHarnessPackage,
+	string,
+	string,
+) {
 	t.Helper()
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	bootstrap := DailyResult{CaseRoot: caseRoot}
@@ -557,6 +760,21 @@ func projectExecutionLaunchFixture(t *testing.T) (
 	if err := ensureDailyStarted(caseRoot, intent.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
+	if binding != nil {
+		owner, err := laneowner.Read(caseRoot, bootstrap.Lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := memberexecution.WriteTaskBindingForOwner(
+			caseRoot,
+			bootstrap.Lane,
+			owner.CurrentExecutor,
+			owner.ExecutorGeneration,
+			*binding,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
 	memberPlan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{
 		CaseRoot:      caseRoot,
 		Pack:          intent.Identity.Pack,
@@ -571,6 +789,26 @@ func projectExecutionLaunchFixture(t *testing.T) (
 		t.Fatal(err)
 	}
 	member := memberApplied.Plan.Inspection
+	if member.TaskContext == nil {
+		t.Fatal("current member launch fixture omitted its immutable task context")
+	}
+	owner := laneowner.Snapshot{
+		Lane:               member.TaskContext.Owner.Lane,
+		CurrentExecutor:    member.TaskContext.Owner.Executor,
+		ExecutorGeneration: member.TaskContext.Owner.ExecutorGeneration,
+	}
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	launchControl, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instructionIdentity, err := currentProductionInstructionIdentity(caseRoot, intent.Identity.Pack)
+	if err != nil {
+		t.Fatal(err)
+	}
 	input, err := os.ReadFile(member.TaskContextPath)
 	if err != nil {
 		t.Fatal(err)
@@ -591,12 +829,15 @@ func projectExecutionLaunchFixture(t *testing.T) (
 	pkg := mission.CurrentLoopExternalSessionHarnessPackage{
 		SchemaVersion:    1,
 		CaseRoot:         caseRoot,
+		Pack:             intent.Identity.Pack,
 		JobID:            "execution-lease-job",
 		JobSHA256:        strings.Repeat("b", 64),
 		CheckpointSHA256: strings.Repeat("c", 64),
 		SessionKind:      "member",
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
-			Ready: true,
+			Ready:               true,
+			Capability:          transportCapabilityForTest(),
+			InstructionIdentity: &instructionIdentity,
 			Input: mission.CurrentLoopExternalSessionHarnessInput{
 				Path:   member.TaskContextPath,
 				SHA256: bytesSHA256(input),
@@ -607,6 +848,7 @@ func projectExecutionLaunchFixture(t *testing.T) (
 				AttemptSHA256: strings.Repeat("d", 64),
 				Generation:    1,
 				Session:       "execution-lease-session",
+				LaunchControl: executioncontrol.CloneBinding(&launchControl),
 			},
 		},
 	}
@@ -616,19 +858,42 @@ func projectExecutionLaunchFixture(t *testing.T) (
 func runProjectExecutionClaudeHelper() int {
 	sessionID := ""
 	schema := ""
-	for index := 0; index+1 < len(os.Args); index++ {
+	printFromStdin := false
+	for index := 0; index < len(os.Args); index++ {
 		switch os.Args[index] {
+		case "-p", "--print":
+			printFromStdin = index+1 == len(os.Args) || strings.HasPrefix(os.Args[index+1], "-")
 		case "--session-id":
-			sessionID = os.Args[index+1]
+			if index+1 < len(os.Args) {
+				sessionID = os.Args[index+1]
+			}
 		case "--json-schema":
-			schema = os.Args[index+1]
+			if index+1 < len(os.Args) {
+				schema = os.Args[index+1]
+			}
 		}
+	}
+	if !printFromStdin {
+		fmt.Fprintln(os.Stderr, "project execution Claude helper received prompt as a command-line argument")
+		return 2
 	}
 	readyPath := os.Getenv(projectExecutionHelperReadyEnv)
 	releasePath := os.Getenv(projectExecutionHelperReleaseEnv)
+	promptPath := os.Getenv(projectExecutionHelperPromptEnv)
 	if sessionID == "" || readyPath == "" || releasePath == "" {
 		fmt.Fprintln(os.Stderr, "project execution Claude helper binding is incomplete")
 		return 2
+	}
+	prompt, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if promptPath != "" {
+		if err := os.WriteFile(promptPath, prompt, 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
 	}
 	if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, err)

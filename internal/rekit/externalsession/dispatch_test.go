@@ -9,8 +9,11 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 func TestDispatchedAttemptPublishesTicketBeforeCommitAndRecoversPrefix(t *testing.T) {
@@ -54,6 +57,60 @@ func TestDispatchedAttemptPublishesTicketBeforeCommitAndRecoversPrefix(t *testin
 	replay, err := ApplyAttempt(replayPlan, replayPlan.JobSHA256, replayPlan.ExpectedPlanSHA256)
 	if err != nil || !replay.AlreadyApplied {
 		t.Fatalf("committed replay=%+v err=%v", replay, err)
+	}
+}
+
+func TestBindAttemptDispatchRejectsCapabilityPolicyDrift(t *testing.T) {
+	job := dispatchTestJob(t)
+	plan := dispatchTestAttemptPlan(t, job)
+
+	readOnly, err := capabilitycontract.Bind(capabilitycontract.ReadOnly())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket := *plan.Dispatch
+	ticket.Launch.Capability = readOnly
+	if _, err := BindAttemptDispatch(plan, ticket); err == nil || !strings.Contains(err.Error(), "capability") {
+		t.Fatalf("member dispatch accepted read-only capability drift: %v", err)
+	}
+
+	ticket = *plan.Dispatch
+	ticket.Launch.ReadOnly = true
+	if _, err := BindAttemptDispatch(plan, ticket); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("member dispatch accepted read-only projection drift: %v", err)
+	}
+}
+
+func TestBindAttemptDispatchRejectsMissingProductionInstructionIdentity(t *testing.T) {
+	caseRoot := externalSessionTestCaseRootWithStateDir(t, projectstate.CurrentDir)
+	job, err := NewMemberJob(caseRoot, "web-security", testCheckpointSHA, "g000001-a000001-production", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, projectstate.CurrentRel("member", "manifest.json"), projectstate.CurrentRel("member", "outputs"), []string{"returned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDispatchInstructionIdentity(job, nil); err == nil || !strings.Contains(err.Error(), "omitted its durable instruction identity") {
+		t.Fatalf("current production dispatch without instruction identity was accepted: %v", err)
+	}
+}
+
+func TestBindAttemptDispatchRejectsInvalidInstructionIdentity(t *testing.T) {
+	job := dispatchTestJob(t)
+	writeTestFile(t, job.CaseRoot, ".rekit/member/handoff.json", []byte("dispatch test handoff\n"))
+	plan, err := PreviewAttempt(job, "claude-code", "owner-session-a", "mission-commander", "2026-08-05T04:00:00Z", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	templates := make([]DispatchSubmissionTemplate, 0, len(plan.Attempt.AllowedOutcomes))
+	for _, outcome := range plan.Attempt.AllowedOutcomes {
+		templates = append(templates, DispatchSubmissionTemplate{Outcome: outcome, JSON: "{\"outcome\":\"" + outcome + "\"}\n", RequiredWrites: []string{plan.Attempt.SubmissionPath + " (last)"}})
+	}
+	identity := instructionpacket.Identity{SchemaVersion: instructionpacket.SchemaVersion, Pack: job.Pack, Mode: instructionpacket.ModePolicyOnly, ReceiptKind: "fixture-result", SHA256: strings.Repeat("a", 64)}
+	_, err = BindAttemptDispatch(plan, DispatchTicket{
+		Launch:               DispatchLaunch{Ready: true, Tool: "Claude Code session", AgentType: "durable-member-executor", Capability: job.Capability, Input: DispatchInput{Path: ".rekit/member/handoff.json", SHA256: hash([]byte("dispatch test handoff\n")), Role: "durable-member-handoff"}, ExpectedOutput: "bounded result", InstructionIdentity: &identity, Boundary: []string{"claim first"}},
+		Return:               DispatchReturn{SubmissionPath: plan.Attempt.SubmissionPath, SubmissionOutputs: plan.Attempt.SubmissionOutputs, SubmissionLast: true, Templates: templates, Boundary: []string{"submission last"}},
+		RefreshStatusCommand: "/rekit status", Boundary: []string{"no heavy tool"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "instruction identity") {
+		t.Fatalf("invalid instruction identity was accepted: %v", err)
 	}
 }
 
@@ -218,7 +275,7 @@ func TestPendingReplacementDoesNotInvalidateCurrentSubmissionLineage(t *testing.
 	writeTestFile(t, job.CaseRoot, replacement.DispatchPath, replacement.dispatchData)
 	submission := Submission{
 		SchemaVersion: SchemaVersion, Kind: KindSubmission, JobID: job.JobID, JobSHA256: first.JobSHA256,
-		Outcome: "failed", Actor: "actual-harness", ObservedAt: "2026-08-05T04:00:03Z", Reason: "bounded failure",
+		Capability: job.Capability, Outcome: "failed", Actor: "actual-harness", ObservedAt: "2026-08-05T04:00:03Z", Reason: "bounded failure",
 		AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
 		DispatchClaimSHA256: current.ClaimSHA256, LaunchReceiptSHA256: current.LaunchSHA256,
 		Harness: "actual-harness", Session: "actual-session", NoAuthorityOrConfirmed: true, NoHeavyTool: true,
@@ -469,7 +526,7 @@ func TestDispatchedSubmissionUsesAcceptedActualIdentity(t *testing.T) {
 	}
 	submission := Submission{
 		SchemaVersion: SchemaVersion, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256,
-		Outcome: "failed", Actor: "actual-executor", ObservedAt: "2026-08-05T04:12:00Z", Reason: "bounded failure",
+		Capability: job.Capability, Outcome: "failed", Actor: "actual-executor", ObservedAt: "2026-08-05T04:12:00Z", Reason: "bounded failure",
 		AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
 		DispatchClaimSHA256: dispatch.ClaimSHA256, LaunchReceiptSHA256: dispatch.LaunchSHA256,
 		Harness: "actual-harness", Session: "actual-session", NoAuthorityOrConfirmed: true, NoHeavyTool: true,
@@ -520,7 +577,7 @@ func TestDispatchedRelayReplayRejectsLaunchInputDrift(t *testing.T) {
 	}
 	writeTestJSON(t, job.CaseRoot, attempt.Current.SubmissionPath, Submission{
 		SchemaVersion: SchemaVersion, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256,
-		Outcome: "failed", Actor: "actual-executor", ObservedAt: "2026-08-05T04:20:02Z", Reason: "bounded failure",
+		Capability: job.Capability, Outcome: "failed", Actor: "actual-executor", ObservedAt: "2026-08-05T04:20:02Z", Reason: "bounded failure",
 		AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
 		DispatchClaimSHA256: dispatch.ClaimSHA256, LaunchReceiptSHA256: dispatch.LaunchSHA256,
 		Harness: "actual-harness", Session: "actual-session", NoAuthorityOrConfirmed: true, NoHeavyTool: true,
@@ -601,7 +658,7 @@ func bindDispatchTestPlan(t *testing.T, plan AttemptPlan) AttemptPlan {
 		templates = append(templates, DispatchSubmissionTemplate{Outcome: outcome, JSON: "{\"outcome\":\"" + outcome + "\"}\n", RequiredWrites: []string{plan.Attempt.SubmissionPath + " (last)"}})
 	}
 	bound, err := BindAttemptDispatch(plan, DispatchTicket{
-		Launch:               DispatchLaunch{Ready: true, Tool: "Claude Code session", AgentType: "durable-member-executor", Input: DispatchInput{Path: ".rekit/member/handoff.json", SHA256: hash([]byte("dispatch test handoff\n")), Role: "durable-member-handoff"}, ExpectedOutput: "bounded result", Boundary: []string{"claim first"}},
+		Launch:               DispatchLaunch{Ready: true, Tool: "Claude Code session", AgentType: "durable-member-executor", Capability: plan.Job.Capability, Input: DispatchInput{Path: ".rekit/member/handoff.json", SHA256: hash([]byte("dispatch test handoff\n")), Role: "durable-member-handoff"}, ExpectedOutput: "bounded result", Boundary: []string{"claim first"}},
 		Return:               DispatchReturn{SubmissionPath: plan.Attempt.SubmissionPath, SubmissionOutputs: plan.Attempt.SubmissionOutputs, SubmissionLast: true, Templates: templates, Boundary: []string{"submission last"}},
 		RefreshStatusCommand: "/rekit status", Boundary: []string{"no heavy tool"},
 	})

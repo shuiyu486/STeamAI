@@ -247,7 +247,7 @@ func TestExternalSessionAttemptRejectsTamperAndSubmissionBeforeStart(t *testing.
 	if _, err := ApplyAttempt(plan, plan.JobSHA256, plan.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	writeTestJSON(t, caseRoot, plan.Attempt.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256, Outcome: "failed", Actor: "harness", ReviewerExitStatus: "failed", AttemptID: plan.Attempt.AttemptID, AttemptSHA256: hash(plan.data), Harness: plan.Attempt.Harness, Session: plan.Attempt.Session, NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	writeTestJSON(t, caseRoot, plan.Attempt.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256, Capability: job.Capability, Outcome: "failed", Actor: "harness", ReviewerExitStatus: "failed", AttemptID: plan.Attempt.AttemptID, AttemptSHA256: hash(plan.data), Harness: plan.Attempt.Harness, Session: plan.Attempt.Session, NoAuthorityOrConfirmed: true, NoHeavyTool: true})
 	if _, err := PreviewAttempt(job, "replacement", "session-2", "actor", "2026-08-05T03:01:00Z", hash(plan.data)); err == nil || !strings.Contains(err.Error(), "submission") {
 		t.Fatalf("replacement after current submission error=%v", err)
 	}

@@ -16,9 +16,11 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
@@ -313,12 +315,24 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 	writes = append(writes, receiptWrite)
 
 	applyArgs := []string{"-Command", Command, "-Target", caseRoot, "-Pack", pack, "-ExpectedMigrationPlanSha256", planSHA, "-Apply", "-Format", "json"}
+	action, err := commands.ExactActionFromCLIArgs(applyArgs)
+	if err != nil {
+		return Plan{}, fmt.Errorf("build migrate-state exact Apply action: %w", err)
+	}
+	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	if err != nil {
+		return Plan{}, err
+	}
+	applyCommand, err := action.RenderForEntrypoint(entrypoint)
+	if err != nil {
+		return Plan{}, err
+	}
 	return Plan{
 		SchemaVersion: SchemaVersion, Kind: PlanKind, Command: Command, Status: "ready-to-migrate", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ProjectName: projectName,
 		SourceStateRoot: ".rekit", TargetStateRoot: ".steamai", CaseRootIdentity: caseIdentity, SourceRootIdentity: sourceIdentity,
 		LegacyInventory: inventory, PlannedInventory: plannedInventory, LegacyInstance: legacyInstanceBinding, LegacyState: legacyStateBinding,
 		LegacyMetadata: legacyMetadataBinding, LegacySkill: legacySkillBinding, CurrentInstance: currentInstanceBinding, CurrentState: currentStateBinding,
-		CurrentSkill: currentSkillBinding, BundleManifest: bundleBinding, Writes: writes, ExpectedPlanSHA256: planSHA, ApplyArgs: applyArgs,
+		CurrentSkill: currentSkillBinding, BundleManifest: bundleBinding, Writes: writes, ExpectedPlanSHA256: planSHA, ApplyCommand: applyCommand, ApplyArgs: applyArgs,
 		RequiresReview: true, RequiresConfirmation: true,
 		BlockedActions: []string{"dual-root merge", "authority/confirmed writes", "gate or autonomy expansion", "sync/promote", "heavy-tool execution"},
 		NextSteps:      []string{"review the complete legacy inventory and planned publications", "run the exact ApplyArgs with the expected migration plan SHA-256"},

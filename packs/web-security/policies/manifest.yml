@@ -1,7 +1,7 @@
 schemaVersion: 1
 name: web-security-policy-overlays
 version: 0.1.0
-description: Empty policy overlay registry for the web-security pack skeleton
+description: Empty policy overlay registry for the mature web-security pack
 
 overlays: []
 

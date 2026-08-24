@@ -28,10 +28,47 @@ func run(args []string) int {
 	}
 	process, err := validateInvocationExecutable(mode, modeArgs)
 	if err != nil {
+		if mode == "public" {
+			return cli.RenderPublicFailure(
+				modeArgs,
+				err,
+				cli.PublicFailureSourceExecutable,
+				os.Stdout,
+				os.Stderr,
+			)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	switch mode {
+	case "public":
+		var runErr error
+		switch {
+		case process.recoveryOnly:
+			runErr = cli.RunPublicRecovery(
+				modeArgs,
+				os.Stdout,
+				process.projectRoot,
+			)
+		case process.projectRoot != "":
+			runErr = cli.RunPublic(
+				modeArgs,
+				os.Stdout,
+				process.projectRoot,
+			)
+		default:
+			runErr = cli.RunPublic(modeArgs, os.Stdout, "")
+		}
+		if runErr != nil {
+			return cli.RenderPublicFailure(
+				modeArgs,
+				runErr,
+				cli.PublicFailureSourceRuntime,
+				os.Stdout,
+				os.Stderr,
+			)
+		}
+		return 0
 	case "adapter":
 		handled, code := adapterhost.RunEmbeddedPrivate(modeArgs, os.Stdout, os.Stderr)
 		if !handled {
@@ -155,6 +192,8 @@ func validateInvocationExecutable(
 
 func invocationProjectLocalTarget(mode string, args []string) (string, error) {
 	switch mode {
+	case "public":
+		return cli.PublicInvocationTarget(args)
 	case "runtime":
 		opt, err := cli.Parse(args)
 		if err != nil {
@@ -175,6 +214,8 @@ func invocationProjectLocalTarget(mode string, args []string) (string, error) {
 
 func invocationRecoveryTarget(mode string, args []string) (string, error) {
 	switch mode {
+	case "public":
+		return cli.PublicInvocationTarget(args)
 	case "runtime":
 		opt, err := cli.Parse(args)
 		if err != nil {
@@ -249,10 +290,20 @@ func invocationMode(args []string) (string, []string, error) {
 	if adapterhost.IsEmbeddedPrivateInvocation(args) {
 		return "adapter", args, nil
 	}
-	if len(args) == 0 || strings.HasPrefix(strings.TrimSpace(args[0]), "-") {
+	if len(args) == 0 {
 		return "runtime", args, nil
 	}
-	mode := strings.ToLower(strings.TrimSpace(args[0]))
+	first := strings.ToLower(strings.TrimSpace(args[0]))
+	if cli.PublicInvocation(args) {
+		if first == "-h" || first == "--help" {
+			return "public", append([]string{"help"}, args[1:]...), nil
+		}
+		return "public", args, nil
+	}
+	if strings.HasPrefix(strings.TrimSpace(args[0]), "-") {
+		return "runtime", args, nil
+	}
+	mode := first
 	switch mode {
 	case "runtime", "host":
 		return mode, args[1:], nil

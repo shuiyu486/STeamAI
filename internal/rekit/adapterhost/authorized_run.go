@@ -19,10 +19,13 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/binaryinventory"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -30,6 +33,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/websecurity"
 )
 
 const (
@@ -48,17 +52,18 @@ const (
 )
 
 type VMPIDAIndexChildResult struct {
-	SchemaVersion     int               `json:"schemaVersion"`
-	Kind              string            `json:"kind"`
-	AdapterID         string            `json:"adapterId"`
-	RequestPath       string            `json:"requestPath"`
-	RequestSHA256     string            `json:"requestSha256"`
-	PacketSHA256      string            `json:"packetSha256"`
-	Packet            VMPIDAIndexPacket `json:"packet"`
-	ReadOnlyInput     bool              `json:"readOnlyInput"`
-	NoNetwork         bool              `json:"noNetwork"`
-	NoNetworkBoundary string            `json:"noNetworkBoundary"`
-	NoAuthority       bool              `json:"noAuthorityOrConfirmed"`
+	SchemaVersion       int                         `json:"schemaVersion"`
+	Kind                string                      `json:"kind"`
+	AdapterID           string                      `json:"adapterId"`
+	RequestPath         string                      `json:"requestPath"`
+	InstructionIdentity *instructionpacket.Identity `json:"instructionIdentity,omitempty"`
+	RequestSHA256       string                      `json:"requestSha256"`
+	PacketSHA256        string                      `json:"packetSha256"`
+	Packet              VMPIDAIndexPacket           `json:"packet"`
+	ReadOnlyInput       bool                        `json:"readOnlyInput"`
+	NoNetwork           bool                        `json:"noNetwork"`
+	NoNetworkBoundary   string                      `json:"noNetworkBoundary"`
+	NoAuthority         bool                        `json:"noAuthorityOrConfirmed"`
 }
 
 // RunVMPIDAIndexChild is the private compiled-in child entrypoint. It first
@@ -66,6 +71,9 @@ type VMPIDAIndexChildResult struct {
 // profile, then performs only the fixed literal index inspection. Catalog entry,
 // IDA, and network state remain unreachable here.
 func RunVMPIDAIndexChild(opt VMPIDAIndexChildOptions) (VMPIDAIndexChildResult, error) {
+	if err := validateAdapterInstructionBinding(opt.CaseRoot, opt.Pack, opt.InstructionIdentity); err != nil {
+		return VMPIDAIndexChildResult{}, err
+	}
 	caseRoot, requestPath, err := validateVMPIDAIndexChildBinding(opt)
 	if err != nil {
 		return VMPIDAIndexChildResult{}, err
@@ -75,17 +83,18 @@ func RunVMPIDAIndexChild(opt VMPIDAIndexChildOptions) (VMPIDAIndexChildResult, e
 		return VMPIDAIndexChildResult{}, err
 	}
 	return VMPIDAIndexChildResult{
-		SchemaVersion:     1,
-		Kind:              vmpIDAChildResultKind,
-		AdapterID:         VMPIDAIndexAdapterID,
-		RequestPath:       inspection.Packet.RequestPath,
-		RequestSHA256:     inspection.Packet.RequestSHA256,
-		PacketSHA256:      inspection.PacketSHA256,
-		Packet:            inspection.Packet,
-		ReadOnlyInput:     true,
-		NoNetwork:         true,
-		NoNetworkBoundary: fixedChildNoNetworkCodepath,
-		NoAuthority:       true,
+		SchemaVersion:       1,
+		Kind:                vmpIDAChildResultKind,
+		AdapterID:           VMPIDAIndexAdapterID,
+		RequestPath:         inspection.Packet.RequestPath,
+		InstructionIdentity: cloneAdapterInstructionIdentity(opt.InstructionIdentity),
+		RequestSHA256:       inspection.Packet.RequestSHA256,
+		PacketSHA256:        inspection.PacketSHA256,
+		Packet:              inspection.Packet,
+		ReadOnlyInput:       true,
+		NoNetwork:           true,
+		NoNetworkBoundary:   fixedChildNoNetworkCodepath,
+		NoAuthority:         true,
 	}, nil
 }
 
@@ -196,11 +205,20 @@ type AuthorizedRunOptions struct {
 	Pack                       string
 	GateEventID                string
 	ExecutionReportPath        string
+	AdapterID                  string
 	AdapterSession             string
 	Actor                      string
 	DeferSuccessfulTaskBinding bool
 	ExecutionControlBinding    *executioncontrol.Binding
+	InstructionIdentity        *instructionpacket.Identity
 	testHooks                  *hostTestHooks
+}
+
+func validateAuthorizedAdapterCapability(dispatch adapterexecution.DispatchReceipt) error {
+	if err := capabilitycontract.RequireBindingPolicy(dispatch.Capability, capabilitycontract.PolicyClassAuthorizedHeavy); err != nil {
+		return fmt.Errorf("authorized adapter capability contract is invalid: %w", err)
+	}
+	return nil
 }
 
 // RunAuthorizedGateProcess launches the exact adapter-host executable in its
@@ -209,6 +227,13 @@ type AuthorizedRunOptions struct {
 func RunAuthorizedGateProcess(adapterPath string, opt AuthorizedRunOptions, timeout time.Duration) (AuthorizedRunResult, int, error) {
 	if err := packidentity.Validate(opt.Pack); err != nil {
 		return AuthorizedRunResult{}, 0, err
+	}
+	if err := validateAdapterInstructionBinding(opt.CaseRoot, opt.Pack, opt.InstructionIdentity); err != nil {
+		return AuthorizedRunResult{}, 0, err
+	}
+	adapterID := strings.TrimSpace(opt.AdapterID)
+	if adapterID == "" {
+		adapterID = VMPIDAIndexAdapterID
 	}
 	binding, err := processguard.LockExecutable(strings.TrimSpace(adapterPath), 128<<20)
 	if err != nil {
@@ -225,6 +250,7 @@ func RunAuthorizedGateProcess(adapterPath string, opt AuthorizedRunOptions, time
 		"-pack", opt.Pack,
 		"-gate-event-id", opt.GateEventID,
 		"-execution-report-path", opt.ExecutionReportPath,
+		"-adapter-id", adapterID,
 		"-adapter-session", opt.AdapterSession,
 		"-actor", opt.Actor,
 	}
@@ -241,6 +267,13 @@ func RunAuthorizedGateProcess(adapterPath string, opt AuthorizedRunOptions, time
 		}
 		args = append(args, "-execution-control-binding-json", string(bindingData))
 	}
+	if opt.InstructionIdentity != nil {
+		identityData, err := json.Marshal(opt.InstructionIdentity)
+		if err != nil {
+			return AuthorizedRunResult{}, 0, err
+		}
+		args = append(args, "-instruction-identity-json", string(identityData))
+	}
 	stdout, _, processID, err := runContainedProcess(binding, args, nil, timeout)
 	if err != nil {
 		return AuthorizedRunResult{}, processID, err
@@ -250,11 +283,11 @@ func RunAuthorizedGateProcess(adapterPath string, opt AuthorizedRunOptions, time
 		return result, processID, err
 	}
 	if err := binding.Validate(); err != nil {
-		return result, processID, fmt.Errorf("authorized VMP IDA adapter executable changed during run: %w", err)
+		return result, processID, fmt.Errorf("authorized adapter executable changed during run: %w", err)
 	}
 	caseRoot, caseErr := filepath.Abs(strings.TrimSpace(opt.CaseRoot))
-	if caseErr != nil || !samePath(result.CaseRoot, caseRoot) || result.Pack != strings.TrimSpace(opt.Pack) || result.GateEventID != strings.TrimSpace(opt.GateEventID) || result.AdapterSession != strings.TrimSpace(opt.AdapterSession) || result.AdapterID != VMPIDAIndexAdapterID || !result.NoNetwork || result.NoNetworkBoundary != fixedChildNoNetworkCodepath || !result.NoAuthority {
-		return result, processID, fmt.Errorf("authorized VMP IDA adapter process returned inconsistent identity or boundary")
+	if caseErr != nil || !samePath(result.CaseRoot, caseRoot) || result.Pack != strings.TrimSpace(opt.Pack) || result.GateEventID != strings.TrimSpace(opt.GateEventID) || result.AdapterSession != strings.TrimSpace(opt.AdapterSession) || result.AdapterID != adapterID || result.NoNetwork != authorizedAdapterNoNetwork(adapterID) || result.NoNetworkBoundary != authorizedAdapterBoundary(adapterID) || !result.NoAuthority || !equalAdapterInstructionIdentity(result.InstructionIdentity, opt.InstructionIdentity) {
+		return result, processID, fmt.Errorf("authorized adapter process returned inconsistent identity or boundary")
 	}
 	return result, processID, nil
 }
@@ -274,36 +307,79 @@ func decodeAuthorizedRunProcessResult(data []byte) (AuthorizedRunResult, error) 
 }
 
 type AuthorizedRunResult struct {
-	SchemaVersion        int    `json:"schemaVersion"`
-	Kind                 string `json:"kind"`
-	CaseRoot             string `json:"caseRoot"`
-	Pack                 string `json:"pack"`
-	GateEventID          string `json:"gateEventId"`
-	AdapterID            string `json:"adapterId"`
-	AdapterSession       string `json:"adapterSession"`
-	DispatchPath         string `json:"dispatchPath"`
-	DispatchSHA256       string `json:"dispatchSha256"`
-	ReportPath           string `json:"reportPath"`
-	ReportSHA256         string `json:"reportSha256"`
-	PacketPath           string `json:"packetPath"`
-	PacketSHA256         string `json:"packetSha256"`
-	ReceiptPath          string `json:"receiptPath,omitempty"`
-	ReceiptSHA256        string `json:"receiptSha256,omitempty"`
-	ObservationEventID   string `json:"observationEventId,omitempty"`
-	TaskBindingPath      string `json:"taskBindingPath,omitempty"`
-	TaskBindingSHA256    string `json:"taskBindingSha256,omitempty"`
-	ProfilePath          string `json:"profilePath,omitempty"`
-	ProfileSHA256        string `json:"profileSha256,omitempty"`
-	ProfileRevoked       bool   `json:"profileRevoked"`
-	ProfileAlreadyManual bool   `json:"profileAlreadyManual,omitempty"`
-	ExecutionStatus      string `json:"executionStatus,omitempty"`
-	ExecutionExitStatus  string `json:"executionExitStatus,omitempty"`
-	ChildProcessID       int    `json:"childProcessId,omitempty"`
-	ChildLaunched        bool   `json:"childLaunched"`
-	Replay               bool   `json:"replay"`
-	NoNetwork            bool   `json:"noNetwork"`
-	NoNetworkBoundary    string `json:"noNetworkBoundary"`
-	NoAuthority          bool   `json:"noAuthorityOrConfirmed"`
+	SchemaVersion        int                         `json:"schemaVersion"`
+	Kind                 string                      `json:"kind"`
+	CaseRoot             string                      `json:"caseRoot"`
+	Pack                 string                      `json:"pack"`
+	GateEventID          string                      `json:"gateEventId"`
+	AdapterID            string                      `json:"adapterId"`
+	AdapterSession       string                      `json:"adapterSession"`
+	DispatchPath         string                      `json:"dispatchPath"`
+	DispatchSHA256       string                      `json:"dispatchSha256"`
+	ReportPath           string                      `json:"reportPath"`
+	ReportSHA256         string                      `json:"reportSha256"`
+	PacketPath           string                      `json:"packetPath"`
+	PacketSHA256         string                      `json:"packetSha256"`
+	ReceiptPath          string                      `json:"receiptPath,omitempty"`
+	ReceiptSHA256        string                      `json:"receiptSha256,omitempty"`
+	ObservationEventID   string                      `json:"observationEventId,omitempty"`
+	TaskBindingPath      string                      `json:"taskBindingPath,omitempty"`
+	TaskBindingSHA256    string                      `json:"taskBindingSha256,omitempty"`
+	ProfilePath          string                      `json:"profilePath,omitempty"`
+	ProfileSHA256        string                      `json:"profileSha256,omitempty"`
+	ProfileRevoked       bool                        `json:"profileRevoked"`
+	ProfileAlreadyManual bool                        `json:"profileAlreadyManual,omitempty"`
+	ExecutionStatus      string                      `json:"executionStatus,omitempty"`
+	ExecutionExitStatus  string                      `json:"executionExitStatus,omitempty"`
+	ChildProcessID       int                         `json:"childProcessId,omitempty"`
+	ChildLaunched        bool                        `json:"childLaunched"`
+	Replay               bool                        `json:"replay"`
+	NoNetwork            bool                        `json:"noNetwork"`
+	NoNetworkBoundary    string                      `json:"noNetworkBoundary"`
+	NoAuthority          bool                        `json:"noAuthorityOrConfirmed"`
+	InstructionIdentity  *instructionpacket.Identity `json:"instructionIdentity,omitempty"`
+}
+
+func authorizedAdapterPack(adapterID string) string {
+	switch adapterID {
+	case websecurity.InventoryAdapterID, websecurity.ReplayAdapterID:
+		return webSecurityPack
+	case VMPIDAIndexAdapterID, binaryinventory.AdapterID:
+		return defaults.DefaultPack
+	default:
+		return ""
+	}
+}
+
+func authorizedAdapterResultKind(adapterID string) string {
+	switch adapterID {
+	case binaryinventory.AdapterID:
+		return "binary-inventory-authorized-run"
+	case websecurity.InventoryAdapterID:
+		return "openapi-inventory-authorized-run"
+	case websecurity.ReplayAdapterID:
+		return "bounded-replay-authorized-run"
+	default:
+		return "vmp-ida-index-authorized-run"
+	}
+}
+
+func authorizedAdapterNoNetwork(adapterID string) bool {
+	return adapterID != websecurity.ReplayAdapterID
+}
+
+func authorizedAdapterBoundary(adapterID string) string {
+	if adapterID == websecurity.ReplayAdapterID {
+		return boundedReplayNetworkBoundary
+	}
+	return fixedChildNoNetworkCodepath
+}
+
+func authorizedAdapterArtifactPath(dispatch adapterexecution.DispatchReceipt) string {
+	if dispatch.Adapter.AdapterID == websecurity.InventoryAdapterID || dispatch.Adapter.AdapterID == websecurity.ReplayAdapterID {
+		return webSecurityArtifactPath(dispatch)
+	}
+	return binaryREAdapterArtifactPath(dispatch)
 }
 
 // RunAuthorizedGate owns the product lifecycle after a durable authorized gate
@@ -312,6 +388,9 @@ type AuthorizedRunResult struct {
 // preauthorized profile. It never creates a gate, executes a catalog entry, or
 // acknowledges the resulting evidence.
 func RunAuthorizedGate(opt AuthorizedRunOptions) (AuthorizedRunResult, error) {
+	if err := validateAdapterInstructionBinding(opt.CaseRoot, opt.Pack, opt.InstructionIdentity); err != nil {
+		return AuthorizedRunResult{}, err
+	}
 	result, err := runAuthorizedGateExecution(opt)
 	if err != nil {
 		return result, err
@@ -320,9 +399,9 @@ func RunAuthorizedGate(opt AuthorizedRunOptions) (AuthorizedRunResult, error) {
 		(result.ExecutionStatus == "succeeded" && !opt.DeferSuccessfulTaskBinding && result.TaskBindingSHA256 == "") ||
 		(result.ExecutionStatus == "succeeded" && opt.DeferSuccessfulTaskBinding && result.TaskBindingSHA256 != "") ||
 		((result.ExecutionStatus == "failed" || result.ExecutionStatus == "aborted") && result.TaskBindingSHA256 != "") {
-		return result, fmt.Errorf("authorized VMP IDA run cannot revoke profile before terminal observation and status-appropriate member evidence binding")
+		return result, fmt.Errorf("authorized adapter run cannot revoke profile before terminal observation and status-appropriate member evidence binding")
 	}
-	dispatch, _, _, present, err := readVMPIDADispatchArtifact(result.CaseRoot, authorizedGateLane(opt.RepoRoot, result.CaseRoot, result.Pack, result.GateEventID), result.GateEventID)
+	dispatch, _, _, present, err := readBinaryREDispatchArtifact(result.CaseRoot, authorizedGateLane(opt.RepoRoot, result.CaseRoot, result.Pack, result.GateEventID), result.GateEventID, result.AdapterID)
 	if err != nil || !present {
 		return result, fmt.Errorf("read VMP IDA dispatch before profile revoke: %w", err)
 	}
@@ -373,22 +452,31 @@ func RunAuthorizedGate(opt AuthorizedRunOptions) (AuthorizedRunResult, error) {
 }
 
 func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, error) {
+	adapterID := strings.TrimSpace(opt.AdapterID)
+	if adapterID == "" {
+		adapterID = VMPIDAIndexAdapterID
+	}
 	result := AuthorizedRunResult{
 		SchemaVersion:     1,
-		Kind:              "vmp-ida-index-authorized-run",
+		Kind:              authorizedAdapterResultKind(adapterID),
 		Pack:              strings.TrimSpace(opt.Pack),
 		GateEventID:       strings.TrimSpace(opt.GateEventID),
-		AdapterID:         VMPIDAIndexAdapterID,
+		AdapterID:         adapterID,
 		AdapterSession:    strings.TrimSpace(opt.AdapterSession),
-		NoNetwork:         true,
-		NoNetworkBoundary: fixedChildNoNetworkCodepath,
+		NoNetwork:         authorizedAdapterNoNetwork(adapterID),
+		NoNetworkBoundary: authorizedAdapterBoundary(adapterID),
 		NoAuthority:       true,
 	}
 	if err := packidentity.Validate(result.Pack); err != nil {
 		return result, err
 	}
-	if result.Pack != defaults.DefaultPack || result.GateEventID == "" || result.AdapterSession == "" || strings.TrimSpace(opt.Actor) == "" {
-		return result, fmt.Errorf("authorized VMP IDA run requires pack=%s, gate event id, adapter session, and actor", defaults.DefaultPack)
+	if err := validateAdapterInstructionBinding(opt.CaseRoot, result.Pack, opt.InstructionIdentity); err != nil {
+		return result, err
+	}
+	result.InstructionIdentity = cloneAdapterInstructionIdentity(opt.InstructionIdentity)
+	expectedPack := authorizedAdapterPack(result.AdapterID)
+	if expectedPack == "" || result.Pack != expectedPack || result.GateEventID == "" || result.AdapterSession == "" || strings.TrimSpace(opt.Actor) == "" {
+		return result, fmt.Errorf("authorized adapter run requires its exact pack, a compiled-in adapter id, gate event id, adapter session, and actor")
 	}
 	caseRoot, err := filepath.Abs(strings.TrimSpace(opt.CaseRoot))
 	if err != nil {
@@ -403,56 +491,82 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		return result, err
 	}
 	lane := authorizedGateLane(repoRoot, caseRoot, result.Pack, result.GateEventID)
-	owner, err := laneowner.Read(caseRoot, lane)
-	if err != nil {
-		return result, err
+	if lane == "" {
+		return result, fmt.Errorf("authorized binary-re gate lane is missing")
 	}
 	reportPath := cleanCaseRelative(opt.ExecutionReportPath)
 	if reportPath == "" {
 		return result, fmt.Errorf("authorized VMP IDA run requires a case-relative execution report path")
 	}
 
-	dispatch, dispatchPath, dispatchSHA, dispatchPresent, err := readVMPIDADispatchArtifact(caseRoot, lane, result.GateEventID)
+	dispatch, dispatchPath, dispatchSHA, dispatchPresent, err := readBinaryREDispatchArtifact(caseRoot, lane, result.GateEventID, result.AdapterID)
 	if err != nil {
 		return result, err
 	}
 	if dispatchPresent {
-		if dispatch.ReportPath != reportPath || dispatch.Owner.AdapterSession != result.AdapterSession {
+		if dispatch.ReportPath != reportPath || dispatch.Owner.AdapterSession != result.AdapterSession || dispatch.Adapter.AdapterID != result.AdapterID {
 			return result, fmt.Errorf("authorized VMP IDA run does not match the immutable existing dispatch")
 		}
 		result.DispatchPath, result.DispatchSHA256 = dispatchPath, dispatchSHA
 		result.ReportPath = dispatch.ReportPath
-		result.PacketPath = filepath.ToSlash(filepath.Join(filepath.Dir(dispatch.ReportPath), vmpIDAIndexPacketFileName))
-		report, reportData, packetData, terminal, terminalErr := readTerminalVMPReport(caseRoot, dispatch, dispatchPath, dispatchSHA, result.PacketPath)
-		if terminalErr != nil {
-			return result, terminalErr
-		}
-		if terminal {
-			result.Replay = true
-			result.ExecutionStatus = report.Status
-			result.ExecutionExitStatus, err = terminalVMPExecutionExitStatus(report)
-			if err != nil {
-				return result, err
+		result.PacketPath = authorizedAdapterArtifactPath(dispatch)
+		if result.AdapterID == websecurity.InventoryAdapterID || result.AdapterID == websecurity.ReplayAdapterID {
+			report, reportData, artifactData, terminal, terminalErr := readTerminalWebSecurityReport(caseRoot, dispatch, dispatchPath, dispatchSHA, result.PacketPath)
+			if terminalErr != nil {
+				return result, terminalErr
 			}
-			result.ReportSHA256 = sha256Hex(reportData)
-			if len(packetData) > 0 {
-				result.PacketSHA256 = sha256Hex(packetData)
-			} else {
-				result.PacketPath = ""
+			if terminal {
+				result.Replay = true
+				result.ExecutionStatus = report.Status
+				result.ReportSHA256 = sha256Hex(reportData)
+				if len(artifactData) > 0 {
+					result.PacketSHA256 = sha256Hex(artifactData)
+					result.ExecutionExitStatus, err = webSecurityExitStatus(result.AdapterID, artifactData, report)
+				} else {
+					result.PacketPath = ""
+					result.ExecutionExitStatus, _, err = terminalWebSecurityFailureBinding(report)
+				}
+				if err != nil {
+					return result, err
+				}
+				return completeWebSecurityEvidenceLifecycle(opt, result, lane, dispatch, dispatchPath, dispatchSHA)
 			}
-			return completeVMPIDAEvidenceLifecycle(
-				opt,
-				result,
-				lane,
-				dispatch,
-				dispatchPath,
-				dispatchSHA,
-			)
+		} else {
+			report, reportData, packetData, terminal, terminalErr := readTerminalBinaryREReport(caseRoot, dispatch, dispatchPath, dispatchSHA, result.PacketPath)
+			if terminalErr != nil {
+				return result, terminalErr
+			}
+			if terminal {
+				result.Replay = true
+				result.ExecutionStatus = report.Status
+				if result.AdapterID == binaryinventory.AdapterID {
+					result.ExecutionExitStatus, err = terminalBinaryInventoryExecutionExitStatus(report)
+				} else {
+					result.ExecutionExitStatus, err = terminalVMPExecutionExitStatus(report)
+				}
+				if err != nil {
+					return result, err
+				}
+				result.ReportSHA256 = sha256Hex(reportData)
+				if len(packetData) > 0 {
+					result.PacketSHA256 = sha256Hex(packetData)
+				} else {
+					result.PacketPath = ""
+				}
+				if result.AdapterID == binaryinventory.AdapterID {
+					return completeBinaryInventoryEvidenceLifecycle(opt, result, lane, dispatch, dispatchPath, dispatchSHA)
+				}
+				return completeVMPIDAEvidenceLifecycle(opt, result, lane, dispatch, dispatchPath, dispatchSHA)
+			}
 		}
 	} else {
+		owner, ownerErr := laneowner.Read(caseRoot, lane)
+		if ownerErr != nil {
+			return result, ownerErr
+		}
 		dispatchOpt := gate.Options{
 			GateEventID: result.GateEventID, ExecutionReportPath: reportPath,
-			AdapterID: VMPIDAIndexAdapterID, Executor: owner.CurrentExecutor,
+			AdapterID: result.AdapterID, Executor: owner.CurrentExecutor,
 			ExpectedExecutorGeneration: owner.ExecutorGeneration, AdapterHarness: adapterHarness,
 			AdapterSession: result.AdapterSession, Actor: strings.TrimSpace(opt.Actor),
 		}
@@ -470,16 +584,39 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		}
 		result.DispatchPath, result.DispatchSHA256 = dispatchPath, dispatchSHA
 		result.ReportPath = dispatch.ReportPath
-		result.PacketPath = filepath.ToSlash(filepath.Join(filepath.Dir(dispatch.ReportPath), vmpIDAIndexPacketFileName))
+		result.PacketPath = authorizedAdapterArtifactPath(dispatch)
 	}
 
-	hostResult, recovered, err := recoverVMPIDAInterruptedAttempt(
-		caseRoot,
-		result.Pack,
-		dispatch,
-		dispatchPath,
-		dispatchSHA,
-	)
+	hostResult := Result{}
+	recovered := false
+	switch result.AdapterID {
+	case VMPIDAIndexAdapterID:
+		hostResult, recovered, err = recoverVMPIDAInterruptedAttempt(
+			caseRoot,
+			result.Pack,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+		)
+	case binaryinventory.AdapterID:
+		hostResult, recovered, err = recoverBinaryInventoryInterruptedAttempt(
+			opt,
+			caseRoot,
+			result.Pack,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+		)
+	case websecurity.InventoryAdapterID, websecurity.ReplayAdapterID:
+		hostResult, recovered, err = recoverWebSecurityInterruptedAttempt(
+			opt,
+			caseRoot,
+			result.Pack,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+		)
+	}
 	if err != nil {
 		return result, err
 	}
@@ -488,6 +625,7 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: result.Pack,
 			GateEventID: result.GateEventID, ExpectedDispatchSHA256: dispatchSHA,
 			ExecutionControlBinding: executioncontrol.CloneBinding(opt.ExecutionControlBinding),
+			InstructionIdentity:     cloneAdapterInstructionIdentity(opt.InstructionIdentity),
 			testHooks:               opt.testHooks,
 		})
 		if err != nil {
@@ -501,20 +639,26 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 	result.ExecutionExitStatus = hostResult.ExecutionExitStatus
 	result.ReportPath, result.ReportSHA256 = hostResult.ReportPath, hostResult.ReportSHA256
 	result.PacketPath, result.PacketSHA256 = hostResult.ArtifactPath, hostResult.ArtifactSHA256
-	if opt.testHooks != nil && opt.testHooks.afterVMPOutputsPublished != nil {
-		if err := opt.testHooks.afterVMPOutputsPublished(); err != nil {
-			return result, err
+	if opt.testHooks != nil {
+		if (result.AdapterID == websecurity.InventoryAdapterID || result.AdapterID == websecurity.ReplayAdapterID) && opt.testHooks.afterWebSecurityOutputsPublished != nil {
+			if err := opt.testHooks.afterWebSecurityOutputsPublished(); err != nil {
+				return result, err
+			}
+		} else if result.AdapterID != websecurity.InventoryAdapterID && result.AdapterID != websecurity.ReplayAdapterID && opt.testHooks.afterVMPOutputsPublished != nil {
+			if err := opt.testHooks.afterVMPOutputsPublished(); err != nil {
+				return result, err
+			}
 		}
 	}
 
-	return completeVMPIDAEvidenceLifecycle(
-		opt,
-		result,
-		lane,
-		dispatch,
-		dispatchPath,
-		dispatchSHA,
-	)
+	switch result.AdapterID {
+	case binaryinventory.AdapterID:
+		return completeBinaryInventoryEvidenceLifecycle(opt, result, lane, dispatch, dispatchPath, dispatchSHA)
+	case websecurity.InventoryAdapterID, websecurity.ReplayAdapterID:
+		return completeWebSecurityEvidenceLifecycle(opt, result, lane, dispatch, dispatchPath, dispatchSHA)
+	default:
+		return completeVMPIDAEvidenceLifecycle(opt, result, lane, dispatch, dispatchPath, dispatchSHA)
+	}
 }
 
 const vmpIDAFailureExitStatusPrefix = "vmp-ida-exit-status:"
@@ -858,17 +1002,18 @@ func completeVMPIDAEvidenceLifecycle(
 	return result, nil
 }
 
-func readVMPIDADispatchArtifact(caseRoot, lane, gateEventID string) (adapterexecution.DispatchReceipt, string, string, bool, error) {
+func readBinaryREDispatchArtifact(caseRoot, lane, gateEventID, adapterID string) (adapterexecution.DispatchReceipt, string, string, bool, error) {
 	lane = strings.TrimSpace(lane)
 	gateEventID = strings.TrimSpace(gateEventID)
-	if lane == "" || gateEventID == "" {
+	adapterID = strings.TrimSpace(adapterID)
+	if lane == "" || gateEventID == "" || adapterID == "" {
 		return adapterexecution.DispatchReceipt{}, "", "", false, nil
 	}
 	rel, err := projectstate.Rel(caseRoot, "lanes", lane, "adapter-executions", gateEventID, "dispatch.json")
 	if err != nil {
 		return adapterexecution.DispatchReceipt{}, "", "", false, err
 	}
-	data, err := readVMPIDAFile(caseRoot, rel, "VMP IDA immutable dispatch", 1<<20)
+	data, err := readVMPIDAFile(caseRoot, rel, "authorized adapter immutable dispatch", 1<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return adapterexecution.DispatchReceipt{}, rel, "", false, nil
 	}
@@ -882,8 +1027,9 @@ func readVMPIDADispatchArtifact(caseRoot, lane, gateEventID string) (adapterexec
 	if err := packidentity.Validate(dispatch.Adapter.Pack); err != nil {
 		return dispatch, rel, sha256Hex(data), true, err
 	}
-	if dispatch.Gate.GateEventID != gateEventID || dispatch.Owner.Lane != lane || dispatch.Adapter.Pack != defaults.DefaultPack || dispatch.Adapter.AdapterID != VMPIDAIndexAdapterID {
-		return dispatch, rel, sha256Hex(data), true, fmt.Errorf("VMP IDA immutable dispatch identity is invalid")
+	if dispatch.Gate.GateEventID != gateEventID || dispatch.Owner.Lane != lane ||
+		dispatch.Adapter.Pack != authorizedAdapterPack(adapterID) || dispatch.Adapter.AdapterID != adapterID {
+		return dispatch, rel, sha256Hex(data), true, fmt.Errorf("authorized adapter immutable dispatch identity is invalid")
 	}
 	return dispatch, rel, sha256Hex(data), true, nil
 }
@@ -1054,6 +1200,82 @@ func authorizedGateLane(_, caseRoot, _, gateEventID string) string {
 		}
 	}
 	return ""
+}
+
+func recoverBinaryInventoryInterruptedAttempt(
+	opt AuthorizedRunOptions,
+	caseRoot,
+	pack string,
+	dispatch adapterexecution.DispatchReceipt,
+	dispatchPath,
+	dispatchSHA string,
+) (Result, bool, error) {
+	result := Result{
+		SchemaVersion:     1,
+		Kind:              "rekit-readonly-adapter-host-result",
+		CaseRoot:          caseRoot,
+		Pack:              pack,
+		GateEventID:       dispatch.Gate.GateEventID,
+		Lane:              dispatch.Owner.Lane,
+		Executor:          dispatch.Owner.CurrentExecutor,
+		Generation:        dispatch.Owner.ExecutorGeneration,
+		AdapterID:         binaryinventory.AdapterID,
+		AdapterHarness:    dispatch.Owner.AdapterHarness,
+		AdapterSession:    dispatch.Owner.AdapterSession,
+		DispatchPath:      dispatchPath,
+		DispatchSHA256:    dispatchSHA,
+		InputPath:         cleanCaseRelative(dispatch.Gate.Target),
+		ReportPath:        cleanCaseRelative(dispatch.ReportPath),
+		ArtifactPath:      binaryREAdapterArtifactPath(dispatch),
+		ReadOnlyInput:     true,
+		NoNetwork:         true,
+		NoNetworkBoundary: fixedChildNoNetworkCodepath,
+		NoAuthority:       true,
+	}
+	if _, err := readVMPIDAFile(
+		caseRoot,
+		binaryInventoryChildLaunchPath(result.ReportPath),
+		"binary inventory prior child launch proof",
+		64<<10,
+	); errors.Is(err, os.ErrNotExist) {
+		return Result{}, false, nil
+	} else if err != nil {
+		return result, false, err
+	}
+	if _, reportErr := readVMPIDAFile(
+		caseRoot,
+		result.ReportPath,
+		"binary inventory terminal report",
+		binaryinventory.MaxOutputBytes,
+	); reportErr == nil {
+		return Result{}, false, nil
+	} else if !errors.Is(reportErr, os.ErrNotExist) {
+		return result, false, reportErr
+	}
+	executablePath, err := os.Executable()
+	if err != nil {
+		return result, false, err
+	}
+	executableData, err := readStableExecutable(executablePath)
+	if err != nil {
+		return result, false, err
+	}
+	result.ExecutableSHA256 = sha256Hex(executableData)
+	result, err = runBinaryInventoryExistingDispatch(
+		Options{
+			RepoRoot: opt.RepoRoot, CaseRoot: caseRoot, Pack: pack,
+			GateEventID: dispatch.Gate.GateEventID, ExpectedDispatchSHA256: dispatchSHA,
+			ExecutionControlBinding: executioncontrol.CloneBinding(opt.ExecutionControlBinding),
+			InstructionIdentity:     cloneAdapterInstructionIdentity(opt.InstructionIdentity),
+			testHooks:               opt.testHooks,
+		},
+		result,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+		time.Now(),
+	)
+	return result, true, err
 }
 
 func recoverVMPIDAInterruptedAttempt(
@@ -1612,7 +1834,7 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 			launchSHA,
 		)
 	}
-	child, err := decodeVMPIDAChildResult(stdout, result.InputPath)
+	child, err := decodeVMPIDAChildResult(stdout, result.InputPath, opt.InstructionIdentity)
 	if err != nil {
 		if childPID <= 0 {
 			return result, err
@@ -2056,6 +2278,7 @@ func runVMPIDAChild(
 		Executor:                   dispatch.Owner.CurrentExecutor,
 		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		RequestPath:                requestPath,
+		InstructionIdentity:        cloneAdapterInstructionIdentity(opt.InstructionIdentity),
 	}
 	if opt.testHooks != nil && opt.testHooks.runVMPIDAChild != nil {
 		stdout, childPID, err := opt.testHooks.runVMPIDAChild(childOpt)
@@ -2093,6 +2316,10 @@ func runVMPIDAChild(
 		),
 		"-child-request-path", childOpt.RequestPath,
 	}
+	args, err = appendAdapterInstructionIdentityArg(args, childOpt.InstructionIdentity)
+	if err != nil {
+		return nil, 0, err
+	}
 	stdout, _, childPID, err := runContainedProcessObserved(
 		binding,
 		args,
@@ -2120,7 +2347,7 @@ func fixedChildEnvironment() []string {
 
 var errVMPIDAChildInvalidPacket = errors.New("VMP IDA child returned an invalid packet binding")
 
-func decodeVMPIDAChildResult(data []byte, requestPath string) (VMPIDAIndexChildResult, error) {
+func decodeVMPIDAChildResult(data []byte, requestPath string, expectedInstructionIdentity *instructionpacket.Identity) (VMPIDAIndexChildResult, error) {
 	var result VMPIDAIndexChildResult
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -2136,6 +2363,9 @@ func decodeVMPIDAChildResult(data []byte, requestPath string) (VMPIDAIndexChildR
 		!result.ReadOnlyInput || !result.NoNetwork ||
 		result.NoNetworkBoundary != fixedChildNoNetworkCodepath || !result.NoAuthority {
 		return result, fmt.Errorf("VMP IDA child returned an invalid strict result envelope")
+	}
+	if err := validateAdapterChildInstructionIdentity(expectedInstructionIdentity, result.InstructionIdentity); err != nil {
+		return result, err
 	}
 	packetData, err := canonicalJSON(result.Packet)
 	if err != nil || result.Packet.SchemaVersion != vmpIDAIndexPacketSchemaVersion ||

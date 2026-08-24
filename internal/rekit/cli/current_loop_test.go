@@ -992,6 +992,30 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if transportEndpoint == nil || transportEndpoint.Mode != "remote-control-endpoint" || transportEndpoint.Transport == nil || transportEndpoint.Transport.Endpoint == nil || endpointPreview.ExpectedCurrentStepPlanSHA256 == "" || transportEndpoint.Transport.ExpectedPlanSHA256 == "" || transportEndpoint.Transport.Endpoint.DiscoveryTool != "ListAgents" || transportEndpoint.Transport.Endpoint.Envelope.Operation != "SendMessage" || transportEndpoint.Transport.Endpoint.Envelope.Recipient != "reviewer [opaque-ref]" || !transportEndpoint.Transport.Endpoint.Envelope.NoFileTransfer || transportEndpoint.Transport.BundlePath == "" || transportEndpoint.Transport.BundleSHA256 == "" || transportEndpoint.Transport.BundleBytes == 0 || !transportEndpoint.Transport.Endpoint.NoSessionManagement || !transportEndpoint.Transport.Endpoint.NoAutomaticRetry || !transportEndpoint.Transport.Endpoint.NoHeavyTool || !transportEndpoint.Transport.Endpoint.NoAuthority || !transportEndpoint.Transport.Endpoint.NoConfirmed || strings.Contains(strings.ToLower(transportEndpoint.Transport.Endpoint.Envelope.Message), strings.ToLower(caseRoot)) {
 		t.Fatalf("Remote Control endpoint preview omitted self-contained transport closure: %+v", endpointPreview)
 	}
+	message := transportEndpoint.Transport.Endpoint.Envelope.Message
+	const bundleStart = "--- BEGIN COMMITTED EVIDENCE BUNDLE ---\n"
+	const bundleEnd = "\n--- END COMMITTED EVIDENCE BUNDLE ---"
+	start := strings.Index(message, bundleStart)
+	end := strings.Index(message, bundleEnd)
+	if start < 0 || end <= start {
+		t.Fatalf("Remote Control endpoint message omitted inline evidence bundle")
+	}
+	var transportBundle externalsession.TransportEvidenceBundle
+	if err := json.Unmarshal([]byte(message[start+len(bundleStart):end]), &transportBundle); err != nil {
+		t.Fatalf("Remote Control endpoint bundle did not decode: %v", err)
+	}
+	promptSource, err := os.ReadFile(handoff.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transportBundle.Prompt.SourceSHA256 != statusSHA256Hex(promptSource) || transportBundle.Prompt.SourceBytes != len(promptSource) ||
+		transportBundle.Prompt.TransportedSHA256 != statusSHA256Hex([]byte(transportBundle.Prompt.Content)) || transportBundle.Prompt.TransportedBytes != len(transportBundle.Prompt.Content) ||
+		transportBundle.Prompt.SourceSHA256 == transportBundle.Prompt.TransportedSHA256 || transportBundle.Prompt.SourceBytes <= transportBundle.Prompt.TransportedBytes ||
+		!strings.Contains(transportBundle.Prompt.Content, "Read-only Reviewer for a committed plan-subagents evidence closure") ||
+		!strings.Contains(transportBundle.Prompt.Content, "member-task-context") || !strings.Contains(transportBundle.Prompt.Content, "recommendedVerdict=rejected") ||
+		transportEndpoint.Transport.BundleBytes > 56*1024 || transportEndpoint.Transport.Endpoint.Envelope.MessageBytes > 64*1024 {
+		t.Fatalf("Remote Control canonical prompt transport identity or budget drifted: prompt=%+v bundle=%d message=%d", transportBundle.Prompt, transportEndpoint.Transport.BundleBytes, transportEndpoint.Transport.Endpoint.Envelope.MessageBytes)
+	}
 	for _, rel := range []string{transportEndpoint.Transport.BundlePath, transportEndpoint.Transport.ArtifactPath} {
 		assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
 	}
@@ -1860,6 +1884,56 @@ func runCurrentLoopPreview(t *testing.T, caseRoot string, maxSteps int) currentL
 	return runCurrentLoopPreviewWith(t, caseRoot, maxSteps)
 }
 
+func setCurrentLoopLaneOwner(t *testing.T, caseRoot, laneID, executor string, generation int, updatedAt string) {
+	t.Helper()
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range board.Lanes {
+		if board.Lanes[index].ID != laneID {
+			continue
+		}
+		board.Lanes[index].CurrentExecutor = executor
+		board.Lanes[index].ExecutorGeneration = generation
+		board.Lanes[index].UpdatedAt = updatedAt
+		break
+	}
+	boardData, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	boardPath, err := projectstate.Join(caseRoot, "board.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(boardPath, append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lanePath, err := projectstate.Join(caseRoot, "lanes", laneID, "lane.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneData, err := os.ReadFile(lanePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lane workstream.Lane
+	if err := json.Unmarshal(laneData, &lane); err != nil {
+		t.Fatal(err)
+	}
+	lane.CurrentExecutor = executor
+	lane.ExecutorGeneration = generation
+	lane.UpdatedAt = updatedAt
+	laneData, err = json.MarshalIndent(lane, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lanePath, append(laneData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runCurrentLoopPreviewWith(t *testing.T, caseRoot string, maxSteps int, inputs ...string) currentLoopTestPlan {
 	t.Helper()
 	args := []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", stringInt(maxSteps)}
@@ -2310,6 +2384,7 @@ func bindCurrentLoopExternalSubmissionAttempt(t *testing.T, job *mission.Current
 	if job == nil || job.CurrentAttempt == nil || job.AttemptState != "committed" || job.Dispatcher == nil || job.Dispatcher.State != "running" {
 		t.Fatalf("external session job has no accepted running launch: %+v", job)
 	}
+	submission["capability"] = job.Capability
 	submission["attemptId"] = job.CurrentAttempt.AttemptID
 	submission["attemptSha256"] = job.CurrentAttempt.AttemptSHA256
 	submission["harness"] = job.CurrentAttempt.Harness
@@ -2507,6 +2582,7 @@ func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	setCurrentLoopLaneOwner(t, caseRoot, "main", "turn-member", 1, "2026-08-05T01:00:00Z")
 	preview := runCurrentLoopPreview(t, caseRoot, 5)
 	memberPlan := preview.InitialCurrentStep.MemberExecution
 	dispatched := runCurrentLoopApplyWith(t, caseRoot, preview, "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
@@ -2790,6 +2866,7 @@ func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHuma
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	setCurrentLoopLaneOwner(t, caseRoot, "main", "turn-member", 1, "2026-08-05T01:05:00Z")
 	preview := runCurrentLoopPreview(t, caseRoot, 5)
 	dispatched := runCurrentLoopApplyWith(t, caseRoot, preview, "-ExpectedMemberExecutionPlanSha256", preview.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
 	if dispatched.SegmentCheckpoint == nil {
@@ -2887,6 +2964,7 @@ func TestRunCurrentLoopExternalSessionTurnRejectsStaleTurnHashBeforeRelay(t *tes
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	setCurrentLoopLaneOwner(t, caseRoot, "main", "turn-member", 1, "2026-08-05T01:10:00Z")
 	preview := runCurrentLoopPreview(t, caseRoot, 5)
 	dispatched := runCurrentLoopApplyWith(t, caseRoot, preview, "-ExpectedMemberExecutionPlanSha256", preview.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
 	if dispatched.SegmentCheckpoint == nil {
@@ -2961,6 +3039,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	setCurrentLoopLaneOwner(t, caseRoot, "main", "loop-member", 1, "2026-08-03T03:00:00Z")
 	preview := runCurrentLoopPreview(t, caseRoot, 5)
 	if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil || preview.ExpectedCurrentLoopPlanSHA256 == "" {
 		t.Fatalf("member loop did not bind external handoff: %+v", preview)

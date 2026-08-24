@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -146,9 +147,14 @@ func baseJob(caseRoot, pack, checkpointSHA256, sessionKind, identity string, all
 	if err != nil {
 		return Job{}, err
 	}
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		return Job{}, err
+	}
 	return Job{
 		SchemaVersion: SchemaVersion, Kind: KindJob, JobID: jobID, CaseRoot: caseRoot, Pack: strings.TrimSpace(pack),
 		CheckpointSHA256: strings.ToLower(checkpointSHA256), SessionKind: sessionKind, AllowedOutcomes: allowedOutcomes,
+		Capability:      capability,
 		SubmissionPath:  filepath.ToSlash(filepath.Join(filepath.FromSlash(base), "submission.json")),
 		PublicationPath: filepath.ToSlash(filepath.Join(filepath.FromSlash(relay), "publication.json")),
 		ObservationPath: observationPath,
@@ -156,7 +162,17 @@ func baseJob(caseRoot, pack, checkpointSHA256, sessionKind, identity string, all
 	}, nil
 }
 
+func validateJobCapability(job Job) error {
+	if err := capabilitycontract.RequireBindingPolicy(job.Capability, capabilitycontract.PolicyClassTransport); err != nil {
+		return fmt.Errorf("external session job capability contract is invalid: %w", err)
+	}
+	return nil
+}
+
 func Inspect(job Job) (Inspection, error) {
+	if err := validateJobCapability(job); err != nil {
+		return Inspection{}, err
+	}
 	jobBytes, err := canonical(job)
 	if err != nil {
 		return Inspection{}, err
@@ -201,6 +217,9 @@ func Inspect(job Job) (Inspection, error) {
 }
 
 func Preview(job Job) (Plan, error) {
+	if err := validateJobCapability(job); err != nil {
+		return Plan{}, err
+	}
 	jobBytes, err := canonical(job)
 	if err != nil {
 		return Plan{}, err
@@ -561,6 +580,12 @@ func decodeSubmission(data []byte) (Submission, error) {
 }
 
 func validateSubmission(job Job, jobSHA string, submission Submission) error {
+	if err := validateJobCapability(job); err != nil {
+		return err
+	}
+	if err := capabilitycontract.RequireBindingPolicy(submission.Capability, capabilitycontract.PolicyClassTransport); err != nil || submission.Capability != job.Capability {
+		return fmt.Errorf("external session submission capability contract does not match the exact job lineage")
+	}
 	if submission.SchemaVersion != SchemaVersion || submission.Kind != KindSubmission || submission.JobID != job.JobID || !strings.EqualFold(submission.JobSHA256, jobSHA) || !slices.Contains(job.AllowedOutcomes, submission.Outcome) {
 		return fmt.Errorf("external session submission does not match the current job and allowed outcomes")
 	}

@@ -16,12 +16,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casehealth"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
@@ -128,19 +130,42 @@ type Result struct {
 }
 
 func Preview(repoRoot string, opt Options) (Plan, error) {
+	if _, err := plancontract.ValidatePhase(
+		commands.Onboard,
+		"-ExpectedOnboardingPlanSha256",
+		true,
+		false,
+		opt.ExpectedOnboardingPlanSHA256,
+	); err != nil {
+		return Plan{}, err
+	}
 	return build(repoRoot, opt, false)
 }
 
 func Apply(repoRoot string, opt Options) (Result, error) {
-	if strings.TrimSpace(opt.PublicationStamp) == "" || strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) == "" {
-		return Result{}, fmt.Errorf("onboard -Apply requires -OnboardingPublicationStamp and -ExpectedOnboardingPlanSha256 from the exact preview")
+	expectedPlanSHA256, err := plancontract.RequireApplyBinding(
+		commands.Onboard,
+		"-ExpectedOnboardingPlanSha256",
+		opt.ExpectedOnboardingPlanSHA256,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+	opt.ExpectedOnboardingPlanSHA256 = expectedPlanSHA256
+	if strings.TrimSpace(opt.PublicationStamp) == "" {
+		return Result{}, fmt.Errorf("onboard -Apply requires -OnboardingPublicationStamp from the exact preview")
 	}
 	plan, err := build(repoRoot, opt, true)
 	if err != nil {
 		return Result{}, err
 	}
-	if !strings.EqualFold(opt.ExpectedOnboardingPlanSHA256, plan.OnboardingPlanSHA256) {
-		return Result{}, fmt.Errorf("onboarding plan hash mismatch: expected %s current %s", opt.ExpectedOnboardingPlanSHA256, plan.OnboardingPlanSHA256)
+	if _, err := plancontract.Match(
+		commands.Onboard,
+		"-ExpectedOnboardingPlanSha256",
+		opt.ExpectedOnboardingPlanSHA256,
+		plan.OnboardingPlanSHA256,
+	); err != nil {
+		return Result{}, err
 	}
 	if plan.ExclusivePlan.Command == attachedPlanCommand {
 		return applyAttachedAdoption(plan)

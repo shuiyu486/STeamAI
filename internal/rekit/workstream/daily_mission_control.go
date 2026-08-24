@@ -96,7 +96,7 @@ func dailyMissionControlRunbookForWithRefresh(caseRoot, scope string, queue miss
 		HandoffPreviewCommand: strings.TrimSpace(handoffPreviewCommand),
 		HandoffApplyCommand:   strings.TrimSpace(handoffApplyCommand),
 		Boundary: mission.UniqueStrings([]string{
-			"daily Mission Control runbook is read-only; it does not execute /rekit commands or spawn sessions",
+			"daily Mission Control runbook is read-only; it does not execute project-local commands or spawn sessions",
 			"only execute currentDriverRequest.command when commandExecutable=true",
 			"guidance-only driver requests require main-agent selection/review and must not be run as shell commands",
 			"after any preview/apply/continue/reconcile result, refresh status before choosing follow-up work",
@@ -117,9 +117,8 @@ func dailyMissionControlRunbookForWithRefresh(caseRoot, scope string, queue miss
 		runbook.CurrentRunLoopStepID = strings.TrimSpace(request.RunLoopStepID)
 		runbook.CurrentState = strings.TrimSpace(request.State)
 		runbook.CurrentSource = strings.TrimSpace(request.Source)
-		if strings.TrimSpace(request.Command) != "" {
-			runbook.CurrentCommand = strings.TrimSpace(request.Command)
-		}
+		runbook.CurrentCommand = strings.TrimSpace(request.Command)
+		runbook.RefreshStatusCommand = strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand)
 	}
 	runbook.RunLoop = dailyMissionControlRunLoop(runbook, handoffApplyReady)
 	runbook.HandoffPreviewDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "preview-handoff", runbook.HandoffPreviewCommand, false, true)
@@ -222,7 +221,7 @@ func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook, handoffAppl
 			Actor:    "main-agent",
 			State:    "no-current-driver-request",
 			Source:   "dailyMissionControlRunbook.noCurrentRequest",
-			Guidance: "choose /rekit start <name> -WhatIf or rerun status after initializing the case board",
+			Guidance: "choose a project-local start preview for an exact lane name, or rerun status after initializing the case board",
 			Boundary: []string{
 				"do not infer completion from an absent current driver request",
 				"use -WhatIf before any case-local mutation",

@@ -128,6 +128,7 @@ toolingFiles:
   - tooling/recipes/value-flow-mining.md
   - tooling/recipes/ida-x64dbg-mcp.md
   - tooling/recipes/ida-agent-bridge-readonly.md
+  - tooling/schemas/binary-inventory-v1.schema.json
   - tooling/scripts/README.md
   - tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
 

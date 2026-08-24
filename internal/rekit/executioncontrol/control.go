@@ -19,6 +19,7 @@ import (
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
@@ -165,6 +166,15 @@ func Preview(caseRoot string, opt Options) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	if _, err := plancontract.ValidatePhase(
+		commands.Control,
+		"-ExpectedControlPlanSha256",
+		true,
+		false,
+		opt.ExpectedPlanSHA256,
+	); err != nil {
+		return Plan{}, err
+	}
 	inspection, err := Inspect(caseRoot, opt.Lane)
 	if err != nil {
 		return Plan{}, err
@@ -184,9 +194,15 @@ func Apply(caseRoot string, opt Options) (result Plan, retErr error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if !validSHA256(opt.ExpectedPlanSHA256) {
-		return Plan{}, fmt.Errorf("control apply requires -ExpectedControlPlanSha256 from the reviewed preview")
+	expectedPlanSHA256, err := plancontract.RequireApplyBinding(
+		commands.Control,
+		"-ExpectedControlPlanSha256",
+		opt.ExpectedPlanSHA256,
+	)
+	if err != nil {
+		return Plan{}, err
 	}
+	opt.ExpectedPlanSHA256 = expectedPlanSHA256
 	lease, err := lanemutation.AcquireLane(caseRoot, opt.Lane)
 	if err != nil {
 		return Plan{}, err
@@ -208,7 +224,18 @@ func Apply(caseRoot string, opt Options) (result Plan, retErr error) {
 
 	var intent Intent
 	if inspection.Pending {
-		if inspection.PendingIntent == nil || !intentMatchesOptions(*inspection.PendingIntent, opt) {
+		if inspection.PendingIntent == nil {
+			return Plan{}, fmt.Errorf("lane %s control publication is pending without a durable intent", opt.Lane)
+		}
+		if _, err := plancontract.Match(
+			commands.Control,
+			"-ExpectedControlPlanSha256",
+			opt.ExpectedPlanSHA256,
+			inspection.PendingIntent.PlanSHA256,
+		); err != nil {
+			return Plan{}, err
+		}
+		if !intentMatchesOptions(*inspection.PendingIntent, opt) {
 			return Plan{}, fmt.Errorf("lane %s control publication is pending; recover the exact original control Apply", opt.Lane)
 		}
 		intent = *inspection.PendingIntent
@@ -221,8 +248,13 @@ func Apply(caseRoot string, opt Options) (result Plan, retErr error) {
 		if err != nil {
 			return Plan{}, err
 		}
-		if !strings.EqualFold(plan.ExpectedPlanSHA256, opt.ExpectedPlanSHA256) {
-			return Plan{}, fmt.Errorf("control preview sha256 mismatch: got %s want %s", strings.ToLower(opt.ExpectedPlanSHA256), plan.ExpectedPlanSHA256)
+		if _, err := plancontract.Match(
+			commands.Control,
+			"-ExpectedControlPlanSha256",
+			opt.ExpectedPlanSHA256,
+			plan.ExpectedPlanSHA256,
+		); err != nil {
+			return Plan{}, err
 		}
 		intent = intentFromPlan(plan)
 		intentBytes, err := canonical(intent)

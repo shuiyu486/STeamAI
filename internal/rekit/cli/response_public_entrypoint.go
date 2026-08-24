@@ -1,22 +1,141 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+type gatePlanDiagnosticsDTO gate.Plan
+
+type gateApplyDiagnosticsDTO gate.ApplyResult
+
+func buildGatePlanDiagnosticsDTO(result gate.Plan, caseRoot string) (gatePlanDiagnosticsDTO, error) {
+	var diagnostics gatePlanDiagnosticsDTO
+	if err := cloneDiagnostics(result, &diagnostics, "gate plan"); err != nil {
+		return gatePlanDiagnosticsDTO{}, err
+	}
+	if err := projectGatePlanPublicEntrypoint((*gate.Plan)(&diagnostics), caseRoot); err != nil {
+		return gatePlanDiagnosticsDTO{}, err
+	}
+	return diagnostics, nil
+}
+
+func buildGateApplyDiagnosticsDTO(result gate.ApplyResult, caseRoot string) (gateApplyDiagnosticsDTO, error) {
+	var diagnostics gateApplyDiagnosticsDTO
+	if err := cloneDiagnostics(result, &diagnostics, "gate Apply"); err != nil {
+		return gateApplyDiagnosticsDTO{}, err
+	}
+	if err := projectGateApplyPublicEntrypoint((*gate.ApplyResult)(&diagnostics), caseRoot); err != nil {
+		return gateApplyDiagnosticsDTO{}, err
+	}
+	return diagnostics, nil
+}
+
+func projectGatePlanPublicEntrypoint(result *gate.Plan, caseRoot string) error {
+	if result == nil {
+		return nil
+	}
+	projection, err := resolveProjectPublicProjection(caseRoot)
+	if err != nil {
+		return fmt.Errorf("resolve gate plan public entrypoint: %w", err)
+	}
+	entrypoint := projection.entrypoint
+	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
+		return fmt.Errorf("missionBrief: %w", err)
+	}
+	if err := projectExecutorActionPublicEntrypoint(&result.ExecutorAction, entrypoint); err != nil {
+		return fmt.Errorf("executorAction: %w", err)
+	}
+	if err := projectExecutorActionPublicEntrypoint(&result.WouldExecutorAction, entrypoint); err != nil {
+		return fmt.Errorf("wouldExecutorAction: %w", err)
+	}
+	if err := projectMissionCommanderActionPublicEntrypoint(&result.MissionCommanderAction, entrypoint); err != nil {
+		return fmt.Errorf("missionCommanderAction: %w", err)
+	}
+	if err := projectMissionCommanderActionsPublicEntrypoint(result.MissionCommanderNextActions, entrypoint); err != nil {
+		return fmt.Errorf("missionCommanderNextActions: %w", err)
+	}
+	return projectPublicCommandListPublicEntrypoint("nextSteps", result.NextSteps, entrypoint)
+}
+
+func projectGateApplyPublicEntrypoint(result *gate.ApplyResult, caseRoot string) error {
+	if result == nil {
+		return nil
+	}
+	projection, err := resolveProjectPublicProjection(caseRoot)
+	if err != nil {
+		return fmt.Errorf("resolve gate Apply public entrypoint: %w", err)
+	}
+	entrypoint := projection.entrypoint
+	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
+		return fmt.Errorf("missionBrief: %w", err)
+	}
+	if err := projectExecutorActionPublicEntrypoint(&result.ExecutorAction, entrypoint); err != nil {
+		return fmt.Errorf("executorAction: %w", err)
+	}
+	if err := projectMissionCommanderActionPublicEntrypoint(&result.MissionCommanderAction, entrypoint); err != nil {
+		return fmt.Errorf("missionCommanderAction: %w", err)
+	}
+	for index := range result.ExecutionEvidenceReview {
+		if err := projectExecutionEvidenceReviewItemPublicEntrypoint(&result.ExecutionEvidenceReview[index], entrypoint); err != nil {
+			return fmt.Errorf("executionEvidenceReview[%d]: %w", index, err)
+		}
+	}
+	if err := projectAuthorizedExecutionFollowThroughPublicEntrypoint(&result.AuthorizedExecutionFollowThrough, entrypoint); err != nil {
+		return fmt.Errorf("authorizedExecutionFollowThrough: %w", err)
+	}
+	if err := projectMissionCommanderActionsPublicEntrypoint(result.MissionCommanderNextActions, entrypoint); err != nil {
+		return fmt.Errorf("missionCommanderNextActions: %w", err)
+	}
+	if err := projectMissionCommanderActionQueuePublicEntrypoint(&result.MissionCommanderActionQueue, entrypoint); err != nil {
+		return fmt.Errorf("missionCommanderActionQueue: %w", err)
+	}
+	if err := projectMissionCommanderDriverReceiptPublicEntrypoint(result.MissionCommanderDriverReceipt, entrypoint); err != nil {
+		return fmt.Errorf("missionCommanderDriverReceipt: %w", err)
+	}
+	if err := projectPublicCommandListPublicEntrypoint("runbookSteps", result.RunbookSteps, entrypoint); err != nil {
+		return err
+	}
+	return projectPublicCommandListPublicEntrypoint("nextSteps", result.NextSteps, entrypoint)
+}
+
+func projectAuthorizedExecutionFollowThroughPublicEntrypoint(follow *gate.AuthorizedExecutionFollowThrough, entrypoint string) error {
+	if follow == nil {
+		return nil
+	}
+	for index := range follow.Outcomes {
+		outcome := &follow.Outcomes[index]
+		if err := projectPublicCommandFields(entrypoint,
+			projectPublicCommandField{fmt.Sprintf("outcomes[%d].command", index), &outcome.Command},
+		); err != nil {
+			return err
+		}
+		if err := projectPublicCommandListPublicEntrypoint(
+			fmt.Sprintf("outcomes[%d].verificationCommands", index),
+			outcome.VerificationCommands,
+			entrypoint,
+		); err != nil {
+			return err
+		}
+	}
+	return projectMissionCommanderActionQueuePublicEntrypoint(&follow.ActionQueue, entrypoint)
+}
 
 func projectStartResultPublicEntrypoint(result *workstream.StartResult, caseRoot string) error {
 	if result == nil {
 		return nil
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return fmt.Errorf("resolve start public entrypoint: %w", err)
 	}
+	entrypoint := projection.entrypoint
 	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
 		return fmt.Errorf("missionBrief: %w", err)
 	}
@@ -56,14 +175,42 @@ func projectStartResultPublicEntrypoint(result *workstream.StartResult, caseRoot
 	return nil
 }
 
-func projectContinueResultPublicEntrypoint(result *workstream.ContinueResult, caseRoot string) error {
-	if result == nil {
-		return nil
+// continueDiagnosticsDTO is the full machine-facing continue response. It is a
+// wire-faithful deep clone of the durable domain result, so entrypoint
+// presentation cannot mutate the value that owns plan and receipt identity.
+type continueDiagnosticsDTO workstream.ContinueResult
+
+func cloneDiagnostics(source, target any, label string) error {
+	data, err := json.Marshal(source)
+	if err != nil {
+		return fmt.Errorf("clone %s diagnostics: %w", label, err)
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("clone %s diagnostics: %w", label, err)
+	}
+	return nil
+}
+
+func buildContinueDiagnosticsDTO(result workstream.ContinueResult, caseRoot string) (continueDiagnosticsDTO, error) {
+	var diagnostics continueDiagnosticsDTO
+	if err := cloneDiagnostics(result, &diagnostics, "continue"); err != nil {
+		return continueDiagnosticsDTO{}, err
+	}
+	projected := (*workstream.ContinueResult)(&diagnostics)
+	if err := projectContinueDiagnosticsPublicEntrypoint(projected, caseRoot); err != nil {
+		return continueDiagnosticsDTO{}, err
+	}
+	return diagnostics, nil
+}
+
+func projectContinueDiagnosticsPublicEntrypoint(result *workstream.ContinueResult, caseRoot string) error {
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return fmt.Errorf("resolve continue public entrypoint: %w", err)
 	}
+	entrypoint := projection.entrypoint
 	if err := projectExecutorActionPublicEntrypoint(&result.ExecutorAction, entrypoint); err != nil {
 		return fmt.Errorf("executorAction: %w", err)
 	}
@@ -123,10 +270,11 @@ func projectHandoffResultPublicEntrypoint(result *workstream.HandoffResult, case
 	if result == nil {
 		return nil
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return fmt.Errorf("resolve handoff public entrypoint: %w", err)
 	}
+	entrypoint := projection.entrypoint
 	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
 		return fmt.Errorf("missionBrief: %w", err)
 	}
@@ -203,10 +351,11 @@ func projectReconcileResultPublicEntrypoint(result *workstream.ReconcileResult, 
 	if result == nil {
 		return nil
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return fmt.Errorf("resolve reconcile public entrypoint: %w", err)
 	}
+	entrypoint := projection.entrypoint
 	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
 		return fmt.Errorf("missionBrief: %w", err)
 	}
@@ -249,13 +398,12 @@ func projectReconcileResultPublicEntrypoint(result *workstream.ReconcileResult, 
 	return nil
 }
 
-func projectCompleteResultPublicEntrypoint(result *workstream.CompleteResult, caseRoot string) error {
+// ProjectCompleteResultForPublicEntrypoint projects only explicit public
+// command carriers. Callers must pass a detached response value, not the
+// durable result.
+func ProjectCompleteResultForPublicEntrypoint(result *workstream.CompleteResult, entrypoint string) error {
 	if result == nil {
 		return nil
-	}
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
-	if err != nil {
-		return fmt.Errorf("resolve complete public entrypoint: %w", err)
 	}
 	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
 		return fmt.Errorf("missionBrief: %w", err)
@@ -277,14 +425,23 @@ func projectCompleteResultPublicEntrypoint(result *workstream.CompleteResult, ca
 	return nil
 }
 
+func projectCompleteResultPublicEntrypoint(result *workstream.CompleteResult, caseRoot string) error {
+	projection, err := resolveProjectPublicProjection(caseRoot)
+	if err != nil {
+		return fmt.Errorf("resolve complete public entrypoint: %w", err)
+	}
+	return ProjectCompleteResultForPublicEntrypoint(result, projection.entrypoint)
+}
+
 func projectReopenResultPublicEntrypoint(result *workstream.ReopenResult, caseRoot string) error {
 	if result == nil {
 		return nil
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return fmt.Errorf("resolve reopen public entrypoint: %w", err)
 	}
+	entrypoint := projection.entrypoint
 	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
 		return fmt.Errorf("missionBrief: %w", err)
 	}
@@ -309,10 +466,11 @@ func projectOverviewInventoryPublicEntrypoint(result *overview.Inventory, caseRo
 	if result == nil {
 		return nil
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return fmt.Errorf("resolve overview public entrypoint: %w", err)
 	}
+	entrypoint := projection.entrypoint
 	if err := projectMissionBriefPublicEntrypoint(&result.MissionBrief, entrypoint); err != nil {
 		return fmt.Errorf("missionBrief: %w", err)
 	}

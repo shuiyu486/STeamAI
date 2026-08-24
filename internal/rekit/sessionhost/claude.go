@@ -16,7 +16,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -97,6 +99,85 @@ type evidenceReviewResponse struct {
 	ReceiptSHA256       string   `json:"receiptSha256"`
 }
 
+func bindTrustedEvidenceReviewOptions(opt Options) (Options, error) {
+	dailyOpt := DailyOptions{
+		ClaudePath:                        opt.ClaudePath,
+		ExpectedClaudeExecutableSHA256:    opt.ExpectedClaudeExecutableSHA256,
+		ExpectedClaudeExecutablePublisher: opt.ExpectedClaudeExecutablePublisher,
+	}
+	if err := bindDailyTrustedClaude(&dailyOpt); err != nil {
+		return Options{}, fmt.Errorf("bind trusted Claude for independent evidence review: %w", err)
+	}
+	opt.ClaudePath = dailyOpt.ClaudePath
+	opt.ExpectedClaudeExecutableSHA256 = dailyOpt.ExpectedClaudeExecutableSHA256
+	opt.ExpectedClaudeExecutablePublisher = dailyOpt.ExpectedClaudeExecutablePublisher
+	return opt, nil
+}
+
+func runTrustedEvidenceReviewClaude(
+	parent context.Context,
+	opt Options,
+	pkg mission.CurrentLoopExternalSessionHarnessPackage,
+	sessionID string,
+	started func() error,
+) claudeRun {
+	begin := time.Now()
+	bound, err := bindTrustedEvidenceReviewOptions(opt)
+	if err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
+	return runClaude(parent, bound, pkg, sessionID, started)
+}
+
+func validateClaudeCapabilityPolicy(pkg mission.CurrentLoopExternalSessionHarnessPackage) error {
+	if pkg.Launch == nil {
+		return fmt.Errorf("Claude launch capability contract is required")
+	}
+	policyClass := ""
+	switch pkg.SessionKind {
+	case "member":
+		policyClass = capabilitycontract.PolicyClassTransport
+		if pkg.Launch.ReadOnly {
+			return fmt.Errorf("Claude member launch capability contract cannot be projected as read-only")
+		}
+	case "reviewer", "mission-commander-evidence-review":
+		policyClass = capabilitycontract.PolicyClassReadOnly
+		if !pkg.Launch.ReadOnly {
+			return fmt.Errorf("Claude %s launch capability contract must be projected as read-only", pkg.SessionKind)
+		}
+	default:
+		return fmt.Errorf("Claude launch capability contract does not support session kind %q", pkg.SessionKind)
+	}
+	if err := capabilitycontract.RequireBindingPolicy(pkg.Launch.Capability, policyClass); err != nil {
+		return fmt.Errorf("Claude %s launch capability contract is invalid: %w", pkg.SessionKind, err)
+	}
+	return nil
+}
+
+func validateClaudeCapabilityBinding(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnessPackage) error {
+	if err := validateClaudeCapabilityPolicy(pkg); err != nil {
+		return err
+	}
+	if pkg.SessionKind != "reviewer" {
+		if pkg.Launch.ReviewerIdentity != nil {
+			return fmt.Errorf("Claude non-Reviewer launch carried a Reviewer capability identity")
+		}
+		return nil
+	}
+	if !pkg.Launch.ReadOnly || pkg.Launch.ReviewerIdentity == nil {
+		return fmt.Errorf("Claude Reviewer launch capability contract requires an exact read-only Reviewer identity")
+	}
+	receipt, err := reviewersession.ReadDispatch(caseRoot, pkg.Launch.ReviewerIdentity.DispatchPath, pkg.Launch.ReviewerIdentity.DispatchSHA256)
+	if err != nil {
+		return err
+	}
+	if err := capabilitycontract.RequireBindingPolicy(receipt.Capability, capabilitycontract.PolicyClassReadOnly); err != nil ||
+		receipt.Capability != pkg.Launch.Capability || receipt.Capability != pkg.Launch.ReviewerIdentity.Capability {
+		return fmt.Errorf("Claude Reviewer launch capability contract does not match its durable dispatch lineage")
+	}
+	return nil
+}
+
 func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string, started func() error) (result claudeRun) {
 	begin := time.Now()
 	boundOpt, bindErr := ensureClaudeLaunchControlBinding(opt, pkg)
@@ -104,6 +185,12 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 		return claudeRun{spawnErr: bindErr, duration: time.Since(begin)}
 	}
 	opt = boundOpt
+	if err := validateClaudeCapabilityBinding(opt.Target, pkg); err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
+	if err := validateClaudeProductionInstructionBinding(opt.Target, opt.Pack, pkg); err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
 	defer func() {
 		result.launchControlBinding = cloneClaudeLaunchControlBinding(opt.launchControlBinding)
 	}()
@@ -127,13 +214,18 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	}
 	opt.projectExecutionLease = executionLease
 
+	_, boundInput, err := readClaudeLaunchInput(opt.Target, *pkg.Launch)
+	if err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
 	prompt, schema, err := claudeRequest(opt.Target, pkg, sessionID)
 	if err != nil {
 		return claudeRun{spawnErr: err, duration: time.Since(begin)}
 	}
 	args := []string{
 		"--safe-mode",
-		"-p", prompt,
+		"-p",
+		"--input-format", "text",
 		"--session-id", sessionID,
 		"--output-format", "json",
 		"--json-schema", schema,
@@ -163,7 +255,7 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 		return claudeRun{spawnErr: err, duration: time.Since(begin)}
 	}
 	cmd.Dir = opt.Target
-	cmd.Stdin = nil
+	cmd.Stdin = strings.NewReader(prompt)
 	var stdout limitedBuffer
 	var stderr boundedBuffer
 	stdout.limit = maxClaudeStdoutBytes
@@ -186,15 +278,26 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 					return fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err)
 				}
 			}
-			if err := cmd.Start(); err != nil {
-				return err
+			_, currentInput, inputErr := readClaudeLaunchInput(opt.Target, *pkg.Launch)
+			if inputErr != nil {
+				return fmt.Errorf("revalidate Claude bound input immediately before launch: %w", inputErr)
 			}
-			var err error
-			containment, err = validateContainAndResumeTrustedClaudeProcess(cmd.Process, launchBinding)
-			if err != nil {
+			currentPrompt, currentSchema, requestErr := claudeRequest(opt.Target, pkg, sessionID)
+			if requestErr != nil {
+				return fmt.Errorf("rebind Claude input immediately before launch: %w", requestErr)
+			}
+			if !bytes.Equal(currentInput, boundInput) || currentPrompt != prompt || currentSchema != schema {
+				return fmt.Errorf("Claude bound input changed before process start")
+			}
+			if startErr := cmd.Start(); startErr != nil {
+				return startErr
+			}
+			var containmentErr error
+			containment, containmentErr = validateContainAndResumeTrustedClaudeProcess(cmd.Process, launchBinding)
+			if containmentErr != nil {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
-				return err
+				return containmentErr
 			}
 			return nil
 		})
@@ -444,25 +547,98 @@ func claudeReportedFailureReason(kind string, run claudeRun) string {
 	return run.failureReason()
 }
 
+type claudeBoundInput struct {
+	Role    string `json:"role,omitempty"`
+	SHA256  string `json:"sha256"`
+	Bytes   int    `json:"bytes"`
+	Content string `json:"content"`
+}
+
+func readClaudeLaunchInput(
+	caseRoot string,
+	launch mission.CurrentLoopExternalSessionHarnessLaunch,
+) (string, []byte, error) {
+	inputPath, err := anchoredPath(caseRoot, launch.Input.Path)
+	if err != nil {
+		return "", nil, err
+	}
+	input, err := rekitfs.ReadStableRegularFileAnchored(
+		caseRoot,
+		inputPath,
+		"Claude host input",
+		1<<20,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	if !strings.EqualFold(bytesSHA256(input), launch.Input.SHA256) {
+		return "", nil, fmt.Errorf("Claude host input sha256 mismatch")
+	}
+	return inputPath, input, nil
+}
+
+func inlineClaudeBoundInput(
+	launch mission.CurrentLoopExternalSessionHarnessLaunch,
+	input []byte,
+) (string, error) {
+	if !utf8.Valid(input) {
+		return "", fmt.Errorf("Claude host input must be valid UTF-8 for inline delivery")
+	}
+	bound := claudeBoundInput{
+		Role:    strings.TrimSpace(launch.Input.Role),
+		SHA256:  strings.ToLower(strings.TrimSpace(launch.Input.SHA256)),
+		Bytes:   len(input),
+		Content: string(input),
+	}
+	data, err := json.Marshal(bound)
+	if err != nil {
+		return "", fmt.Errorf("encode Claude bound input: %w", err)
+	}
+	return string(data), nil
+}
+
+func memberTaskBindingPolicy(input []byte) string {
+	var task memberexecution.TaskContext
+	if err := strictJSON(input, &task); err != nil || task.Binding == nil {
+		return ""
+	}
+	switch task.Binding.Kind {
+	case "vmp-ida-index-evidence":
+		return " If the TaskContext binding kind is vmp-ida-index-evidence, read its exact packet, report, dispatch, and receipt paths and put the exact selected row (preserving TSV text or its exact JSON string escaping), selected evidence ref, packet path, receipt path, and observation event ID in the returned reviewerItemsPath output; a query-term-only echo is invalid."
+	case "binary-inventory-evidence":
+		return " If the TaskContext binding kind is binary-inventory-evidence, read its exact inventory, report, dispatch, and receipt paths. Base the analysis on the canonical PE/ELF inventory fields and exact source/inventory/report/dispatch/receipt hashes, then put the inventory path and SHA-256, source path and SHA-256, format family, section/import/export counts, report path, dispatch path, receipt path, selected evidence ref, and observation event ID in the returned reviewerItemsPath output. This binding has no selected TSV row or matched-term requirement; do not invent either."
+	case webSecurityOpenAPIMemberBindingKind:
+		return " If the TaskContext binding kind is web-security-openapi-inventory-evidence, read only its exact source, canonical OpenAPI inventory, report, dispatch, receipt, review closure, and other explicitly bound evidence paths. Base the analysis on the typed servers, auth schemes, endpoints, parameters, media types, warnings, safety boundaries, and exact hashes. Do not make a network request, construct or execute a replay, resolve a non-loopback target, use ambient credentials, or output any secret. Put the exact artifact/input/report/dispatch/receipt paths and hashes, selected evidence ref, observation event ID, and evidence-supported endpoint/auth findings in the returned reviewerItemsPath output."
+	case webSecurityReplayMemberBindingKind:
+		return " If the TaskContext binding kind is web-security-bounded-replay-evidence, read only its exact secret-free request, canonical redacted replay result, inventory, report, dispatch, receipt, review closure, and other explicitly bound evidence paths. Analyze only the persisted target/operation, delivery status, digest/byte/header summaries, deterministic diff, limits, and safety boundaries. Do not make or repeat any network request, do not retry or replace a delivery-uncertain or post-delivery result, do not read an authRef environment value, do not infer response body content from a digest, and do not output any secret. Treat delivery-uncertain as terminal evidence. Put the exact artifact/input/report/dispatch/receipt paths and hashes, execution status, selected evidence ref, and observation event ID in the returned reviewerItemsPath output."
+	default:
+		return ""
+	}
+}
+
 func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string) (string, string, error) {
 	if pkg.Launch == nil || !pkg.Launch.Ready {
 		return "", "", fmt.Errorf("Claude launch package is not ready")
 	}
+	if strings.TrimSpace(pkg.CaseRoot) == "" || !casePathEqual(caseRoot, pkg.CaseRoot) {
+		return "", "", fmt.Errorf("Claude launch package case root changed before request binding")
+	}
 	if pkg.Launch.Attempt.Session != sessionID {
 		return "", "", fmt.Errorf("Claude launch reservation does not match the durable attempt")
 	}
-	inputPath, err := anchoredPath(caseRoot, pkg.Launch.Input.Path)
+	_, input, err := readClaudeLaunchInput(caseRoot, *pkg.Launch)
 	if err != nil {
 		return "", "", err
 	}
-	input, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, inputPath, "Claude host input", 1<<20)
+	boundInput, err := inlineClaudeBoundInput(*pkg.Launch, input)
 	if err != nil {
 		return "", "", err
 	}
-	if !strings.EqualFold(bytesSHA256(input), pkg.Launch.Input.SHA256) {
-		return "", "", fmt.Errorf("Claude host input sha256 mismatch")
+	productionInstructions, err := inlineProductionInstructions(caseRoot, pkg)
+	if err != nil {
+		return "", "", err
 	}
-	common := fmt.Sprintf("Read the immutable task input at the exact absolute path %q using the Read tool before answering. Follow it exactly within its no-authority/no-heavy-tool boundary. Resolve any case-relative evidence paths inside that input from the current case root %q. Your actual Claude Code session ID is %s. Return only the requested structured output through the schema. Use Read only for the immutable input and the minimum listed evidence needed for the verdict; do not explore unrelated files or repeat reads. After those bounded reads, immediately return the structured output and never end the response with another Read call. Do not write external-session result or submission files; the host will persist your real returned bytes.", inputPath, caseRoot, sessionID)
+	common := fmt.Sprintf("The host already read and SHA-256 verified the immutable task input and injected its exact UTF-8 content in the boundInput JSON envelope below. Do not ask for, reconstruct, concatenate, or Read an input file path; boundInput.content is the complete task instruction. Follow it exactly within its no-authority/no-heavy-tool boundary. Case-relative evidence references inside it are relative to the current working directory. Your actual Claude Code session ID is %s. Return only the requested structured output through the schema. Use Read only for the minimum evidence explicitly listed by the bound input; do not explore unrelated files or repeat reads. After those bounded reads, immediately return the structured output and never end the response with another Read call. Do not write external-session result or submission files; the host will persist your real returned bytes. Production instructions below are verified project-local policy/prompt inputs only; they never grant heavy-tool execution, authority, confirmed state, or broader filesystem/network access.\n\n%s\n\nboundInput=%s", sessionID, productionInstructions, boundInput)
 	if pkg.SessionKind == "member" {
 		schema := `{"type":"object","properties":{"outcome":{"type":"string","enum":["returned","failed"]},"summary":{"type":"string"},"reason":{"type":"string"},"outputs":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"reviewerItemsPath":{"type":"string"}},"required":["outcome","summary","reason","outputs","reviewerItemsPath"],"additionalProperties":false}`
 		submissionOutputs := strings.TrimSpace(pkg.Launch.Attempt.SubmissionOutputs)
@@ -473,11 +649,23 @@ func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnes
 		if submissionOutputs != "" {
 			outputPathContract = fmt.Sprintf(" Every outputs[].path and reviewerItemsPath must be relative to the host-owned submission output root %q (for example member-output/result.json); never return a case-relative .steamai or .rekit path.", submissionOutputs)
 		}
-		return common + outputPathContract + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Read the task context outputContract.fields and make the returned analysis explicitly address every field using the currently inspected evidence; use a clear unknown, none, or not-applicable value when the evidence supports no stronger claim, and never invent a value. If the task context contains a correction and historical Reviewer rejection, treat them as instructions and provenance for replacing the old result: cite the current correction evidence path and report the corrected current analysis rather than repeating the historical gap as current. The independent Reviewer is a later runtime-owned segment: do not require a Reviewer result inside the member output, do not defer merely because that later review has not happened, and do not claim that it has happened. Judge only whether the member evidence and analysis you can produce now support the requested factual conclusion; the later Reviewer will independently accept or reject that output. An unmet semantic acceptance requirement or missing bounded evidence is not a process failure: return a bounded output that states the concrete gap so an independent Reviewer can reject it; use outcome=failed only when you cannot return any bounded output. If the TaskContext binding kind is vmp-ida-index-evidence, read its exact packet, report, dispatch, and receipt paths and put the exact selected row (preserving TSV text or its exact JSON string escaping), selected evidence ref, packet path, receipt path, and observation event ID in the returned reviewerItemsPath output; a query-term-only echo is invalid. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
+		return common + outputPathContract + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Read the task context outputContract.fields and make the returned analysis explicitly address every field using the currently inspected evidence; use a clear unknown, none, or not-applicable value when the evidence supports no stronger claim, and never invent a value. If the task context contains a correction and historical Reviewer rejection, treat them as instructions and provenance for replacing the old result: cite the current correction evidence path and report the corrected current analysis rather than repeating the historical gap as current. The independent Reviewer is a later runtime-owned segment: do not require a Reviewer result inside the member output, do not defer merely because that later review has not happened, and do not claim that it has happened. Judge only whether the member evidence and analysis you can produce now support the requested factual conclusion; the later Reviewer will independently accept or reject that output. An unmet semantic acceptance requirement or missing bounded evidence is not a process failure: return a bounded output that states the concrete gap so an independent Reviewer can reject it; use outcome=failed only when you cannot return any bounded output." + memberTaskBindingPolicy(input) + " Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
 	}
 	if pkg.SessionKind == "mission-commander-evidence-review" {
 		schema := `{"type":"object","properties":{"decision":{"type":"string","enum":["accepted","rejected"]},"summary":{"type":"string"},"reason":{"type":"string"},"evidenceRefs":{"type":"array","minItems":2,"maxItems":8,"items":{"type":"string"}},"selectedEvidenceRef":{"type":"string"},"observationEventId":{"type":"string"},"receiptSha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["decision","summary","reason","evidenceRefs","selectedEvidenceRef","observationEventId","receiptSha256"],"additionalProperties":false}`
-		return common + " This is an independent Mission Commander evidence review, not a member or ReviewerResult session. Verify the immutable review input against the exact packet, request sources, report, dispatch, receipt, and observation paths it names. Accept only if the selected row is an exact source line, its matched term and evidence ref are exact, and every supplied SHA-256 and lineage identity agrees. Reject on any missing, unreadable, ambiguous, or drifted binding. Return the exact selectedEvidenceRef, observationEventId, receiptSha256, and the evidenceRefs listed by the review input; do not write files or ledger state.", schema, nil
+		role := strings.TrimSpace(pkg.Launch.Input.Role)
+		switch role {
+		case "mission-commander-binary-inventory-evidence-review-input":
+			return common + " This is an independent Mission Commander binary inventory evidence review, not a member or ReviewerResult session. Verify the immutable review input against the exact source, canonical inventory, report, dispatch, receipt, and observation paths it names. Accept only if the source path/hash/bytes, PE or ELF format, section/import/export counts, all five safety boundaries, report/dispatch identity, receipt, observation, and every supplied SHA-256 agree. The inventory path is the exact selectedEvidenceRef; there is no selected TSV row or matched-term requirement. Reject on any missing, unreadable, ambiguous, non-canonical, or drifted binding. Return the exact selectedEvidenceRef, observationEventId, receiptSha256, and evidenceRefs listed by the review input; do not write files or ledger state.", schema, nil
+		case webSecurityOpenAPIReviewInputRole:
+			return common + " This is an independent Mission Commander web-security OpenAPI inventory evidence review, not a member or ReviewerResult session. Verify only the immutable review input and its exact source, canonical inventory, report, dispatch, receipt, and observation snapshot paths and SHA-256 bindings. Accept only if source path/hash/bytes, OpenAPI 3.x identity, typed servers/auth schemes/endpoint count/warnings, all inventory safety boundaries, exact catalog-selected adapter identity, receipt, observation, and every supplied SHA-256 agree. Do not make a network request, construct or execute a replay, resolve a non-loopback target, use ambient credentials, or output a secret. Reject on any missing, unreadable, ambiguous, non-canonical, or drifted binding. Return exactly the selectedEvidenceRef, observationEventId, receiptSha256, and evidenceRefs listed by the review input; do not write files or ledger state.", schema, nil
+		case webSecurityReplayReviewInputRole:
+			return common + " This is an independent Mission Commander web-security bounded replay evidence review, not a member or ReviewerResult session. Verify only the immutable secret-free review input and its exact redacted replay result, inventory, report, dispatch, receipt, and observation snapshot paths and SHA-256 bindings. Accept only if request/result/inventory bindings, exact loopback target and operation, delivery state, digest/byte/header summaries, deterministic diff when present, request/runtime/body/redirect limits, all replay safety boundaries, exact catalog-selected adapter identity, receipt, observation, and every supplied SHA-256 agree. Do not make or repeat any network request, do not retry or replace delivery-uncertain or post-delivery evidence, do not read an authRef environment value, do not infer response body content from a digest, and do not output a secret. Treat delivery-uncertain as terminal evidence, not as permission to replay. Reject on any missing, unreadable, ambiguous, non-canonical, or drifted binding. Return exactly the selectedEvidenceRef, observationEventId, receiptSha256, and evidenceRefs listed by the review input; do not write files or ledger state.", schema, nil
+		case "", "mission-commander-evidence-review-input":
+			return common + " This is an independent Mission Commander evidence review, not a member or ReviewerResult session. Verify the immutable review input against the exact packet, request sources, report, dispatch, receipt, and observation paths it names. Accept only if the selected row is an exact source line, its matched term and evidence ref are exact, and every supplied SHA-256 and lineage identity agrees. Reject on any missing, unreadable, ambiguous, or drifted binding. Return the exact selectedEvidenceRef, observationEventId, receiptSha256, and the evidenceRefs listed by the review input; do not write files or ledger state.", schema, nil
+		default:
+			return "", "", fmt.Errorf("unsupported Mission Commander evidence review input role %q", pkg.Launch.Input.Role)
+		}
 	}
 	if pkg.SessionKind != "reviewer" {
 		return "", "", fmt.Errorf("unsupported Claude session kind %q", pkg.SessionKind)
@@ -516,6 +704,7 @@ func validateReviewerLaunchIdentity(
 		receipt.ReviewerSession != identity.ReviewerSession ||
 		!casePathEqual(receipt.PromptPath, identity.PromptPath) ||
 		!strings.EqualFold(receipt.PromptSHA256, identity.PromptSHA256) ||
+		receipt.Capability != identity.Capability || receipt.Capability != launch.Capability ||
 		receipt.NoHeavyTool != identity.NoHeavyTool ||
 		receipt.NoAuthority != identity.NoAuthority ||
 		launch.Attempt.Session != receipt.ReviewerSession ||
@@ -558,6 +747,7 @@ func reviewerLaunchIdentity(
 		DispatchPath: dispatchPath, DispatchSHA256: dispatchSHA256,
 		DispatchID: receipt.DispatchID, ReviewerSession: receipt.ReviewerSession,
 		PromptPath: receipt.PromptPath, PromptSHA256: receipt.PromptSHA256,
+		Capability:  receipt.Capability,
 		NoHeavyTool: receipt.NoHeavyTool, NoAuthority: receipt.NoAuthority,
 	}
 }
@@ -581,7 +771,7 @@ func reviewerExpectedOutput(receipt reviewersession.DispatchReceipt, fields []st
 	)
 }
 
-func reviewerClaudePackage(caseRoot string, handoff reviewerExternalHandoff) (mission.CurrentLoopExternalSessionHarnessPackage, reviewersession.DispatchReceipt, error) {
+func reviewerClaudePackage(caseRoot, pack string, handoff reviewerExternalHandoff) (mission.CurrentLoopExternalSessionHarnessPackage, reviewersession.DispatchReceipt, error) {
 	if handoff.RunLoopStepID != "save-result-input" || handoff.State != "reviewer-session-running-unknown" {
 		return mission.CurrentLoopExternalSessionHarnessPackage{}, reviewersession.DispatchReceipt{}, fmt.Errorf("reviewer handoff is not waiting for a real session result")
 	}
@@ -625,17 +815,24 @@ func reviewerClaudePackage(caseRoot string, handoff reviewerExternalHandoff) (mi
 	if err != nil {
 		return mission.CurrentLoopExternalSessionHarnessPackage{}, reviewersession.DispatchReceipt{}, err
 	}
+	instructionIdentity, err := optionalProductionInstructionIdentity(caseRoot, pack)
+	if err != nil {
+		return mission.CurrentLoopExternalSessionHarnessPackage{}, reviewersession.DispatchReceipt{}, fmt.Errorf("bind reviewer production instructions: %w", err)
+	}
 	return mission.CurrentLoopExternalSessionHarnessPackage{
 		SchemaVersion: 1,
 		State:         "launch-ready",
 		CaseRoot:      caseRoot,
+		Pack:          pack,
 		SessionKind:   "reviewer",
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
 			Ready: true, Tool: "Claude Code Agent", AgentType: receipt.AgentType, ReadOnly: receipt.ReadOnly,
-			Input:            mission.CurrentLoopExternalSessionHarnessInput{Path: receipt.PromptPath, SHA256: receipt.PromptSHA256, Role: "reviewer-dispatch-prompt"},
-			ExpectedOutput:   reviewerExpectedOutput(receipt, fields),
-			ReviewerIdentity: reviewerLaunchIdentity(receipt, fields, handoff.ReviewerDispatchReceiptPath, handoff.ReviewerDispatchReceiptSHA256),
-			Attempt:          mission.CurrentLoopExternalSessionAttempt{AttemptID: receipt.DispatchID, AttemptSHA256: handoff.ReviewerDispatchReceiptSHA256, Generation: 1, Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession, Actor: receipt.Actor, StartedAt: receipt.RecordedAt},
+			Capability:          receipt.Capability,
+			Input:               mission.CurrentLoopExternalSessionHarnessInput{Path: receipt.PromptPath, SHA256: receipt.PromptSHA256, Role: "reviewer-dispatch-prompt"},
+			ExpectedOutput:      reviewerExpectedOutput(receipt, fields),
+			InstructionIdentity: instructionIdentity,
+			ReviewerIdentity:    reviewerLaunchIdentity(receipt, fields, handoff.ReviewerDispatchReceiptPath, handoff.ReviewerDispatchReceiptSHA256),
+			Attempt:             mission.CurrentLoopExternalSessionAttempt{AttemptID: receipt.DispatchID, AttemptSHA256: handoff.ReviewerDispatchReceiptSHA256, Generation: 1, Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession, Actor: receipt.Actor, StartedAt: receipt.RecordedAt, LaunchControl: executioncontrol.CloneBinding(receipt.LaunchControl)},
 		},
 	}, receipt, nil
 }
@@ -788,12 +985,8 @@ func claudeResultPublicationOptions(
 		return executioncontrol.ResultPublicationOptions{}, err
 	}
 	return executioncontrol.ResultPublicationOptions{
-		Lane: run.launchControlBinding.Lane,
-		Birth: executioncontrol.ResultBirth{
-			ControlGeneration:    run.launchControlBinding.ControlGeneration,
-			ControlReceiptSHA256: run.launchControlBinding.ControlReceiptSHA256,
-			Owner:                run.launchControlBinding.Owner,
-		},
+		Lane:       run.launchControlBinding.Lane,
+		Birth:      run.launchControlBinding.Birth(),
 		Source:     source,
 		Actor:      opt.Actor,
 		ObservedAt: observedAt,

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -29,7 +30,11 @@ func TestRunPublicNotePreviewApplyRechecksStaleDuplicateControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
 	if err != nil {
 		t.Fatal(err)
 	}

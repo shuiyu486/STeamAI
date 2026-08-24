@@ -7,11 +7,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 )
@@ -36,8 +39,19 @@ func TestPreviewIsZeroWriteAndApplyPreservesDurableBytes(t *testing.T) {
 			t.Fatalf("migration write escapes the project-local namespace: %+v", write)
 		}
 	}
-	if len(plan.ApplyArgs) < 1 || !containsExactArg(plan.ApplyArgs, "-ExpectedMigrationPlanSha256", plan.ExpectedPlanSHA256) || !containsExactFlag(plan.ApplyArgs, "-Apply") {
-		t.Fatalf("migration preview omits exact hash-bound Apply args: %+v", plan.ApplyArgs)
+	if len(plan.ApplyArgs) < 1 || !containsExactArg(plan.ApplyArgs, "-ExpectedMigrationPlanSha256", plan.ExpectedPlanSHA256) || !containsExactFlag(plan.ApplyArgs, "-Apply") || plan.ApplyCommand == "" {
+		t.Fatalf("migration preview omits exact hash-bound Apply carrier: command=%q args=%+v", plan.ApplyCommand, plan.ApplyArgs)
+	}
+	commandAction, err := commands.ExactActionFromCommand(plan.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsAction, err := commands.ExactActionFromCLIArgs(plan.ApplyArgs)
+	if err != nil || !commandAction.Equivalent(argsAction) || !strings.HasPrefix(plan.ApplyCommand, commands.LegacyPublicEntrypoint+" migrate-state ") {
+		t.Fatalf("migration exact Apply carrier drifted: command=%q args=%v err=%v", plan.ApplyCommand, plan.ApplyArgs, err)
+	}
+	if err := commandAction.ValidatePlanApply(commands.MigrateState, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatalf("migration exact Apply binding: %v", err)
 	}
 	receiptWrite, ok := migrationWrite(plan.Writes, ReceiptRel)
 	if !ok || receiptWrite.Kind != "state-root-migration-receipt" || receiptWrite.Action != "create" || receiptWrite.SHA256 != "" || receiptWrite.Size != 0 {
@@ -134,15 +148,19 @@ func TestApplyRejectsInvalidSHAAndLegacyDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, "bad"); err == nil {
-		t.Fatal("expected invalid expected SHA to fail")
+	_, err = Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, "bad")
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanInvalid || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("invalid migration plan failure=%+v typed=%t err=%v", failure, typed, err)
 	}
 	path := filepath.Join(fixture.caseRoot, ".rekit", "facts", "mission.jsonl")
 	if err := os.WriteFile(path, []byte("drift\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "plan SHA-256 mismatch") {
-		t.Fatalf("expected legacy inventory drift to change plan hash, got %v", err)
+	_, err = Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256)
+	failure, typed = plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("expected legacy inventory drift to change plan hash, got %v failure=%+v typed=%t", err, failure, typed)
 	}
 	assertFile(t, filepath.Join(fixture.caseRoot, ".rekit", "instance.yml"))
 	assertMissing(t, filepath.Join(fixture.caseRoot, ".steamai"))
@@ -177,8 +195,10 @@ func TestApplyRejectsRuntimeSourceReplacementAfterPreview(t *testing.T) {
 	if err := os.WriteFile(runtimeSource, []byte("replaced runtime executable"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "plan SHA-256 mismatch") {
-		t.Fatalf("expected replaced runtime source to invalidate the exact plan, got %v", err)
+	_, err = Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("expected replaced runtime source to invalidate the exact plan, got %v failure=%+v typed=%t", err, failure, typed)
 	}
 	assertFile(t, filepath.Join(fixture.caseRoot, ".rekit", "instance.yml"))
 	assertMissing(t, filepath.Join(fixture.caseRoot, ".steamai"))
@@ -614,12 +634,7 @@ func containsExactArg(args []string, name, value string) bool {
 }
 
 func containsExactFlag(args []string, flag string) bool {
-	for _, arg := range args {
-		if arg == flag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, flag)
 }
 
 func migrationWrite(writes []Write, path string) (Write, bool) {

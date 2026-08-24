@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -75,6 +77,7 @@ type supervisionSpec struct {
 type supervisionExecution struct {
 	SchemaVersion    int                      `json:"schemaVersion"`
 	CaseRoot         string                   `json:"caseRoot"`
+	Pack             string                   `json:"pack,omitempty"`
 	JobID            string                   `json:"jobId,omitempty"`
 	JobSHA256        string                   `json:"jobSha256,omitempty"`
 	CheckpointSHA256 string                   `json:"checkpointSha256,omitempty"`
@@ -84,13 +87,15 @@ type supervisionExecution struct {
 }
 
 type supervisionLaunchBinding struct {
-	Tool             string                                              `json:"tool"`
-	AgentType        string                                              `json:"agentType"`
-	ReadOnly         bool                                                `json:"readOnly"`
-	Input            mission.CurrentLoopExternalSessionHarnessInput      `json:"input"`
-	ExpectedOutput   string                                              `json:"expectedOutput"`
-	ReviewerIdentity *mission.CurrentLoopExternalSessionReviewerIdentity `json:"reviewerIdentity,omitempty"`
-	Attempt          mission.CurrentLoopExternalSessionAttempt           `json:"attempt"`
+	Tool                string                                              `json:"tool"`
+	AgentType           string                                              `json:"agentType"`
+	ReadOnly            bool                                                `json:"readOnly"`
+	Capability          capabilitycontract.Binding                          `json:"capability"`
+	Input               mission.CurrentLoopExternalSessionHarnessInput      `json:"input"`
+	ExpectedOutput      string                                              `json:"expectedOutput"`
+	InstructionIdentity *instructionpacket.Identity                         `json:"instructionIdentity,omitempty"`
+	ReviewerIdentity    *mission.CurrentLoopExternalSessionReviewerIdentity `json:"reviewerIdentity,omitempty"`
+	Attempt             mission.CurrentLoopExternalSessionAttempt           `json:"attempt"`
 }
 
 type supervisionReturnBinding struct {
@@ -436,6 +441,12 @@ func supervisionSpecForRoot(
 		strings.TrimSpace(pkg.Launch.Attempt.AttemptSHA256) == "" || pkg.Launch.Attempt.Session != sessionID {
 		return supervisionPaths{}, supervisionSpec{}, nil, "", fmt.Errorf("Claude supervision requires exact attempt and session bindings")
 	}
+	if err := validateClaudeCapabilityPolicy(pkg); err != nil {
+		return supervisionPaths{}, supervisionSpec{}, nil, "", err
+	}
+	if err := validateClaudeProductionInstructionBinding(opt.Target, opt.Pack, pkg); err != nil {
+		return supervisionPaths{}, supervisionSpec{}, nil, "", err
+	}
 	if opt.launchControlBinding != nil {
 		if err := validateClaudeLaunchControlBinding(*opt.launchControlBinding); err != nil {
 			return supervisionPaths{}, supervisionSpec{}, nil, "", err
@@ -470,12 +481,14 @@ func supervisionRunID(pkg mission.CurrentLoopExternalSessionHarnessPackage, bind
 		AttemptID     string                      `json:"attemptId"`
 		AttemptSHA256 string                      `json:"attemptSha256"`
 		SessionID     string                      `json:"sessionId"`
+		Capability    capabilitycontract.Binding  `json:"capability"`
 		LaunchControl *claudeLaunchControlBinding `json:"launchControl,omitempty"`
 	}{
 		SessionKind:   pkg.SessionKind,
 		AttemptID:     pkg.Launch.Attempt.AttemptID,
 		AttemptSHA256: pkg.Launch.Attempt.AttemptSHA256,
 		SessionID:     pkg.Launch.Attempt.Session,
+		Capability:    pkg.Launch.Capability,
 		LaunchControl: cloneClaudeLaunchControlBinding(binding),
 	})
 	if err != nil {
@@ -488,6 +501,7 @@ func supervisionExecutionFor(pkg mission.CurrentLoopExternalSessionHarnessPackag
 	execution := supervisionExecution{
 		SchemaVersion:    pkg.SchemaVersion,
 		CaseRoot:         pkg.CaseRoot,
+		Pack:             pkg.Pack,
 		JobID:            pkg.JobID,
 		JobSHA256:        pkg.JobSHA256,
 		CheckpointSHA256: pkg.CheckpointSHA256,
@@ -495,13 +509,15 @@ func supervisionExecutionFor(pkg mission.CurrentLoopExternalSessionHarnessPackag
 	}
 	if pkg.Launch != nil {
 		execution.Launch = supervisionLaunchBinding{
-			Tool:             pkg.Launch.Tool,
-			AgentType:        pkg.Launch.AgentType,
-			ReadOnly:         pkg.Launch.ReadOnly,
-			Input:            pkg.Launch.Input,
-			ExpectedOutput:   pkg.Launch.ExpectedOutput,
-			ReviewerIdentity: pkg.Launch.ReviewerIdentity,
-			Attempt:          pkg.Launch.Attempt,
+			Tool:                pkg.Launch.Tool,
+			AgentType:           pkg.Launch.AgentType,
+			ReadOnly:            pkg.Launch.ReadOnly,
+			Capability:          pkg.Launch.Capability,
+			Input:               pkg.Launch.Input,
+			ExpectedOutput:      pkg.Launch.ExpectedOutput,
+			InstructionIdentity: cloneProductionInstructionIdentityPointer(pkg.Launch.InstructionIdentity),
+			ReviewerIdentity:    pkg.Launch.ReviewerIdentity,
+			Attempt:             pkg.Launch.Attempt,
 		}
 	}
 	if pkg.Return != nil {
@@ -522,19 +538,22 @@ func (execution supervisionExecution) packageForRun() mission.CurrentLoopExterna
 	pkg := mission.CurrentLoopExternalSessionHarnessPackage{
 		SchemaVersion:    execution.SchemaVersion,
 		CaseRoot:         execution.CaseRoot,
+		Pack:             execution.Pack,
 		JobID:            execution.JobID,
 		JobSHA256:        execution.JobSHA256,
 		CheckpointSHA256: execution.CheckpointSHA256,
 		SessionKind:      execution.SessionKind,
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
-			Ready:            true,
-			Tool:             execution.Launch.Tool,
-			AgentType:        execution.Launch.AgentType,
-			ReadOnly:         execution.Launch.ReadOnly,
-			Input:            execution.Launch.Input,
-			ExpectedOutput:   execution.Launch.ExpectedOutput,
-			ReviewerIdentity: execution.Launch.ReviewerIdentity,
-			Attempt:          execution.Launch.Attempt,
+			Ready:               true,
+			Tool:                execution.Launch.Tool,
+			AgentType:           execution.Launch.AgentType,
+			ReadOnly:            execution.Launch.ReadOnly,
+			Capability:          execution.Launch.Capability,
+			Input:               execution.Launch.Input,
+			ExpectedOutput:      execution.Launch.ExpectedOutput,
+			InstructionIdentity: cloneProductionInstructionIdentityPointer(execution.Launch.InstructionIdentity),
+			ReviewerIdentity:    execution.Launch.ReviewerIdentity,
+			Attempt:             execution.Launch.Attempt,
 		},
 	}
 	if execution.Return.SubmissionPath != "" || execution.Return.SubmissionOutputs != "" || execution.Return.SubmissionResult != "" || len(execution.Return.AllowedOutcomes) > 0 {

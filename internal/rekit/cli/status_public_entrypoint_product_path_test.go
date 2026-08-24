@@ -46,6 +46,25 @@ func publicEntrypointProductCase(t *testing.T, fixture publicEntrypointProductFi
 	return caseRoot
 }
 
+func TestStatusFreshCurrentProductPathOmitsLegacyEntrypoint(t *testing.T) {
+	fixture := publicEntrypointProductFixture{
+		name:       "current",
+		stateDir:   projectstate.CurrentDir,
+		entrypoint: commands.CurrentPublicEntrypoint,
+	}
+	caseRoot := publicEntrypointProductCase(t, fixture, "fresh-current-entrypoint-projection")
+	data, status := runPublicEntrypointProductStatus(t, caseRoot, "")
+	if status.Mode != "case" || status.Onboarding == nil || status.Onboarding.State != "absent" || status.ProjectHandoff == nil || len(status.ProjectHandoff.ValidationCommands) != 0 || status.ProjectHandoff.NextBatchSelectionPackage != nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 0 {
+		t.Fatalf("fresh current status retained central handoff state or left onboarding: mode=%s onboarding=%+v project=%+v", status.Mode, status.Onboarding, status.ProjectHandoff)
+	}
+	if index := strings.Index(string(data), commands.LegacyPublicEntrypoint); index >= 0 {
+		start := max(0, index-160)
+		end := min(len(data), index+len(commands.LegacyPublicEntrypoint)+200)
+		t.Fatalf("fresh current status leaks legacy entrypoint near %q", data[start:end])
+	}
+	assertPublicEntrypointProductStatus(t, data, commands.CurrentPublicEntrypoint)
+}
+
 func TestStatusGateProductPathProjectsSelectedEntrypoint(t *testing.T) {
 	for _, fixture := range publicEntrypointProductFixtures() {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -133,6 +152,7 @@ func TestStatusGateProductPathProjectsSelectedEntrypoint(t *testing.T) {
 			if err := Run(previewArgs, &out); err != nil {
 				t.Fatal(err)
 			}
+			assertGateProductResponseEntrypoint(t, "preview", out.Bytes(), fixture.entrypoint)
 			var preview gate.Plan
 			if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 				t.Fatalf("gate preview did not decode: %v\n%s", err, out.String())
@@ -151,6 +171,7 @@ func TestStatusGateProductPathProjectsSelectedEntrypoint(t *testing.T) {
 			if err := Run(applyArgs, &out); err != nil {
 				t.Fatal(err)
 			}
+			assertGateProductResponseEntrypoint(t, "apply", out.Bytes(), fixture.entrypoint)
 			var applied gate.ApplyResult
 			if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
 				t.Fatalf("gate Apply did not decode: %v\n%s", err, out.String())
@@ -169,6 +190,23 @@ func TestStatusGateProductPathProjectsSelectedEntrypoint(t *testing.T) {
 				t.Fatalf("authorized gate handoff uses mixed entrypoint or omitted validation: %+v", authorizedHandoff)
 			}
 		})
+	}
+}
+
+func assertGateProductResponseEntrypoint(t *testing.T, label string, data []byte, entrypoint string) {
+	t.Helper()
+	other := commands.LegacyPublicEntrypoint
+	if entrypoint == commands.LegacyPublicEntrypoint {
+		other = commands.CurrentPublicEntrypoint
+	}
+	text := string(data)
+	if !strings.Contains(text, entrypoint+" ") {
+		t.Fatalf("gate %s response omitted public entrypoint %s", label, entrypoint)
+	}
+	if index := strings.Index(text, other+" "); index >= 0 {
+		start := max(0, index-160)
+		end := min(len(text), index+len(other)+200)
+		t.Fatalf("gate %s response leaks %s near %q", label, other, text[start:end])
 	}
 }
 

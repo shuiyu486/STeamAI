@@ -534,6 +534,24 @@ func TestRunDailyReturnsOrdinaryDirectoryAdoptionWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestRunDailyRejectsAdoptionSupportFieldsForAttachedTarget(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "attached-adoption-support")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	if _, err := applyDailyOnboarding(caseRoot, "attached mission", "daily-adoption-test", &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                 caseRoot,
+		InitializationRepoRoot: sessionhostTestRepoRoot(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "adoption controls require an ordinary directory") {
+		t.Fatalf("attached adoption support field result=%+v err=%v", result, err)
+	}
+	if result.Mode != string(DailyOperationAdoption) || result.SessionLaunches != 0 || len(result.HostRuns) != 0 || len(result.DriverSteps) != 0 {
+		t.Fatalf("attached adoption support field crossed zero-launch boundary: %+v", result)
+	}
+}
+
 func TestRunDailyDirectoryAdoptionPreviewApplyAndFreshOnboarding(t *testing.T) {
 	repoRoot := sessionhostTestRepoRoot(t)
 	caseRoot := t.TempDir()

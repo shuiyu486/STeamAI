@@ -285,6 +285,7 @@ type AdapterReportLiveValidation struct {
 	AdapterExecutionDispatchSHA256   string                                `json:"adapterExecutionDispatchSha256,omitempty"`
 	DispatchError                    string                                `json:"dispatchError,omitempty"`
 	DispatchRequirementError         string                                `json:"dispatchRequirementError,omitempty"`
+	AdapterSelectionRequired         bool                                  `json:"adapterSelectionRequired,omitempty"`
 	DispatchCommand                  string                                `json:"dispatchCommand,omitempty"`
 	SidecarTemplate                  AdapterReportSidecarTemplate          `json:"sidecarTemplate"`
 	CurrentRunLoopStepID             string                                `json:"currentRunLoopStepId,omitempty"`
@@ -782,7 +783,7 @@ func adapterReportRepairHintBoundary(gateEvent EventPreview, hint AdapterReportR
 	boundary := []string{
 		"recordBlocked=true: do not record evidence until validation returns valid=true",
 		"validation is read-only: no observations/authority/confirmed writes",
-		"/rekit never executes the heavy tool",
+		"Mission Control runtime never executes the heavy tool",
 		"no authority/confirmed writes",
 	}
 	if hint.RerunValidation {
@@ -880,7 +881,7 @@ func adapterReportRunbookSteps(stage, state, reportPath, reportSHA256 string, va
 	}
 	steps = append(steps,
 		"keep contract, scaffold/draft, validation, record, and evidence review as separate bounded operations",
-		"/rekit does not execute adapter or heavy tool actions from this handoff",
+		"Mission Control runtime does not execute adapter or heavy tool actions from this handoff",
 		"do not write authority/confirmed from adapter report lifecycle handoff",
 	)
 	for _, guard := range boundary {
@@ -920,7 +921,7 @@ func adapterReportLiveValidationRunbookSteps(live AdapterReportLiveValidation) [
 	}
 	steps = append(steps,
 		"keep scaffold/draft, validation, record, and evidence review as separate bounded operations",
-		"/rekit does not execute adapter or heavy tool actions from this handoff",
+		"Mission Control runtime does not execute adapter or heavy tool actions from this handoff",
 		"do not write authority/confirmed from adapter report lifecycle handoff",
 	)
 	return mission.UniqueStrings(steps)
@@ -996,7 +997,7 @@ func adapterReportHandoffSummary(gateEvent EventPreview, state, reportPath, repo
 		summary.Boundary = []string{
 			"adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
 			"validation is read-only and must return valid=true before evidence record",
-			"record command writes bounded observation evidence only; /rekit does not execute the heavy tool",
+			"record command writes bounded observation evidence only; Mission Control runtime does not execute the heavy tool",
 			"do not write authority/confirmed",
 		}
 	}
@@ -1013,7 +1014,7 @@ func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath 
 		GateEventID: gateEvent.EventID,
 		ReportPath:  reportPath,
 		Boundary: []string{
-			"authorizedExecutionFollowThrough is guidance only; /rekit does not execute the heavy tool",
+			"authorizedExecutionFollowThrough is guidance only; Mission Control runtime does not execute the heavy tool",
 			"validation is read-only and must return valid=true before evidence record",
 			"record command writes bounded observation evidence only",
 			"pre-validation contract/scaffold/draft handoffs do not provide runnable bare record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true",
@@ -1058,7 +1059,7 @@ func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath 
 			State:    "evidence-already-recorded",
 			When:     "record replay returns applied=false reason=duplicate eventId",
 			Command:  "/rekit handoff " + gateCommanderActionLabel(gateEvent.Lane),
-			Actions:  []string{"do not rerun the external heavy/tool adapter action", "review the existing observation evidence and output/evidence refs", "use /rekit overview for refreshed queue state"},
+			Actions:  []string{"do not rerun the external heavy/tool adapter action", "review the existing observation evidence and output/evidence refs", "use the project-local overview command for refreshed queue state"},
 			Expected: "duplicate replay does not append observations and routes to evidence review only",
 			Evidence: []string{"applied=false", "reason=duplicate eventId", "existing observation evidence eventId"},
 			Boundary: []string{"do not append duplicate observation evidence", "do not write authority/confirmed"},
@@ -1069,7 +1070,7 @@ func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath 
 			State:    state,
 			When:     "gate -Apply records bounded observation evidence for the authorized gate",
 			Command:  commander.PrimaryCommand,
-			Actions:  []string{"review outputRefs/evidenceRefs", "confirm no heavy tool was run by /rekit", "decide any later authority/confirmed outcome outside this record path"},
+			Actions:  []string{"review outputRefs/evidenceRefs", "confirm no heavy tool was run by the Mission Control runtime", "decide any later authority/confirmed outcome outside this record path"},
 			Expected: "Mission Commander reviews recorded observation evidence before continuation or authority/confirmed decisions",
 			Evidence: []string{"observation evidence row", "executionEvidenceReview item", "Mission Commander handoff"},
 			Boundary: []string{"observation evidence is already recorded; do not replay heavy tool", "do not write authority/confirmed"},
@@ -1382,7 +1383,7 @@ func adapterExecutionRecordMissionCommanderDriverReceipt(result ApplyResult, gat
 		RefreshedCurrentDriverRequest: result.MissionCommanderActionQueue.CurrentDriverRequest,
 		Boundary: mission.UniqueStrings([]string{
 			"driver receipt records the adapter execution observation record command result after deterministic ledger evaluation",
-			"driver receipt does not prove /rekit executed an adapter or heavy tool",
+			"driver receipt does not prove the Mission Control runtime executed an adapter or heavy tool",
 			"record command writes bounded observation evidence only and does not write authority/confirmed state",
 			"duplicate record receipt does not append observation evidence or authorize replay",
 			"after consuming this receipt, run refreshedCurrentDriverRequest or expectedReceipt.refreshStatusCommand only under the request boundary",
@@ -1511,7 +1512,7 @@ func adapterReportValidationMissionCommanderDriverReceipt(pack string, gateEvent
 		RefreshedCurrentDriverRequest: validation.MissionCommanderActionQueue.CurrentDriverRequest,
 		Boundary: mission.UniqueStrings([]string{
 			"driver receipt records the adapter report validation command result after deterministic read-only validation",
-			"driver receipt does not prove /rekit executed an adapter or heavy tool",
+			"driver receipt does not prove the Mission Control runtime executed an adapter or heavy tool",
 			"adapter report validation is read-only and must return valid=true before observation evidence record",
 			"record command writes bounded observation evidence only and does not write authority/confirmed state",
 			"after consuming this receipt, run refreshedCurrentDriverRequest or expectedReceipt.refreshStatusCommand only under the request boundary",
@@ -1590,7 +1591,7 @@ func adapterReportScaffoldLiveSnapshot(repoRoot, caseRoot, pack string, gateEven
 		"exact scaffold is present; do not record it as execution evidence",
 		"fill bounded execution fields with gate -DraftExecutionReport or edit manually after external adapter completes",
 		"validation remains read-only and must return valid=true before evidence record",
-		"/rekit never executes the heavy tool",
+		"Mission Control runtime never executes the heavy tool",
 		"no observations/authority/confirmed writes",
 	}
 	commander := mission.MissionCommanderAction{
@@ -2107,6 +2108,18 @@ func adapterReportContractCommanderAction(event EventPreview, pack string, liveV
 		}
 	}
 	adapterID := liveValidation.SidecarTemplate.AdapterID
+	if liveValidation.AdapterSelectionRequired {
+		candidateIDs := make([]string, 0, len(liveValidation.AdapterCandidates))
+		for _, candidate := range liveValidation.AdapterCandidates {
+			candidateIDs = append(candidateIDs, candidate.ID)
+		}
+		return mission.MissionCommanderAction{
+			State:          "needs-explicit-adapter-selection",
+			Prompt:         fmt.Sprintf("authorized gate `%s` 匹配多个 managed adapter：%s。由 typed target/request owner 选择 exact AdapterID 后再记录 immutable dispatch；候选排序不授予执行选择。", event.EventID, strings.Join(candidateIDs, ", ")),
+			PrimaryCommand: "/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
+			Boundary:       append(adapterReportCommanderBoundary(), "do not infer adapter identity from catalog rank or list order", "record dispatch only after an exact typed adapter selection"),
+		}
+	}
 	if strings.TrimSpace(liveValidation.DispatchRequirementError) != "" {
 		return mission.MissionCommanderAction{
 			State:          "blocked-by-adapter-execution-catalog-invalid",
@@ -2174,8 +2187,11 @@ func adapterReportContractCommanderNextActions(event EventPreview, commander mis
 		case "blocked-by-adapter-execution-catalog-invalid":
 			actionID = "adapter-execution-catalog-repair"
 			reasons = []string{"managed adapter provenance is invalid", "repair durable owner/tooling catalog before external execution"}
+		case "needs-explicit-adapter-selection":
+			actionID = "adapter-execution-select-adapter"
+			reasons = []string{"multiple managed adapters match this action", "typed target/request classification must select one exact AdapterID before dispatch"}
 		}
-		blocked := strings.HasPrefix(commander.State, "blocked-by-adapter-execution-")
+		blocked := strings.HasPrefix(commander.State, "blocked-by-adapter-execution-") || commander.State == "needs-explicit-adapter-selection"
 		items = append(items, adapterReportNextActionItem(event, label, actionID, commander.State, commander.PrimaryCommand, "adapterReportContract.missionCommanderAction", blocked, true, reasons, commander.Boundary))
 	}
 	for _, followUp := range commander.FollowUpCommands {
@@ -2263,12 +2279,19 @@ func adapterReportContractNextSteps(pack string, event EventPreview, liveValidat
 	if reportPath == "" {
 		reportPath = "<reportPath-under-authorized-outputPath>"
 	}
+	if liveValidation.AdapterSelectionRequired {
+		return []string{
+			"select one exact AdapterID from the typed target/request owner; catalog rank and list order are presentation only",
+			"refresh the adapter report contract after exact selection; do not construct or run a dispatch command from this ambiguous contract",
+			"review refs before any authority/confirmed outcome",
+		}
+	}
 	return []string{
 		"record immutable dispatch before external execution: " + adapterExecutionDispatchPreviewSlashCommand(pack, event, reportPath, liveValidation.SidecarTemplate.AdapterID),
 		"after reviewed dispatch Apply, adapter writes bounded report under authorized output path: " + reportPath,
 		"preflight read-only: " + adapterReportValidateSlashCommand(pack, event.EventID, reportPath),
 		"after valid=true, use the validation/status returned hash-bound record command with -ExpectedExecutionReportSha256; do not run a contract-stage bare record template",
-		"replace <executor-id> before record; /rekit records evidence only and never executes the heavy tool",
+		"replace <executor-id> before record; Mission Control runtime records evidence only and never executes the heavy tool",
 		"review refs before any authority/confirmed outcome",
 	}
 }
@@ -2367,7 +2390,7 @@ func adapterReportCommanderBoundary() []string {
 	return []string{
 		"validation is read-only: no observations/authority/confirmed writes",
 		"record command writes bounded observation evidence only after valid=true",
-		"/rekit never executes the heavy tool",
+		"Mission Control runtime never executes the heavy tool",
 		"no authority/confirmed writes",
 	}
 }
@@ -2403,7 +2426,9 @@ func adapterReportCaseRelativeCommand(args []string) string {
 }
 
 func adapterReportLiveValidationWithState(pack string, event EventPreview, live AdapterReportLiveValidation, state string) AdapterReportLiveValidation {
-	live.DispatchCommand = adapterExecutionDispatchPreviewSlashCommand(pack, event, live.CaseRelativeReportPath, live.SidecarTemplate.AdapterID)
+	if !live.AdapterSelectionRequired {
+		live.DispatchCommand = adapterExecutionDispatchPreviewSlashCommand(pack, event, live.CaseRelativeReportPath, live.SidecarTemplate.AdapterID)
+	}
 	live.CurrentRunLoopStepID = adapterReportLiveValidationCurrentRunLoopStepID(live, state)
 	live.RunLoop = adapterReportLiveValidationRunLoop(pack, event, live, state)
 	return live
@@ -2411,6 +2436,8 @@ func adapterReportLiveValidationWithState(pack string, event EventPreview, live 
 
 func adapterReportLiveValidationCurrentRunLoopStepID(live AdapterReportLiveValidation, state string) string {
 	switch strings.TrimSpace(state) {
+	case "needs-explicit-adapter-selection":
+		return "select-adapter"
 	case "blocked-by-adapter-execution-catalog-invalid", "blocked-by-adapter-execution-dispatch-drift", "blocked-by-adapter-execution-provenance-drift", "needs-main-escalation":
 		return "repair-provenance-or-escalate"
 	case "ready-for-adapter-execution-dispatch-preview":
@@ -2480,6 +2507,20 @@ func adapterReportLiveValidationRunLoop(pack string, event EventPreview, live Ad
 			"do not execute adapter/heavy tool work from the contract inspection step",
 		},
 	})
+	if live.AdapterSelectionRequired {
+		add(mission.MissionCommanderRunLoopStep{
+			StepID:      "select-adapter",
+			Actor:       "main-agent",
+			Description: "select one exact adapter through the typed target/request owner before immutable dispatch",
+			State:       state,
+			Source:      "adapterReportLiveValidation.adapterSelection",
+			Boundary: []string{
+				"catalog rank and list order are presentation only and must not select an executable adapter",
+				"refresh the contract after exact selection; do not construct a dispatch command from ambiguous candidates",
+			},
+		})
+		return steps
+	}
 	if live.DispatchRequired {
 		add(mission.MissionCommanderRunLoopStep{
 			StepID:      "record-dispatch",
@@ -2494,17 +2535,19 @@ func adapterReportLiveValidationRunLoop(pack string, event EventPreview, live Ad
 			},
 		})
 	}
-	add(mission.MissionCommanderRunLoopStep{
-		StepID:      "run-external-adapter",
-		Actor:       "external-harness",
-		Description: "run the selected adapter or harness outside /rekit within the authorized workspace, budget, and stop conditions",
-		State:       state,
-		Source:      "adapterReportLiveValidation.externalHarness",
-		Boundary: []string{
-			"/rekit does not spawn, poll, stop, or execute the adapter/heavy tool",
-			"external output must stay under authorized outputPaths and cite bounded refs rather than embedding full dumps/logs",
-		},
-	})
+	if !live.AdapterSelectionRequired {
+		add(mission.MissionCommanderRunLoopStep{
+			StepID:      "run-external-adapter",
+			Actor:       "external-harness",
+			Description: "run the selected adapter or harness outside the Mission Control runtime within the authorized workspace, budget, and stop conditions",
+			State:       state,
+			Source:      "adapterReportLiveValidation.externalHarness",
+			Boundary: []string{
+				"Mission Control runtime does not spawn, poll, stop, or execute the adapter/heavy tool",
+				"external output must stay under authorized outputPaths and cite bounded refs rather than embedding full dumps/logs",
+			},
+		})
+	}
 	add(mission.MissionCommanderRunLoopStep{
 		StepID:      "draft-or-write-report",
 		Actor:       "lane-executor",
@@ -2580,13 +2623,18 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 		dispatchRequired = true
 		dispatchErr = dispatchRequirementErr
 	}
+	selectedAdapterID := sidecarAdapterID(adapterCandidates)
+	adapterSelectionRequired := len(adapterCandidates) > 1 && !dispatchPresent
+	if dispatchPresent && dispatchErr == nil {
+		selectedAdapterID = dispatch.Adapter.AdapterID
+	}
 	if dispatchPresent && strings.TrimSpace(dispatch.ReportPath) != "" {
 		caseRelativeReportPath = dispatch.ReportPath
 	}
 	template := AdapterReportSidecarTemplate{
 		SchemaVersion: 1,
 		Kind:          "adapter-execution-report",
-		AdapterID:     sidecarAdapterID(adapterCandidates),
+		AdapterID:     selectedAdapterID,
 		Action:        event.Gate.Action,
 		Status:        "succeeded|failed|boundary-hit|escalated|aborted",
 		GateEventID:   event.EventID,
@@ -2638,6 +2686,7 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 		DispatchRequired:                 dispatchRequired,
 		DispatchPresent:                  dispatchPresent,
 		DispatchCurrent:                  dispatchPresent && dispatchErr == nil,
+		AdapterSelectionRequired:         adapterSelectionRequired,
 		AdapterExecutionDispatchPath:     dispatchPath,
 		AdapterExecutionDispatchSHA256:   dispatchSHA,
 		SidecarTemplate:                  template,
@@ -2665,7 +2714,7 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 		CaseRelativeDraftArgs:            caseRelativeDraftArgs,
 		CaseRelativeDraftApplyArgs:       caseRelativeDraftApplyArgs,
 		AdapterCandidates:                adapterCandidates,
-		SelectedAdapter:                  selectedAdapterToolCandidate(m, event, sidecarAdapterID(adapterCandidates)),
+		SelectedAdapter:                  selectedAdapterToolCandidate(m, event, selectedAdapterID),
 		ReplayBehavior:                   "after valid=true, repeating the validation/status returned hash-bound record command with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
 		Notes: []string{
 			"ScaffoldArgs and CaseRelativeScaffoldArgs write only the missing adapter-report.json template; they do not execute the adapter, validate the report, record observations, or write authority/confirmed.",
@@ -2675,6 +2724,17 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 			"Keep outputRefs/evidenceRefs case-relative and under authorized outputPaths so validation and record paths enforce the same artifact boundary.",
 			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
 		},
+	}
+	if live.AdapterSelectionRequired {
+		live.DispatchCommand = ""
+		live.DraftCommand = ""
+		live.DraftApplyCommand = ""
+		live.DraftArgs = nil
+		live.DraftApplyArgs = nil
+		live.CaseRelativeDraftCommand = ""
+		live.CaseRelativeDraftApplyCommand = ""
+		live.CaseRelativeDraftArgs = nil
+		live.CaseRelativeDraftApplyArgs = nil
 	}
 	if dispatchPresent {
 		live.AdapterExecutionDispatchID = dispatch.DispatchID
@@ -4060,13 +4120,13 @@ func executionNextSteps(event ExecutionEvidencePreview) []string {
 	if executionNeedsMainReview(event) {
 		return []string{
 			"Execution evidence recorded a boundary hit or escalation; stop autonomous work on this action and notify the main Agent.",
-			"Mission Commander handoff: /rekit handoff " + label,
+			"/rekit handoff " + label,
 			"Review output refs and evidence refs before recording any authority/confirmed outcome.",
 		}
 	}
 	return []string{
-		"Execution evidence recorded the authorized action outcome; /rekit did not execute the heavy tool.",
-		"Mission Commander handoff: /rekit handoff " + label,
+		"Execution evidence recorded the authorized action outcome; Mission Control runtime did not execute the heavy tool.",
+		"/rekit handoff " + label,
 		"Review output refs and evidence refs before recording any authority/confirmed outcome.",
 	}
 }
@@ -4092,7 +4152,7 @@ func executionCommanderAction(event ExecutionEvidencePreview, applied, duplicate
 	}
 	boundary := []string{
 		"record command writes bounded observation evidence only",
-		"/rekit did not execute the heavy tool",
+		"Mission Control runtime did not execute the heavy tool",
 		"review outputRefs/evidenceRefs before any authority/confirmed outcome",
 		"no authority/confirmed writes",
 	}
@@ -4190,7 +4250,7 @@ func gatePendingApplyCommanderAction(pack string, preview EventPreview) mission.
 		Boundary: []string{
 			"gate apply only writes a request ledger decision",
 			"pending-gate still requires explicit authorization before heavy action",
-			"/rekit does not execute the heavy tool",
+			"Mission Control runtime does not execute the heavy tool",
 			"no authority/confirmed writes",
 		},
 	}
@@ -4204,7 +4264,7 @@ func gateAuthorizedApplyCommanderAction(pack string, preview EventPreview) missi
 	}
 	return mission.MissionCommanderAction{
 		State:          "needs-authorized-gate-apply",
-		Prompt:         fmt.Sprintf("先 review `%s` 的 authorized-gate preview，再写入 durable lane authorization decision；actual heavy tool 仍在 /rekit 外执行。", label),
+		Prompt:         fmt.Sprintf("先 review `%s` 的 authorized-gate preview，再写入 durable lane authorization decision；actual heavy tool 仍在 Mission Control runtime 外执行。", label),
 		PrimaryCommand: gateRequestApplySlashCommand(pack, preview),
 		FollowUpCommands: []string{
 			gateExecutionReportContractSlashCommand(pack, gateEventID),
@@ -4324,7 +4384,7 @@ func gateAuthorizedRequestBoundary() []string {
 		"gate apply writes durable authorization decision only",
 		"actual heavy tool must stay within authorized target, budget, output paths, and stop conditions",
 		"record bounded observation evidence after execution",
-		"/rekit does not execute the heavy tool",
+		"Mission Control runtime does not execute the heavy tool",
 		"no authority/confirmed writes",
 	}
 }
@@ -4432,7 +4492,7 @@ func planNextSteps(preview EventPreview) []string {
 	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
 		return []string{
 			"Record this authorized gate decision in the ledger if the preflight matches the intended action, target, budget, output paths, and stop conditions.",
-			"The actual heavy tool still runs outside /rekit; keep execution within the durable lane autonomy profile.",
+			"The actual heavy tool still runs outside the Mission Control runtime; keep execution within the durable lane autonomy profile.",
 			"After the tool run, record execution evidence with gate -Apply -GateEventId and include output refs, evidence refs, actual budget use, and any boundary hit or escalation.",
 		}
 	}
@@ -4447,7 +4507,7 @@ func planNextSteps(preview EventPreview) []string {
 func applyNextSteps(preview EventPreview) []string {
 	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
 		return []string{
-			"This ledger write records a durable lane autonomy authorization decision; /rekit still did not execute the heavy tool.",
+			"This ledger write records a durable lane autonomy authorization decision; Mission Control runtime still did not execute the heavy tool.",
 			"Run the heavy tool only within the authorized target, budget, output paths, and stop conditions.",
 			"After the tool run, record execution evidence with gate -Apply -GateEventId and include output refs, evidence refs, actual budget use, and any boundary hit or escalation.",
 		}
@@ -4622,7 +4682,7 @@ func splitList(value string) []string {
 }
 
 func sidecarAdapterID(candidates []AdapterToolCandidate) string {
-	if len(candidates) == 0 {
+	if len(candidates) != 1 {
 		return "<adapter-id>"
 	}
 	return candidates[0].ID
@@ -4794,7 +4854,7 @@ func adapterEvidenceGuidance() []string {
 	return []string{
 		"preflight with ValidateArgs or CaseRelativeValidateArgs before recording evidence",
 		"record with RecordArgs or CaseRelativeRecordArgs only after the action stayed within authorized target, budget, output paths, and stop conditions",
-		"do not write authority/confirmed or run any heavy tool through /rekit",
+		"do not write authority/confirmed or run any heavy tool through the Mission Control runtime",
 	}
 }
 

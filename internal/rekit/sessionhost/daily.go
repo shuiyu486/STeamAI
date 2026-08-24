@@ -52,6 +52,9 @@ type DailyOptions struct {
 	beforeMemberRun                   func(caseRoot, pack, lane string) error
 	binaryREAdapterPath               string
 	binaryREAdapterRunner             binaryREAuthorizedRunner
+	webSecurityAdapterPath            string
+	webSecurityAdapterRunner          binaryREAuthorizedRunner
+	evidenceReviewRunner              func(context.Context, Options, mission.CurrentLoopExternalSessionHarnessPackage, string, func() error) claudeRun
 	stopAfterMemberSegment            bool
 	projectExecutionLease             *projectexecution.Lease
 }
@@ -86,6 +89,7 @@ type DailyResult struct {
 	DirectoryAdoption          *DailyDirectoryAdoption                `json:"directoryAdoption,omitempty"`
 	ExecutionControl           *executioncontrol.Plan                 `json:"executionControl,omitempty"`
 	BinaryREAdapter            *BinaryREAdapterLifecycleResult        `json:"binaryReAdapter,omitempty"`
+	WebSecurityAdapter         *WebSecurityAdapterLifecycleResult     `json:"webSecurityAdapter,omitempty"`
 	Boundary                   []string                               `json:"boundary"`
 }
 
@@ -114,27 +118,15 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		if result.Failure != nil || result.Action == nil {
 			result.Action = dailyUserAction(result)
 		}
-		if result.Mode != "control" && result.CaseRoot != "" && result.Pack != "" && result.FinalState != "not-started" {
+		if result.Mode != string(DailyOperationControl) && result.CaseRoot != "" && result.Pack != "" && result.FinalState != "not-started" {
 			bindDailyResultCurrentDriverRequest(&result)
 		}
 	}()
-	goal := strings.TrimSpace(opt.Goal)
-	correction := strings.TrimSpace(opt.Correction)
-	controlRequested := dailyControlRequested(opt)
-	mode := "resume"
-	if goal != "" {
-		mode = "goal"
-	}
-	if correction != "" {
-		mode = "correction"
-	}
-	if controlRequested {
-		mode = "control"
-	}
+	request, requestErr := ResolveDailyRequest(opt)
 	result = DailyResult{
 		SchemaVersion: 1,
 		Command:       "rekit-host-daily",
-		Mode:          mode,
+		Mode:          string(request.Operation),
 		FinalState:    "not-started",
 		Boundary: []string{
 			"the daily front door derives lifecycle identity and consumes only public exact preview/apply requests",
@@ -142,13 +134,12 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			"the front door does not write authority/confirmed state or execute an unauthorized heavy action",
 		},
 	}
-	if goal != "" && correction != "" {
-		return result, fmt.Errorf("daily front door accepts either -goal or -correction, not both")
+	if requestErr != nil {
+		return result, requestErr
 	}
-	if controlRequested && (goal != "" || correction != "") {
-		return result, fmt.Errorf("daily front door control cannot be combined with -goal or -correction")
-	}
-	if controlRequested {
+	goal := request.Goal
+	correction := request.Correction
+	if request.ControlRequested {
 		if recoveryOnly {
 			return result, fmt.Errorf("project-local recovery front door does not apply lane execution control")
 		}
@@ -212,8 +203,7 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			"project-local recovery front door requires a pending durable current project update",
 		)
 	}
-	adoptionRequested := strings.TrimSpace(opt.DirectoryAdoptionAction) != "" ||
-		strings.TrimSpace(opt.ExpectedInitPlanSHA256) != ""
+	adoptionRequested := request.AdoptionRequested
 	if target.Kind != dailyTargetOrdinary && adoptionRequested {
 		return result, fmt.Errorf("daily directory adoption controls require an ordinary directory target")
 	}
@@ -425,7 +415,7 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			return result, fmt.Errorf("prepare daily member run: %w", err)
 		}
 	}
-	adapterReady, err := prepareBinaryREAdapterBeforeMember(parent, opt, &result)
+	adapterReady, err := prepareProductionAdapterBeforeMember(parent, opt, &result)
 	if err != nil {
 		return result, err
 	}
@@ -448,16 +438,14 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			return result, err
 		}
 	} else {
-		if _, err := bindHostCurrentDriverRequest(&hostOpt); err != nil {
-			return result, fmt.Errorf("bind daily current driver request: %w", err)
-		}
-		hostResult, err := Run(parent, hostOpt)
-		addDailyHostRun(&result, hostResult)
+		owner, err := newDailySessionTransitionOwner(caseRoot, pack, result.Lane)
 		if err != nil {
 			return result, err
 		}
-		result.FinalState = hostResult.FinalMode
-		if err := finishDailyCompletion(caseRoot, pack, &result); err != nil {
+		if err := owner.runHostSegment(parent, hostOpt, &result); err != nil {
+			return result, err
+		}
+		if err := owner.finish(&result); err != nil {
 			return result, err
 		}
 	}
@@ -794,20 +782,11 @@ func bindDailyResultCurrentDriverRequest(result *DailyResult) {
 	if result == nil {
 		return
 	}
-	status, err := runPublicStatus(result.CaseRoot, result.Pack, result.Lane)
-	if err != nil || status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
+	owner, err := newDailySessionTransitionOwner(result.CaseRoot, result.Pack, result.Lane)
+	if err != nil {
 		return
 	}
-	request := *status.MissionControlRunbook.CurrentDriverRequest
-	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
-		return
-	}
-	identity, err := mission.MissionCommanderDriverRequestSHA256(request)
-	if err != nil || !strings.EqualFold(identity, status.MissionControlRunbook.CurrentDriverRequestSHA256) {
-		return
-	}
-	result.CurrentDriverRequest = &request
-	result.CurrentDriverRequestSHA256 = identity
+	owner.bindResultCurrentDriverRequest(result)
 }
 
 func dailyLaneTerminal(caseRoot, laneID string) (string, int, bool, error) {
@@ -853,50 +832,15 @@ func dailyLaneTerminal(caseRoot, laneID string) (string, int, bool, error) {
 }
 
 func finishDailyCompletion(caseRoot, pack string, result *DailyResult) error {
-	if result != nil && result.FinalState == DailyActionReadyForEvidenceReview {
-		return nil
-	}
-	if result != nil && result.FinalState == "reviewer-rejected-awaiting-correction" {
-		result.Blocked = true
-		return nil
-	}
 	selected := ""
 	if result != nil {
 		selected = result.Lane
 	}
-	status, err := runPublicStatus(caseRoot, pack, selected)
+	owner, err := newDailySessionTransitionOwner(caseRoot, pack, selected)
 	if err != nil {
 		return err
 	}
-	if status.CaseMission != nil && status.CaseMission.MissionCompletion != nil && status.CaseMission.MissionCompletion.Ready && status.CaseMission.MissionCompletion.OperationallyComplete {
-		result.FinalState = "mission-complete"
-		result.Replay = result.SessionLaunches == 0
-		return nil
-	}
-	request := currentDailyRequest(status)
-	if request == nil || !request.CommandExecutable || request.Blocked {
-		result.Blocked = true
-		result.FinalState = "attention-required"
-		return nil
-	}
-	if mission.ValidateMissionCommanderDriverRequest(*request) != nil || request.Invocation.Command != "complete" {
-		result.Blocked = true
-		result.FinalState = "attention-required"
-		return nil
-	}
-	step, err := runPublicDriverStep(caseRoot, pack, selected)
-	if err != nil {
-		return fmt.Errorf("daily public completion: %w", err)
-	}
-	if step.ResultCommand != "complete" || step.Completion == nil || step.Completion.Blocked || !step.Completion.Applied || step.Completion.Lane.Status != "closed" {
-		return fmt.Errorf("daily public completion did not close the current lane")
-	}
-	result.DriverSteps = append(result.DriverSteps, step.ResultCommand)
-	result.Completion = step.Completion
-	result.Lane = step.Completion.Lane.ID
-	result.ExecutorGeneration = step.Completion.Lane.ExecutorGeneration
-	result.FinalState = "lane-closed"
-	return nil
+	return owner.finish(result)
 }
 
 func addDailyHostRun(result *DailyResult, host Result) {

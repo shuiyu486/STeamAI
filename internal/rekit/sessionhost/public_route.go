@@ -227,6 +227,13 @@ func bindHostCurrentDriverRequest(opt *Options) (*mission.MissionCommanderDriver
 	if err != nil {
 		return nil, err
 	}
+	return bindHostCurrentDriverRequestFromStatus(opt, status)
+}
+
+func bindHostCurrentDriverRequestFromStatus(opt *Options, status publicStatus) (*mission.MissionCommanderDriverRequest, error) {
+	if opt == nil {
+		return nil, fmt.Errorf("host options are missing")
+	}
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return nil, fmt.Errorf("fresh status omitted the current driver request")
 	}

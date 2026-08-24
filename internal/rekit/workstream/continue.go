@@ -17,11 +17,13 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
@@ -33,6 +35,7 @@ type ContinueOptions struct {
 	Executor                   string
 	ExpectedExecutorGeneration int
 	ExpectedPreviewSHA256      string
+	ExpectedContinuePlanSHA256 string
 	AfterPreviewValidation     func() error
 }
 
@@ -50,6 +53,7 @@ type ContinueResult struct {
 	AutonomyProfile                  autonomy.Summary                         `json:"autonomyProfile"`
 	RunID                            string                                   `json:"runId"`
 	BatchID                          string                                   `json:"batchId"`
+	ContinuePlanSHA256               string                                   `json:"continuePlanSha256,omitempty"`
 	Summary                          ContinueSummary                          `json:"summary"`
 	MissionBrief                     mission.Brief                            `json:"missionBrief"`
 	ExecutorAction                   laneExecutorAction                       `json:"executorAction"`
@@ -201,6 +205,15 @@ type continuePolicy struct {
 }
 
 func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (ContinueResult, error) {
+	if _, err := plancontract.ValidatePhase(
+		commands.Continue,
+		"-ExpectedContinuePlanSha256",
+		true,
+		false,
+		opt.ExpectedContinuePlanSHA256,
+	); err != nil {
+		return ContinueResult{}, err
+	}
 	ctx, err := newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
@@ -340,7 +353,66 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 			}
 		}
 	}
+	planResult, err := continuePreviewPlanResult(ctx, result)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	planSHA256, err := continuePreviewPlanSHA256(planResult, rawEvents)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	result.ContinuePlanSHA256 = planSHA256
+	result.MissionCommanderNextActions, err = continuePreviewApplyNextActions(result.MissionCommanderNextActions, planSHA256)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	if !continuePreviewHasExecutableApply(result.MissionCommanderActionQueue, planSHA256) {
+		result.Blocked = true
+		result.RequiresConfirmation = false
+		result.BlockedActions = uniqueStrings(append(result.BlockedActions, "continue Apply while the Mission Commander current action is blocked or not ready-to-continue"))
+	}
+	result.LaneTakeoverPackage, err = laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, result.MissionCommanderActionQueue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	return result, nil
+}
+
+func continuePreviewPlanResult(ctx continueContext, result ContinueResult) (ContinueResult, error) {
+	canonical := result
+	canonical.Selector = canonical.Lane.ID
+	canonical.ExecutorAction = bindHandoffLaneExecutorAction(canonical.ExecutorAction, canonical.Lane.ID, workstreamLabel(canonical.Lane))
+	canonical.MissionCommanderNextActions = ctx.missionCommanderNextActions(canonical.ExecutorAction, canonical.ExecutionEvidenceReview, canonical.AuthorizedGateAdapterHandoffs, canonical.ReviewerDispatchIntakeHandoffs)
+	canonical.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(canonical.MissionCommanderNextActions)
+	var err error
+	canonical.LaneTakeoverPackage, err = laneTakeoverPackageFor(ctx.inst.CaseRoot, canonical.Lane, canonical.ExecutorAction, canonical.MissionCommanderActionQueue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	canonical.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(canonical.ExecutionEvidenceReview, canonical.MissionCommanderActionQueue)
+	return canonical, nil
+}
+
+func continuePreviewPlanSHA256(result ContinueResult, rawEvents []map[string]any) (string, error) {
+	canonical := result
+	canonical.ContinuePlanSHA256 = ""
+	identity := struct {
+		SchemaVersion int              `json:"schemaVersion"`
+		Result        ContinueResult   `json:"result"`
+		RawEvents     []map[string]any `json:"rawEvents"`
+	}{
+		SchemaVersion: 1,
+		Result:        canonical,
+		RawEvents:     rawEvents,
+	}
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (ContinueResult, error) {
@@ -354,12 +426,17 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 			err = MarkZeroProgress(err)
 		}
 	}()
-	ctx, err := newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
+	expectedPlanSHA256, err := plancontract.RequireApplyBinding(
+		commands.Continue,
+		"-ExpectedContinuePlanSha256",
+		opt.ExpectedContinuePlanSHA256,
+	)
 	if err != nil {
 		return ContinueResult{}, err
 	}
-	if ctx.ownerGuardRecoveryReason != "" {
-		return ctx.blockedByOwnerGuardRecovery(true)
+	ctx, err := newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return ContinueResult{}, err
 	}
 	lease, err := acquireLaneMutationLock(ctx.inst.CaseRoot, ctx.lane.ID)
 	if err != nil {
@@ -376,19 +453,25 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 		return ContinueResult{}, err
 	}
 	if ctx.ownerGuardRecoveryReason != "" {
-		return ctx.blockedByOwnerGuardRecovery(true)
+		return ContinueResult{}, fmt.Errorf("continue Apply is blocked by the current executor owner guard: %s", ctx.ownerGuardRecoveryReason)
 	}
 	if err := lease.Validate(); err != nil {
 		return ContinueResult{}, err
 	}
-	if blocked, err := ctx.blockedByOpenInterventions(true); err != nil || blocked.Blocked {
-		return blocked, err
+	if blocked, err := ctx.blockedByOpenInterventions(false); err != nil {
+		return ContinueResult{}, err
+	} else if blocked.Blocked {
+		return ContinueResult{}, fmt.Errorf("continue Apply is blocked by an open intervention")
 	}
-	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(true); err != nil || blocked.Blocked {
-		return blocked, err
+	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(false); err != nil {
+		return ContinueResult{}, err
+	} else if blocked.Blocked {
+		return ContinueResult{}, fmt.Errorf("continue Apply is blocked by a pending gate or open decision")
 	}
-	if blocked, err := ctx.blockedByReviewerDispatches(true); err != nil || blocked.Blocked {
-		return blocked, err
+	if blocked, err := ctx.blockedByReviewerDispatches(false); err != nil {
+		return ContinueResult{}, err
+	} else if blocked.Blocked {
+		return ContinueResult{}, fmt.Errorf("continue Apply is blocked by reviewer dispatch or intake")
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -406,11 +489,22 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	preview, err := continuePreviewFromSnapshot(ctx, known, inputs, packets, rawEvents)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	if _, err := plancontract.Match(
+		commands.Continue,
+		"-ExpectedContinuePlanSha256",
+		expectedPlanSHA256,
+		preview.ContinuePlanSHA256,
+	); err != nil {
+		return ContinueResult{}, err
+	}
+	if !continuePreviewHasExecutableApply(preview.MissionCommanderActionQueue, preview.ContinuePlanSHA256) {
+		return ContinueResult{}, fmt.Errorf("continue Apply is blocked by the current Mission Commander action")
+	}
 	if strings.TrimSpace(opt.ExpectedPreviewSHA256) != "" {
-		preview, err := continuePreviewFromSnapshot(ctx, known, inputs, packets, rawEvents)
-		if err != nil {
-			return ContinueResult{}, err
-		}
 		encoded, err := json.Marshal(preview)
 		if err != nil {
 			return ContinueResult{}, err
@@ -420,10 +514,10 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedPreviewSHA256), actual) {
 			return ContinueResult{}, fmt.Errorf("continue preview sha256 mismatch: got %s want %s", opt.ExpectedPreviewSHA256, actual)
 		}
-		if opt.AfterPreviewValidation != nil {
-			if err := opt.AfterPreviewValidation(); err != nil {
-				return ContinueResult{}, err
-			}
+	}
+	if opt.AfterPreviewValidation != nil {
+		if err := opt.AfterPreviewValidation(); err != nil {
+			return ContinueResult{}, err
 		}
 	}
 	if validateCurrent != nil {
@@ -456,6 +550,7 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 		AutonomyProfile:      autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
 		RunID:                runID,
 		BatchID:              batchID,
+		ContinuePlanSHA256:   preview.ContinuePlanSHA256,
 		Inputs:               uniqueStrings(inputs),
 		PacketRefs:           uniqueStrings(packets),
 		Events:               []ContinueEventPreview{},
@@ -807,6 +902,69 @@ func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction
 	items := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
 	items = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(items, adapterHandoffs, acknowledgedIDs)
 	return MissionCommanderNextActionsWithReviewerDispatches(items, reviewerHandoffs)
+}
+
+func continuePreviewHasExecutableApply(queue mission.MissionCommanderActionQueue, expectedPlanSHA256 string) bool {
+	request := queue.CurrentDriverRequest
+	if request == nil || request.Blocked || !request.CommandExecutable || request.Invocation == nil {
+		return false
+	}
+	invocation := *request.Invocation
+	hasApply := invocation.HasFlag("-Apply") || invocation.HasFlag("--apply")
+	hasWhatIf := invocation.HasFlag("-WhatIf") || invocation.HasFlag("--what-if")
+	if invocation.Command != commands.Continue || !hasApply || hasWhatIf || commands.ValidateExecutableContinueInvocation(invocation) != nil {
+		return false
+	}
+	planSHA256, present, valid := invocation.FlagValue("-ExpectedContinuePlanSha256", "--expected-continue-plan-sha256")
+	return present && valid && strings.EqualFold(planSHA256, strings.TrimSpace(expectedPlanSHA256))
+}
+
+func continuePreviewApplyNextActions(items []mission.MissionCommanderNextActionItem, expectedPlanSHA256 string) ([]mission.MissionCommanderNextActionItem, error) {
+	queue := mission.MissionCommanderActionQueueFor(items)
+	current := queue.CurrentAction
+	if current == nil || current.Source != "missionCommanderActions" || current.State != "ready-to-continue" || current.Blocked {
+		return items, nil
+	}
+	out := append([]mission.MissionCommanderNextActionItem{}, items...)
+	promoted := false
+	for index := range out {
+		item := &out[index]
+		if item.Source != current.Source || item.State != current.State || item.Lane != current.Lane || item.Command != current.Command {
+			continue
+		}
+		if promoted {
+			return nil, fmt.Errorf("continue preview returned multiple current Apply actions")
+		}
+		if item.Invocation == nil {
+			return nil, fmt.Errorf("continue preview Apply action omitted its typed invocation")
+		}
+		invocation, err := commands.PromoteContinuePreviewToApply(*item.Invocation, expectedPlanSHA256)
+		if err != nil {
+			return nil, fmt.Errorf("continue preview Apply action: %w", err)
+		}
+		entrypoint := commands.LegacyPublicEntrypoint
+		if strings.HasPrefix(strings.TrimSpace(item.Command), commands.CurrentPublicEntrypoint+" ") {
+			entrypoint = commands.CurrentPublicEntrypoint
+		}
+		command, err := invocation.RenderForEntrypoint(entrypoint)
+		if err != nil {
+			return nil, fmt.Errorf("render continue preview Apply action: %w", err)
+		}
+		item.State = "needs-continue-apply"
+		item.Invocation = &invocation
+		item.Command = command
+		item.RequiresReview = true
+		item.Reasons = mission.UniqueStrings(append(append([]string{}, item.Reasons...), "review the continue preview, then apply only this exact returned case-local request"))
+		item.Boundary = mission.UniqueStrings(append(append([]string{}, item.Boundary...),
+			"continue Apply writes only case-local facts, route, digest, resume, checkpoint, and board state",
+			"continue Apply does not write authority/confirmed state or execute heavy tools",
+		))
+		promoted = true
+	}
+	if !promoted {
+		return nil, fmt.Errorf("continue preview current action was not present in its typed action list")
+	}
+	return out, nil
 }
 
 func (ctx continueContext) blockedByReviewerDispatches(apply bool) (ContinueResult, error) {

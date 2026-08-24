@@ -40,14 +40,17 @@ function Assert-ContainsText {
 }
 
 $discoveryText = Invoke-MatrixSelftest -Arguments @('-DiscoveryOnly')
-Assert-ContainsText -Text $discoveryText.output -Expected 'pack smoke discovery ok (7 skeleton packs)' -Label 'discovery text'
-Assert-ContainsText -Text $discoveryText.output -Expected 'excluded from skeleton smoke matrix:' -Label 'discovery excluded text'
+Assert-ContainsText -Text $discoveryText.output -Expected 'pack smoke discovery ok (6 skeleton + 1 production packs; 7 total)' -Label 'discovery text'
+Assert-ContainsText -Text $discoveryText.output -Expected 'excluded from pack smoke matrix:' -Label 'discovery excluded text'
 
 $discoveryJson = (Invoke-MatrixSelftest -Arguments @('-DiscoveryOnly','-Format','json')).output | ConvertFrom-Json
-if ([string]$discoveryJson.command -ne 'pack-smoke-discovery' -or [bool]$discoveryJson.isMutation -or -not [bool]$discoveryJson.ok -or [int]$discoveryJson.expectedSkeletonPackCount -ne 7 -or [int]$discoveryJson.matrixPackCount -ne 7) {
+if ([string]$discoveryJson.command -ne 'pack-smoke-discovery' -or [bool]$discoveryJson.isMutation -or -not [bool]$discoveryJson.ok -or [int]$discoveryJson.expectedSkeletonPackCount -ne 6 -or [int]$discoveryJson.expectedProductionPackCount -ne 1 -or [int]$discoveryJson.expectedSmokePackCount -ne 7 -or [int]$discoveryJson.matrixPackCount -ne 7) {
   throw "unexpected discovery JSON: $($discoveryJson | ConvertTo-Json -Depth 20)"
 }
-foreach ($field in @('missingSmokePacks','extraMatrixPacks','orphanWrapperPacks','missingScriptPacks')) {
+if (@($discoveryJson.productionSmokePacks).Count -ne 1 -or [string]$discoveryJson.productionSmokePacks[0] -ne 'web-security') {
+  throw "unexpected production smoke packs: $($discoveryJson | ConvertTo-Json -Depth 20)"
+}
+foreach ($field in @('invalidProductionSmokePacks','missingSmokePacks','extraMatrixPacks','orphanWrapperPacks','missingScriptPacks')) {
   if (@($discoveryJson.$field).Count -ne 0) { throw "unexpected discovery $field rows: $($discoveryJson | ConvertTo-Json -Depth 20)" }
 }
 

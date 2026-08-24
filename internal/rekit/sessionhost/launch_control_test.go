@@ -110,6 +110,28 @@ func TestClaudeLaunchControlRejectsStaleStateBeforeLaunch(t *testing.T) {
 	}
 }
 
+func TestClaudeLaunchControlRejectsBoundInputDriftBeforeLaunch(t *testing.T) {
+	caseRoot, opt, pkg, _, _ := projectExecutionLaunchFixture(t)
+	bound, err := ensureClaudeLaunchControlBinding(opt, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pkg.Launch.Input.Path, []byte("drifted task context\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launches := 0
+	err = withClaudeLaunchControl(caseRoot, bound.launchControlBinding, pkg, func() error {
+		launches++
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "sha256 changed before launch") {
+		t.Fatalf("bound input drift error=%v", err)
+	}
+	if launches != 0 {
+		t.Fatalf("bound input drift crossed process boundary %d times", launches)
+	}
+}
+
 func TestClaudeLaunchControlFreshResumeBindingAllowsLaunch(t *testing.T) {
 	caseRoot, opt, pkg, _, _ := projectExecutionLaunchFixture(t)
 	owner, err := claudeLaunchOwner(caseRoot, pkg)
@@ -118,6 +140,7 @@ func TestClaudeLaunchControlFreshResumeBindingAllowsLaunch(t *testing.T) {
 	}
 	applyClaudeLaunchControlForTest(t, caseRoot, owner.Lane, executioncontrol.ActionPause, "2026-08-18T13:00:00Z")
 	applyClaudeLaunchControlForTest(t, caseRoot, owner.Lane, executioncontrol.ActionResume, "2026-08-18T13:01:00Z")
+	pkg = refreshClaudeLaunchControlPackageForTest(t, caseRoot, pkg)
 
 	bound, err := ensureClaudeLaunchControlBinding(opt, pkg)
 	if err != nil {
@@ -154,6 +177,7 @@ func TestSupervisionSpecBindsControlHeadIntoRunIdentity(t *testing.T) {
 
 	applyClaudeLaunchControlForTest(t, caseRoot, first.LaunchControl.Lane, executioncontrol.ActionPause, "2026-08-18T13:00:00Z")
 	applyClaudeLaunchControlForTest(t, caseRoot, first.LaunchControl.Lane, executioncontrol.ActionResume, "2026-08-18T13:01:00Z")
+	pkg = refreshClaudeLaunchControlPackageForTest(t, caseRoot, pkg)
 	_, resumed, resumedData, resumedSHA, err := prepareSupervision(opt, pkg, pkg.Launch.Attempt.Session)
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +269,7 @@ func TestClaudeReviewerLaunchControlUsesEffectiveDispatchOwner(t *testing.T) {
 		PromptPath: promptRel, PromptSHA256: bytesSHA256(prompt), AgentType: "read-only-reviewer", ReadOnly: true,
 		TargetLane: owner.Lane, PacketOwner: reviewOwner, EffectiveOwner: reviewOwner,
 		ReviewerHarness: defaultHarness, ReviewerSession: "launch-control-review-session",
-		Actor: "launch-control-test", RecordedAt: "2026-08-18T13:00:00Z",
+		Actor: "launch-control-test", RecordedAt: "2026-08-18T13:00:00Z", Capability: reviewersession.ReadOnlyCapability(),
 		NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
 	}
 	dispatch, err := json.MarshalIndent(receipt, "", "  ")
@@ -260,14 +284,22 @@ func TestClaudeReviewerLaunchControlUsesEffectiveDispatchOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	fields := []string{"item", "decision"}
+	launchControl, err := executioncontrol.CaptureBinding(caseRoot, owner, receipt.Capability)
+	if err != nil {
+		t.Fatal(err)
+	}
 	reviewerPackage := mission.CurrentLoopExternalSessionHarnessPackage{
 		SchemaVersion: 1, State: "launch-ready", CaseRoot: caseRoot, SessionKind: "reviewer",
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
 			Ready: true, Tool: "Claude Code Agent", AgentType: receipt.AgentType, ReadOnly: true,
+			Capability:       receipt.Capability,
 			Input:            mission.CurrentLoopExternalSessionHarnessInput{Path: promptRel, SHA256: bytesSHA256(prompt), Role: "reviewer-dispatch-prompt"},
 			ExpectedOutput:   reviewerExpectedOutput(receipt, fields),
 			ReviewerIdentity: reviewerLaunchIdentity(receipt, fields, dispatchRel, bytesSHA256(dispatch)),
-			Attempt:          mission.CurrentLoopExternalSessionAttempt{AttemptID: receipt.DispatchID, AttemptSHA256: bytesSHA256(dispatch), Generation: 1, Harness: defaultHarness, Session: receipt.ReviewerSession},
+			Attempt: mission.CurrentLoopExternalSessionAttempt{
+				AttemptID: receipt.DispatchID, AttemptSHA256: bytesSHA256(dispatch), Generation: 1,
+				Harness: defaultHarness, Session: receipt.ReviewerSession, LaunchControl: executioncontrol.CloneBinding(&launchControl),
+			},
 		},
 	}
 	bound, err := ensureClaudeLaunchControlBinding(opt, reviewerPackage)
@@ -277,6 +309,32 @@ func TestClaudeReviewerLaunchControlUsesEffectiveDispatchOwner(t *testing.T) {
 	if bound.launchControlBinding == nil || bound.launchControlBinding.Owner != owner || bound.launchControlBinding.Lane != receipt.TargetLane {
 		t.Fatalf("reviewer launch control binding = %+v, owner=%+v", bound.launchControlBinding, owner)
 	}
+}
+
+func refreshClaudeLaunchControlPackageForTest(
+	t *testing.T,
+	caseRoot string,
+	pkg mission.CurrentLoopExternalSessionHarnessPackage,
+) mission.CurrentLoopExternalSessionHarnessPackage {
+	t.Helper()
+	if pkg.Launch == nil {
+		t.Fatal("launch control refresh fixture omitted launch")
+	}
+	owner, err := claudeLaunchOwner(caseRoot, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner, pkg.Launch.Capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshed := pkg
+	launch := *pkg.Launch
+	attempt := launch.Attempt
+	attempt.LaunchControl = executioncontrol.CloneBinding(&binding)
+	launch.Attempt = attempt
+	refreshed.Launch = &launch
+	return refreshed
 }
 
 func applyClaudeLaunchControlForTest(t *testing.T, caseRoot, lane, action, stamp string) executioncontrol.Plan {

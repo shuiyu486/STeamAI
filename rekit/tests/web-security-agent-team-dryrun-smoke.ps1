@@ -66,7 +66,11 @@ function Write-Utf8File {
 
 function Read-JsonFile {
   param([Parameter(Mandatory=$true)][string]$Path)
-  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+  $serializer.MaxJsonLength = [int]::MaxValue
+  $serializer.RecursionLimit = 512
+  return $serializer.DeserializeObject([System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8))
 }
 
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
@@ -75,7 +79,10 @@ $caseRoot = Join-Path $WorkRoot "web-security-agent-team-dryrun-$suffix"
 $reviewRoot = Join-Path $WorkRoot "web-security-agent-team-review-$suffix"
 
 try {
-  Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"web-security-dryrun-$suffix",'-Apply') | Out-Null
+  $initPreview = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"web-security-dryrun-$suffix",'-WhatIf','-Format','json') | ConvertFrom-Json
+  $initApplyArgs = @($initPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ($initApplyArgs.Count -eq 0) { throw 'web-security dry-run init preview omitted applyArgs' }
+  Invoke-RekitSmoke -Arguments $initApplyArgs | Out-Null
 
   $start = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$caseRoot,'-Pack',$Pack,'-Name','authz','-Apply','-Format','json') | ConvertFrom-Json
   if ([string]$start.command -ne 'start' -or -not [bool]$start.isMutation -or -not [bool]$start.applied -or [string]$start.lane.id -ne 'feature-authz' -or [string]$start.lane.type -ne 'feature' -or [string]$start.lane.workspace -ne 'workspace/features/feature-authz') {
@@ -101,11 +108,11 @@ try {
   }
 
   $candidate = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-Kind','candidate','-Lane','feature-authz','-Subject','endpoint authz candidate','-Summary','candidate awaiting bounded web review','-Actor','web-agent','-Confidence','high','-Status','open','-Risk','high','-TargetRef','endpoint-login','-BatchId','batch-web-real-dryrun','-EvidenceRefs','workspace/features/feature-authz/packet.md') | ConvertFrom-Json
-  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.rekit/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'feature-authz') {
+  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.steamai/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'feature-authz') {
     throw "unexpected web-security candidate append: $($candidate | ConvertTo-Json -Depth 20)"
   }
 
-  $requestsPath = Join-Path $caseRoot '.rekit\facts\requests.jsonl'
+  $requestsPath = Join-Path $caseRoot '.steamai\facts\requests.jsonl'
   $beforeRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
   $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','network','-Lane','feature-authz','-Actor','runtime-test','-Subject','web request replay gate','-Summary','needs user confirmation before request replay','-TargetRef','endpoint-login','-BatchId','batch-web-real-dryrun','-Scope','single endpoint replay','-Budget','30s','-TriedLightSteps','plan-subagents,passive triage','-StopConditions','timeout') | ConvertFrom-Json
   if ([string]$gatePreview.command -ne 'gate' -or [bool]$gatePreview.isMutation -or -not [bool]$gatePreview.requiresConfirmation -or [string]$gatePreview.eventPreview.status -ne 'pending-gate' -or [string]$gatePreview.eventPreview.gate.action -ne 'network') {
@@ -148,11 +155,14 @@ try {
     Assert-ContainsText -Text $overview -Expected $expected -Label 'web-security overview text'
   }
 
-  $handoff = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','authz') | ConvertFrom-Json
+  $handoffPreview = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Format','json','authz') | ConvertFrom-Json
+  $handoffApplyArgs = @($handoffPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ([string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationPlanSha256) -or [string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationStamp) -or $handoffApplyArgs.Count -eq 0) { throw 'web-security handoff preview omitted exact Apply action' }
+  $handoff = Invoke-RekitSmoke -Arguments $handoffApplyArgs | ConvertFrom-Json
   if ([string]$handoff.command -ne 'handoff' -or -not [bool]$handoff.isMutation -or -not [bool]$handoff.applied -or [bool]$handoff.project -or [string]$handoff.lane.id -ne 'feature-authz' -or [string]$handoff.lane.workspace -ne 'workspace/features/feature-authz') {
     throw "unexpected web-security handoff result: $($handoff | ConvertTo-Json -Depth 20)"
   }
-  $handoffPath = Join-Path $caseRoot '.rekit\handovers\feature-authz-latest.md'
+  $handoffPath = Join-Path $caseRoot '.steamai\handovers\feature-authz-latest.md'
   if (-not (Test-Path -LiteralPath $handoffPath)) { throw "missing web-security handoff: $handoffPath" }
   $handoffText = [System.IO.File]::ReadAllText($handoffPath, [System.Text.Encoding]::UTF8)
   foreach ($expected in @('feature-authz','/rekit continue authz','workspace/features/feature-authz/packet.md','## verification','verifier=manual-review','## decision','decision=accept','## pending-gate','action=network','scope=single endpoint replay')) {

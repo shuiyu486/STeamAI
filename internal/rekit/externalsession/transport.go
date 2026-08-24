@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -39,57 +40,60 @@ type TransportBinding struct {
 }
 
 type TransportMessageEnvelope struct {
-	Operation         string `json:"operation"`
-	Recipient         string `json:"recipient"`
-	SourceInputRole   string `json:"sourceInputRole"`
-	SourceInputSHA256 string `json:"sourceInputSha256"`
-	SourceInputBytes  int    `json:"sourceInputBytes"`
-	BundlePath        string `json:"bundlePath"`
-	BundleSHA256      string `json:"bundleSha256"`
-	BundleBytes       int    `json:"bundleBytes"`
-	Message           string `json:"message"`
-	MessageSHA256     string `json:"messageSha256"`
-	MessageBytes      int    `json:"messageBytes"`
-	ExpectedReply     string `json:"expectedReply"`
-	NoFileTransfer    bool   `json:"noFileTransfer"`
+	Capability        capabilitycontract.Binding `json:"capability"`
+	Operation         string                     `json:"operation"`
+	Recipient         string                     `json:"recipient"`
+	SourceInputRole   string                     `json:"sourceInputRole"`
+	SourceInputSHA256 string                     `json:"sourceInputSha256"`
+	SourceInputBytes  int                        `json:"sourceInputBytes"`
+	BundlePath        string                     `json:"bundlePath"`
+	BundleSHA256      string                     `json:"bundleSha256"`
+	BundleBytes       int                        `json:"bundleBytes"`
+	Message           string                     `json:"message"`
+	MessageSHA256     string                     `json:"messageSha256"`
+	MessageBytes      int                        `json:"messageBytes"`
+	ExpectedReply     string                     `json:"expectedReply"`
+	NoFileTransfer    bool                       `json:"noFileTransfer"`
 }
 
 type TransportEndpointSnapshot struct {
-	SchemaVersion       int                      `json:"schemaVersion"`
-	Kind                string                   `json:"kind"`
-	Binding             TransportBinding         `json:"binding"`
-	DiscoveryTool       string                   `json:"discoveryTool"`
-	Endpoint            string                   `json:"endpoint"`
-	Actor               string                   `json:"actor"`
-	ObservedAt          string                   `json:"observedAt"`
-	BundlePath          string                   `json:"bundlePath"`
-	BundleSHA256        string                   `json:"bundleSha256"`
-	BundleBytes         int                      `json:"bundleBytes"`
-	Envelope            TransportMessageEnvelope `json:"envelope"`
-	NoSessionManagement bool                     `json:"noSessionManagement"`
-	NoAutomaticRetry    bool                     `json:"noAutomaticRetry"`
-	NoHeavyTool         bool                     `json:"noHeavyTool"`
-	NoAuthority         bool                     `json:"noAuthority"`
-	NoConfirmed         bool                     `json:"noConfirmed"`
+	SchemaVersion       int                        `json:"schemaVersion"`
+	Kind                string                     `json:"kind"`
+	Binding             TransportBinding           `json:"binding"`
+	DiscoveryTool       string                     `json:"discoveryTool"`
+	Endpoint            string                     `json:"endpoint"`
+	Actor               string                     `json:"actor"`
+	ObservedAt          string                     `json:"observedAt"`
+	BundlePath          string                     `json:"bundlePath"`
+	BundleSHA256        string                     `json:"bundleSha256"`
+	BundleBytes         int                        `json:"bundleBytes"`
+	Envelope            TransportMessageEnvelope   `json:"envelope"`
+	Capability          capabilitycontract.Binding `json:"capability"`
+	NoSessionManagement bool                       `json:"noSessionManagement"`
+	NoAutomaticRetry    bool                       `json:"noAutomaticRetry"`
+	NoHeavyTool         bool                       `json:"noHeavyTool"`
+	NoAuthority         bool                       `json:"noAuthority"`
+	NoConfirmed         bool                       `json:"noConfirmed"`
 }
 
 type TransportDeliveryObservation struct {
-	SchemaVersion          int              `json:"schemaVersion"`
-	Kind                   string           `json:"kind"`
-	Binding                TransportBinding `json:"binding"`
-	EndpointSnapshotSHA256 string           `json:"endpointSnapshotSha256"`
-	EnvelopeSHA256         string           `json:"envelopeSha256"`
-	Operation              string           `json:"operation"`
-	Outcome                string           `json:"outcome"`
-	ProviderAckFingerprint string           `json:"providerAckFingerprint,omitempty"`
-	Actor                  string           `json:"actor"`
-	ObservedAt             string           `json:"observedAt"`
-	Reason                 string           `json:"reason,omitempty"`
-	NoSessionManagement    bool             `json:"noSessionManagement"`
-	NoAutomaticRetry       bool             `json:"noAutomaticRetry"`
-	NoHeavyTool            bool             `json:"noHeavyTool"`
-	NoAuthority            bool             `json:"noAuthority"`
-	NoConfirmed            bool             `json:"noConfirmed"`
+	SchemaVersion          int                        `json:"schemaVersion"`
+	Kind                   string                     `json:"kind"`
+	Binding                TransportBinding           `json:"binding"`
+	EndpointSnapshotSHA256 string                     `json:"endpointSnapshotSha256"`
+	EnvelopeSHA256         string                     `json:"envelopeSha256"`
+	Operation              string                     `json:"operation"`
+	Outcome                string                     `json:"outcome"`
+	ProviderAckFingerprint string                     `json:"providerAckFingerprint,omitempty"`
+	Actor                  string                     `json:"actor"`
+	ObservedAt             string                     `json:"observedAt"`
+	Reason                 string                     `json:"reason,omitempty"`
+	Capability             capabilitycontract.Binding `json:"capability"`
+	NoSessionManagement    bool                       `json:"noSessionManagement"`
+	NoAutomaticRetry       bool                       `json:"noAutomaticRetry"`
+	NoHeavyTool            bool                       `json:"noHeavyTool"`
+	NoAuthority            bool                       `json:"noAuthority"`
+	NoConfirmed            bool                       `json:"noConfirmed"`
 }
 
 type TransportInspection struct {
@@ -132,6 +136,14 @@ type TransportPlan struct {
 	Boundary             []string                      `json:"boundary"`
 	data                 []byte
 	bundleData           []byte
+}
+
+func transportCapability() capabilitycontract.Binding {
+	binding, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		panic(err)
+	}
+	return binding
 }
 
 func IsRemoteControlAttempt(attempt *Attempt) bool {
@@ -286,7 +298,7 @@ func PreviewTransportEndpoint(job Job, attempt AttemptInspection, dispatch Dispa
 		SchemaVersion: SchemaVersion, Kind: KindTransportEndpointSnapshot,
 		Binding: inspection.Binding, DiscoveryTool: "ListAgents", Endpoint: endpoint,
 		Actor: actor, ObservedAt: observedAt, BundlePath: bundlePath, BundleSHA256: bundleSHA, BundleBytes: len(bundleData), Envelope: envelope,
-		NoSessionManagement: true, NoAutomaticRetry: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
+		Capability: job.Capability, NoSessionManagement: true, NoAutomaticRetry: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
 	}
 	data, err := canonical(snapshot)
 	if err != nil {
@@ -348,7 +360,7 @@ func PreviewTransportDelivery(job Job, attempt AttemptInspection, dispatch Dispa
 		EndpointSnapshotSHA256: inspection.EndpointSHA256, EnvelopeSHA256: inspection.EnvelopeSHA256,
 		Operation: "SendMessage", Outcome: outcome, ProviderAckFingerprint: ackFingerprint,
 		Actor: actor, ObservedAt: observedAt, Reason: reason,
-		NoSessionManagement: true, NoAutomaticRetry: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
+		Capability: job.Capability, NoSessionManagement: true, NoAutomaticRetry: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
 	}
 	data, err := canonical(delivery)
 	if err != nil {
@@ -436,6 +448,10 @@ func ApplyTransportCurrent(plan TransportPlan, expectedPlanSHA256 string, curren
 func TransportLaunchTransition(inspection TransportInspection) (outcome, actor, observedAt, actualHarness, actualSession, reason string, err error) {
 	if inspection.Delivery == nil {
 		err = fmt.Errorf("Remote Control launch transition requires a delivery observation")
+		return
+	}
+	if capErr := capabilitycontract.RequireBindingPolicy(inspection.Delivery.Capability, capabilitycontract.PolicyClassTransport); capErr != nil || inspection.Delivery.Capability != transportCapability() {
+		err = fmt.Errorf("Remote Control delivery capability contract cannot become launch truth")
 		return
 	}
 	actor = inspection.Delivery.Actor
@@ -545,13 +561,14 @@ func buildTransportEnvelope(job Job, ticket DispatchTicket, binding TransportBin
 	}, "\n") + "\n"
 	messageBytes := []byte(message)
 	if len(messageBytes) > maxTransportMessageBytes {
-		return TransportMessageEnvelope{}, fmt.Errorf("Remote Control message exceeds %d-byte limit", maxTransportMessageBytes)
+		return TransportMessageEnvelope{}, fmt.Errorf("Remote Control message exceeds %d-byte limit: got %d", maxTransportMessageBytes, len(messageBytes))
 	}
 	if transportContainsCaseRoot(messageBytes, job.CaseRoot) {
 		return TransportMessageEnvelope{}, fmt.Errorf("Remote Control message contains the local case root")
 	}
 	return TransportMessageEnvelope{
-		Operation: "SendMessage", Recipient: endpoint,
+		Capability: job.Capability,
+		Operation:  "SendMessage", Recipient: endpoint,
 		SourceInputRole: "reviewer-evidence-bundle", SourceInputSHA256: bundleSHA, SourceInputBytes: len(bundleData),
 		BundlePath: bundlePath, BundleSHA256: bundleSHA, BundleBytes: len(bundleData),
 		Message: message, MessageSHA256: hash(messageBytes), MessageBytes: len(messageBytes),
@@ -578,6 +595,9 @@ func validateTransportEndpoint(job Job, attempt AttemptInspection, dispatch Disp
 	if endpoint.SchemaVersion != SchemaVersion || endpoint.Kind != KindTransportEndpointSnapshot || endpoint.Binding != binding || endpoint.DiscoveryTool != "ListAgents" || !validBoundedSingleLine(endpoint.Endpoint, 512) || endpoint.Actor != dispatch.Claim.Actor || endpoint.BundlePath != bundlePath || !strings.EqualFold(endpoint.BundleSHA256, hash(bundleData)) || endpoint.BundleBytes != len(bundleData) || !endpoint.NoSessionManagement || !endpoint.NoAutomaticRetry || !endpoint.NoHeavyTool || !endpoint.NoAuthority || !endpoint.NoConfirmed {
 		return fmt.Errorf("external session transport endpoint contract is invalid")
 	}
+	if err := capabilitycontract.RequireBindingPolicy(endpoint.Capability, capabilitycontract.PolicyClassTransport); err != nil || endpoint.Capability != job.Capability || endpoint.Envelope.Capability != endpoint.Capability {
+		return fmt.Errorf("external session transport endpoint capability contract is invalid")
+	}
 	observed, err := canonicalTransportTime(endpoint.ObservedAt, "endpoint observedAt")
 	if err != nil {
 		return err
@@ -600,6 +620,9 @@ func validateTransportDelivery(job Job, attempt AttemptInspection, dispatch Disp
 	}
 	if delivery.SchemaVersion != SchemaVersion || delivery.Kind != KindTransportDelivery || delivery.Binding != binding || !strings.EqualFold(delivery.EndpointSnapshotSHA256, endpointSHA) || !strings.EqualFold(delivery.EnvelopeSHA256, envelopeSHA) || delivery.Operation != "SendMessage" || delivery.Actor != dispatch.Claim.Actor || delivery.Actor != endpoint.Actor || !delivery.NoSessionManagement || !delivery.NoAutomaticRetry || !delivery.NoHeavyTool || !delivery.NoAuthority || !delivery.NoConfirmed {
 		return fmt.Errorf("external session transport delivery contract is invalid")
+	}
+	if err := capabilitycontract.RequireBindingPolicy(delivery.Capability, capabilitycontract.PolicyClassTransport); err != nil || delivery.Capability != endpoint.Capability || delivery.Capability != endpoint.Envelope.Capability || delivery.Capability != job.Capability {
+		return fmt.Errorf("external session transport delivery capability contract is invalid")
 	}
 	observed, err := canonicalTransportTime(delivery.ObservedAt, "delivery observedAt")
 	if err != nil {

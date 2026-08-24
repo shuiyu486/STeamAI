@@ -14,20 +14,611 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/binaryinventory"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 )
 
 type vmpAuthorizedFixture struct {
+	repoRoot            string
+	caseRoot            string
+	requestPath         string
+	gateEventID         string
+	dispatch            gate.AdapterExecutionDispatchResult
+	instructionIdentity *instructionpacket.Identity
+	options             Options
+}
+
+type binaryInventoryAuthorizedFixture struct {
 	repoRoot    string
 	caseRoot    string
-	requestPath string
+	sourcePath  string
 	gateEventID string
-	dispatch    gate.AdapterExecutionDispatchResult
-	options     Options
+	options     AuthorizedRunOptions
+}
+
+func newBinaryInventoryAuthorizedFixture(t *testing.T) binaryInventoryAuthorizedFixture {
+	t.Helper()
+	root := t.TempDir()
+	sourceRepo := filepath.Join(root, "repo")
+	repoRoot := sourceRepo
+	caseRoot := filepath.Join(root, "case")
+	copyProductionFixtureInputs(t, sourceRepo, "binary-re")
+	sourcePath := "inputs/synthetic-pe.bin"
+	writeHostFile(t, filepath.Join(sourceRepo, "packs", "binary-re", "manifest.yml"), `schemaVersion: 1
+name: binary-re
+version: 0.3.0
+description: binary inventory adapter fixture
+maturity: mature
+managedFiles: []
+templateFiles: []
+localNeverOverwrite: []
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: binary-re:router
+  source: CLAUDE.local.snippet.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: main
+  handoffPath: handoff.md
+  backupRoot: .steamai/backups
+  requestDefaultTargetLane: main
+authorityFiles: [handoff.md]
+commonPolicies:
+  - agent-team
+  - tool-adapters
+  - context-budget
+  - subagents
+  - lane-collaboration
+  - review-first
+  - write-boundaries
+  - verification
+  - evidence
+  - tool-output
+  - handoff
+policyOverlays: []
+subagentRoutes: []
+promoteFiles: []
+toolingFiles:
+  - tooling/catalog.yml
+  - tooling/schemas/binary-inventory-v1.schema.json
+promptFiles:
+  - common/prompts/lane-main-session.md
+  - common/prompts/lane-feature-session.md
+  - common/prompts/lane-merge-review.md
+  - packs/binary-re/prompts/feature-analysis-session.md
+laneTypes:
+  - id: main
+    title: Main
+    authority: false
+    workspaceRoot: workspace/main
+    canWrite: own-workspace
+    readOnly: .steamai/facts/**
+    outputs: observation
+toolingCandidateSources:
+  - tooling/catalog.yml
+heavyToolGates:
+  - id: inspect
+    title: Bounded binary inventory
+    sideEffects: inspect,filesystem-read,bounded-packet-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: scope-drift,source-drift,output-exceeds-bounded-evidence-packet
+promoteDenyPatterns: []
+budgets:
+  defaultMarkdown: 16384
+`)
+	sentinel := filepath.ToSlash(filepath.Join(root, "catalog-entry-must-not-run"))
+	writeHostFile(t, filepath.Join(repoRoot, "packs", "binary-re", "tooling", "catalog.yml"), `schemaVersion: 1
+pack: binary-re
+purpose: binary inventory adapter fixture
+
+tools:
+  - id: static-binary-triage-sidecar
+    status: supported
+    entry: `+sentinel+`
+    purpose: Inspect one bounded PE or ELF input.
+    sideEffects: filesystem-read,bounded-packet-write
+    gateActions: inspect
+`)
+	writeHostFile(t, filepath.Join(repoRoot, "packs", "binary-re", "tooling", "schemas", "binary-inventory-v1.schema.json"), `{}`)
+	project := publishProductionFixtureProject(t, repoRoot, caseRoot, "binary-re", "binary-inventory-fixture")
+	repoRoot = project.RuntimeRepoRoot
+	instructionIdentity := productionInstructionIdentityForFixture(t, caseRoot, "binary-re")
+	writeHostFile(t, filepath.Join(caseRoot, ".steamai", "board.json"), `{"lanes":[{"id":"main","status":"open","workspace":"workspace/main","currentExecutor":"executor-binary","executorGeneration":1}]}`)
+	writeHostFile(t, filepath.Join(caseRoot, ".steamai", "lanes", "main", "lane.json"), `{
+  "schemaVersion": 1,
+  "id": "main",
+  "type": "main",
+  "name": "main",
+  "title": "Main",
+  "status": "open",
+  "authority": false,
+  "workspace": "workspace/main",
+  "canWrite": ["own-workspace"],
+  "readOnly": [".steamai/facts/**"],
+  "outputs": ["observation"],
+  "counters": {},
+  "currentExecutor": "executor-binary",
+  "executorGeneration": 1,
+  "createdAt": "2026-08-10T00:00:00Z",
+  "updatedAt": "2026-08-10T00:00:00Z"
+}`)
+	writeHostFile(t, filepath.Join(caseRoot, filepath.FromSlash(sourcePath)), string(syntheticPEForAdapterTest()))
+	if _, _, err := autonomy.EnsureManualProfile(caseRoot, "main"); err != nil {
+		t.Fatal(err)
+	}
+	outputRoot := "workspace/main/inventory/session-1"
+	now := time.Now().UTC()
+	plan, err := autonomy.PreviewProvision(autonomy.ProfileProvisionOptions{
+		RepoRoot: repoRoot,
+		CaseRoot: caseRoot,
+		Pack:     "binary-re",
+		Lane:     "main",
+		Profile: autonomy.Profile{
+			SchemaVersion: 1, ProfileID: "generated-binary-main", Lane: "main", Mode: autonomy.ModePreauthorized,
+			AllowedActions: []string{"inspect"}, DeniedActions: []string{},
+			TargetScope:    []autonomy.Target{{Match: "exact", Value: sourcePath}},
+			Budget:         autonomy.Budget{RuntimeSeconds: 10, DiskMB: 4, Requests: 1},
+			StopConditions: []string{"scope-drift", "source-drift", "output-exceeds-bounded-evidence-packet"},
+			OutputPaths:    []string{outputRoot}, RecordRequired: true,
+			NotifyMainOn: []string{"boundary-hit", "new-risk"},
+			GrantedBy:    "user", GrantedAt: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := autonomy.ApplyProfilePlan(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	authorized, err := gate.Apply(repoRoot, caseRoot, "binary-re", gate.Options{
+		Action: "inspect", Lane: "main", Actor: "binary-test", Subject: "inspect synthetic PE",
+		TargetRef: sourcePath, RuntimeSeconds: 10, DiskMB: 4, Requests: 1,
+		OutputPaths: outputRoot, StopConditions: "scope-drift,source-drift,output-exceeds-bounded-evidence-packet",
+	})
+	if err != nil || !authorized.Applied || authorized.Event == nil {
+		t.Fatalf("authorize binary inventory: %+v err=%v", authorized, err)
+	}
+	return binaryInventoryAuthorizedFixture{
+		repoRoot:    repoRoot,
+		caseRoot:    caseRoot,
+		sourcePath:  sourcePath,
+		gateEventID: authorized.EventID,
+		options: AuthorizedRunOptions{
+			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "binary-re", GateEventID: authorized.EventID,
+			ExecutionReportPath: outputRoot + "/adapter-report.json", AdapterID: binaryinventory.AdapterID,
+			AdapterSession: "binary-session-1", Actor: "mission-commander", DeferSuccessfulTaskBinding: true,
+			InstructionIdentity: instructionIdentity,
+		},
+	}
+}
+
+func syntheticPEForAdapterTest() []byte {
+	data := make([]byte, 0x400)
+	copy(data[0:], []byte{'M', 'Z'})
+	data[0x3c] = 0x80
+	copy(data[0x80:], []byte{'P', 'E', 0, 0})
+	data[0x84], data[0x85] = 0x64, 0x86
+	data[0x86], data[0x87] = 1, 0
+	data[0x94], data[0x95] = 0xf0, 0
+	data[0x96], data[0x97] = 0x02, 0
+	optional := 0x98
+	data[optional], data[optional+1] = 0x0b, 0x02
+	data[optional+0x10] = 0x00
+	data[optional+0x11] = 0x10
+	data[optional+0x18] = 0x00
+	data[optional+0x19] = 0x10
+	data[optional+0x1c] = 0x00
+	data[optional+0x1d] = 0x00
+	data[optional+0x1e] = 0x00
+	data[optional+0x1f] = 0x40
+	data[optional+0x20] = 0x00
+	data[optional+0x21] = 0x10
+	data[optional+0x38] = 0x00
+	data[optional+0x39] = 0x20
+	data[optional+0x3c] = 0x00
+	data[optional+0x3d] = 0x02
+	data[optional+0x6c] = 0x10
+	section := optional + 0xf0
+	copy(data[section:], []byte(".text\x00\x00\x00"))
+	data[section+8], data[section+9] = 0x00, 0x01
+	data[section+12], data[section+13] = 0x00, 0x10
+	data[section+16], data[section+17] = 0x00, 0x02
+	data[section+20], data[section+21] = 0x00, 0x02
+	data[section+36], data[section+37], data[section+38], data[section+39] = 0x20, 0x00, 0x00, 0x60
+	return data
+}
+
+func TestRunAuthorizedBinaryInventoryNeverExecutesCatalogEntryAndReplaysTerminalLifecycle(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{runBinaryInventoryChild: func(opt BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		result, err := RunBinaryInventoryChild(opt)
+		if err != nil {
+			return nil, 0, err
+		}
+		data, err := json.Marshal(result)
+		return data, 6161, err
+	}}
+	first, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.AdapterID != binaryinventory.AdapterID || first.Kind != "binary-inventory-authorized-run" ||
+		first.ExecutionStatus != "succeeded" || first.ExecutionExitStatus != "completed" ||
+		first.PacketPath == "" || first.PacketSHA256 == "" || first.ReportSHA256 == "" ||
+		first.ReceiptSHA256 == "" || first.ObservationEventID == "" || first.TaskBindingSHA256 != "" ||
+		!first.ChildLaunched || first.ChildProcessID != 6161 || childCalls != 1 || !first.ProfileRevoked {
+		t.Fatalf("binary inventory first run = %+v childCalls=%d", first, childCalls)
+	}
+	inventoryData, err := os.ReadFile(filepath.Join(fixture.caseRoot, filepath.FromSlash(first.PacketPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := binaryinventory.Decode(inventoryData)
+	if err != nil || inventory.Source.Path != fixture.sourcePath || inventory.Format.Family != "pe" {
+		t.Fatalf("binary inventory = %+v err=%v", inventory, err)
+	}
+	if _, err := os.Lstat(filepath.Join(filepath.Dir(fixture.repoRoot), "catalog-entry-must-not-run")); !os.IsNotExist(err) {
+		t.Fatalf("binary inventory catalog entry was treated as executable: %v", err)
+	}
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("terminal replay must not rerun the parser child")
+	}
+	second, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Replay || second.ChildLaunched || childCalls != 1 || second.PacketSHA256 != first.PacketSHA256 ||
+		second.ReportSHA256 != first.ReportSHA256 || second.ReceiptSHA256 != first.ReceiptSHA256 ||
+		second.ObservationEventID != first.ObservationEventID || !second.ProfileAlreadyManual {
+		t.Fatalf("binary inventory terminal replay = %+v first=%+v childCalls=%d", second, first, childCalls)
+	}
+	assertHostFileMissing(t, filepath.Join(fixture.caseRoot, ".steamai", "facts", "authority.jsonl"))
+	assertHostFileMissing(t, filepath.Join(fixture.caseRoot, ".steamai", "facts", "confirmed.jsonl"))
+}
+
+func TestRunAuthorizedBinaryInventoryTerminalizesLaunchedChildFailure(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{runBinaryInventoryChild: func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 6262, errors.New("synthetic child failure")
+	}}
+	first, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ExecutionStatus != "failed" || first.ExecutionExitStatus != "child-failed" ||
+		first.PacketPath != "" || first.PacketSHA256 != "" || first.ReportSHA256 == "" ||
+		first.ReceiptSHA256 == "" || first.ObservationEventID == "" || first.TaskBindingSHA256 != "" ||
+		!first.ChildLaunched || first.ChildProcessID != 6262 || childCalls != 1 || !first.ProfileRevoked {
+		t.Fatalf("binary inventory failure closure = %+v childCalls=%d", first, childCalls)
+	}
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 6363, errors.New("terminal replay reran child")
+	}
+	second, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Replay || second.ChildLaunched || second.ExecutionStatus != "failed" ||
+		second.ExecutionExitStatus != "child-failed" || childCalls != 1 ||
+		second.ReportSHA256 != first.ReportSHA256 || second.ReceiptSHA256 != first.ReceiptSHA256 ||
+		second.ObservationEventID != first.ObservationEventID || !second.ProfileAlreadyManual {
+		t.Fatalf("binary inventory failure replay = %+v first=%+v childCalls=%d", second, first, childCalls)
+	}
+}
+
+func TestRunAuthorizedBinaryInventoryClosesSourceDeletionAfterLaunch(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			return nil, 6364, errors.New("synthetic parent interruption")
+		},
+		afterBinaryInventoryChildLaunch: func(int) error {
+			if err := os.Remove(filepath.Join(fixture.caseRoot, filepath.FromSlash(fixture.sourcePath))); err != nil {
+				return err
+			}
+			return errors.New("stop after source deletion and durable launch proof")
+		},
+	}
+	if _, err := RunAuthorizedGate(fixture.options); err == nil || !strings.Contains(err.Error(), "durable launch proof") {
+		t.Fatalf("source deletion cutpoint error=%v", err)
+	}
+	fixture.options.testHooks.afterBinaryInventoryChildLaunch = nil
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("source deletion recovery relaunched child")
+	}
+	result, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExecutionStatus != "failed" || result.ExecutionExitStatus != "source-drift" ||
+		result.ReceiptSHA256 == "" || result.ObservationEventID == "" || childCalls != 1 || !result.ProfileRevoked {
+		t.Fatalf("source deletion closure=%+v childCalls=%d", result, childCalls)
+	}
+	replay, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Replay || replay.ChildLaunched || replay.ExecutionExitStatus != "source-drift" ||
+		replay.ReceiptSHA256 != result.ReceiptSHA256 || replay.ObservationEventID != result.ObservationEventID || childCalls != 1 {
+		t.Fatalf("source deletion replay=%+v first=%+v childCalls=%d", replay, result, childCalls)
+	}
+}
+
+func TestRunAuthorizedBinaryInventoryClosesAuthorizationDriftAfterLaunch(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			return nil, 6365, errors.New("synthetic parent interruption")
+		},
+		afterBinaryInventoryChildLaunch: func(int) error {
+			path, err := autonomy.Path(fixture.caseRoot, "main")
+			if err != nil {
+				return err
+			}
+			data, err := canonicalJSON(autonomy.DefaultProfile("main"))
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				return err
+			}
+			return errors.New("stop after authorization drift and durable launch proof")
+		},
+	}
+	if _, err := RunAuthorizedGate(fixture.options); err == nil || !strings.Contains(err.Error(), "durable launch proof") {
+		t.Fatalf("authorization drift cutpoint error=%v", err)
+	}
+	fixture.options.testHooks.afterBinaryInventoryChildLaunch = nil
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("authorization drift recovery relaunched child")
+	}
+	result, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExecutionStatus != "failed" || result.ExecutionExitStatus != "authorization-drift" ||
+		result.ReceiptSHA256 == "" || result.ObservationEventID == "" || childCalls != 1 || !result.ProfileAlreadyManual {
+		t.Fatalf("authorization drift closure=%+v childCalls=%d", result, childCalls)
+	}
+}
+
+func TestRunAuthorizedBinaryInventoryRecoversCommittedUnsealedOutputsWithoutChild(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(opt BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			result, err := RunBinaryInventoryChild(opt)
+			if err != nil {
+				return nil, 0, err
+			}
+			data, err := json.Marshal(result)
+			return data, 6464, err
+		},
+		afterBinaryInventoryOutputCommit: func() error {
+			return errors.New("synthetic interruption after durable output commit")
+		},
+	}
+	if _, err := RunAuthorizedGate(fixture.options); err == nil || !strings.Contains(err.Error(), "synthetic interruption") {
+		t.Fatalf("interrupted binary inventory run error = %v", err)
+	}
+	outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inventory", "session-1")
+	assertHostFileMissing(t, filepath.Join(outputRoot, binaryInventoryFileName))
+	assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
+	if _, err := os.Stat(filepath.Join(outputRoot, binaryInventoryOutputCommitFileName)); err != nil {
+		t.Fatalf("durable output commit missing after interruption: %v", err)
+	}
+	fixture.options.testHooks.afterBinaryInventoryOutputCommit = nil
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("commit recovery reran child")
+	}
+	recovered, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovered.Replay || recovered.ChildLaunched || childCalls != 1 ||
+		recovered.ExecutionStatus != "succeeded" || recovered.PacketSHA256 == "" ||
+		recovered.ReportSHA256 == "" || recovered.ReceiptSHA256 == "" || recovered.ObservationEventID == "" {
+		t.Fatalf("binary inventory committed output recovery = %+v childCalls=%d", recovered, childCalls)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, binaryInventorySuccessSealFileName)); err != nil {
+		t.Fatalf("success seal missing after committed output recovery: %v", err)
+	}
+}
+
+func TestRunAuthorizedBinaryInventoryClosesSourceDeletionAfterOutputCommit(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(opt BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			result, err := RunBinaryInventoryChild(opt)
+			if err != nil {
+				return nil, 0, err
+			}
+			data, err := json.Marshal(result)
+			return data, 6465, err
+		},
+		afterBinaryInventoryOutputCommit: func() error {
+			if err := os.Remove(filepath.Join(fixture.caseRoot, filepath.FromSlash(fixture.sourcePath))); err != nil {
+				return err
+			}
+			return errors.New("stop after source deletion and durable output commit")
+		},
+	}
+	if _, err := RunAuthorizedGate(fixture.options); err == nil || !strings.Contains(err.Error(), "durable output commit") {
+		t.Fatalf("source deletion commit cutpoint error=%v", err)
+	}
+	fixture.options.testHooks.afterBinaryInventoryOutputCommit = nil
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("source deletion commit recovery relaunched child")
+	}
+	result, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Replay || result.ChildLaunched || result.ExecutionStatus != "failed" || result.ExecutionExitStatus != "source-drift" ||
+		result.ReceiptSHA256 == "" || result.ObservationEventID == "" || childCalls != 1 || !result.ProfileRevoked {
+		t.Fatalf("source deletion commit recovery=%+v childCalls=%d", result, childCalls)
+	}
+	assertHostFileMissing(t, filepath.Join(fixture.caseRoot, "workspace", "main", "inventory", "session-1", binaryInventoryFileName))
+}
+
+func TestRunAuthorizedBinaryInventorySealedReplayDoesNotRequireLiveSource(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(opt BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			result, err := RunBinaryInventoryChild(opt)
+			if err != nil {
+				return nil, 0, err
+			}
+			data, err := json.Marshal(result)
+			return data, 6564, err
+		},
+		afterVMPOutputsPublished: func() error {
+			return errors.New("stop after sealed binary inventory outputs")
+		},
+	}
+	if _, err := RunAuthorizedGate(fixture.options); err == nil || !strings.Contains(err.Error(), "sealed binary inventory outputs") {
+		t.Fatalf("sealed binary inventory cutpoint error=%v", err)
+	}
+	if err := os.Remove(filepath.Join(fixture.caseRoot, filepath.FromSlash(fixture.sourcePath))); err != nil {
+		t.Fatal(err)
+	}
+	path, err := autonomy.Path(fixture.caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manual, err := canonicalJSON(autonomy.DefaultProfile("main"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, manual, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.options.testHooks.afterVMPOutputsPublished = nil
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("sealed binary inventory replay relaunched child")
+	}
+	result, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Replay || result.ChildLaunched || result.ExecutionStatus != "succeeded" || result.ExecutionExitStatus != "completed" ||
+		result.ReceiptSHA256 == "" || result.ObservationEventID == "" || childCalls != 1 || !result.ProfileAlreadyManual {
+		t.Fatalf("sealed binary inventory replay=%+v childCalls=%d", result, childCalls)
+	}
+}
+
+func TestRunAuthorizedBinaryInventoryFailureClosureRejectsLaunchProofReplacement(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	mutated := false
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			return nil, 6664, errors.New("synthetic child failure")
+		},
+		beforeBinaryInventoryFailureClosureValidation: func() error {
+			if mutated {
+				return nil
+			}
+			mutated = true
+			path := filepath.Join(
+				fixture.caseRoot,
+				"workspace", "main", "inventory", "session-1",
+				binaryInventoryChildLaunchFileName,
+			)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			var launch binaryInventoryChildLaunch
+			if err := decodeVMPIDAStrictJSON(data, &launch); err != nil {
+				return err
+			}
+			launch.ChildProcessID++
+			data, err = canonicalJSON(launch)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(path, data, 0o600)
+		},
+	}
+	result, err := RunAuthorizedGate(fixture.options)
+	if err == nil || !strings.Contains(err.Error(), "exact artifact validation") {
+		t.Fatalf("replacement proof closure result=%+v err=%v", result, err)
+	}
+	if result.ReceiptSHA256 != "" || result.ObservationEventID != "" || childCalls != 1 {
+		t.Fatalf("replacement proof wrote closure provenance: %+v childCalls=%d", result, childCalls)
+	}
+}
+
+func TestRunAuthorizedBinaryInventoryDoesNotReplayUnsealedPublicOutputs(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(opt BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			result, err := RunBinaryInventoryChild(opt)
+			if err != nil {
+				return nil, 0, err
+			}
+			data, err := json.Marshal(result)
+			return data, 6565, err
+		},
+		beforeBinaryInventorySuccessSeal: func() error {
+			return errors.New("synthetic interruption before success seal")
+		},
+	}
+	if _, err := RunAuthorizedGate(fixture.options); err == nil || !strings.Contains(err.Error(), "synthetic interruption") {
+		t.Fatalf("unsealed binary inventory run error = %v", err)
+	}
+	outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inventory", "session-1")
+	assertHostFileMissing(t, filepath.Join(outputRoot, binaryInventoryFileName))
+	assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
+	assertHostFileMissing(t, filepath.Join(outputRoot, binaryInventorySuccessSealFileName))
+	fixture.options.testHooks.beforeBinaryInventorySuccessSeal = nil
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("unsealed recovery reran child")
+	}
+	recovered, err := RunAuthorizedGate(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.ChildLaunched || childCalls != 1 || recovered.ExecutionStatus != "succeeded" ||
+		recovered.PacketSHA256 == "" || recovered.ReportSHA256 == "" || recovered.ReceiptSHA256 == "" {
+		t.Fatalf("binary inventory unsealed recovery = %+v childCalls=%d", recovered, childCalls)
+	}
 }
 
 func TestAuthorizedAdapterPackIdentityPolicy(t *testing.T) {
@@ -65,6 +656,9 @@ func newVMPAuthorizedFixtureWithStateRoot(t *testing.T, recordDispatch bool, sta
 	root := t.TempDir()
 	repoRoot := filepath.Join(root, "repo")
 	caseRoot := filepath.Join(root, "case")
+	if stateDir == ".steamai" {
+		copyProductionFixtureInputs(t, repoRoot, "binary-re")
+	}
 	writeHostFile(t, filepath.Join(repoRoot, "packs", "binary-re", "manifest.yml"), `schemaVersion: 1
 name: binary-re
 version: 0.2.0
@@ -89,13 +683,28 @@ workstreamDefaults:
   requestDefaultTargetLane: main
 authorityFiles:
   - handoff.md
-commonPolicies: []
+commonPolicies:
+  - agent-team
+  - tool-adapters
+  - context-budget
+  - subagents
+  - lane-collaboration
+  - review-first
+  - write-boundaries
+  - verification
+  - evidence
+  - tool-output
+  - handoff
 policyOverlays: []
 subagentRoutes: []
 promoteFiles: []
 toolingFiles:
   - tooling/catalog.yml
-promptFiles: []
+promptFiles:
+  - common/prompts/lane-main-session.md
+  - common/prompts/lane-feature-session.md
+  - common/prompts/lane-merge-review.md
+  - packs/binary-re/prompts/feature-analysis-session.md
 laneTypes:
   - id: main
     title: Main
@@ -141,7 +750,14 @@ tools:
     sideEffects: filesystem-read,bounded-packet-write
     gateActions: inspect
 `)
-	writeHostFile(t, filepath.Join(caseRoot, stateDir, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \"binary-re\"\nprojectName: \"vmp-adapter-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
+	var instructionIdentity *instructionpacket.Identity
+	if stateDir == ".steamai" {
+		project := publishProductionFixtureProject(t, repoRoot, caseRoot, "binary-re", "vmp-adapter-fixture")
+		repoRoot = project.RuntimeRepoRoot
+		instructionIdentity = productionInstructionIdentityForFixture(t, caseRoot, "binary-re")
+	} else {
+		writeHostFile(t, filepath.Join(caseRoot, stateDir, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \"binary-re\"\nprojectName: \"vmp-adapter-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
+	}
 	writeHostFile(t, filepath.Join(caseRoot, stateDir, "board.json"), `{"lanes":[{"id":"main","status":"open","workspace":"workspace/main","currentExecutor":"executor-vmp","executorGeneration":1}]}`)
 	writeHostFile(t, filepath.Join(caseRoot, stateDir, "lanes", "main", "lane.json"), `{
   "schemaVersion": 1,
@@ -205,7 +821,7 @@ tools:
 	if err != nil || !authorized.Applied || authorized.Event == nil {
 		t.Fatalf("authorize VMP IDA request: %+v err=%v", authorized, err)
 	}
-	fixture := vmpAuthorizedFixture{repoRoot: repoRoot, caseRoot: caseRoot, requestPath: preview.RequestPath, gateEventID: authorized.EventID}
+	fixture := vmpAuthorizedFixture{repoRoot: repoRoot, caseRoot: caseRoot, requestPath: preview.RequestPath, gateEventID: authorized.EventID, instructionIdentity: instructionIdentity}
 	if recordDispatch {
 		dispatchOpt := gate.Options{
 			GateEventID: authorized.EventID, ExecutionReportPath: outputRoot + "/adapter-report.json",
@@ -221,7 +837,7 @@ tools:
 		if err != nil || !fixture.dispatch.Applied {
 			t.Fatalf("record VMP dispatch: %+v err=%v", fixture.dispatch, err)
 		}
-		fixture.options = Options{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "binary-re", GateEventID: authorized.EventID, ExpectedDispatchSHA256: fixture.dispatch.DispatchSHA256}
+		fixture.options = Options{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "binary-re", GateEventID: authorized.EventID, ExpectedDispatchSHA256: fixture.dispatch.DispatchSHA256, InstructionIdentity: cloneAdapterInstructionIdentity(instructionIdentity)}
 	}
 	return fixture
 }
@@ -270,6 +886,7 @@ func childOptionsForFixture(
 		Executor:                   dispatch.Owner.CurrentExecutor,
 		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		RequestPath:                fixture.requestPath,
+		InstructionIdentity:        cloneAdapterInstructionIdentity(fixture.instructionIdentity),
 	}
 }
 
@@ -284,6 +901,77 @@ func strictChildBytes(t *testing.T, opt VMPIDAIndexChildOptions) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func mismatchedExpectedInstructionIdentity(identity *instructionpacket.Identity) *instructionpacket.Identity {
+	mismatch := cloneAdapterInstructionIdentity(identity)
+	if mismatch == nil {
+		return &instructionpacket.Identity{Pack: "mismatched-pack"}
+	}
+	mismatch.Pack += "-mismatch"
+	return mismatch
+}
+
+func publishAdapterDispatchForDecoderTest(t *testing.T, opt AuthorizedRunOptions) adapterexecution.DispatchReceipt {
+	t.Helper()
+	lane := authorizedGateLane(opt.RepoRoot, opt.CaseRoot, opt.Pack, opt.GateEventID)
+	if lane == "" {
+		t.Fatal("decoder fixture has no authorized gate lane")
+	}
+	owner, err := laneowner.Read(opt.CaseRoot, lane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt := gate.Options{
+		GateEventID:                opt.GateEventID,
+		ExecutionReportPath:        opt.ExecutionReportPath,
+		AdapterID:                  opt.AdapterID,
+		Executor:                   owner.CurrentExecutor,
+		ExpectedExecutorGeneration: owner.ExecutorGeneration,
+		AdapterHarness:             adapterHarness,
+		AdapterSession:             opt.AdapterSession,
+		Actor:                      opt.Actor,
+	}
+	preview, err := gate.RecordAdapterExecutionDispatch(opt.RepoRoot, opt.CaseRoot, opt.Pack, dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt.ExpectedAdapterExecutionDispatchBindingSHA256 = preview.BindingSHA256
+	applied, err := gate.RecordAdapterExecutionDispatch(opt.RepoRoot, opt.CaseRoot, opt.Pack, dispatchOpt)
+	if err != nil || !applied.Applied {
+		t.Fatalf("publish decoder fixture dispatch: %+v err=%v", applied, err)
+	}
+	dispatch, _, _, _, err := gate.ReadCurrentAdapterExecutionDispatch(opt.RepoRoot, opt.CaseRoot, opt.Pack, opt.GateEventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dispatch
+}
+
+func binaryChildOptionsForFixture(t *testing.T, fixture binaryInventoryAuthorizedFixture) BinaryInventoryChildOptions {
+	t.Helper()
+	dispatch := publishAdapterDispatchForDecoderTest(t, fixture.options)
+	_, _, dispatchSHA, _, err := gate.ReadCurrentAdapterExecutionDispatch(
+		fixture.options.RepoRoot,
+		fixture.options.CaseRoot,
+		fixture.options.Pack,
+		fixture.options.GateEventID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return BinaryInventoryChildOptions{
+		RepoRoot:                   fixture.options.RepoRoot,
+		CaseRoot:                   fixture.options.CaseRoot,
+		Pack:                       fixture.options.Pack,
+		GateEventID:                fixture.options.GateEventID,
+		ExpectedDispatchSHA256:     dispatchSHA,
+		AdapterSession:             dispatch.Owner.AdapterSession,
+		Executor:                   dispatch.Owner.CurrentExecutor,
+		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
+		SourcePath:                 fixture.sourcePath,
+		InstructionIdentity:        cloneAdapterInstructionIdentity(fixture.options.InstructionIdentity),
+	}
 }
 
 func TestRunVMPIDAIndexReusesDurableAttemptRuntimeStart(t *testing.T) {
@@ -542,7 +1230,11 @@ func TestRunAuthorizedGateRefusesStaleExecutionControlBeforeChild(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := executioncontrol.CaptureBinding(fixture.caseRoot, owner)
+	capability, err := capabilitycontract.Bind(capabilitycontract.AuthorizedHeavy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(fixture.caseRoot, owner, capability)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +1279,8 @@ func authorizedRunOptionsForFixture(
 		Pack: "binary-re", GateEventID: fixture.gateEventID,
 		ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json",
 		AdapterSession:      "vmp-parent-session", Actor: "mission-commander",
-		testHooks: hooks,
+		InstructionIdentity: cloneAdapterInstructionIdentity(fixture.instructionIdentity),
+		testHooks:           hooks,
 	}
 }
 
@@ -1802,8 +2495,9 @@ func TestRunVMPIDAIndexChildRequiresExactAuthorizedDispatchBinding(t *testing.T)
 
 func TestDecodeVMPIDAChildResultRequiresStrictSingleJSON(t *testing.T) {
 	fixture := newVMPAuthorizedFixture(t, true)
-	valid := strictChildBytes(t, childOptionsForFixture(t, fixture))
-	if _, err := decodeVMPIDAChildResult(valid, fixture.requestPath); err != nil {
+	childOpt := childOptionsForFixture(t, fixture)
+	valid := strictChildBytes(t, childOpt)
+	if _, err := decodeVMPIDAChildResult(valid, fixture.requestPath, childOpt.InstructionIdentity); err != nil {
 		t.Fatal(err)
 	}
 	for name, data := range map[string][]byte{
@@ -1811,9 +2505,32 @@ func TestDecodeVMPIDAChildResultRequiresStrictSingleJSON(t *testing.T) {
 		"unknown field":   []byte(strings.Replace(string(valid), `"schemaVersion":1`, `"schemaVersion":1,"unknown":true`, 1)),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := decodeVMPIDAChildResult(data, fixture.requestPath); err == nil {
+			if _, err := decodeVMPIDAChildResult(data, fixture.requestPath, childOpt.InstructionIdentity); err == nil {
 				t.Fatalf("strict child decoder accepted %s", data)
 			}
 		})
+	}
+	mismatch := mismatchedExpectedInstructionIdentity(childOpt.InstructionIdentity)
+	if _, err := decodeVMPIDAChildResult(valid, fixture.requestPath, mismatch); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("VMP child decoder accepted mismatched identity: %v", err)
+	}
+}
+
+func TestDecodeBinaryInventoryChildResultRejectsMismatchedInstructionIdentity(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childOpt := binaryChildOptionsForFixture(t, fixture)
+	result, err := RunBinaryInventoryChild(childOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeBinaryInventoryChildResult(data, fixture.sourcePath, childOpt.InstructionIdentity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeBinaryInventoryChildResult(data, fixture.sourcePath, mismatchedExpectedInstructionIdentity(childOpt.InstructionIdentity)); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("binary child decoder accepted mismatched identity: %v", err)
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 )
 
 type completionProductResult struct {
@@ -151,8 +153,10 @@ func TestRunLaneCompletionRejectsEvidenceDrift(t *testing.T) {
 	}
 	writeCompletionEvidence(t, evidence, "unreviewed evidence B")
 	beforeDriftApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
-	if err := Run(append(rekitCommandCLIArgs(t, preview.ApplyCommand), "-Target", caseRoot, "-Pack", "_template"), &out); err == nil || !strings.Contains(err.Error(), "preview sha256 mismatch") {
-		t.Fatalf("evidence drift must invalidate the reviewed completion plan, err=%v", err)
+	err := Run(append(rekitCommandCLIArgs(t, preview.ApplyCommand), "-Target", caseRoot, "-Pack", "_template"), &out)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("evidence drift must invalidate the reviewed completion plan, err=%v failure=%+v typed=%t", err, failure, typed)
 	}
 	assertSnapshotEqual(t, beforeDriftApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }

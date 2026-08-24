@@ -31,6 +31,8 @@ claude
 - [x] 品牌、自然语言称呼和新 slash command 固定为 `STeamAI` / `/steamai`。
 - [x] 新项目默认选择 `.steamai`；legacy-only 项目继续单写 `.rekit`；双根 fail-closed。
 - [x] `status -Format compact-json` 提供 4 KiB 硬预算的只读投影，保留完整 typed request/choices；无法完整安全输出时返回小型 blocked envelope。
+- [x] project-local executable 提供 no-mode `help` / `status` / `continue` 用户入口；默认 summary 与 opt-in `--diagnostics` 分层，维护 flags 不进入普通用户 parser。
+- [x] 显式未接入目录的 status 只读投影 schema-valid、非 template pack choices；pending onboarding publication 只发布一个绑定 durable identity/stamp/plan 的 exact recovery action，不重新开放 pack 选择。
 - [x] daily action 提供“现在、原因、下一步”和 typed recovery 分类；不从 provider detail 编造用户建议。
 - [x] `bounded-autonomous-v1` 提供显式 opt-in 的单 lane、exact action/target、有限预算、短时有效自治档位；每次仍重验和留证。
 - [x] ordinary init 发布可验证、可重定位的项目内 runtime bundle、selected pack、common 与必要 assets。
@@ -50,7 +52,7 @@ cd <project>
 claude
 ```
 
-在 Claude Code 中输入 `/steamai` 或自然语言即可。用户不需要填写 pack、lane、executor、session ID、generation、内部路径或 SHA。
+在 Claude Code 中输入 `/steamai` 或自然语言即可。用户不需要填写 pack、lane、executor、session ID、generation、内部路径或 SHA。需要直接调用 verified executable 时，只使用 no-mode `help`、`status`、`continue [--lane <selector>]`；默认输出是“现在、原因、下一步”，只有 `--diagnostics` 或 `--format=json` 返回 typed JSON。`continue` 固定 preview-only，不自动 Apply、启动 Claude或运行 heavy tool。
 
 ### 1.2 还没有接入的普通目录
 
@@ -61,12 +63,14 @@ claude
 | 用户表达 | 产品动作 |
 |---|---|
 | “现在到哪了”“下一步是什么” | 项目内 runtime 的 compact status；零写入、零 Claude launch |
-| “开始/继续推进” | fresh typed daily owner；多 lane 先显示 typed choices |
+| “开始/继续推进” | fresh typed daily owner；resume/goal/correction/control/adoption 只由一个 operation owner 选路，`-Lane` 只是 selector；多 lane 先显示 typed choices |
 | “按这条意见纠偏” | fresh rejection/reopen route；不自建第二状态机 |
 | “暂停/恢复/停止某条 lane” | fresh exact lane的`control` WhatIf→确认→exact Apply；多lane先选择 |
 | “换新会话接手” | fresh status + scope-bound handoff preview/Apply |
 | “同步模板”“沉淀经验” | `sync` / `promote` review-first，等待精确范围确认 |
 | heavy action | strict profile + fresh `authorized-gate`；超范围立即停止 |
+
+普通 continue 的 public executable contract 固定为三阶段：fresh status 发布 typed `-WhatIf -Format json`；preview 结果以 `continuePlanSha256` 绑定完整 mutation snapshot，并发布保持同 selector、owner、generation 和其它 typed 参数、携带 `-ExpectedContinuePlanSha256` 的 exact `-Apply`；Apply 结果或后续 fresh status 重新发布 preview。blocked preview 不发布 Apply。主 Agent不得从 command prose 手工拼 phase，不得让 command 与 invocation 分别改写，也不得复用刚执行的 Apply request。
 
 默认用户输出只包含：
 
@@ -137,9 +141,11 @@ both          → fail closed
 - 用户级 Claude skill 或全局 plugin；
 - 复制项目之前的绝对路径。
 
-`/steamai` 使用 `${CLAUDE_PROJECT_DIR}` 定位项目根，验证 `.steamai/runtime/manifest.json` 后只调用 manifest 以 `runtime-executable` role 绑定的 `.steamai/runtime/bin/steamai.exe`。该单一 executable 显式支持 `runtime`（deterministic CLI）和 `host`（含 `-daily`）模式：compact status 使用 `steamai.exe runtime -Command status -Target <project> -Format compact-json`，daily 使用 `steamai.exe host -daily -target <project> ...`。不得把 `rekit.exe`/`rekit-host.exe` 或 developer Go source 当作已发布项目在中央 kit 缺失时的隐式 fallback。
+`/steamai` 使用 `${CLAUDE_PROJECT_DIR}` 定位项目根，验证 `.steamai/runtime/manifest.json` 后只调用 manifest 以 `runtime-executable` role 绑定的 `.steamai/runtime/bin/steamai.exe`。该单一 executable 为普通用户提供 no-mode `help`、`status`、`continue [--lane <selector>]`；`status` 默认消费 compact projection，显式 `--diagnostics` / `--format=json` 才返回 full typed JSON，`continue` 始终强制 `WhatIf` preview。它同时显式支持 `runtime`（deterministic typed CLI）和 `host`（含 `-daily`）模式，供主 Agent、自动化和维护者使用：compact typed status 使用 `steamai.exe runtime -Command status -Target <project> -Format compact-json`，daily 使用 `steamai.exe host -daily -target <project> ...`。`cmd/rekit` 只负责 executable binding、mode recognition 和 dispatch；durable 状态、public command projection 与 mutation 仍由既有 Go owners 持有，不得在 front door 重建。不得把 `rekit.exe`/`rekit-host.exe` 或 developer Go source 当作已发布项目在中央 kit 缺失时的隐式 fallback。
 
 runtime resolution 必须优先识别显式 target 所属的项目内 bundle。即使当前 shell 位于 kit 仓库，也不能用中央 source repo 覆盖一个 current `.steamai` target 的 runtime identity。
+
+Mature production pack 的 Claude session 还必须绑定 project-local instruction identity。Runtime 从 verified bundle 内的 selected manifest、`common/` policies、pack policy overlays 与声明的 prompts 构建只含 path/SHA-256/bytes/mode/receipt kind 的 durable identity；instruction 全文不进入 dispatch、receipt或recovery JSON，只在process start前按该identity从同一bundle稳定重读并内联stdin。Identity原样贯穿external dispatch、adapter execution/evidence-review intent/result、direct Reviewer package、detached supervisor spec与structured-output recovery；任一pack、source、receipt kind或aggregate SHA drift都在launch/recovery前fail-closed，且这些instructions不授予heavy-tool、authority/confirmed或更广文件系统/网络权限。
 
 ## 5. Compact status
 
@@ -149,7 +155,7 @@ runtime resolution 必须优先识别显式 target 所属的项目内 bundle。�
 - 所有 typed choices 与 invocation 完整保留；
 - 不携带完整 project handoff、takeover、queues 或大段诊断对象；
 - request identity 无效或完整内容超预算时，不截断、不重建，返回 `details-required` blocked envelope；
-- full `json` 只在 typed envelope 明确要求或维护者主动诊断时按需读取。
+- full `json` 只在 typed envelope 明确要求，或用户/维护者显式传 `--diagnostics` / `--format=json` 时按需读取；默认 no-mode `status` 不显示 SHA、durable lane/session ID、generation、absolute path 或内部维护 command。
 
 ## 6. 故障恢复
 

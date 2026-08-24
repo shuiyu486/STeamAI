@@ -1,14 +1,50 @@
 package executioncontrol
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 const testLane = "binary-analysis-main"
+
+func TestDecodeVersionedBindingKeepsLegacyOutOfCurrentPath(t *testing.T) {
+	owner := laneowner.Snapshot{Lane: testLane, CurrentExecutor: "member-main", ExecutorGeneration: 7}
+	legacy := LegacyBinding{SchemaVersion: LegacyBindingSchemaVersion, Lane: testLane, Owner: owner}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeVersionedBinding(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Version != LegacyBindingSchemaVersion || decoded.Legacy == nil || decoded.Current != nil || decoded.WholeSHA256 != hash(data) || !bytes.Equal(decoded.Raw, data) {
+		t.Fatalf("legacy binding decode = %+v", decoded)
+	}
+	currentCapability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := Binding{SchemaVersion: BindingSchemaVersion, Lane: testLane, Owner: owner, Capability: currentCapability}
+	currentData, err := json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentDecoded, err := DecodeVersionedBinding(currentData)
+	if err != nil || currentDecoded.Current == nil || currentDecoded.Legacy != nil || currentDecoded.Version != BindingSchemaVersion {
+		t.Fatalf("current binding decode = %+v err=%v", currentDecoded, err)
+	}
+}
 
 func TestPreviewIsZeroWriteAndBindsDurableOwner(t *testing.T) {
 	caseRoot := controlFixture(t, false)
@@ -63,8 +99,9 @@ func TestApplyRejectsStaleReviewedHeadBeforeWriting(t *testing.T) {
 		Lane: testLane, Action: stale.Action, Actor: stale.Actor, Reason: stale.Reason,
 		PublicationStamp: stale.PublicationStamp, ExpectedPlanSHA256: stale.ExpectedPlanSHA256,
 	})
-	if err == nil || !strings.Contains(err.Error(), "preview sha256 mismatch") {
-		t.Fatalf("stale control head was accepted: %v", err)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("stale control head was accepted: %v failure=%+v typed=%t", err, failure, typed)
 	}
 	inspection, inspectErr := Inspect(caseRoot, testLane)
 	if inspectErr != nil {
@@ -97,8 +134,10 @@ func TestApplyRecoversPendingIntentAndCommittedResponseLoss(t *testing.T) {
 	}
 	wrong := opt
 	wrong.ExpectedPlanSHA256 = strings.Repeat("0", 64)
-	if _, err := Apply(caseRoot, wrong); err == nil || !strings.Contains(err.Error(), "recover the exact original") {
-		t.Fatalf("mismatched recovery was accepted: %v", err)
+	_, err = Apply(caseRoot, wrong)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("mismatched recovery was accepted: %v failure=%+v typed=%t", err, failure, typed)
 	}
 
 	applyAfterReceiptHook = func() error { return errors.New("response lost after durable control receipt") }
@@ -215,15 +254,18 @@ func controlFixture(t *testing.T, legacy bool) string {
 
 func controlFixtureAt(t *testing.T, caseRoot string, legacy bool) {
 	t.Helper()
-	stateDir := ".steamai"
+	layout := testfixture.CurrentProject
 	if legacy {
-		stateDir = ".rekit"
+		layout = testfixture.LegacyCase
 	}
-	laneRoot := filepath.Join(caseRoot, stateDir, "lanes", testLane)
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:      layout,
+		CaseRoot:    caseRoot,
+		Pack:        "_template",
+		ProjectName: "execution-control-test",
+	})
+	laneRoot := filepath.Join(project.StateRoot, "lanes", testLane)
 	if err := os.MkdirAll(laneRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(caseRoot, stateDir, "instance.yml"), []byte("schemaVersion: 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	lane := `{"schemaVersion":1,"id":"` + testLane + `","status":"open","currentExecutor":"member-main","executorGeneration":7}` + "\n"

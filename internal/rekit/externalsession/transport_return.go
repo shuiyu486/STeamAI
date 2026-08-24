@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -21,28 +22,29 @@ import (
 const KindTransportReturnReceipt = "current-loop-external-session-transport-return"
 
 type TransportReturnReceipt struct {
-	SchemaVersion          int              `json:"schemaVersion"`
-	Kind                   string           `json:"kind"`
-	Binding                TransportBinding `json:"binding"`
-	BundlePath             string           `json:"bundlePath"`
-	BundleSHA256           string           `json:"bundleSha256"`
-	BundleBytes            int              `json:"bundleBytes"`
-	EndpointSnapshotSHA256 string           `json:"endpointSnapshotSha256"`
-	EnvelopeSHA256         string           `json:"envelopeSha256"`
-	DeliverySHA256         string           `json:"deliverySha256"`
-	LaunchReceiptSHA256    string           `json:"launchReceiptSha256"`
-	SourcePath             string           `json:"sourcePath"`
-	SourceSHA256           string           `json:"sourceSha256"`
-	SourceBytes            int              `json:"sourceBytes"`
-	ResultPath             string           `json:"resultPath"`
-	ResultSHA256           string           `json:"resultSha256"`
-	ResultBytes            int              `json:"resultBytes"`
-	Actor                  string           `json:"actor"`
-	ObservedAt             string           `json:"observedAt"`
-	NoSessionManagement    bool             `json:"noSessionManagement"`
-	NoHeavyTool            bool             `json:"noHeavyTool"`
-	NoAuthority            bool             `json:"noAuthority"`
-	NoConfirmed            bool             `json:"noConfirmed"`
+	SchemaVersion          int                        `json:"schemaVersion"`
+	Kind                   string                     `json:"kind"`
+	Binding                TransportBinding           `json:"binding"`
+	Capability             capabilitycontract.Binding `json:"capability"`
+	BundlePath             string                     `json:"bundlePath"`
+	BundleSHA256           string                     `json:"bundleSha256"`
+	BundleBytes            int                        `json:"bundleBytes"`
+	EndpointSnapshotSHA256 string                     `json:"endpointSnapshotSha256"`
+	EnvelopeSHA256         string                     `json:"envelopeSha256"`
+	DeliverySHA256         string                     `json:"deliverySha256"`
+	LaunchReceiptSHA256    string                     `json:"launchReceiptSha256"`
+	SourcePath             string                     `json:"sourcePath"`
+	SourceSHA256           string                     `json:"sourceSha256"`
+	SourceBytes            int                        `json:"sourceBytes"`
+	ResultPath             string                     `json:"resultPath"`
+	ResultSHA256           string                     `json:"resultSha256"`
+	ResultBytes            int                        `json:"resultBytes"`
+	Actor                  string                     `json:"actor"`
+	ObservedAt             string                     `json:"observedAt"`
+	NoSessionManagement    bool                       `json:"noSessionManagement"`
+	NoHeavyTool            bool                       `json:"noHeavyTool"`
+	NoAuthority            bool                       `json:"noAuthority"`
+	NoConfirmed            bool                       `json:"noConfirmed"`
 }
 
 type TransportReturnPlan struct {
@@ -150,6 +152,7 @@ func PreviewTransportReturn(job Job, sourcePath, actor, observedAt string) (Tran
 		SchemaVersion:          SchemaVersion,
 		Kind:                   KindTransportReturnReceipt,
 		Binding:                transport.Binding,
+		Capability:             transport.Delivery.Capability,
 		BundlePath:             transport.BundlePath,
 		BundleSHA256:           transport.BundleSHA256,
 		BundleBytes:            transport.BundleBytes,
@@ -182,6 +185,7 @@ func PreviewTransportReturn(job Job, sourcePath, actor, observedAt string) (Tran
 		AttemptID:                    attempt.Current.AttemptID,
 		AttemptSHA256:                attempt.AttemptSHA256,
 		LaunchControl:                executioncontrol.CloneBinding(attempt.Current.LaunchControl),
+		Capability:                   receipt.Capability,
 		DispatchClaimSHA256:          dispatch.ClaimSHA256,
 		LaunchReceiptSHA256:          dispatch.LaunchSHA256,
 		TransportReturnReceiptPath:   returnPath,
@@ -393,7 +397,8 @@ func validateRemoteControlReturnLineage(job Job, attempt AttemptInspection, disp
 		return fmt.Errorf("invalid Remote Control transport return receipt: %w", err)
 	}
 	if receipt.SchemaVersion != SchemaVersion || receipt.Kind != KindTransportReturnReceipt ||
-		receipt.Binding != transport.Binding || receipt.BundlePath != transport.BundlePath ||
+		receipt.Binding != transport.Binding || receipt.Capability != transport.Delivery.Capability ||
+		receipt.Capability != submission.Capability || receipt.Capability != job.Capability || receipt.BundlePath != transport.BundlePath ||
 		!strings.EqualFold(receipt.BundleSHA256, transport.BundleSHA256) || receipt.BundleBytes != transport.BundleBytes ||
 		!strings.EqualFold(receipt.EndpointSnapshotSHA256, transport.EndpointSHA256) ||
 		!strings.EqualFold(receipt.EnvelopeSHA256, transport.EnvelopeSHA256) ||
@@ -403,6 +408,9 @@ func validateRemoteControlReturnLineage(job Job, attempt AttemptInspection, disp
 		receipt.ResultBytes != len(resultData) || receipt.Actor != submission.Actor ||
 		!receipt.NoSessionManagement || !receipt.NoHeavyTool || !receipt.NoAuthority || !receipt.NoConfirmed {
 		return fmt.Errorf("Remote Control transport return receipt does not match the exact delivery, launch, result, and submission lineage")
+	}
+	if err := capabilitycontract.RequireBindingPolicy(receipt.Capability, capabilitycontract.PolicyClassTransport); err != nil {
+		return fmt.Errorf("Remote Control transport return capability contract is invalid: %w", err)
 	}
 	observed, err := canonicalTransportTime(receipt.ObservedAt, "return observedAt")
 	if err != nil {

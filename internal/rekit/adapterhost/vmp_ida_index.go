@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 )
 
 const (
@@ -65,6 +67,7 @@ type VMPIDAIndexChildOptions struct {
 	Executor                   string
 	ExpectedExecutorGeneration int
 	RequestPath                string
+	InstructionIdentity        *instructionpacket.Identity
 }
 
 type vmpIDATSVRow struct {

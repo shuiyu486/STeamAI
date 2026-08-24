@@ -9,8 +9,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 )
 
 const DefaultMaxRows = 10
@@ -187,6 +189,11 @@ func ValidateMissionCommanderDriverRequest(request MissionCommanderDriverRequest
 			return fmt.Errorf("mission commander driver request template must not carry an expected executable command")
 		}
 		return validateMissionCommanderDriverRequestRefresh(request)
+	}
+	if request.Invocation.Command == commands.Continue {
+		if err := commands.ValidateExecutableContinueInvocation(*request.Invocation); err != nil {
+			return fmt.Errorf("mission commander executable continue request: %w", err)
+		}
 	}
 	if request.Blocked {
 		return fmt.Errorf("mission commander driver request typed invocation is blocked")
@@ -498,31 +505,34 @@ type CurrentLoopExternalSessionHarnessInput struct {
 }
 
 type CurrentLoopExternalSessionReviewerIdentity struct {
-	PacketID        string   `json:"packetId"`
-	RouteID         string   `json:"routeId"`
-	ShardID         string   `json:"shardId"`
-	Items           []string `json:"items"`
-	OutputFields    []string `json:"outputFields"`
-	DispatchPath    string   `json:"dispatchPath"`
-	DispatchSHA256  string   `json:"dispatchSha256"`
-	DispatchID      string   `json:"dispatchId"`
-	ReviewerSession string   `json:"reviewerSession"`
-	PromptPath      string   `json:"promptPath"`
-	PromptSHA256    string   `json:"promptSha256"`
-	NoHeavyTool     bool     `json:"noHeavyTool"`
-	NoAuthority     bool     `json:"noAuthorityOrConfirmed"`
+	PacketID        string                     `json:"packetId"`
+	RouteID         string                     `json:"routeId"`
+	ShardID         string                     `json:"shardId"`
+	Items           []string                   `json:"items"`
+	OutputFields    []string                   `json:"outputFields"`
+	DispatchPath    string                     `json:"dispatchPath"`
+	DispatchSHA256  string                     `json:"dispatchSha256"`
+	DispatchID      string                     `json:"dispatchId"`
+	ReviewerSession string                     `json:"reviewerSession"`
+	PromptPath      string                     `json:"promptPath"`
+	PromptSHA256    string                     `json:"promptSha256"`
+	Capability      capabilitycontract.Binding `json:"capability"`
+	NoHeavyTool     bool                       `json:"noHeavyTool"`
+	NoAuthority     bool                       `json:"noAuthorityOrConfirmed"`
 }
 
 type CurrentLoopExternalSessionHarnessLaunch struct {
-	Ready            bool                                        `json:"ready"`
-	Tool             string                                      `json:"tool"`
-	AgentType        string                                      `json:"agentType"`
-	ReadOnly         bool                                        `json:"readOnly"`
-	Input            CurrentLoopExternalSessionHarnessInput      `json:"input"`
-	ExpectedOutput   string                                      `json:"expectedOutput"`
-	ReviewerIdentity *CurrentLoopExternalSessionReviewerIdentity `json:"reviewerIdentity,omitempty"`
-	Attempt          CurrentLoopExternalSessionAttempt           `json:"attempt"`
-	Boundary         []string                                    `json:"boundary"`
+	Ready               bool                                        `json:"ready"`
+	Tool                string                                      `json:"tool"`
+	AgentType           string                                      `json:"agentType"`
+	ReadOnly            bool                                        `json:"readOnly"`
+	Capability          capabilitycontract.Binding                  `json:"capability"`
+	Input               CurrentLoopExternalSessionHarnessInput      `json:"input"`
+	ExpectedOutput      string                                      `json:"expectedOutput"`
+	InstructionIdentity *instructionpacket.Identity                 `json:"instructionIdentity,omitempty"`
+	ReviewerIdentity    *CurrentLoopExternalSessionReviewerIdentity `json:"reviewerIdentity,omitempty"`
+	Attempt             CurrentLoopExternalSessionAttempt           `json:"attempt"`
+	Boundary            []string                                    `json:"boundary"`
 }
 
 type CurrentLoopExternalSessionSubmissionTemplate struct {
@@ -544,10 +554,12 @@ type CurrentLoopExternalSessionReturnContract struct {
 }
 
 type CurrentLoopExternalSessionDispatchTicket struct {
-	Path          string `json:"path"`
-	SHA256        string `json:"sha256"`
-	AttemptSHA256 string `json:"attemptSha256"`
-	Generation    int    `json:"generation"`
+	Path                string                      `json:"path"`
+	SHA256              string                      `json:"sha256"`
+	AttemptSHA256       string                      `json:"attemptSha256"`
+	Generation          int                         `json:"generation"`
+	Capability          capabilitycontract.Binding  `json:"capability"`
+	InstructionIdentity *instructionpacket.Identity `json:"instructionIdentity,omitempty"`
 }
 
 type CurrentLoopExternalSessionDispatchClaim struct {
@@ -653,6 +665,7 @@ type CurrentLoopExternalSessionHarnessPackage struct {
 	SchemaVersion        int                                       `json:"schemaVersion"`
 	State                string                                    `json:"state"`
 	CaseRoot             string                                    `json:"caseRoot"`
+	Pack                 string                                    `json:"pack,omitempty"`
 	JobID                string                                    `json:"jobId"`
 	JobSHA256            string                                    `json:"jobSha256"`
 	CheckpointSHA256     string                                    `json:"checkpointSha256"`
@@ -682,6 +695,7 @@ type CurrentLoopExternalSessionJob struct {
 	MemberManifestPath  string                                      `json:"memberManifestPath,omitempty"`
 	MemberOutputsRoot   string                                      `json:"memberOutputsRoot,omitempty"`
 	Reviewer            *CurrentLoopExternalSessionJobReviewer      `json:"reviewer,omitempty"`
+	Capability          capabilitycontract.Binding                  `json:"capability"`
 	RelayResultPath     string                                      `json:"relayResultPath,omitempty"`
 	PublicationPath     string                                      `json:"publicationPath"`
 	ObservationPath     string                                      `json:"observationPath"`
@@ -1201,7 +1215,7 @@ func UniqueCommanderNextActions(items []MissionCommanderNextActionItem) []Missio
 	seen := map[string]bool{}
 	out := []MissionCommanderNextActionItem{}
 	for _, item := range items {
-		item.Command = strings.TrimSpace(item.Command)
+		item = normalizeMissionCommanderNextAction(item)
 		if item.Command == "" {
 			continue
 		}
@@ -1275,14 +1289,29 @@ func normalizeMissionCommanderNextAction(item MissionCommanderNextActionItem) Mi
 		invocation, err = commands.ParsePublicInvocation(command)
 	}
 	if err == nil && command != "" {
-		copy := invocation
-		item.Invocation = &copy
-		item.Command = command
-		return item
+		entrypoint := commands.LegacyPublicEntrypoint
+		if strings.HasPrefix(command, commands.CurrentPublicEntrypoint+" ") {
+			entrypoint = commands.CurrentPublicEntrypoint
+		}
+		var qualified bool
+		invocation, qualified, err = commands.QualifyPublicNextAction(invocation)
+		if err == nil && qualified {
+			command, err = invocation.RenderForEntrypoint(entrypoint)
+		}
+		if err == nil {
+			copy := invocation
+			item.Invocation = &copy
+			item.Command = command
+			if qualified {
+				item.RequiresReview = true
+				item.Boundary = UniqueStrings(append(item.Boundary, "public continue next actions default to a WhatIf JSON preview; only an exact returned Apply request may mutate state"))
+			}
+			return item
+		}
 	}
 	item.Invocation = nil
 	item.Command = command
-	if command != "" && (strings.HasPrefix(command, "/rekit") || strings.HasPrefix(command, "rekit")) {
+	if command != "" && (strings.HasPrefix(command, "/rekit") || strings.HasPrefix(command, "rekit") || strings.HasPrefix(command, "/steamai") || strings.HasPrefix(command, "steamai")) {
 		item.Blocked = true
 		item.RequiresReview = true
 		item.Reasons = UniqueStrings(append(item.Reasons, "invalid typed ReKit invocation: "+err.Error()))
@@ -1340,7 +1369,7 @@ func MissionCommanderCurrentDriverRequest(current MissionCommanderNextActionItem
 		},
 		ExpectedReceipt: MissionCommanderDriverReceiptExpectation{
 			State:       "refresh-required",
-			Description: "rerun /rekit status or the returned command result handoff before selecting follow-up work",
+			Description: "refresh project-local status or use the returned command result handoff before selecting follow-up work",
 			Boundary: []string{
 				"do not infer completion from the driver request alone",
 				"do not write authority/confirmed or execute heavy tools from this read-only request envelope",
@@ -1449,7 +1478,7 @@ func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem
 	add(MissionCommanderRunLoopStep{
 		StepID:      "refresh-state",
 		Actor:       "main-agent",
-		Description: "rerun /rekit status or the returned command result handoff and rebuild the Mission Commander action queue",
+		Description: "refresh project-local status or use the returned command result handoff and rebuild the Mission Commander action queue",
 		Boundary: []string{
 			"only follow-up actions whose blockers are cleared and hashes match should be applied",
 			"do not assume current action completion from terminal text alone; refresh durable state first",
@@ -2175,7 +2204,7 @@ func addGateParts(parts *[]string, item map[string]any) {
 	AddPart(parts, "stopConditions", Value(gate, "stopConditions"))
 	if eventID := Value(item, "eventId"); eventID != "" && Value(item, "status") == "authorized-gate" {
 		AddPart(parts, "eventId", eventID)
-		AddPart(parts, "reportContract", "/rekit gate -ExecutionReportContract -GateEventId "+eventID+" -Format json")
+		AddPart(parts, "reportContract", "available")
 	}
 	if auth, ok := gate["authorization"].(map[string]any); ok {
 		AddPart(parts, "auth", Value(auth, "decision"))

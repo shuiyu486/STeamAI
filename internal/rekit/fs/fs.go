@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -15,11 +16,18 @@ import (
 )
 
 var writeExclusiveRegularFileAfterPublishHook func() error
+var writeAtomicNoReplaceAfterTempSyncHook func(string) error
 
 func SetWriteExclusiveRegularFileAfterPublishHookForTest(hook func() error) func() {
 	previous := writeExclusiveRegularFileAfterPublishHook
 	writeExclusiveRegularFileAfterPublishHook = hook
 	return func() { writeExclusiveRegularFileAfterPublishHook = previous }
+}
+
+func SetWriteAtomicNoReplaceAfterTempSyncHookForTest(hook func(string) error) func() {
+	previous := writeAtomicNoReplaceAfterTempSyncHook
+	writeAtomicNoReplaceAfterTempSyncHook = hook
+	return func() { writeAtomicNoReplaceAfterTempSyncHook = previous }
 }
 
 func FullPath(path string) (string, error) {
@@ -390,6 +398,149 @@ func WalkRegularFilesAnchored(caseRoot, rel, label string, limit int) ([]string,
 		return nil, fmt.Errorf("%s case root changed while walking: %s", label, rootPath)
 	}
 	return paths, nil
+}
+
+// WriteAtomicNoReplaceRegularFileAnchored publishes complete bytes under the
+// final name only after a same-directory temporary file has been synced. The
+// final install is a no-replace hard link, so an exact existing file is replay
+// and different or incomplete bytes fail closed.
+func WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, label string, data []byte) (bool, error) {
+	if len(data) == 0 {
+		return false, fmt.Errorf("%s content must be non-empty", label)
+	}
+	rootPath, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return false, err
+	}
+	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(rel)))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return false, fmt.Errorf("%s path escapes anchored case root: %s", label, rel)
+	}
+	beforeRoot, err := os.Lstat(rootPath)
+	if err != nil || !beforeRoot.IsDir() || beforeRoot.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("%s case root must be a non-symlink directory: %s", label, rootPath)
+	}
+	if err := rejectReparseAncestors(rootPath); err != nil {
+		return false, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	openedRoot, err := root.Lstat(".")
+	if err != nil || !openedRoot.IsDir() || !os.SameFile(beforeRoot, openedRoot) {
+		return false, fmt.Errorf("%s case root changed while opening: %s", label, rootPath)
+	}
+	parent, err := openOrCreateDirectoryNoFollow(root, filepath.Dir(clean), rootPath, label)
+	if err != nil {
+		return false, err
+	}
+	defer parent.Close()
+	name := filepath.Base(clean)
+	path := filepath.Join(rootPath, clean)
+	if _, statErr := parent.Lstat(name); statErr == nil {
+		if err := validateAtomicReplay(parent, name, path, label, data); err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if !os.IsNotExist(statErr) {
+		return false, statErr
+	}
+
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return false, err
+	}
+	tempName := "." + name + ".owned-" + hex.EncodeToString(nonce) + ".tmp"
+	tempPath := filepath.Join(filepath.Dir(path), tempName)
+	file, err := parent.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_SYNC, 0o600)
+	if err != nil {
+		return false, err
+	}
+	tempPresent := true
+	defer func() {
+		if tempPresent {
+			_ = parent.Remove(tempName)
+		}
+	}()
+	written, writeErr := io.Copy(file, bytes.NewReader(data))
+	syncErr := file.Sync()
+	opened, statErr := file.Stat()
+	closeErr := file.Close()
+	tempInfo, afterErr := parent.Lstat(tempName)
+	if writeErr != nil || written != int64(len(data)) || syncErr != nil || statErr != nil || closeErr != nil || afterErr != nil ||
+		!opened.Mode().IsRegular() || opened.Mode()&os.ModeSymlink != 0 || opened.Size() != int64(len(data)) ||
+		tempInfo.Mode()&os.ModeSymlink != 0 || !tempInfo.Mode().IsRegular() || !os.SameFile(opened, tempInfo) {
+		return false, fmt.Errorf("%s owned temporary publication failed: %s: %w", label, tempPath, errors.Join(writeErr, syncErr, statErr, closeErr, afterErr))
+	}
+	if err := rejectReparsePath(tempPath); err != nil {
+		return false, err
+	}
+	if err := syncPublishedDirectory(parent); err != nil {
+		return false, fmt.Errorf("%s owned temporary parent sync failed: %s: %w", label, rel, err)
+	}
+	if writeAtomicNoReplaceAfterTempSyncHook != nil {
+		if err := writeAtomicNoReplaceAfterTempSyncHook(tempPath); err != nil {
+			return false, err
+		}
+	}
+	if err := parent.Link(tempName, name); err != nil {
+		if os.IsExist(err) {
+			if replayErr := validateAtomicReplay(parent, name, path, label, data); replayErr == nil {
+				return true, nil
+			}
+		}
+		return false, fmt.Errorf("%s atomic no-replace install failed: %s: %w", label, rel, err)
+	}
+	finalInfo, err := parent.Lstat(name)
+	if err != nil || finalInfo.Mode()&os.ModeSymlink != 0 || !finalInfo.Mode().IsRegular() || !os.SameFile(tempInfo, finalInfo) {
+		return false, fmt.Errorf("%s atomic no-replace result changed: %s: %w", label, rel, err)
+	}
+	if err := rejectReparsePath(path); err != nil {
+		return false, err
+	}
+	if err := parent.Remove(tempName); err != nil {
+		return false, fmt.Errorf("%s remove installed owned temporary file: %w", label, err)
+	}
+	tempPresent = false
+	if err := syncPublishedDirectory(parent); err != nil {
+		return false, fmt.Errorf("%s installed parent sync failed: %s: %w", label, rel, err)
+	}
+	currentRoot, rootErr := os.Lstat(rootPath)
+	if rootErr != nil || !os.SameFile(openedRoot, currentRoot) {
+		return false, fmt.Errorf("%s case root changed while publishing: %s", label, rootPath)
+	}
+	if err := validateAtomicReplay(parent, name, path, label, data); err != nil {
+		return false, err
+	}
+	return false, rejectReparseAncestors(rootPath)
+}
+
+func validateAtomicReplay(parent *os.Root, name, path, label string, expected []byte) error {
+	before, err := parent.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Size() != int64(len(expected)) {
+		return fmt.Errorf("%s existing file is incomplete or not regular: %s", label, path)
+	}
+	if err := rejectReparsePath(path); err != nil {
+		return err
+	}
+	file, err := parent.Open(name)
+	if err != nil {
+		return err
+	}
+	opened, statErr := file.Stat()
+	data, readErr := io.ReadAll(io.LimitReader(file, int64(len(expected))+1))
+	closeErr := file.Close()
+	after, afterErr := parent.Lstat(name)
+	if statErr != nil || readErr != nil || closeErr != nil || afterErr != nil || !bytes.Equal(data, expected) ||
+		!os.SameFile(before, opened) || !os.SameFile(opened, after) || opened.Size() != int64(len(expected)) {
+		return fmt.Errorf("%s existing file differs from exact complete bytes: %s: %w", label, path, errors.Join(statErr, readErr, closeErr, afterErr))
+	}
+	return nil
 }
 
 func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte) (bool, error) {

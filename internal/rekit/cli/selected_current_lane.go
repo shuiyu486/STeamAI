@@ -57,61 +57,60 @@ func buildControlBoundResultRecoveryStatusInventory(ctx runtime.Context, opt Opt
 	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
 		return statusInventory{}, fmt.Errorf("control-bound result recovery requires one selected current lane")
 	}
-	status, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
+	source, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
 	if err != nil {
 		return statusInventory{}, err
 	}
-	if err := bindStatusSelectedCurrentLane(&status, selected); err != nil {
+	if err := bindStatusSelectedCurrentLane(&source, selected); err != nil {
 		return statusInventory{}, err
 	}
-	bindStatusMemberExecution(&status)
-	bindStatusReviewerCorrection(&status)
-	bindStatusSelectedCurrentLaneCommands(&status, selected)
-	bindStatusCurrentLoop(status.Target, status.CaseMission, status.MissionControlRunbook)
-	bindStatusSelectedCurrentLaneCommands(&status, selected)
-	if err := projectStatusPublicEntrypoint(&status); err != nil {
-		return statusInventory{}, err
-	}
-	if err := validateStatusSelectedCurrentLane(status, selected, true); err != nil {
-		return statusInventory{}, err
-	}
-	return status, nil
+	bindStatusMemberExecution(&source)
+	bindStatusReviewerCorrection(&source)
+	bindStatusSelectedCurrentLaneCommands(&source, selected)
+	bindStatusCurrentLoop(source.Target, source.CaseMission, source.MissionControlRunbook)
+	bindStatusSelectedCurrentLaneCommands(&source, selected)
+	return finalizeStatusDiagnostics(source, selected, true)
 }
 
 func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context, opt Options, requireExecutable bool) (statusInventory, error) {
 	selected := strings.TrimSpace(opt.SelectedCurrentLane)
 	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
-		status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+		source, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
 		if err != nil {
 			return statusInventory{}, err
 		}
-		if err := projectStatusPublicEntrypoint(&status); err != nil {
-			return statusInventory{}, err
-		}
-		return status, nil
+		return finalizeStatusDiagnostics(source, "", false)
 	}
-	status, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
+	source, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
 	if err != nil {
 		return statusInventory{}, err
 	}
-	if err := bindStatusSelectedCurrentLane(&status, selected); err != nil {
+	if err := bindStatusSelectedCurrentLane(&source, selected); err != nil {
 		return statusInventory{}, err
 	}
-	bindStatusMemberExecution(&status)
-	bindStatusReviewerCorrection(&status)
-	bindStatusSelectedCurrentLaneCommands(&status, selected)
-	bindStatusCurrentLoop(status.Target, status.CaseMission, status.MissionControlRunbook)
-	bindStatusSelectedCurrentLaneCommands(&status, selected)
-	if err := bindStatusExecutionControls(&status); err != nil {
+	bindStatusMemberExecution(&source)
+	bindStatusReviewerCorrection(&source)
+	bindStatusSelectedCurrentLaneCommands(&source, selected)
+	bindStatusCurrentLoop(source.Target, source.CaseMission, source.MissionControlRunbook)
+	bindStatusSelectedCurrentLaneCommands(&source, selected)
+	if err := bindStatusExecutionControls(&source); err != nil {
 		return statusInventory{}, err
 	}
-	bindStatusSelectedCurrentLaneCommands(&status, selected)
-	bindStatusExecutionControlRunbook(&status)
-	if err := projectStatusPublicEntrypoint(&status); err != nil {
+	bindStatusSelectedCurrentLaneCommands(&source, selected)
+	bindStatusExecutionControlRunbook(&source)
+	return finalizeStatusDiagnostics(source, selected, requireExecutable)
+}
+
+func finalizeStatusDiagnostics(source statusInventory, selected string, requireExecutable bool) (statusInventory, error) {
+	diagnostics, err := buildStatusDiagnosticsDTO(source)
+	if err != nil {
 		return statusInventory{}, err
 	}
-	if err := validateStatusSelectedCurrentLane(status, selected, requireExecutable); err != nil {
-		return statusInventory{}, err
+	status := statusInventory(diagnostics)
+	if selected != "" {
+		if err := validateStatusSelectedCurrentLane(status, selected, requireExecutable); err != nil {
+			return statusInventory{}, err
+		}
 	}
 	return status, nil
 }
@@ -568,7 +567,7 @@ func selectedLaneCommandPositionalIndex(fields []string) (int, bool) {
 
 func selectedLaneCommandValueFlag(flag string) bool {
 	switch strings.ToLower(strings.TrimSpace(flag)) {
-	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-name", "--name", "-lane", "--lane", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcompleteplansha256", "--expected-complete-plan-sha256":
+	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-name", "--name", "-lane", "--lane", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcontinueplansha256", "--expected-continue-plan-sha256", "-expectedcompleteplansha256", "--expected-complete-plan-sha256":
 		return true
 	default:
 		return false

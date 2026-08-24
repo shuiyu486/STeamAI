@@ -19,13 +19,14 @@ outputs: <handoff | findings | remediation notes | test plan>
 
 ```text
 scope / asset inventory
-  -> passive documentation and route map
-  -> small request/response sidecar review
+  -> case-local OpenAPI 3 JSON typed inventory (no network)
+  -> passive documentation and saved sidecar review
   -> endpoint / flow hypothesis
-  -> focused replay or schema check
-  -> reviewer verdict
+  -> one content-addressed exact-loopback replay when applicable
+  -> independent evidence reviewer verdict
+  -> owner-generation-bound member / final reviewer
   -> main decision / report candidate
-  -> active scan / fuzz / exploit replay only after gate
+  -> any other active scan / fuzz / exploit replay remains outside fixed adapters and requires a separate gate
 ```
 
 升级到主动或高风险动作前，必须记录：
@@ -40,8 +41,8 @@ scope / asset inventory
 ## 3. Candidate and verification
 
 - feature agent 只提交 candidate finding 或 request，不直接写最终报告。
-- reviewer 只读复核 sidecar、schema、请求 ID、响应摘要和影响判断。
-- main agent 在 gate 通过后写 decision / publication / handoff。
+- reviewer 只读复核 exact inventory/request/result/dispatch/report/receipt/observation bindings、digest diff 和影响判断。
+- fixed replay 的 evidence Reviewer accepted 后才发布 acknowledgement、closure 与 owner-generation-bound member task；main agent 再根据独立 Reviewer 结果写 decision / publication / handoff。
 - rejected / superseded 必须保留原因，避免后续重复误报。
 
 ## 4. Agent Team review loop
@@ -61,5 +62,6 @@ scope / asset inventory
 
 - 文档没有真实目标、凭据、token、cookie、请求/响应正文、漏洞利用 payload 或 scan output。
 - candidate 能追溯 evidence sidecar 与 verifier verdict。
-- 外部请求或主动扫描有授权、预算、速率限制、止损和确认记录。
+- fixed replay 只使用 exact loopback/injected transport、one request、zero redirects/retries、no ambient proxy，并以 content-addressed secret-free request 与 digest-only result 留证。
+- 其它外部请求或主动扫描有独立授权、预算、速率限制、止损和确认记录，且不由 fixed replay adapter 代执行。
 - confirmed / report 写入有 reviewer、diff 和回滚线索。

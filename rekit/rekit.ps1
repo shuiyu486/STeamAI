@@ -819,6 +819,7 @@ function Get-RekitGoArgs {
       Add-RekitGoArg ([ref]$goArgs) '-Reason' $Reason
     }
     if ($Command -eq 'handoff') {
+      Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane
       Add-RekitGoArg ([ref]$goArgs) '-ExpectedHandoffPlanSha256' $ExpectedHandoffPlanSha256
       Add-RekitGoArg ([ref]$goArgs) '-HandoffPublicationStamp' $HandoffPublicationStamp
     }

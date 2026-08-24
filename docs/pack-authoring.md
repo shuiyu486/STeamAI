@@ -23,11 +23,11 @@
 
 ## 风险与注意事项
 
-- 不要盲目复制 `vmp-re`；先抽象领域共性，再补最小可验证路由。
+- 不要盲目复制任一 mature production pack；先抽象领域共性，再补最小可验证路由。
 - 不把文档索引变成默认 read-first 清单；超过 5 个入口时压缩为 pack README + 当前场景顶部区。
 - 新增 pack 不等于授权执行 heavy-tool；heavy action 仍由 autonomy profile + authorized-gate decision 控制。
 
-新增 pack 前先确认：该能力是否真的是新的安全领域，还是应作为现有 pack（当前主要是 `vmp-re`）的 reference、tooling recipe 或 common policy 改进。候选方向可以包括 Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、Android native、OLLVM 或通用二进制分析，但不要盲目复制 `vmp-re`。
+新增 pack 前先确认：该能力是否真的是新的安全领域，还是应作为现有 pack 的 reference、tooling recipe 或 common policy 改进。当前 mature production 参考是 `binary-re` 与 `web-security`；其它领域应从 `_template` 的最小合同出发，不要复制某个成熟 pack 后只替换名字。
 
 ## 最小 pack 结构
 
@@ -140,7 +140,7 @@ budgets:
   defaultMarkdown: 16384
 ```
 
-所有路径必须是相对路径，不能越出 pack root 或 case root。
+所有路径必须是相对路径，不能越出 pack root 或 case root。示例中的 `.rekit/backups/sync` 与 lane `readOnly` 内的 `.rekit/facts/**` 是 retained manifest policy compatibility spelling：sync owner 会剥离 `.steamai` / `.rekit` backup 前缀并锚定 resolved active state root，facts owner 也通过 `projectstate` 解析 active root；current 项目实际只读写 `.steamai`，legacy-only 项目才读写 `.rekit`。不要据此推断 public entrypoint，也不要对 manifest 做全局品牌替换。
 
 ## 文件职责
 
@@ -158,7 +158,7 @@ budgets:
 
 ## `_template` 骨架
 
-本仓库提供 `packs/_template/` 作为新 pack 的起点；已落地的 `packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/`、`packs/android-native/` 与 `packs/generic-binary-re/` 可作为安全领域 skeleton 参考。创建真实 pack 时复制该目录并替换：
+本仓库提供 `packs/_template/` 作为新 pack 的起点。`packs/binary-re/` 与 `packs/web-security/` 是 mature production 参考；`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/` 与 `packs/android-native/` 是 schema-valid skeleton 参考。`generic-binary-re` 已退役，不得作为新 pack 起点。创建真实 pack 时复制 `_template` 并替换：
 
 - `schemaVersion`、`name`、`version`、`description`、`maturity` 与 `managedBlock.file/blockId/source`；`schemaVersion` 必须显式声明为 `1`，不能缺失或使用未支持版本；`name` 必须是稳定 machine id，`version` 必须是 semver-like 值，二者都必须显式声明，不能依赖 runtime 用 pack id 或 `0.0.0` 补齐；`description` 必须显式声明一行用途摘要；managed block 三个字段必须显式声明，不能依赖 runtime 注入默认 host、blockId 或 source，且不能添加未支持 key，`blockId` 必须是 namespaced id。
 - `managedFiles`、`templateFiles`、`localNeverOverwrite`、`promoteFiles`、`commonPolicies`、`policyOverlays`、`subagentRoutes`、`toolingFiles`、`promptFiles`、`toolingCandidateSources`、`authorityFiles`、`promoteDenyPatterns`、`heavyToolGates` 与 `laneTypes`；这些 schema-critical list key 必须显式声明，允许空列表的字段也不能缺 key，runtime 不再用 loader 阶段 fallback 或非空检查替代 schema validation；`managedFiles`、`templateFiles`、`localNeverOverwrite`、`promoteFiles`、`commonPolicies`、`policyOverlays`、`toolingFiles`、`promptFiles`、`toolingCandidateSources`、`authorityFiles` 与 `promoteDenyPatterns` 项必须落在受支持范围内且不能重复；`templateFiles` 必须使用 `.template.md` 源文件。
@@ -176,12 +176,12 @@ budgets:
 3. 写 `references/<pack>/README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md`。
 4. 写 `CLAUDE.local.snippet.md`，只放短 router block。
 5. 补 tooling catalog 和至少一个 recipe。
-6. 用 `plan-subagents` 验证 route packet / summary，再用临时 case 验证 `init/attach/sync/promote`；新增 skeleton pack smoke 时优先复用 `rekit/tests/pack-smoke-lib.ps1`，让 wrapper 只声明 pack id、safe case prefix、route task type、expected route 和 output contract 字段。
+6. 用 `plan-subagents` 验证 route packet / summary，再用临时 case 验证 `init/attach/sync/promote`；新增 pack smoke 时优先复用 `rekit/tests/pack-smoke-lib.ps1`，让 wrapper 只声明 pack id、safe case prefix、route task type、expected route 和 output contract 字段。Schema-valid skeleton 自动进入 discovery；需要长期保留的 production vertical-slice smoke 必须显式加入 production smoke allowlist 并验证其 manifest maturity。若要标记为 mature release capability，还必须通过统一 adapter/fixture/semantic-verifier/instruction-consumption admission；smoke 或 catalog 存在性不能替代该合同。
 7. 只有两个以上 pack 重复出现相同规则时，才抽到 `common/`、runtime 或测试 helper。
 
 ## 禁止
 
-- 不复制 `vmp-re` 全套文档后只替换名字。
+- 不复制 `binary-re`、`web-security` 或其它 pack 的全套文档后只替换名字。
 - 不把真实样本、客户信息、RVA/VA、trace/dump、artifact 路径写入 pack。
 - 不在 pack 中硬编码本机工具路径；使用 `<caseRoot>`、`<toolsRoot>`、`<target>` 占位。
 - 不让 pack script 复制 runtime 逻辑；旧脚本只能 wrapper 到 `rekit/rekit.ps1`。
@@ -192,10 +192,11 @@ budgets:
 更完整的 smoke 选择表见 `rekit/tests/README.md`；本节只列新增/维护 pack 的最低标准。
 
 - `git diff --check` 通过。
-- `/rekit packs` 能列出新 pack，且该行 `maturity` 来自 manifest 显式字段，`schema=ok`、route / managed / tooling / authority 计数符合预期；自动化检查可用 `/rekit packs -Format json` 消费同一 inventory。
+- `go run ./cmd/rekit -- -Command packs` 能列出新 pack，且该行 `maturity` 来自 manifest 显式字段，`schema=ok`、route / managed / tooling / authority 计数符合预期；自动化检查可加 `-Format json` 消费同一 inventory。Project-local current 用户仍使用 `/steamai`，这里的 direct Go 命令只属于 kit maintainer 验证。
 - `manifest.yml` 路径均为相对路径。
 - managed/template/local 边界清晰。
 - `managedFiles`、`templateFiles`、`localNeverOverwrite`、`promoteFiles`、`commonPolicies`、`policyOverlays`、`toolingFiles`、`promptFiles` 的非空项满足 manifest contract：managed/template/local/promote 路径非空、相对安全且不重复，template 源使用 `.template.md`，policy id 是小写 slug，overlay/tooling/prompt 路径落在对应 allowlist 范围内且不重复；`subagentRoutes.reference` 指向 managed/template/local 文件，route id 使用精确匹配当前 pack id 的 namespaced 小写 slug 形式且唯一，非空 `policyOverlay` 来自 `policyOverlays`，`taskTypes`、`trigger`、`shardBasis`、`targetItemsPerAgent`、`maxParallel`、`subagentPermissions`、`mainAgentOwns`、`outputContract` 齐全，`targetItemsPerAgent` / `maxParallel` 在受支持范围内，`shardBasis` 使用小写 slug / `-or-` 组合，`subagentPermissions` 使用受支持值，且逗号/分号分隔字段只包含去重后的有效小写 slug/snake token；`heavyToolGates.id` 和 `defaultRisk` 使用明确小写值，`sideEffects` 包含 action id、使用小写 slug 且无空项/重复项，`stopConditions` 使用小写 slug/snake token 且无空项/重复项；`laneTypes.id` 是小写 slug，canWrite/readOnly/outputs 无空项/重复项，outputs 使用小写 slug/snake token；`toolingCandidateSources`、`authorityFiles` path 非空、可定位且不重复，`promoteDenyPatterns` 非空、可编译且不重复；`name` / `version`、`managedBlock`、`syncPolicy`、`workstreamDefaults` 与 `budgets` 的 scalar/map 字段满足 machine-consumable contract，不能携带未支持 key 或不安全 budget path。
 - 新 pack 初始化不会覆盖 case-local 文件。
-- skeleton pack smoke 通过 `rekit/tests/pack-smoke-lib.ps1` 或等价验证覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界；临时 case prefix 不能让 pack 名中的通用词触发 case-specific deny pattern 误拦截；需要全量、子集或机器可读回归时使用 `rekit/tests/pack-smoke-matrix.ps1`（支持 `-Format json`），需要检查 matrix 清单是否覆盖所有 schema-valid skeleton pack 时使用 `-DiscoveryOnly`，修改 matrix 输出契约时运行 `pack-smoke-matrix-selftest.ps1`。
+- pack smoke 通过 `rekit/tests/pack-smoke-lib.ps1` 或等价验证覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界；临时 case prefix 不能让 pack 名中的通用词触发 case-specific deny pattern 误拦截。需要全量、子集或机器可读回归时使用 `rekit/tests/pack-smoke-matrix.ps1`（支持 `-Format json`）；`-DiscoveryOnly` 检查全部 schema-valid skeleton 加显式 production smoke allowlist 与 matrix/wrapper/catalog 一致，修改 matrix 输出契约时运行 `pack-smoke-matrix-selftest.ps1`。
 - promote deny patterns 覆盖绝对路径、artifact/capture/trace/dump、地址快照和 case 状态。
+- 声称 `maturity: mature` 还必须通过 `release-check.productionRegistry` 与 `productionPacks[]`：mature manifest 集合、`internal/rekit/productioncontract` registry 和 `adapterhost` compiled-in adapter 集合 exact match；每个 pack 的 harmless/synthetic 或 loopback fixture与 semantic verifier Go symbol 可解析；prompt/policy packet 从 project-local verified bundle 构建稳定 identity，并由 dispatch ticket、adapter intent/result、Claude launch、detached supervisor spec 与 structured-output recovery receipt 原样绑定。任一 source、symbol、receipt kind、pack 或 aggregate SHA drift 都会 fail-closed；仍不能用 schema-valid、tooling catalog、production smoke 或 E2E 任一单项代替四要素。

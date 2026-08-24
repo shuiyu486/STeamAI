@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 )
 
@@ -676,11 +678,24 @@ func TestOrdinaryInitRequiresExactHashAndPreservesExistingFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.TargetClass != "ordinary-directory" || !preview.AdoptionReady || len(preview.ExpectedPlanSHA256) != 64 || len(preview.ApplyArgs) == 0 {
+	if preview.TargetClass != "ordinary-directory" || !preview.AdoptionReady || len(preview.ExpectedPlanSHA256) != 64 || len(preview.ApplyArgs) == 0 || preview.ApplyCommand == "" {
 		t.Fatalf("ordinary adoption preview = %+v", preview)
 	}
-	if _, err := Apply(repoRoot, caseRoot, pack, opt); err == nil || !strings.Contains(err.Error(), "requires a valid -ExpectedInitPlanSha256") {
-		t.Fatalf("ordinary adoption accepted unbound Apply: %v", err)
+	commandAction, err := commands.ExactActionFromCommand(preview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsAction, err := commands.ExactActionFromCLIArgs(preview.ApplyArgs)
+	if err != nil || !commandAction.Equivalent(argsAction) || !strings.HasPrefix(preview.ApplyCommand, commands.CurrentPublicEntrypoint+" init ") {
+		t.Fatalf("ordinary adoption exact Apply carrier drifted: command=%q args=%v err=%v", preview.ApplyCommand, preview.ApplyArgs, err)
+	}
+	if err := commandAction.ValidatePlanApply(commands.Init, preview.ExpectedPlanSHA256); err != nil {
+		t.Fatalf("ordinary adoption exact Apply binding: %v", err)
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, opt)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMissing || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("ordinary adoption accepted unbound Apply: %v failure=%+v typed=%t", err, failure, typed)
 	}
 	opt.ExpectedPlanSHA256 = preview.ExpectedPlanSHA256
 	result, err := Apply(repoRoot, caseRoot, pack, opt)

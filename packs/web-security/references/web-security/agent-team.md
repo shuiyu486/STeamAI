@@ -14,7 +14,7 @@
 | `web-security:bounded-review` | finding / evidence / endpoint / tooling review | finding-or-endpoint | read-only | reviewer verdict |
 | `web-security:feature-analysis` | endpoint / feature / API flow / authz / input validation 分析 | endpoint-or-flow | read-only-or-workspace-only | observation / request / candidate |
 
-`plan-subagents` 只生成 review packet 与 observability，不自动 spawn agent。主会话负责启动 Agent 工具、收集输出，并用 `/rekit note` 写回 verification / decision。
+`plan-subagents` 只生成 review packet 与 observability，不自动 spawn agent。主会话负责启动 Agent 工具、收集输出，并用 project-local note owner 写回 verification / decision。
 
 ## 3. Packet 输出契约
 
@@ -30,13 +30,13 @@ Web/API route 可追加：
 endpoint, method, impact, feature, request_id, candidate_path
 ```
 
-`decision` 是 reviewer output decision，不等同于 ledger canonical decision；main 合并后再写 `/rekit note -Kind verification` 与 `/rekit note -Kind decision`。
+`decision` 是 reviewer output decision，不等同于 ledger canonical decision；main 合并后再通过 project-local note owner 写 verification 与 decision。
 
 ## 4. Review-first 门禁
 
 - accepted finding 只能进入 main 合并队列，不能直接写 confirmed / report / authority。
 - 证据不足时使用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- 需要主动请求、扫描、fuzz、登录尝试、exploit replay、数据导出或高流量动作时，先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。`gate -Apply` 本身只记录 request decision，不执行 heavy action。
+- 需要主动请求、扫描、fuzz、登录尝试、exploit replay、数据导出或高流量动作时，先经 project-local gate preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。Gate Apply 本身只记录 request decision，不执行 heavy action；fixed replay 仍只允许 exact loopback/injected transport。
 - 每个 shard 的失败只影响本 shard；不要阻塞无关 endpoint / finding。
 
 ## 5. 证据与 sidecar

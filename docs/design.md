@@ -35,8 +35,24 @@
 
 1. **Skill UI**：每个 current 项目的 `.claude/skills/steamai/SKILL.md` 提供 `/steamai`；用户通过自然语言指挥主 Agent，而不是记命令目录。仓库 canonical skill 用于发布该项目 skill；legacy `/rekit` 只保留兼容。
 2. **Runtime**：项目内 `.steamai/runtime` verified bundle 是 current 运行边界；`cmd/rekit/**` 与 `internal/rekit/**` 是其 Go-owned source/runtime owner，执行 init/sync/promote/validate 并维护 board、facts、lanes、runs、handovers、gate request 等 deterministic state。`rekit/rekit.ps1` 仅 retained compatibility façade，无业务 runtime 或 PowerShell fallback。
-3. **Pack**：仓库 `packs/<pack>` 是可复用领域源；current 项目只消费 bundle 绑定的 `.steamai/packs/<pack>`，保存模板、tooling、lane/autonomy policy 与 `manifest.yml`。当前首个成熟 pack 是 `vmp-re`。
+3. **Pack**：仓库 `packs/<pack>` 是可复用领域源；current 项目只消费 bundle 绑定的 `.steamai/packs/<pack>`，保存模板、tooling、lane/autonomy policy 与 `manifest.yml`。当前 `binary-re` 与 `web-security` 两条 production vertical slice 已进入统一 mature-pack release admission：`productioncontract` exact 对齐 mature manifest 与 compiled-in adapter，解析 fixture/verifier Go symbol，并把 project-local prompt/policy packet identity 绑定到 dispatch、adapter receipt、Claude launch、detached supervisor 与 recovery。manifest 的 `maturity: mature` 仍只负责候选分类，不能脱离该机器门禁单独证明成熟。
 4. **Project instance**：每个 current 项目使用 relocatable `.steamai/instance.yml`、`.steamai/state.json` 和同根 member lane state；legacy-only 项目在显式迁移前继续单写 `.rekit`。两份 mutable root 不得共存。
+
+### Go public command owner
+
+Go public command policy 保持三层单向组合，而不是在总 dispatch `switch` 重复维护：`commands.PublicProfile` 拥有 command-level public/mutation 边界，`commands.MutationContract` 拥有 exact `(command, mode)` currentness 与 carrier，`commands.ScopedCommandDescriptor` 组合二者；当前 `ScopedCommandDescriptor` 仍是 policy catalog 的 composed view，binder、shape validator、handler 和 mode resolver 由 CLI scoped runtime registry 绑定，尚未成为 descriptor 自身字段。当前 scoped runtime owner 已覆盖 `release-check/default`、`migrate-state/default`、`next-batch/default`、`control/default`、`continue/default` 与 `gate` 的 exact modes；其余 public commands 继续由既有 Go route/handler 负责，不能把这一步迁移写成全量 descriptor ownership。release inventory 同时检查 legacy switch 与 scoped owner route 的 handler coverage；注释、字符串或缺 callback 的 route 不计入覆盖。
+
+### Durable、diagnostics 与交互边界
+
+Go runtime 的数据流固定为单向四层：durable/workstream domain 拥有状态与 plan/receipt identity；`commands` + `plancontract` 拥有 typed invocation、currentness 与 mutation binding；full diagnostics DTO 是 canonical result 的 wire-faithful immutable clone，只在 clone 上做 current `/steamai` 或 legacy `/rekit` 投影；默认 public interaction DTO 只解码 allowlist 字段，再经纯 reducer 发布“现在/原因/下一步”。projection 不得原地改写 canonical result、不得从 DTO 重算 plan SHA，也不得用 `map[string]any` 作为默认交互 reducer；deep clone 解码保留 JSON number token，避免 diagnostics 中的大整数或事件字段失真。
+
+Daily session 路径正在收敛为低层纯 transition reducer → typed effect → supervisor/session executor → publication coordinator；当前 pure reducer 已覆盖部分 completion/current-loop path，session executor、supervisor 和 publication 仍有既有 owner 需要继续统一，不能把现状描述成所有路径都已由 reducer 先行。production adapter 仍复用 canonical CLI/public driver owner，不复制 request/receipt 状态机。durable identity、权限、containment 与 heavy-action 边界始终由既有 domain/runtime owner 验证；presentation 或 transport observation 不授予权限。
+
+### Skill 机器合同与测试 fixture owner
+
+canonical `.claude/skills/steamai/SKILL.md` 是人工交互与安全边界的唯一源；`rekit/templates/steamai-project/SKILL.md` 是其生成镜像。人工区只说明意图、确认、权限与停止条件，不手写 executable 路径、argv 或 Apply hash flag；固定 front door、daily/control/profile bridge 和通用 typed invocation 由 `internal/rekit/skillcontract` 从 scoped command descriptor/currentness owner 生成 marker appendix。`go generate ./internal/rekit/skillcontract` 负责显式同步，`defaultdocs` / `release-check` 已能检查 stale appendix、marker 缺失和人工区平行机器合同；但 direct bundle/init provenance 与 CI 中显式 `skillcontractgen -check` 仍是待补的 P2-5 release contract，生成 appendix 不能单独证明该项已完全闭合。
+
+`internal/rekit/testfixture` 只构造合法 current/legacy binding shell：current 强制单一 `.steamai`、schema v2 metadata、verified project-local bundle 与 manifest SHA；legacy 强制单一 `.rekit` 且不发布 current runtime。board、lane、gate、migration、malformed state 与 current-sync drift 仍由各领域测试拥有，不能把通用 fixture 扩成状态 DSL；这样参数化双根测试复用 binding 事实，但仍能精确表达领域边界。
 
 ## managed vs local
 

@@ -12,12 +12,14 @@
 
 本项目从参考资料中吸收的不是“某个现成脱壳器”，而是四类能力：
 
+当前 `binary-re` 与 `web-security` 已各自形成 production vertical slice，并进入统一 mature-pack admission。`release-check.productionRegistry` exact 对齐 mature manifest、production contract 与 compiled-in adapter 集合；逐 pack admission解析 harmless/synthetic 或 loopback fixture、semantic verifier Go symbol，并构建不含全文的 project-local prompt/policy identity。实际全文只在 launch 前从 verified bundle reload，identity同时进入 dispatch、adapter execution/evidence-review receipt、Claude stdin、detached supervisor spec 与 structured-output recovery；source或identity drift在启动/恢复前 fail-closed。`manifest.yml` 的 `maturity: mature` 仍只是候选分类，不能绕过这套四要素门禁。
+
 1. **Agent Team 工作方式**：多 Agent 分工、上下文隔离、工作线、handoff、candidate -> review -> confirmed。
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 4. **Claude Code 多会话 transport**：吸收 Remote Control 的 `ListAgents` / `SendMessage` 作为可替换 transport primitive，但不吸收其临时 endpoint 为 durable member identity，也不把未承诺的 delivery/lifecycle 语义伪装成 runtime guarantee。
 
-当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、唯一成熟 pack `binary-re`、其它安全领域 pack 骨架、tooling candidate、`ida-agent-bridge` 只读 packet contract、compiled-in `vmp-ida-index-inspector` fixed adapter、bounded Reviewer dispatch/result/writeback 本机 E2E、Go-owned `cmd/rekit-host` 真实 member/Reviewer Claude Code session orchestration与纠偏→replacement→独立 Reviewer→completion live gate、optional Remote Control read-only Reviewer transport、authorized execution evidence、pack-memory promote/reconsume E2E 和 evidence ledger runtime。历史 `vmp-re` 与 `generic-binary-re` 已收敛进 `binary-re`；旧 identity 只返回 typed `pack-migration-required`，不做 alias、自动映射或双写。固定 IDA inspector 已把已有 TSV 索引接入 exact request/profile/gate/contained child/receipt/observation/evidence/member/Reviewer 链，但不安装、连接或控制 IDA，也不执行外部 bridge。Remote Control companion 只在 explicit durable Reviewer dispatch binding 下内联 content-addressed evidence bundle，并保留既有 relay/intake 为唯一 canonical consumer；它不替代 local provider，也不授予 authority/heavy action。尚未落地的是更多真实工具 bridge、更多 pack 的真实 session 产品场景、原生 Windows live cross-machine Remote Control E2E 和完整跨平台 product-path E2E；本项目不走 installer 路线。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、两个 mature production pack（`binary-re` 与 `web-security`）、其它安全领域 pack 骨架、tooling candidate、`ida-agent-bridge` 只读 packet contract、compiled-in `vmp-ida-index-inspector`、`openapi-v3-json-inventory` 与 `bounded-http-replay` fixed adapter、bounded Reviewer dispatch/result/writeback 本机 E2E、Go-owned `cmd/rekit-host` 真实 member/Reviewer Claude Code session orchestration与纠偏→replacement→独立 Reviewer→completion live gate、optional Remote Control read-only Reviewer transport、authorized execution evidence、pack-memory promote/reconsume E2E 和 evidence ledger runtime。历史 `vmp-re` 与 `generic-binary-re` 已收敛进 `binary-re`；旧 identity 只返回 typed `pack-migration-required`，不做 alias、自动映射或双写。固定 IDA inspector 已把已有 TSV 索引接入 exact request/profile/gate/contained child/receipt/observation/evidence/member/Reviewer 链，但不安装、连接或控制 IDA，也不执行外部 bridge。Remote Control companion 只在 explicit durable Reviewer dispatch binding 下内联 content-addressed evidence bundle，并保留既有 relay/intake 为唯一 canonical consumer；它不替代 local provider，也不授予 authority/heavy action。尚未落地的是更多真实工具 bridge、更多 pack 的真实 session 产品场景、原生 Windows live cross-machine Remote Control E2E 和完整跨平台 product-path E2E；本项目不走 installer 路线。
 
 ## 执行清单
 
@@ -34,7 +36,9 @@
 - [x] 将 bounded dispatch 从完整 contract 推进为 Mission Commander 可验证 E2E：主 Agent实际 spawn 只读 reviewer，完成 result intake、WhatIf、ledger writeback 与 post-validation；`plan-subagents` 本身仍不自动 spawn。
 - [x] 在 deterministic runtime 外增加 Go-owned `cmd/rekit-host`，自动消费 durable current step、启动真实 Claude Code member/Reviewer session、收取真实 structured output、处理有界 replacement，并用显式 fresh `binary-re` live gate 验证人工纠偏、新会话接手、canonical accepted Reviewer lineage、actual adapter 与 feature completion；普通 Go tests 不伪造或启动 LLM。
 - [x] 将 Claude Code Remote Control 的跨会话 `ListAgents` / `SendMessage` 吸收为可选 read-only Reviewer transport companion：explicit durable Reviewer dispatch/session opt-in、opaque endpoint snapshot、自包含 evidence bundle、immutable delivery observation、uncertain no-retry/new-job fencing、generation-specific return producer与既有 strict intake 已闭合；local `claude-code-cli` 仍为默认 provider，原生 Windows live cross-machine E2E 不伪造。
-- [ ] 按真实需求扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 等安全领域 skeleton；`generic-binary-re` 已退休，其通用能力已并入 `binary-re`，不再作为扩展目标。
+- [x] 将 `web-security` 从 skeleton 推进为 manifest-mature production vertical slice：typed OpenAPI 3 JSON inventory、content-addressed secret-free bounded replay、strict profile + exact authorized gate、fixed contained child、digest-only result、durable receipt/observation、独立 evidence Reviewer、member/final Reviewer 与 installed real-Claude E2E 已闭环；replay 仅允许 exact loopback/injected transport，不是公网扫描或攻击平台。
+- [x] 统一 mature-pack admission：mature manifest、production contract 与 compiled-in adapter 集合 exact cross-check 已接入 `release-check`；fixture/verifier Go symbol、project-local prompt/policy packet、dispatch/adapter/Claude/supervisor/recovery identity receipt 均机器核验，任何 source/identity drift fail-closed。
+- [ ] 按真实需求扩展 `malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 等其余安全领域 skeleton；`generic-binary-re` 已退休，其通用能力已并入 `binary-re`，不再作为扩展目标。
 
 ## 验证标准
 
@@ -175,7 +179,7 @@ git diff --check
 | 轻到重 VMP 路线 | `workflow-template.md` | 限制先重型 trace/debug 的冲动 |
 | heavy-tool gate | `toolchain-router.md` | 重型动作需要确认和止损 |
 | `ida-agent-bridge` candidate | `tooling/catalog.yml`、`ida-x64dbg-mcp.md`、`ida-agent-bridge-readonly.md` | 外部工具候选，不是硬依赖；已定义只读 index packet contract |
-| pack 作者骨架 | `packs/_template/` | 后续创建新 pack 的最小模板；现有安全领域 skeleton 包括 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm` 与 `android-native`；二进制逆向只使用 `binary-re` |
+| pack 作者骨架 | `packs/_template/` | 后续创建新 pack 的最小模板；mature production 参考为 `binary-re` 与 `web-security`，其余安全领域 skeleton 包括 `malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm` 与 `android-native`；二进制逆向只使用 `binary-re` |
 | case smoke 验证过的 runtime | `cmd/rekit/**`、`internal/rekit/**`；`rekit/rekit.ps1` 仅 retained compatibility façade | Go-owned/no-fallback case lifecycle、sync/promote 与 workstream 边界已有 package/smoke 覆盖；legacy `rekit/lib/*.ps1` 已删除 |
 
 ### 5.2 部分可用 / 设计已就绪
@@ -184,9 +188,9 @@ git diff --check
 |---|---|---|
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
 | orchestration | `plan-subagents` planning mode 生成 route/shard/review-loop observability 与 read-only Reviewer contract；ordinary Go host 已管理 durable member/Reviewer、replacement、strict intake 与恢复，Remote Control 仅作显式可选 Reviewer transport | `plan-subagents` 保持 no-spawn；更多通用 subagent/transport 只按真实需求扩展 |
-| heavy-tool gate runtime | Go-owned/no-fallback `gate -WhatIf/-Apply` 只写 request/decision/evidence，不执行 heavy action、不写 confirmed/authority；actual executor/adapter 独立消费 strict profile + fresh `authorized-gate`，`binary-re` fixed adapter 已闭合一条受限 inspect lifecycle | 后续只按真实需求增加其它有界 adapter；不扩大 gate 本身的权限 |
-| tool adapter | `_template` fixture inspector + `binary-re` fixed `vmp-ida-index-inspector` 已有真实 contained-child/receipt/Claude E2E；外部 `ida-agent-bridge` 仍是 candidate | 后续按真实需求增加其它固定低风险 adapter；不先建动态 plugin registry |
-| 多 pack 扩展 | `_template` + `packs/binary-re/` + `packs/web-security/` + `packs/malware-analysis/` + `packs/vuln-research/` + `packs/ctf/` + `packs/unpack-pe/` + `packs/ollvm/` + `packs/android-native/` | `binary-re` 是唯一 active 二进制逆向 pack；其它 skeleton 后续按真实需求扩展，retired identity 不保留 alias |
+| heavy-tool gate runtime | Go-owned/no-fallback `gate -WhatIf/-Apply` 只写 request/decision/evidence，不执行 heavy action、不写 confirmed/authority；actual executor/adapter 独立消费 strict profile + fresh `authorized-gate`，`binary-re` inspect 与 `web-security` inspect/network 两条 fixed lifecycle 已闭合 | 后续只按真实需求增加其它有界 adapter；不扩大 gate 本身的权限 |
+| tool adapter | `_template` fixture inspector、`binary-re` fixed `vmp-ida-index-inspector`、`web-security` fixed OpenAPI inventory 与 loopback replay 均已有 contained-child/receipt/Claude E2E；外部 `ida-agent-bridge` 仍是 candidate | 后续按真实需求增加其它固定低风险 adapter；不先建动态 plugin registry |
+| 多 pack 扩展 | `_template` + `packs/binary-re/` + `packs/web-security/` + `packs/malware-analysis/` + `packs/vuln-research/` + `packs/ctf/` + `packs/unpack-pe/` + `packs/ollvm/` + `packs/android-native/` | `binary-re` 是唯一 active 二进制逆向 pack，`web-security` 是 Web/API production vertical slice；两者均通过统一 mature-pack admission，其余 skeleton 后续按真实需求扩展，retired identity 不保留 alias |
 
 ### 5.3 尚未实现，不能对外宣称
 
@@ -285,6 +289,6 @@ STeamAI是网络安全研究/安全工程Agent Team Mission Control；当前唯�
    - 已定义 function index、strings、imports、xrefs、selected snippet 的只读 packet schema 与 sidecar/evidence ref 规则。
    - 不做 rename/comment/patch；后续实现 runtime-level adapter 前先用多个真实 case 验证 contract。
 
-5. **新 pack 试点**
-   - 从 `packs/_template/` 派生一个低风险 pack，例如 `web-security` 或 `ctf`；不要复活 retired `generic-binary-re` identity。
-   - 用临时 case 验证 init/sync/promote。
+5. **新 pack 试点**（`web-security` 已完成 production vertical slice）
+   - 后续从 `packs/_template/` 派生低风险 pack 时可参考 mature `web-security` 的 bounded adapter、evidence review 与 smoke 边界；不要复活 retired `generic-binary-re` identity。
+   - 用临时 case 验证 init/sync/promote，并在提升 maturity 前完成真实领域 vertical slice。

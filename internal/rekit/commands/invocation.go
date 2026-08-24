@@ -3,6 +3,8 @@ package commands
 import (
 	"fmt"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 )
 
 const (
@@ -130,7 +132,7 @@ func publicInvocationCommandHasPositionalSelector(command string) bool {
 
 func publicInvocationSelectorValueFlag(flag string) bool {
 	switch strings.ToLower(strings.TrimSpace(flag)) {
-	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-name", "--name", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-action", "--action", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcompleteplansha256", "--expected-complete-plan-sha256", "-expectedcontrolplansha256", "--expected-control-plan-sha256", "-expectedhandoffplansha256", "--expected-handoff-plan-sha256", "-expectedmigrationplansha256", "--expected-migration-plan-sha256", "-expectedreopenplansha256", "--expected-reopen-plan-sha256", "-controlpublicationstamp", "--control-publication-stamp", "-handoffpublicationstamp", "--handoff-publication-stamp", "-reopenpublicationstamp", "--reopen-publication-stamp":
+	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-name", "--name", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-action", "--action", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcontinueplansha256", "--expected-continue-plan-sha256", "-expectedcompleteplansha256", "--expected-complete-plan-sha256", "-expectedcontrolplansha256", "--expected-control-plan-sha256", "-expectedhandoffplansha256", "--expected-handoff-plan-sha256", "-expectedinitplansha256", "--expected-init-plan-sha256", "-expectedonboardingplansha256", "--expected-onboarding-plan-sha256", "-expectedmigrationplansha256", "--expected-migration-plan-sha256", "-expectedreopenplansha256", "--expected-reopen-plan-sha256", "-controlpublicationstamp", "--control-publication-stamp", "-handoffpublicationstamp", "--handoff-publication-stamp", "-reopenpublicationstamp", "--reopen-publication-stamp":
 		return true
 	default:
 		return false
@@ -170,6 +172,153 @@ func (invocation PublicInvocation) HasFlag(name string) bool {
 		}
 	}
 	return false
+}
+
+// QualifyPublicNextAction applies the safe public default for executable next
+// actions. Exact, valid preview/apply invocations remain unchanged.
+func QualifyPublicNextAction(invocation PublicInvocation) (PublicInvocation, bool, error) {
+	if err := invocation.Validate(); err != nil {
+		return PublicInvocation{}, false, err
+	}
+	qualified := invocation
+	qualified.Arguments = append([]string{}, invocation.Arguments...)
+	if qualified.Command != Continue {
+		return qualified, false, nil
+	}
+	hasWhatIf := qualified.HasFlag("-WhatIf") || qualified.HasFlag("--what-if")
+	hasApply := qualified.HasFlag("-Apply") || qualified.HasFlag("--apply")
+	if hasWhatIf && hasApply {
+		return PublicInvocation{}, false, fmt.Errorf("public continue next action must use exactly one WhatIf or Apply phase")
+	}
+	_, formatPresent, formatValid := qualified.FlagValue("-Format", "--format")
+	if formatPresent && !formatValid {
+		return PublicInvocation{}, false, fmt.Errorf("public next action contains an invalid or duplicate format binding")
+	}
+	if !hasWhatIf && !hasApply {
+		qualified.Arguments = append(qualified.Arguments, "-WhatIf")
+		if !formatPresent {
+			qualified.Arguments = append(qualified.Arguments, "-Format", "json")
+		}
+		var err error
+		qualified, err = NewPublicInvocation(qualified.Command, qualified.Arguments...)
+		if err != nil {
+			return PublicInvocation{}, false, err
+		}
+		if err := ValidateExecutableContinueInvocation(qualified); err != nil {
+			return PublicInvocation{}, false, err
+		}
+		return qualified, true, nil
+	}
+	if err := ValidateExecutableContinueInvocation(qualified); err != nil {
+		return PublicInvocation{}, false, err
+	}
+	return qualified, false, nil
+}
+
+// ValidateExecutableContinueInvocation enforces the public review/apply phase
+// contract. Preview requests are unbound; Apply requests carry one exact plan.
+func ValidateExecutableContinueInvocation(invocation PublicInvocation) error {
+	return ValidateExecutablePlanInvocation(invocation)
+}
+
+// ValidateExecutablePlanInvocation validates the phase and expected plan binding
+// for a typed public mutation that has a stable plan-hash flag.
+func ValidateExecutablePlanInvocation(invocation PublicInvocation) error {
+	if err := invocation.Validate(); err != nil {
+		return err
+	}
+	flag, aliases, ok := publicPlanBinding(invocation.Command)
+	if !ok {
+		return fmt.Errorf("executable plan validation is unsupported for %s", invocation.Command)
+	}
+	hasWhatIf := invocation.HasFlag("-WhatIf") || invocation.HasFlag("--what-if")
+	hasApply := invocation.HasFlag("-Apply") || invocation.HasFlag("--apply")
+	planSHA256, planPresent, planValid := invocation.FlagValue(aliases...)
+	if !planValid {
+		return plancontract.InvalidBinding(invocation.Command, flag, hasApply, planSHA256)
+	}
+	if planPresent {
+		if _, err := plancontract.ValidatePhase(invocation.Command, flag, hasWhatIf, hasApply, planSHA256); err != nil {
+			return err
+		}
+		return nil
+	}
+	_, err := plancontract.ValidatePhase(invocation.Command, flag, hasWhatIf, hasApply, "")
+	return err
+}
+
+func publicPlanBinding(command string) (string, []string, bool) {
+	contract, ok := MutationContractFor(command, "")
+	if !ok || contract.Currentness != MutationCurrentnessStrictPlan || contract.ExpectedFlag == "" {
+		return "", nil, false
+	}
+	return contract.ExpectedFlag, append([]string{}, contract.ExpectedAliases...), true
+}
+
+// PromoteContinuePreviewToApply converts the exact typed preview returned by
+// the public next-action owner into its explicit, snapshot-bound Apply phase.
+func PromoteContinuePreviewToApply(invocation PublicInvocation, expectedPlanSHA256 string) (PublicInvocation, error) {
+	if err := invocation.Validate(); err != nil {
+		return PublicInvocation{}, err
+	}
+	if invocation.Command != Continue {
+		return PublicInvocation{}, fmt.Errorf("continue preview promotion requires a continue invocation")
+	}
+	hasWhatIf := invocation.HasFlag("-WhatIf") || invocation.HasFlag("--what-if")
+	hasApply := invocation.HasFlag("-Apply") || invocation.HasFlag("--apply")
+	if !hasWhatIf || hasApply {
+		return PublicInvocation{}, fmt.Errorf("continue preview promotion requires an exact WhatIf-only invocation")
+	}
+	planSHA256 := strings.ToLower(strings.TrimSpace(expectedPlanSHA256))
+	if !validPublicInvocationSHA256(planSHA256) {
+		return PublicInvocation{}, fmt.Errorf("continue preview promotion requires a valid expected plan sha256")
+	}
+	if _, present, valid := invocation.FlagValue("-ExpectedContinuePlanSha256", "--expected-continue-plan-sha256"); present || !valid {
+		return PublicInvocation{}, fmt.Errorf("continue preview invocation must not already bind an expected continue plan sha256")
+	}
+	arguments := append([]string{}, invocation.Arguments...)
+	for index, argument := range arguments {
+		if strings.EqualFold(argument, "-WhatIf") || strings.EqualFold(argument, "--what-if") {
+			arguments[index] = "-Apply"
+		}
+	}
+	arguments = append(arguments, "-ExpectedContinuePlanSha256", planSHA256)
+	promoted, err := NewPublicInvocation(invocation.Command, arguments...)
+	if err != nil {
+		return PublicInvocation{}, err
+	}
+	if err := ValidateExecutableContinueInvocation(promoted); err != nil {
+		return PublicInvocation{}, err
+	}
+	return promoted, nil
+}
+
+func validPublicInvocationSHA256(value string) bool {
+	_, err := plancontract.NormalizeSHA256(value)
+	return err == nil
+}
+
+func (invocation PublicInvocation) FlagValue(names ...string) (string, bool, bool) {
+	value := ""
+	present := false
+	for index, argument := range invocation.Arguments {
+		matched := false
+		for _, name := range names {
+			if strings.EqualFold(argument, name) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if present || index+1 >= len(invocation.Arguments) || strings.HasPrefix(strings.TrimSpace(invocation.Arguments[index+1]), "-") {
+			return "", true, false
+		}
+		present = true
+		value = invocation.Arguments[index+1]
+	}
+	return value, present, true
 }
 
 func (invocation PublicInvocation) Equivalent(other PublicInvocation) bool {

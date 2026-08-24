@@ -309,9 +309,7 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 	}
 
 	writeLegacyInitMarker(t, freshCase, repoRoot, pack)
-	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh-reconsumer"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, freshCase, pack, "fresh-reconsumer")
 	inst, err := instance.Read(freshCase)
 	if err != nil {
 		t.Fatal(err)
@@ -520,6 +518,19 @@ promoteDenyPatterns:
 func writeLegacyInitMarker(t *testing.T, caseRoot, repoRoot, pack string) {
 	t.Helper()
 	writeText(t, filepath.Join(caseRoot, ".re-template.yml"), "templateRoot: "+repoRoot+"\ntemplatePack: "+pack+"\ncurrentProjectPath: "+caseRoot+"\nrekitMode: case-local-shim\n")
+}
+
+func applyInitForPromoteTest(t *testing.T, repoRoot, caseRoot, pack, projectName string) {
+	t.Helper()
+	opt := syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: projectName}
+	preview, err := syncpkg.InitPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.ExpectedPlanSHA256 = preview.ExpectedPlanSHA256
+	if _, err := syncpkg.Apply(repoRoot, caseRoot, pack, opt); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func packMemoryReconsumeFixture(t *testing.T) (repoRoot, sourceCase, freshCase, pack string) {

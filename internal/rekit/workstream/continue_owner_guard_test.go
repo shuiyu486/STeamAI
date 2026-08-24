@@ -18,6 +18,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 )
 
 func TestContinueOwnerGuardRejectsMissingStaleAndMismatchedBindingsWithoutWrites(t *testing.T) {
@@ -46,13 +47,11 @@ func TestContinueOwnerGuardRejectsMissingStaleAndMismatchedBindingsWithoutWrites
 			if after := snapshotWorkstreamTree(t, caseRoot); after != before {
 				t.Fatalf("ContinuePreview mutated case\nbefore:\n%s\nafter:\n%s", before, after)
 			}
-			applied, err := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, tc.opt)
-			if err != nil {
-				t.Fatalf("ContinueApply returned error instead of fail-closed recovery: %v", err)
-			}
-			assertContinueOwnerGuardRecovery(t, applied, tc.want, tc.wantReceived, tc.wantReceivedGen, "executor-one", 1, tc.wantCurrentCommand)
-			if applied.IsMutation != true || applied.Applied {
-				t.Fatalf("ContinueApply recovery should report attempted mutation but no apply: %+v", applied)
+			applyOpt := tc.opt
+			applyOpt.ExpectedContinuePlanSHA256 = strings.Repeat("a", 64)
+			_, err = ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, applyOpt)
+			if err == nil || !strings.Contains(err.Error(), "continue Apply is blocked by the current executor owner guard") || !IsZeroProgress(err) {
+				t.Fatalf("ContinueApply owner guard error = %v", err)
 			}
 			if after := snapshotWorkstreamTree(t, caseRoot); after != before {
 				t.Fatalf("ContinueApply mutated case\nbefore:\n%s\nafter:\n%s", before, after)
@@ -91,11 +90,24 @@ func TestContinueOwnerGuardAllowsExplicitCurrentBinding(t *testing.T) {
 	if preview.Lane.CurrentExecutor != "executor-one" || preview.Lane.ExecutorGeneration != 1 || preview.Applied {
 		t.Fatalf("unexpected preview: %+v", preview)
 	}
+	request := preview.MissionCommanderActionQueue.CurrentDriverRequest
+	if request == nil || request.Invocation == nil || request.Kind != "preview-command" || request.RunLoopStepID != "preview-current" || !request.CommandExecutable || !request.RequiresReview || request.Blocked || !request.Invocation.HasFlag("-Apply") || request.Invocation.HasFlag("-WhatIf") {
+		t.Fatalf("continue preview omitted exact reviewed Apply request: %+v", request)
+	}
+	wantCommand := "/rekit continue main -Executor executor-one -ExpectedExecutorGeneration 1 -Apply -Format json -ExpectedContinuePlanSha256 " + preview.ContinuePlanSHA256
+	if request.Command != wantCommand || request.ExpectedReceipt.Command != request.Command {
+		t.Fatalf("continue preview Apply request lost selector/owner/plan parity: %+v", request)
+	}
+	planSHA256, present, valid := request.Invocation.FlagValue("-ExpectedContinuePlanSha256", "--expected-continue-plan-sha256")
+	if !present || !valid || planSHA256 != preview.ContinuePlanSHA256 || len(planSHA256) != 64 {
+		t.Fatalf("continue preview Apply request omitted exact plan binding: preview=%s request=%+v", preview.ContinuePlanSHA256, request)
+	}
+	opt.ExpectedContinuePlanSHA256 = preview.ContinuePlanSHA256
 	applied, err := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, opt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !applied.Applied || applied.Lane.CurrentExecutor != "executor-one" || applied.Lane.ExecutorGeneration != 1 {
+	if !applied.Applied || applied.Lane.CurrentExecutor != "executor-one" || applied.Lane.ExecutorGeneration != 1 || applied.ContinuePlanSHA256 != preview.ContinuePlanSHA256 {
 		t.Fatalf("unexpected apply result: %+v", applied)
 	}
 }
@@ -106,11 +118,15 @@ func TestContinueLegacyUnassignedLaneAllowsOnlyOmittedGuard(t *testing.T) {
 		t.Fatalf("legacy omitted guard should remain compatible: %v", err)
 	}
 	before := snapshotWorkstreamTree(t, caseRoot)
-	blocked, err := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1})
+	blocked, err := ContinuePreview(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1})
 	if err != nil {
-		t.Fatalf("legacy explicit mismatch returned error instead of recovery: %v", err)
+		t.Fatalf("legacy explicit mismatch preview returned error instead of recovery: %v", err)
 	}
 	assertContinueOwnerGuardRecovery(t, blocked, "legacy unassigned lane", "executor-one", 1, "", 0, "/rekit continue main")
+	_, err = ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1, ExpectedContinuePlanSHA256: strings.Repeat("a", 64)})
+	if err == nil || !strings.Contains(err.Error(), "continue Apply is blocked by the current executor owner guard") || !IsZeroProgress(err) {
+		t.Fatalf("legacy explicit mismatch Apply error = %v", err)
+	}
 	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
 		t.Fatalf("legacy mismatch mutated case\nbefore:\n%s\nafter:\n%s", before, after)
 	}
@@ -585,7 +601,8 @@ func TestConcurrentTakeoverAndContinueRejectsStaleCallerBeforeRunWrite(t *testin
 		t.Fatal(err)
 	}
 
-	stale, continueErr := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1})
+	before := snapshotWorkstreamTree(t, caseRoot)
+	stale, previewErr := ContinuePreview(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1})
 	lane, err := readLaneByID(caseRoot, "devirt-main")
 	if err != nil {
 		t.Fatal(err)
@@ -593,10 +610,17 @@ func TestConcurrentTakeoverAndContinueRejectsStaleCallerBeforeRunWrite(t *testin
 	if lane.CurrentExecutor != "executor-two" || lane.ExecutorGeneration != 2 {
 		t.Fatalf("takeover owner = %s/%d, want executor-two/2", lane.CurrentExecutor, lane.ExecutorGeneration)
 	}
-	if continueErr != nil {
-		t.Fatalf("stale continue returned error instead of recovery: %v", continueErr)
+	if previewErr != nil {
+		t.Fatalf("stale continue preview returned error instead of recovery: %v", previewErr)
 	}
 	assertContinueOwnerGuardRecovery(t, stale, "owner guard is not current", "executor-one", 1, "executor-two", 2, "/rekit continue main -Executor executor-two -ExpectedExecutorGeneration 2")
+	_, continueErr := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1, ExpectedContinuePlanSHA256: strings.Repeat("a", 64)})
+	if continueErr == nil || !strings.Contains(continueErr.Error(), "continue Apply is blocked by the current executor owner guard") || !IsZeroProgress(continueErr) {
+		t.Fatalf("stale continue Apply error = %v", continueErr)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatalf("stale continue mutated case\nbefore:\n%s\nafter:\n%s", before, after)
+	}
 	entries, err := os.ReadDir(filepath.Join(caseRoot, ".rekit", "runs"))
 	if err != nil {
 		t.Fatal(err)
@@ -622,8 +646,9 @@ func TestLaneHandoffApplyRejectsPreviewAfterTakeoverWithoutPublishing(t *testing
 	if hookErr != nil {
 		t.Fatal(hookErr)
 	}
-	if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
-		t.Fatalf("stale handoff error = %v", err)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("stale handoff error = %v failure=%+v typed=%t", err, failure, typed)
 	}
 	if _, statErr := os.Stat(filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest.md")); !os.IsNotExist(statErr) {
 		t.Fatalf("stale handoff published latest markdown: %v", statErr)
@@ -652,8 +677,9 @@ func TestLaneHandoffApplyRejectsInboxDriftWithoutPublishing(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main", ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256, PublicationStamp: preview.PublicationStamp})
-	if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
-		t.Fatalf("inbox drift handoff error = %v", err)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("inbox drift handoff error = %v failure=%+v typed=%t", err, failure, typed)
 	}
 	for _, path := range []string{
 		filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest.md"),
@@ -821,8 +847,9 @@ func TestProjectHandoffApplySerializesAndRejectsStalePreviewWithoutWrites(t *tes
 		if hookErr != nil {
 			t.Fatal(hookErr)
 		}
-		if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
-			t.Fatalf("stale project handoff error = %v", err)
+		failure, typed := plancontract.FromError(err)
+		if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+			t.Fatalf("stale project handoff error = %v failure=%+v typed=%t", err, failure, typed)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("project handoff deadlocked with lane takeover serialization")
@@ -865,11 +892,19 @@ func TestReconcileTakeoverSerializesWithContinueAndMakesCallerStale(t *testing.T
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	stale, continueErr := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1})
-	if continueErr != nil {
-		t.Fatalf("continue after reconcile takeover returned error instead of recovery: %v", continueErr)
+	before := snapshotWorkstreamTree(t, caseRoot)
+	stale, previewErr := ContinuePreview(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1})
+	if previewErr != nil {
+		t.Fatalf("continue preview after reconcile takeover returned error instead of recovery: %v", previewErr)
 	}
 	assertContinueOwnerGuardRecovery(t, stale, "owner guard is not current", "executor-one", 1, "executor-two", 2, "/rekit continue main -Executor executor-two -ExpectedExecutorGeneration 2")
+	_, continueErr := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-one", ExpectedExecutorGeneration: 1, ExpectedContinuePlanSHA256: strings.Repeat("a", 64)})
+	if continueErr == nil || !strings.Contains(continueErr.Error(), "continue Apply is blocked by the current executor owner guard") || !IsZeroProgress(continueErr) {
+		t.Fatalf("continue Apply after reconcile takeover error = %v", continueErr)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatalf("stale continue mutated case after reconcile\nbefore:\n%s\nafter:\n%s", before, after)
+	}
 	entries, err := os.ReadDir(filepath.Join(caseRoot, ".rekit", "runs"))
 	if err != nil {
 		t.Fatal(err)

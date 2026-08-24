@@ -45,7 +45,7 @@ var packRecoveryWrites = map[string]map[string]PackRecoveryWrite{
 		"references/template/task-handoff.md":      generation("template-file", "60e54a4187e1af7f87efac80d6de843842f8c0d09cccce35462bdf20978e7394"),
 	},
 	defaults.DefaultPack:        defaultPackRecoveryWrites(),
-	"web-security":              packSkeletonWithCanonical("web-security", "0346c14f7fb46023ecce4ac53cb2069df6b42350d5028442d1d293ef2d62c7ad", "c4f46ac2e5907c2460ed3618114501942ce917e85a441ab6e32552f438af7a17", "429bdcef398e6fef79e7ec1894a2df243bd92d7b37c30c42cb1dfc12935ce370", "f92a598fe5756c51e0fe89c9e6ae3d4cb0110fa56fd10ec1f97d5ec5e1ad6f4b", "c1f15a2f913fbde7e02d81fbefc99eff830deee223768decda541e45df6c907a", "48afc30652f7751483ad972d544eba3e1952b31721ec77f8b0d76dc08462db7d", "15f56e64494e54ed3da60434ff991a9c7a2e73b2fd691d714b34f843105e600e", "6eae98db08786d52c73fefb02e8bad7d89becf04421e7aa4f9ecc2ea58c0d79e"),
+	"web-security":              webSecurityRecoveryWrites(),
 	"malware-analysis":          packSkeletonWithCanonical("malware-analysis", "07015df0d0384714a8df3ba4c7e8b1eba3db318618f82705ae9381a7958c7210", "929b8cde6da7bc169ef8678b74e496a9af4795f02731925931e4999c5a4c7614", "670bdad792de8d24576561d3cb27aee88bf182981bf2e6253a721bf746e690d2", "461b40e924420e98ae0483ff84f0632a23dd077ddb8162649bed007d55e06bd0", "ebd0b52b6d76e3da8c3c8bddafab535077deb02be98f07fcb554eedfa5b534a7", "52331a59b2ceff6068ddf636e928f72d3960b3a1286b81aa230d8c27cf5006bc", "b2548fd32202cfa6ec1672615c74435106603763922180673a2d411f9a5aeb34", "7a8b7fc12ff8ccc6a3ce1799505386d28adde4d9f684c6d87492a840ba2c68ec"),
 	"vuln-research":             packSkeletonWithCanonical("vuln-research", "5057a3ac36ea77c8244fa8781f853d5f66299d1fc5f307b483e5a18031627cf9", "fb1e2d807985d68b57ab92d6c963eef62f375d8f7f7d44cfc14e2a207dcf379c", "05ce1f25ca5ca82188ded9ba05138a06d41dfa7a45a3ca85bb261d6791d86cfa", "c52eba6759a7a08d76e89fea7a86055899f8ab13f5edc290d193745e17b0a516", "037daa8c0071bea5bf8d1995ac2d5ed3df4a5b27c249e6a3eabd3032d149869b", "fb1c23f85fd7d49f11152617cd39fba12c6e9c5abef7c52d8d1e595858b5cfb4", "36c3dc75fd82907977587bbf5a46e4883e277eb71b50d7f9559aa3daa1e9b4dc", "36bbb6b64f3886ece06e6abe4ca61b4fb1d2fb213df8db60fd9aed01c611902a"),
 	"ctf":                       packSkeletonWithCanonical("ctf", "a4876bf594b4298cfa4126892a087858560036acaab9ceb8b697255a1228c347", "3480c3660a88b7c84e18dc53f17356a08f59b5c28248a22d3399a2d86a7a2f17", "1cbab22120efcad34c0e051fb090d9a20da7724d744f78e94be5d88b242500d8", "7c5e2d72f90ba7b1804063a61c3d83d58da288d6e346037ca97457363cafadc0", "16fa8a9a2520f3b5020310eb2520bfdc3b33064f584de1b8c2f1356eb4ccdb9e", "843d3192d161ade743660712bb0169e01dc18afb235cb7e56be1494332ef40b8", "eb30ddb9e6cbeba162cf3e6ceb98e48c3130def4bc40494e7dcc99775ecd71ec", "1b8d49ec05b7a00c29156f8b5b6f67b6f1fa31b00b75e69f95f0a6a526f5245b"),
@@ -71,6 +71,23 @@ func defaultPackRecoveryWrites() map[string]PackRecoveryWrite {
 		prefix + "general-toolchain-router.md": generation("managed-file", "e1f94327afb948713fb942b4e6b9c090c329156de7e3438857c48566685e2c2c"),
 		prefix + "task-handoff.md":             generation("template-file", "6960d6ca8fad6697575c767b85e0acd8b49d5539c180b46921fdbde76ea94aa6", "1c8cc6db4e29b1864cf58545afcf91727fde1e40ff7596beaedf7efadd953c99"),
 	}
+}
+
+func webSecurityRecoveryWrites() map[string]PackRecoveryWrite {
+	writes := packSkeletonWithCanonical("web-security", "0346c14f7fb46023ecce4ac53cb2069df6b42350d5028442d1d293ef2d62c7ad", "c4f46ac2e5907c2460ed3618114501942ce917e85a441ab6e32552f438af7a17", "429bdcef398e6fef79e7ec1894a2df243bd92d7b37c30c42cb1dfc12935ce370", "f92a598fe5756c51e0fe89c9e6ae3d4cb0110fa56fd10ec1f97d5ec5e1ad6f4b", "c1f15a2f913fbde7e02d81fbefc99eff830deee223768decda541e45df6c907a", "48afc30652f7751483ad972d544eba3e1952b31721ec77f8b0d76dc08462db7d", "15f56e64494e54ed3da60434ff991a9c7a2e73b2fd691d714b34f843105e600e", "6eae98db08786d52c73fefb02e8bad7d89becf04421e7aa4f9ecc2ea58c0d79e")
+	appendAcceptedGenerations(writes, "references/web-security/README.md", "2dcc85c7dab6afb2b7c80cd095e0ddf36f9b71565f89857263cb139aa099b6c8")
+	appendAcceptedGenerations(writes, "references/web-security/agent-team.md", "1420a78fcb724e2d0129628b1510939a5e671b3683d40aa9c6e557fccda248db")
+	appendAcceptedGenerations(writes, "references/web-security/workflow-template.md", "329ec012326c067c63b5e42c0ae2922b1ddf1e2d194b24e229070a3dbe631067")
+	appendAcceptedGenerations(writes, "references/web-security/toolchain-router.md", "f4af42cdee9b1231a55a858632e468d6fe9bc8179be01a59b93f2cf0b068f86d")
+	return writes
+}
+
+func appendAcceptedGenerations(writes map[string]PackRecoveryWrite, path string, sums ...string) {
+	contract := writes[path]
+	for _, sum := range sums {
+		contract.AcceptedSHA256s[sum] = struct{}{}
+	}
+	writes[path] = contract
 }
 
 func packSkeletonWithCanonical(pack, readme, agent, workflow, router, handoff, canonicalReadme, canonicalWorkflow, canonicalHandoff string) map[string]PackRecoveryWrite {

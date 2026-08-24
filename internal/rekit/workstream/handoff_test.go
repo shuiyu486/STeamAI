@@ -16,6 +16,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 )
 
 func TestWriteCurrentLoopOperatorPackageIncludesExternalMemberHandoff(t *testing.T) {
@@ -449,6 +450,23 @@ func TestHandoffContextRejectsInvalidFinalDriverRequest(t *testing.T) {
 	}
 }
 
+func TestHandoffApplyRequiresTypedPlanBindingAfterContextResolution(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+	before := snapshotWorkstreamTree(t, caseRoot)
+	_, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{
+		Selector:             "devirt-main",
+		CurrentDriverRequest: &request,
+	})
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMissing || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("missing handoff plan failure=%+v typed=%t err=%v", failure, typed, err)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatalf("missing handoff plan wrote handoff state")
+	}
+}
+
 func TestHandoffApplyRejectsFinalDriverRequestDriftWithoutWrites(t *testing.T) {
 	repoRoot, caseRoot := setupContinueCase(t, "")
 	request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
@@ -465,8 +483,9 @@ func TestHandoffApplyRejectsFinalDriverRequestDriftWithoutWrites(t *testing.T) {
 		PublicationStamp:              preview.PublicationStamp,
 		CurrentDriverRequest:          &drifted,
 	})
-	if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
-		t.Fatalf("drifted final request error = %v", err)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("drifted final request error = %v failure=%+v typed=%t", err, failure, typed)
 	}
 	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
 		t.Fatalf("drifted final request wrote handoff state")
@@ -611,6 +630,25 @@ func TestMissionCommanderActionRunLoopMarkdownLinesKeepsGuidanceAsDriverGuidance
 	}
 }
 
+func TestDailyMissionControlRunbookKeepsGuidanceOutOfCurrentCommand(t *testing.T) {
+	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{{
+		State:   "ready-for-next-batch-selection",
+		Command: "select the next Windows-verifiable product-path closure",
+		Source:  "releaseHandoffNextBatch",
+	}})
+	runbook := DailyMissionControlRunbookFor("C:/case", "project", queue, "", "")
+	request := runbook.CurrentDriverRequest
+	if request == nil || request.CommandExecutable || request.Command != "" || request.Guidance == "" {
+		t.Fatalf("guidance request drifted: %+v", request)
+	}
+	if runbook.CurrentCommand != "" {
+		t.Fatalf("guidance leaked into currentCommand: %+v", runbook)
+	}
+	if runbook.CurrentRunLoopStepID != request.RunLoopStepID || runbook.RefreshStatusCommand != request.ExpectedReceipt.RefreshStatusCommand {
+		t.Fatalf("daily runbook scalar identity differs from request: runbook=%+v request=%+v", runbook, request)
+	}
+}
+
 func TestDailyMissionControlRunbookHandoffDriverRequestsGateApply(t *testing.T) {
 	contains := func(items []string, want string) bool {
 		return slices.ContainsFunc(items, func(item string) bool { return strings.Contains(item, want) })
@@ -702,7 +740,7 @@ func TestLaneHandoffApplyPersistsExactExecutableRoute(t *testing.T) {
 		repoRoot,
 		caseRoot,
 		defaults.DefaultPack,
-		HandoffOptions{Selector: "devirt-main"},
+		HandoffOptions{Selector: "main"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -721,10 +759,23 @@ func TestLaneHandoffApplyPersistsExactExecutableRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	exact := applied.ApplyCommand
+	wantArgs := []string{
+		"-Command", "handoff",
+		"-Target", caseRoot,
+		"-Pack", defaults.DefaultPack,
+		"-Apply",
+		"-ExpectedHandoffPlanSha256", applied.PublicationPlanSHA256,
+		"-HandoffPublicationStamp", applied.PublicationStamp,
+		"-Lane", "devirt-main",
+		"-Format", "json",
+	}
 	if exact == "" || !strings.Contains(exact, applied.PublicationPlanSHA256) ||
 		!strings.Contains(exact, applied.PublicationStamp) ||
-		!strings.Contains(exact, "-Lane devirt-main") {
-		t.Fatalf("lane handoff result omitted exact bounded apply: %+v", applied)
+		!strings.Contains(exact, "-Lane devirt-main") ||
+		preview.Selector != "devirt-main" || applied.Selector != "devirt-main" ||
+		!reflect.DeepEqual(preview.ApplyArgs, wantArgs) ||
+		!reflect.DeepEqual(applied.ApplyArgs, wantArgs) {
+		t.Fatalf("lane handoff result omitted exact bounded apply: command=%q previewSelector=%q appliedSelector=%q previewArgs=%q appliedArgs=%q want=%q", exact, preview.Selector, applied.Selector, preview.ApplyArgs, applied.ApplyArgs, wantArgs)
 	}
 
 	markdown := readHandoffTestFile(
@@ -777,10 +828,21 @@ func TestProjectHandoffApplyPersistsOnlyProjectExactRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	exact := applied.ApplyCommand
+	wantArgs := []string{
+		"-Command", "handoff",
+		"-Target", caseRoot,
+		"-Pack", defaults.DefaultPack,
+		"-Apply",
+		"-ExpectedHandoffPlanSha256", applied.PublicationPlanSHA256,
+		"-HandoffPublicationStamp", applied.PublicationStamp,
+		"-Format", "json",
+	}
 	if exact == "" || !strings.Contains(exact, applied.PublicationPlanSHA256) ||
 		!strings.Contains(exact, applied.PublicationStamp) ||
-		strings.Contains(exact, "-Lane") {
-		t.Fatalf("project handoff result omitted project-scoped apply: %+v", applied)
+		strings.Contains(exact, "-Lane") ||
+		!reflect.DeepEqual(preview.ApplyArgs, wantArgs) ||
+		!reflect.DeepEqual(applied.ApplyArgs, wantArgs) {
+		t.Fatalf("project handoff result omitted project-scoped apply: command=%q previewArgs=%q appliedArgs=%q want=%q", exact, preview.ApplyArgs, applied.ApplyArgs, wantArgs)
 	}
 
 	markdown := readHandoffTestFile(
@@ -791,6 +853,7 @@ func TestProjectHandoffApplyPersistsOnlyProjectExactRoute(t *testing.T) {
 	for _, selector := range []string{"main", "bootstrap"} {
 		laneExact := handoffApplyCommand(
 			caseRoot,
+			defaults.DefaultPack,
 			selector,
 			applied.PublicationPlanSHA256,
 			applied.PublicationStamp,

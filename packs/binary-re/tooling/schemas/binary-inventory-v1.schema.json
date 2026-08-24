@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:steamai:binary-re:binary-inventory-v1",
+  "title": "STeamAI Binary Inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "adapterId",
+    "source",
+    "format",
+    "sections",
+    "imports",
+    "exports",
+    "warnings",
+    "boundaries"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "binary-re-pe-elf-inventory" },
+    "adapterId": { "const": "static-binary-triage-sidecar" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      }
+    },
+    "format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "class", "bitness", "endianness", "machine", "fileType", "entryPoint"],
+      "properties": {
+        "family": { "enum": ["pe", "elf"] },
+        "class": { "enum": ["pe32", "pe32+", "elf32", "elf64"] },
+        "bitness": { "enum": [32, 64] },
+        "endianness": { "enum": ["little", "big"] },
+        "machine": { "$ref": "#/$defs/boundedText" },
+        "fileType": { "$ref": "#/$defs/boundedText" },
+        "entryPoint": { "$ref": "#/$defs/hex" },
+        "imageBase": { "$ref": "#/$defs/hex" }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type", "virtualAddress", "virtualSize", "fileOffset", "fileSize", "permissions"],
+        "properties": {
+          "name": { "$ref": "#/$defs/boundedText" },
+          "type": { "$ref": "#/$defs/boundedText" },
+          "virtualAddress": { "$ref": "#/$defs/hex" },
+          "virtualSize": { "$ref": "#/$defs/hex" },
+          "fileOffset": { "type": "integer", "minimum": 0, "maximum": 16777216 },
+          "fileSize": { "type": "integer", "minimum": 0, "maximum": 16777216 },
+          "permissions": { "type": "string", "pattern": "^[r-][w-][x-]$" }
+        }
+      }
+    },
+    "imports": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["library"],
+        "properties": {
+          "library": { "$ref": "#/$defs/boundedText" },
+          "symbol": { "$ref": "#/$defs/boundedText" },
+          "version": { "$ref": "#/$defs/boundedText" }
+        }
+      }
+    },
+    "exports": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "address"],
+        "properties": {
+          "name": { "$ref": "#/$defs/boundedText" },
+          "type": { "$ref": "#/$defs/boundedText" },
+          "ordinal": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "address": { "$ref": "#/$defs/hex" },
+          "size": { "$ref": "#/$defs/hex" },
+          "forwarder": { "$ref": "#/$defs/boundedText" }
+        }
+      }
+    },
+    "warnings": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/boundedText" } },
+    "boundaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readOnlyInput", "noSampleExecution", "noNetwork", "noCatalogEntryExecution", "noAuthorityOrConfirmed"],
+      "properties": {
+        "readOnlyInput": { "const": true },
+        "noSampleExecution": { "const": true },
+        "noNetwork": { "const": true },
+        "noCatalogEntryExecution": { "const": true },
+        "noAuthorityOrConfirmed": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "boundedText": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "hex": { "type": "string", "pattern": "^0x[0-9a-f]+$" }
+  }
+}

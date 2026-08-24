@@ -66,7 +66,11 @@ function Write-Utf8File {
 
 function Read-JsonFile {
   param([Parameter(Mandatory=$true)][string]$Path)
-  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+  $serializer.MaxJsonLength = [int]::MaxValue
+  $serializer.RecursionLimit = 512
+  return $serializer.DeserializeObject([System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8))
 }
 
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
@@ -75,7 +79,10 @@ $caseRoot = Join-Path $WorkRoot "ollvm-agent-team-dryrun-$suffix"
 $reviewRoot = Join-Path $WorkRoot "ollvm-agent-team-review-$suffix"
 
 try {
-  Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"ollvm-dryrun-$suffix",'-Apply') | Out-Null
+  $initPreview = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"ollvm-dryrun-$suffix",'-WhatIf','-Format','json') | ConvertFrom-Json
+  $initApplyArgs = @($initPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ($initApplyArgs.Count -eq 0) { throw 'ollvm dry-run init preview omitted applyArgs' }
+  Invoke-RekitSmoke -Arguments $initApplyArgs | Out-Null
 
   $start = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$caseRoot,'-Pack',$Pack,'-Name','cfg','-Apply','-Format','json') | ConvertFrom-Json
   if ([string]$start.command -ne 'start' -or -not [bool]$start.isMutation -or -not [bool]$start.applied -or [string]$start.lane.id -ne 'obfuscation-analysis-cfg' -or [string]$start.lane.type -ne 'obfuscation-analysis' -or [string]$start.lane.workspace -ne 'workspace/obfuscation/obfuscation-analysis-cfg') {
@@ -101,20 +108,20 @@ try {
   }
 
   $candidate = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-Kind','candidate','-Lane','obfuscation-analysis-cfg','-Subject','flattened CFG candidate','-Summary','candidate awaiting bounded OLLVM CFG review','-Actor','ollvm-agent','-Confidence','high','-Status','open','-Risk','medium','-TargetRef','function-alpha','-BatchId','batch-ollvm-real-dryrun','-EvidenceRefs','workspace/obfuscation/obfuscation-analysis-cfg/packet.md') | ConvertFrom-Json
-  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.rekit/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'obfuscation-analysis-cfg') {
+  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.steamai/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'obfuscation-analysis-cfg') {
     throw "unexpected ollvm candidate append: $($candidate | ConvertTo-Json -Depth 20)"
   }
 
-  $requestsPath = Join-Path $caseRoot '.rekit\facts\requests.jsonl'
+  $requestsPath = Join-Path $caseRoot '.steamai\facts\requests.jsonl'
   $beforeRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
-  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','full-trace','-Lane','obfuscation-analysis-cfg','-Actor','runtime-test','-Subject','OLLVM trace gate','-Summary','needs user confirmation before full trace or dynamic obfuscation sidecar','-TargetRef','function-alpha','-BatchId','batch-ollvm-real-dryrun','-Scope','single CFG region only','-Budget','30s','-TriedLightSteps','plan-subagents,static CFG triage','-StopConditions','timeout,no dump,no patch') | ConvertFrom-Json
+  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','full-trace','-Lane','obfuscation-analysis-cfg','-Actor','runtime-test','-Subject','OLLVM trace gate','-Summary','needs user confirmation before full trace or dynamic obfuscation sidecar','-TargetRef','function-alpha','-BatchId','batch-ollvm-real-dryrun','-Scope','single CFG region only','-Budget','30s','-TriedLightSteps','plan-subagents,static CFG triage','-StopConditions','timeout,no-dump,no-patch') | ConvertFrom-Json
   if ([string]$gatePreview.command -ne 'gate' -or [bool]$gatePreview.isMutation -or -not [bool]$gatePreview.requiresConfirmation -or [string]$gatePreview.eventPreview.status -ne 'pending-gate' -or [string]$gatePreview.eventPreview.gate.action -ne 'full-trace') {
     throw "unexpected ollvm gate preview: $($gatePreview | ConvertTo-Json -Depth 20)"
   }
   $afterPreviewRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
   if ($beforeRequests -ne $afterPreviewRequests) { throw 'ollvm gate what-if changed requests ledger' }
 
-  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','full-trace','-Lane','obfuscation-analysis-cfg','-Actor','runtime-test','-Risk','medium','-Subject','OLLVM trace gate','-Summary','needs user confirmation before full trace or dynamic obfuscation sidecar','-TargetRef','function-alpha','-BatchId','batch-ollvm-real-dryrun','-Scope','single CFG region only','-Budget','30s','-TriedLightSteps','plan-subagents,static CFG triage','-StopConditions','timeout,no dump,no patch') | ConvertFrom-Json
+  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','full-trace','-Lane','obfuscation-analysis-cfg','-Actor','runtime-test','-Risk','medium','-Subject','OLLVM trace gate','-Summary','needs user confirmation before full trace or dynamic obfuscation sidecar','-TargetRef','function-alpha','-BatchId','batch-ollvm-real-dryrun','-Scope','single CFG region only','-Budget','30s','-TriedLightSteps','plan-subagents,static CFG triage','-StopConditions','timeout,no-dump,no-patch') | ConvertFrom-Json
   if ([string]$gateApply.command -ne 'gate' -or -not [bool]$gateApply.isMutation -or -not [bool]$gateApply.applied -or [string]$gateApply.event.status -ne 'pending-gate' -or [string]$gateApply.event.gate.action -ne 'full-trace' -or [string]$gateApply.event.gate.scope -ne 'single CFG region only') {
     throw "unexpected ollvm gate apply: $($gateApply | ConvertTo-Json -Depth 20)"
   }
@@ -148,14 +155,17 @@ try {
     Assert-ContainsText -Text $overview -Expected $expected -Label 'ollvm overview text'
   }
 
-  $handoff = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','cfg') | ConvertFrom-Json
+  $handoffPreview = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Format','json','cfg') | ConvertFrom-Json
+  $handoffApplyArgs = @($handoffPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ([string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationPlanSha256) -or [string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationStamp) -or $handoffApplyArgs.Count -eq 0) { throw 'ollvm handoff preview omitted exact Apply action' }
+  $handoff = Invoke-RekitSmoke -Arguments $handoffApplyArgs | ConvertFrom-Json
   if ([string]$handoff.command -ne 'handoff' -or -not [bool]$handoff.isMutation -or -not [bool]$handoff.applied -or [bool]$handoff.project -or [string]$handoff.lane.id -ne 'obfuscation-analysis-cfg' -or [string]$handoff.lane.workspace -ne 'workspace/obfuscation/obfuscation-analysis-cfg') {
     throw "unexpected ollvm handoff result: $($handoff | ConvertTo-Json -Depth 20)"
   }
-  $handoffPath = Join-Path $caseRoot '.rekit\handovers\obfuscation-analysis-cfg-latest.md'
+  $handoffPath = Join-Path $caseRoot '.steamai\handovers\obfuscation-analysis-cfg-latest.md'
   if (-not (Test-Path -LiteralPath $handoffPath)) { throw "missing ollvm handoff: $handoffPath" }
   $handoffText = [System.IO.File]::ReadAllText($handoffPath, [System.Text.Encoding]::UTF8)
-  foreach ($expected in @('obfuscation-analysis-cfg','/rekit continue obfuscation-analysis-cfg','workspace/obfuscation/obfuscation-analysis-cfg/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=full-trace','scope=single CFG region only')) {
+  foreach ($expected in @('obfuscation-analysis-cfg','/rekit continue -Lane obfuscation-analysis-cfg','workspace/obfuscation/obfuscation-analysis-cfg/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=full-trace','scope=single CFG region only')) {
     Assert-ContainsText -Text $handoffText -Expected $expected -Label 'ollvm handoff text'
   }
   foreach ($unexpected in @('web-security','workspace/features','endpoint-login','generic-binary-re','workspace/binary','binary-analysis-sample','malware-analysis','workspace/samples','sample-alpha','vuln-research','workspace/vulns','ctf','workspace/challenges','challenge-alpha','unpack-pe','workspace/unpack','packed-sample','references/template','vmp-re')) {

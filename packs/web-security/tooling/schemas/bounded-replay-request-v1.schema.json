@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:steamai:web-security:bounded-replay-request-v1",
+  "title": "STeamAI Bounded Replay Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "adapterId", "inventory", "target", "operation", "expected", "limits", "boundaries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "web-security-bounded-replay-request" },
+    "adapterId": { "const": "bounded-http-replay" },
+    "inventory": { "$ref": "#/$defs/fileBinding" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "host", "port", "basePath"],
+      "properties": {
+        "scheme": { "enum": ["http", "https"] },
+        "host": { "type": "string", "pattern": "^(127(?:\\.[0-9]{1,3}){3}|::1)$" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "basePath": { "$ref": "#/$defs/urlPath" }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "method", "pathTemplate", "path"],
+      "properties": {
+        "key": { "$ref": "#/$defs/boundedText" },
+        "method": { "enum": ["get", "head", "options"] },
+        "pathTemplate": { "$ref": "#/$defs/urlPath" },
+        "path": { "$ref": "#/$defs/urlPath" }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "authRef"],
+      "properties": {
+        "scheme": { "$ref": "#/$defs/boundedText" },
+        "authRef": { "type": "string", "pattern": "^STEAMAI_AUTH_[A-Z0-9_]{1,96}$" }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statusCode", "body", "headers"],
+      "properties": {
+        "statusCode": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "body": { "$ref": "#/$defs/digest" },
+        "headers": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "sha256", "bytes"],
+            "properties": {
+              "name": { "const": "content-type" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "bytes": { "type": "integer", "minimum": 0, "maximum": 512 }
+            }
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtimeMillis", "responseBodyBytes", "requests", "redirects"],
+      "properties": {
+        "runtimeMillis": { "type": "integer", "minimum": 1, "maximum": 30000 },
+        "responseBodyBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "requests": { "const": 1 },
+        "redirects": { "const": 0 }
+      }
+    },
+    "boundaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loopbackOnly", "noAmbientProxy", "noRedirects", "noRetries", "noRequestBody", "noSecretsPersisted", "noCatalogEntryExecution", "noAuthorityOrConfirmed"],
+      "properties": {
+        "loopbackOnly": { "const": true },
+        "noAmbientProxy": { "const": true },
+        "noRedirects": { "const": true },
+        "noRetries": { "const": true },
+        "noRequestBody": { "const": true },
+        "noSecretsPersisted": { "const": true },
+        "noCatalogEntryExecution": { "const": true },
+        "noAuthorityOrConfirmed": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "boundedText": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "urlPath": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^/[^?#\\\\]*$" },
+    "fileBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+      }
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 1048576 }
+      }
+    }
+  }
+}

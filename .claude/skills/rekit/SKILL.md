@@ -57,7 +57,7 @@ correction: go run ./cmd/rekit-host -daily -target <case-root> -lane <typed-choi
 
 `rekit-host` 后不能插入 `--`。单 lane 可省略 `-lane`；多 lane 先展示 `action.choices[]`，选定后用 choice `id`。选择前零启动、零写入，后续保持同一 selector。
 
-每次只相信返回的 `action.code`、`action.requiresInput`、`action.choices[]`、typed `failure` 与 fresh durable status。Remote Control 只消费 fresh typed request；opaque endpoint 不是 durable identity，`uncertain` 立即停止且不重发、不做 same-job replacement，transport 不授予 heavy action 或 authority/confirmed。
+只相信 `action.code`、`action.requiresInput`、`action.choices[]`、typed `failure` 与 fresh durable status。`-lane` 只选择 lane；resume/goal/correction/control/adoption 由 classifier 唯一选路。Remote Control 只消费 fresh typed request；`uncertain` 停止且不重发，transport 不授予权限。
 
 随后按 action code 处理：
 
@@ -73,6 +73,7 @@ correction: go run ./cmd/rekit-host -daily -target <case-root> -lane <typed-choi
 
 - 开始/继续/纠偏只授权对应 daily 操作，不能扩大为其它副作用。
 - repair、handoff、sync、promote、目录接入或 profile 变更都先展示 exact preview，再确认 target、pack、范围和动作。
+- executable `continue` 只执行 fresh status 的 typed `-WhatIf -Format json`；确认后原样消费 preview 返回的同 selector/owner/generation exact `-Apply`。`continuePlanSha256` 绑定 mutation snapshot，Apply 携带同值 `-ExpectedContinuePlanSha256`；blocked preview 无 Apply。随后刷新 status；不得手工改 phase/参数或复用 Apply。
 - `sync` 是 kit → case；`promote` 是 case → kit；均 review-first。
 - `continue -Apply` 不写 authority/confirmed、不执行 heavy tool。
 - gate 只记录 request/evidence；actual heavy action 仍要求 strict durable profile + exact `authorized-gate`。
@@ -101,6 +102,5 @@ correction: go run ./cmd/rekit-host -daily -target <case-root> -lane <typed-choi
 - 文档路由：`docs/context-routing.md`
 - Agent Team 日常与接手：`docs/agent-team-usage.md`
 - active route/current card：`docs/real-usage-hardening-roadmap.md`
-- 已完成四闭环设计：`docs/daily-product-closure-plan.md`（仅复核历史完成证据时按需读取）
-- Remote Control Reviewer transport 使用与边界：`docs/agent-team-usage.md` 对应小节；active状态以路线图为准
-- release 与 PowerShell 退役边界：由 router 分别进入 `docs/release-readiness.md`、`docs/powershell-deprecation.md`
+- 历史闭环证据：`docs/daily-product-closure-plan.md`
+- Remote Control、release、PowerShell 退役：由 router 进入对应专题

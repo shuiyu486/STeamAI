@@ -1,8 +1,8 @@
 schemaVersion: 1
 name: web-security
 version: 0.1.0
-description: Web and API security assessment Agent Team pack skeleton
-maturity: skeleton
+description: Mature Web and API security assessment Agent Team pack with bounded OpenAPI inventory and loopback replay
+maturity: mature
 
 managedFiles:
   - references/web-security/README.md
@@ -88,6 +88,9 @@ toolingFiles:
   - tooling/catalog.yml
   - tooling/recipes/passive-triage.md
   - tooling/recipes/request-replay.md
+  - tooling/schemas/openapi-inventory-v1.schema.json
+  - tooling/schemas/bounded-replay-request-v1.schema.json
+  - tooling/schemas/bounded-replay-result-v1.schema.json
 
 promptFiles: []
 
@@ -118,6 +121,12 @@ toolingCandidateSources:
   - references/web-security/toolchain-router.md
 
 heavyToolGates:
+  - id: inspect
+    title: OpenAPI 3 JSON inventory
+    sideEffects: inspect,filesystem-read,bounded-packet-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: scope-drift,source-drift,output-exceeds-bounded-evidence-packet
   - id: full-trace
     title: Full trace capture
     sideEffects: full-trace,filesystem-write
@@ -153,7 +162,7 @@ heavyToolGates:
     sideEffects: network,filesystem-write
     defaultRisk: high
     requiresConfirmation: true
-    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift
+    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift,delivery-uncertain,response-body-limit,response-read
   - id: symex
     title: Long symbolic execution
     sideEffects: symex,filesystem-write

@@ -1,8 +1,10 @@
 package fs
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -141,6 +143,95 @@ func TestListRegularFilesAnchoredRejectsInvalidNamespaceEntries(t *testing.T) {
 	}
 	if _, err := ListRegularFilesAnchored(caseRoot, ".rekit/external-session-observations/inbox", "observation inbox", 16); err == nil {
 		t.Fatal("anchored listing accepted a nested directory")
+	}
+}
+
+func TestWriteAtomicNoReplaceRegularFileAnchoredPublishesOnlyCompleteFinalBytes(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel := ".steamai/lanes/main/adapter-executions/gate-a/.binary-inventory-output-commit.json"
+	data := []byte("{\"committed\":true}\n")
+	finalPath := filepath.Join(caseRoot, filepath.FromSlash(rel))
+	var tempPath string
+	restore := SetWriteAtomicNoReplaceAfterTempSyncHookForTest(func(path string) error {
+		tempPath = path
+		if _, err := os.Lstat(finalPath); !os.IsNotExist(err) {
+			t.Fatalf("final marker appeared before atomic install: %v", err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != string(data) {
+			t.Fatalf("owned temp bytes=%q err=%v", got, err)
+		}
+		return errors.New("synthetic interruption after temp sync")
+	})
+	defer restore()
+	if _, err := WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, "output commit", data); err == nil || !strings.Contains(err.Error(), "synthetic interruption") {
+		t.Fatalf("interrupted atomic publication error=%v", err)
+	}
+	if _, err := os.Lstat(finalPath); !os.IsNotExist(err) {
+		t.Fatalf("interrupted atomic publication exposed final marker: %v", err)
+	}
+	if tempPath == "" {
+		t.Fatal("atomic publication did not reach the synced temp hook")
+	}
+	if _, err := os.Lstat(tempPath); !os.IsNotExist(err) {
+		t.Fatalf("failed atomic publication left owned temp: %v", err)
+	}
+	restore()
+
+	replayed, err := WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, "output commit", data)
+	if err != nil || replayed {
+		t.Fatalf("first atomic publication replayed=%t err=%v", replayed, err)
+	}
+	replayed, err = WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, "output commit", data)
+	if err != nil || !replayed {
+		t.Fatalf("exact atomic replay replayed=%t err=%v", replayed, err)
+	}
+	if _, err := WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, "output commit", []byte("different\n")); err == nil {
+		t.Fatal("atomic publication accepted different existing bytes")
+	}
+}
+
+func TestWriteAtomicNoReplaceRegularFileAnchoredIgnoresStaleOwnedTemp(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel := ".steamai/lanes/main/adapter-executions/gate-a/.binary-inventory-output-commit.json"
+	path := filepath.Join(caseRoot, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".owned-00000000000000000000000000000000.tmp")
+	if err := os.WriteFile(stale, []byte("partial temp"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("{\"committed\":true}\n")
+	replayed, err := WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, "output commit", data)
+	if err != nil || replayed {
+		t.Fatalf("publication around stale temp replayed=%t err=%v", replayed, err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(data) {
+		t.Fatalf("published final bytes=%q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(stale); err != nil || string(got) != "partial temp" {
+		t.Fatalf("unowned stale temp was changed: %q err=%v", got, err)
+	}
+}
+
+func TestWriteAtomicNoReplaceRegularFileAnchoredRejectsPartialFinalMarker(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel := ".steamai/lanes/main/adapter-executions/gate-a/.binary-inventory-success-seal.json"
+	path := filepath.Join(caseRoot, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{\"schema"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, "success seal", []byte("{\"schemaVersion\":1}\n")); err == nil {
+		t.Fatal("atomic publication accepted or replaced a partial final marker")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "{\"schema" {
+		t.Fatalf("partial obstruction changed: %q err=%v", got, err)
 	}
 }
 

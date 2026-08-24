@@ -7,17 +7,56 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
+// statusDiagnosticsDTO is the full machine-facing status response. The
+// canonical inventory remains private to status assembly; public entrypoint
+// projection is applied only to this wire-faithful deep clone.
+type statusDiagnosticsDTO statusInventory
+
+func buildStatusDiagnosticsDTO(source statusInventory) (statusDiagnosticsDTO, error) {
+	var diagnostics statusDiagnosticsDTO
+	if err := cloneDiagnostics(source, &diagnostics, "status"); err != nil {
+		return statusDiagnosticsDTO{}, err
+	}
+	projected := (*statusInventory)(&diagnostics)
+	projected.selectedCurrentLane = source.selectedCurrentLane
+	if err := projectStatusPublicEntrypoint(projected); err != nil {
+		return statusDiagnosticsDTO{}, err
+	}
+	return diagnostics, nil
+}
+
 func projectStatusPublicEntrypoint(status *statusInventory) error {
-	if status == nil || !strings.HasPrefix(strings.TrimSpace(status.Mode), "case") {
+	if status == nil {
 		return nil
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(status.Target)
+	projection, err := resolveProjectPublicProjection(status.Target)
 	if err != nil {
 		return fmt.Errorf("resolve status public entrypoint: %w", err)
+	}
+	status.publicProjection = projection
+	if !strings.HasPrefix(strings.TrimSpace(status.Mode), "case") {
+		return nil
+	}
+	entrypoint := projection.entrypoint
+	if entrypoint == commands.CurrentPublicEntrypoint && status.ProjectHandoff != nil {
+		// Keep the compatibility envelope expected by installed current projects,
+		// but never expose source-clone release, batch, validation, commit, or
+		// next-route state from a self-contained project response. Case-local
+		// candidate work is published independently through PackMemoryConsumption.
+		status.ProjectHandoff = &statusProjectHandoff{
+			Ready:   true,
+			Summary: "source-clone project handoff is not published by current project status",
+			PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{
+				Ready:      true,
+				Summary:    "project-local pack-memory candidate inventory is published separately",
+				NextAction: "use packMemoryConsumption for current project-local candidate work",
+			},
+			MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(nil),
+		}
 	}
 	if err := projectStatusCaseShimPublicEntrypoint(&status.CaseShim, entrypoint); err != nil {
 		return fmt.Errorf("project case shim public entrypoint: %w", err)
@@ -215,8 +254,8 @@ func projectStatusMissionControlPublicEntrypoint(runbook *statusMissionControlRu
 			return fmt.Errorf("%s: %w", label, err)
 		}
 	}
-	if runbook.CurrentDriverRequest != nil && strings.TrimSpace(runbook.CurrentDriverRequest.Command) != "" {
-		runbook.CurrentCommand = strings.TrimSpace(runbook.CurrentDriverRequest.Command)
+	if err := bindStatusMissionControlCurrentDriverRequest(runbook, runbook.CurrentDriverRequest); err != nil {
+		return fmt.Errorf("currentDriverRequest binding: %w", err)
 	}
 	for index := range runbook.Queues {
 		runbook.Queues[index].CurrentCommand, err = projectPublicCommandForEntrypoint(runbook.Queues[index].CurrentCommand, entrypoint)
@@ -245,14 +284,6 @@ func projectStatusMissionControlPublicEntrypoint(runbook *statusMissionControlRu
 	if err := projectReplacementExecutorTakeoverPublicEntrypoint(runbook.ReplacementExecutorTakeover, entrypoint); err != nil {
 		return fmt.Errorf("replacementExecutorTakeoverPackage: %w", err)
 	}
-	if runbook.CurrentDriverRequest == nil {
-		runbook.CurrentDriverRequestSHA256 = ""
-	} else {
-		runbook.CurrentDriverRequestSHA256, err = mission.MissionCommanderDriverRequestSHA256(*runbook.CurrentDriverRequest)
-		if err != nil {
-			return fmt.Errorf("currentDriverRequestSha256: %w", err)
-		}
-	}
 	return nil
 }
 
@@ -272,8 +303,10 @@ func projectStatusMissionControlQuickstartPublicEntrypoint(quickstart *statusMis
 	if err := projectMissionCommanderDriverRequestPublicEntrypoint(&quickstart.CurrentDriverRequest, entrypoint); err != nil {
 		return fmt.Errorf("currentDriverRequest: %w", err)
 	}
-	if quickstart.CurrentDriverRequest != nil && strings.TrimSpace(quickstart.CurrentDriverRequest.Command) != "" {
-		quickstart.Command = strings.TrimSpace(quickstart.CurrentDriverRequest.Command)
+	if request := quickstart.CurrentDriverRequest; request != nil {
+		quickstart.Command = strings.TrimSpace(request.Command)
+		quickstart.NextStepID = strings.TrimSpace(request.RunLoopStepID)
+		quickstart.RefreshStatusCommand = strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand)
 	}
 	if err := projectMissionCommanderDriverReceiptPublicEntrypoint(quickstart.CurrentDriverReceipt, entrypoint); err != nil {
 		return fmt.Errorf("currentDriverReceipt: %w", err)
@@ -309,8 +342,12 @@ func projectDailyMissionControlPublicEntrypoint(runbook *workstream.DailyMission
 			return fmt.Errorf("%s: %w", label, err)
 		}
 	}
-	if runbook.CurrentDriverRequest != nil && strings.TrimSpace(runbook.CurrentDriverRequest.Command) != "" {
-		runbook.CurrentCommand = strings.TrimSpace(runbook.CurrentDriverRequest.Command)
+	if request := runbook.CurrentDriverRequest; request != nil {
+		runbook.CurrentCommand = strings.TrimSpace(request.Command)
+		runbook.CurrentRunLoopStepID = strings.TrimSpace(request.RunLoopStepID)
+		runbook.CurrentState = strings.TrimSpace(request.State)
+		runbook.CurrentSource = strings.TrimSpace(request.Source)
+		runbook.RefreshStatusCommand = strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand)
 	}
 	for index := range runbook.RunLoop {
 		runbook.RunLoop[index].Command, err = projectPublicCommandForEntrypoint(runbook.RunLoop[index].Command, entrypoint)
@@ -443,6 +480,7 @@ func projectMissionCommanderActionQueuePublicEntrypoint(queue *mission.MissionCo
 	if err := projectMissionCommanderDriverRequestPublicEntrypoint(&queue.CurrentDriverRequest, entrypoint); err != nil {
 		return fmt.Errorf("currentDriverRequest: %w", err)
 	}
+	queue.Summary = mission.MissionCommanderActionQueueSummary(*queue)
 	return nil
 }
 

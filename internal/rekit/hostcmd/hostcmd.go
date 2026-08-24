@@ -9,9 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 )
@@ -72,6 +75,14 @@ func runRecovery(args []string, stdout, stderr io.Writer, projectRoot string) in
 		context.Background(),
 		opt,
 	)
+	if strings.TrimSpace(projectRoot) != "" {
+		var projectionErr error
+		result, projectionErr = projectDailyResultPublicResponse(result, opt.Target)
+		if projectionErr != nil {
+			fmt.Fprintln(stderr, errorsJoin(err, projectionErr))
+			return 1
+		}
+	}
 	return printResult(stdout, stderr, result, err)
 }
 
@@ -135,17 +146,31 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	controlRequested := *controlWhatIf || *controlApply ||
-		strings.TrimSpace(controlOpt.Action) != "" ||
-		strings.TrimSpace(controlOpt.Reason) != "" ||
-		strings.TrimSpace(controlOpt.PublicationStamp) != "" ||
-		strings.TrimSpace(controlOpt.ExpectedPlanSHA256) != ""
+	dailyRequest := sessionhost.ClassifyDailyRequest(sessionhost.DailyOptions{
+		Goal:                    liveOpt.Goal,
+		Correction:              liveOpt.Correction,
+		SelectedLane:            opt.SelectedLane,
+		Control:                 controlOpt,
+		ControlWhatIf:           *controlWhatIf,
+		ControlApply:            *controlApply,
+		DirectoryAdoptionAction: *directoryAdoptionAction,
+		ExpectedInitPlanSHA256:  *expectedInitPlanSHA256,
+	})
+	controlRequested := dailyRequest.ControlRequested
+	adoptionRequested := dailyRequest.AdoptionRequested
+	laneSelected := strings.TrimSpace(opt.SelectedLane) != ""
+	maintenanceMode := *liveAcceptance || *liveSupervisionAcceptance || *livePackMemoryAcceptance || *liveSoakAcceptance ||
+		strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" ||
+		strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != ""
+	if laneSelected && maintenanceMode {
+		fmt.Fprintln(stderr, "-lane is supported only by the daily or ordinary host route")
+		return 2
+	}
 
 	if err := ValidateAdapterFlag(*liveAcceptance, opt.Pack, liveOpt.AdapterPath); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	adoptionRequested := strings.TrimSpace(*directoryAdoptionAction) != "" || strings.TrimSpace(*expectedInitPlanSHA256) != ""
 	if controlRequested && (*liveAcceptance || *liveSupervisionAcceptance || *livePackMemoryAcceptance || *liveSoakAcceptance || strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" || strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != "") {
 		fmt.Fprintln(stderr, "lane control is supported only by the external daily front door")
 		return 2
@@ -322,8 +347,6 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 			}
 			initializationRepoRoot = ctx.RepoRoot
 		}
-		controlOpt.Lane = opt.SelectedLane
-		controlOpt.Actor = opt.Actor
 		result, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
 			Target:                  opt.Target,
 			Goal:                    liveOpt.Goal,
@@ -341,6 +364,14 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 			Timeout:                 opt.Timeout,
 			MaxAttempts:             opt.MaxAttempts,
 		})
+		if strings.TrimSpace(projectRoot) != "" {
+			projected, projectionErr := projectDailyResultPublicResponse(result, opt.Target)
+			if projectionErr != nil {
+				fmt.Fprintln(stderr, errorsJoin(err, projectionErr))
+				return 1
+			}
+			result = projected
+		}
 		return printResult(stdout, stderr, result, err)
 	}
 
@@ -363,6 +394,60 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 	opt.RequireCurrentDriverRequest()
 	result, err := sessionhost.Run(context.Background(), opt)
 	return printResult(stdout, stderr, result, err)
+}
+
+func projectDailyResultPublicResponse(result sessionhost.DailyResult, caseRoot string) (sessionhost.DailyResult, error) {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return sessionhost.DailyResult{}, fmt.Errorf("clone daily public response: %w", err)
+	}
+	var projected sessionhost.DailyResult
+	if err := json.Unmarshal(data, &projected); err != nil {
+		return sessionhost.DailyResult{}, fmt.Errorf("clone daily public response: %w", err)
+	}
+	caseRoot = strings.TrimSpace(caseRoot)
+	if caseRoot == "" {
+		caseRoot = strings.TrimSpace(projected.CaseRoot)
+	}
+	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	if err != nil {
+		return sessionhost.DailyResult{}, fmt.Errorf("resolve daily public entrypoint: %w", err)
+	}
+	if projected.Completion != nil {
+		if err := cli.ProjectCompleteResultForPublicEntrypoint(projected.Completion, entrypoint); err != nil {
+			return sessionhost.DailyResult{}, fmt.Errorf("project daily completion public entrypoint: %w", err)
+		}
+	}
+	if projected.CurrentDriverRequest != nil {
+		request, err := mission.MissionCommanderDriverRequestForEntrypoint(*projected.CurrentDriverRequest, entrypoint)
+		if err != nil {
+			return sessionhost.DailyResult{}, fmt.Errorf("project daily current driver request: %w", err)
+		}
+		projected.CurrentDriverRequest = &request
+		projected.CurrentDriverRequestSHA256, err = mission.MissionCommanderDriverRequestSHA256(request)
+		if err != nil {
+			return sessionhost.DailyResult{}, fmt.Errorf("bind projected daily current driver request: %w", err)
+		}
+	}
+	if projected.ExecutionControl != nil {
+		projected.ExecutionControl.ApplyCommand, err = projectstate.ProjectPublicCommand(
+			caseRoot,
+			projected.ExecutionControl.ApplyCommand,
+		)
+		if err != nil {
+			return sessionhost.DailyResult{}, fmt.Errorf("project daily execution control Apply command: %w", err)
+		}
+	}
+	if adoption := projected.DirectoryAdoption; adoption != nil && adoption.Plan != nil {
+		adoption.Plan.ApplyCommand, err = projectstate.ProjectPublicCommand(
+			caseRoot,
+			adoption.Plan.ApplyCommand,
+		)
+		if err != nil {
+			return sessionhost.DailyResult{}, fmt.Errorf("project daily directory adoption Apply command: %w", err)
+		}
+	}
+	return projected, nil
 }
 
 func PublishPackMemoryLiveAcceptanceReceipt(path string, result sessionhost.PackMemoryLiveAcceptanceReceipt, err error) (sessionhost.PackMemoryLiveAcceptanceReceipt, error) {

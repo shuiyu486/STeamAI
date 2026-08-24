@@ -59,26 +59,8 @@ type nextBatchWritePlan struct {
 }
 
 func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) (resultErr error) {
-	if ctx.TargetProvided {
-		return fmt.Errorf("next-batch writes kit repo docs; omit -Target")
-	}
-	if opt.Apply == opt.WhatIf {
-		return fmt.Errorf("next-batch requires exactly one of -WhatIf or -Apply")
-	}
-	if opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
-		return fmt.Errorf("next-batch accepts only planning receipt flags; omit create/review/force/list/review artifact flags")
-	}
-	if opt.WhatIf && strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "" {
-		return fmt.Errorf("next-batch -WhatIf does not accept -ExpectedNextBatchPlanSha256")
-	}
-	if opt.Apply && strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) == "" {
-		return fmt.Errorf("next-batch -Apply requires -ExpectedNextBatchPlanSha256 from -WhatIf")
-	}
-	format, err := workstreamFormat(opt.Format)
-	if err != nil {
-		return fmt.Errorf("unsupported next-batch format: %s", opt.Format)
-	}
 	var lease *kitmutation.Lease
+	var err error
 	if opt.Apply {
 		lease, err = kitmutation.Acquire(ctx.RepoRoot)
 		if err != nil {
@@ -119,7 +101,7 @@ func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) (resultErr er
 			"implement the selected Windows-verifiable product-path slice, then run focused regressions and the full local release minimum",
 		}
 	}
-	if format == "json" {
+	if opt.Format == "json" {
 		return writeJSON(out, result)
 	}
 	return writeNextBatchText(out, result)

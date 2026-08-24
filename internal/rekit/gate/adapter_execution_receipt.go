@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -129,7 +130,7 @@ func RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack string, opt Options
 		DispatchPath: snapshot.dispatchRel, BindingSHA256: snapshot.bindingSHA,
 		Dispatch: snapshot.dispatch,
 		Boundary: []string{
-			"dispatch records external harness execution intent before the adapter starts; /rekit does not execute the adapter or heavy tool",
+			"dispatch records external harness execution intent before the adapter starts; Mission Control runtime does not execute the adapter or heavy tool",
 			"dispatch is immutable and bound to current lane owner, selected catalog candidate, harness/session, report path, authorized gate, and budget",
 			"dispatch write does not append observation evidence or write authority/confirmed",
 			"takeover, session, catalog, gate, or attempt drift requires a distinct authorized gate and dispatch",
@@ -267,12 +268,17 @@ func prepareAdapterExecutionDispatchSnapshot(caseRoot, pack string, gateEvent Ev
 	if err != nil {
 		return adapterExecutionDispatchSnapshot{}, err
 	}
+	capability, err := capabilitycontract.Bind(capabilitycontract.AuthorizedHeavy())
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
 	dispatch := adapterexecution.DispatchReceipt{
 		SchemaVersion: 1, Kind: "adapter-execution-dispatch-receipt", Gate: gateBinding,
 		Adapter:       adapterexecution.AdapterBinding{Pack: pack, AdapterID: candidate.ID, ToolingCatalogPath: candidate.ToolingCatalogPath, ToolingCatalogSHA256: catalogSHA, ToolingCatalogBytes: catalogBytes, Candidate: candidateBinding, CandidateSnapshotSHA256: candidateSHA},
 		Owner:         adapterexecution.OwnerBinding{Lane: owner.Lane, CurrentExecutor: owner.CurrentExecutor, ExecutorGeneration: owner.ExecutorGeneration, AdapterHarness: strings.TrimSpace(opt.AdapterHarness), AdapterSession: strings.TrimSpace(opt.AdapterSession), BindingMode: "durable-lane-owner"},
 		ReportPath:    reportRel,
 		Actor:         strings.TrimSpace(opt.Actor),
+		Capability:    capability,
 		NoExecute:     true,
 		NoObservation: true,
 		NoAuthority:   true,
@@ -354,7 +360,7 @@ func RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack string, opt Options)
 		Receipt:         snapshot.receipt,
 		ValidateCommand: adapterReportValidateSlashCommand(pack, gateEvent.EventID, snapshot.receipt.Report.Path),
 		Boundary: []string{
-			"receipt records external harness observation only; /rekit does not execute the adapter or heavy tool",
+			"receipt records external harness observation only; Mission Control runtime does not execute the adapter or heavy tool",
 			"receipt is immutable and bound to current lane owner, selected catalog candidate, report, and artifact bytes",
 			"receipt write does not append observation evidence or write authority/confirmed",
 			"takeover or catalog/report/artifact drift requires a new authorized gate rather than receipt adoption",
@@ -841,7 +847,7 @@ func prepareAdapterExecutionSnapshot(caseRoot, pack string, gateEvent EventPrevi
 		Adapter:   adapterexecution.AdapterBinding{Pack: pack, AdapterID: report.AdapterID, ToolingCatalogPath: candidate.ToolingCatalogPath, ToolingCatalogSHA256: catalogSHA, ToolingCatalogBytes: catalogBytes, Candidate: candidateBinding, CandidateSnapshotSHA256: candidateSHA},
 		Owner:     dispatch.Owner,
 		Execution: adapterexecution.ExecutionBinding{Outcome: report.Status, ExitStatus: strings.TrimSpace(opt.ExecutionExitStatus), AuthorizedBudget: gateEvent.Gate.RequestedBudget, ActualBudget: report.ActualBudget, BoundaryHits: append([]string{}, report.BoundaryHits...), Escalation: report.Escalation},
-		Report:    reportSnapshot, Artifacts: artifacts, Actor: strings.TrimSpace(opt.Actor), NoExecute: true, NoAuthority: true,
+		Report:    reportSnapshot, Artifacts: artifacts, Actor: strings.TrimSpace(opt.Actor), Capability: dispatch.Capability, NoExecute: true, NoAuthority: true,
 	}
 	bindingSHA, err := adapterexecution.BindingSHA256(receipt)
 	if err != nil {

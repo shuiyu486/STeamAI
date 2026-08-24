@@ -11,9 +11,11 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/websecurity"
 )
 
 func runGateProfileMode(ctx runtime.Context, target string, opt Options, format string, out io.Writer) error {
@@ -137,46 +139,8 @@ func gateProvisionProfile(ctx runtime.Context, opt Options) (autonomy.Profile, e
 	if err != nil {
 		return autonomy.Profile{}, err
 	}
-	if ctx.Pack != defaults.DefaultPack || action != "inspect" {
-		return autonomy.Profile{}, fmt.Errorf(
-			"gate -ProvisionProfile currently permits only pack=%s action=inspect for the fixed IDA index adapter",
-			defaults.DefaultPack,
-		)
-	}
-	if err := validateVMPIDAProfileTarget(targetRef); err != nil {
+	if err := validateGateProvisionContract(ctx, opt, action, targetRef, stopConditions, outputPaths); err != nil {
 		return autonomy.Profile{}, err
-	}
-	expectedStopConditions := []string{
-		"scope-drift",
-		"source-drift",
-		"output-exceeds-bounded-evidence-packet",
-	}
-	if !reflect.DeepEqual(stopConditions, expectedStopConditions) {
-		return autonomy.Profile{}, fmt.Errorf(
-			"gate -ProvisionProfile requires the fixed VMP IDA stop conditions",
-		)
-	}
-	if len(outputPaths) != 1 {
-		return autonomy.Profile{}, fmt.Errorf(
-			"gate -ProvisionProfile requires one lane-owned VMP IDA output path",
-		)
-	}
-	board, err := mission.ReadBoard(ctx.Target)
-	if err != nil {
-		return autonomy.Profile{}, fmt.Errorf("read VMP IDA profile lane workspace: %w", err)
-	}
-	lane, ok := mission.LookupBoardLane(board.Lanes, opt.Gate.Lane, false)
-	if !ok || !validVMPIDAProfileOutputPath(lane.Workspace, outputPaths[0]) {
-		return autonomy.Profile{}, fmt.Errorf(
-			"gate -ProvisionProfile requires one output path under the selected lane workspace for VMP IDA evidence",
-		)
-	}
-	if opt.Gate.RuntimeSeconds < 1 || opt.Gate.RuntimeSeconds > 900 ||
-		opt.Gate.DiskMB < 1 || opt.Gate.DiskMB > 4 ||
-		opt.Gate.Requests != 1 {
-		return autonomy.Profile{}, fmt.Errorf(
-			"gate -ProvisionProfile requires VMP IDA budget runtimeSeconds=1..900 diskMB=1..4 requests=1",
-		)
 	}
 	denied := make([]string, 0, len(m.HeavyToolGateIDs()))
 	for _, candidate := range m.HeavyToolGateIDs() {
@@ -206,6 +170,153 @@ func gateProvisionProfile(ctx runtime.Context, opt Options) (autonomy.Profile, e
 		GrantedAt:      grantedAt,
 		ExpiresAt:      expiresAt,
 	}, nil
+}
+
+func validateGateProvisionContract(
+	ctx runtime.Context,
+	opt Options,
+	action,
+	targetRef string,
+	stopConditions,
+	outputPaths []string,
+) error {
+	switch ctx.Pack {
+	case defaults.DefaultPack:
+		return validateVMPIDAProfileContract(ctx, opt, action, targetRef, stopConditions, outputPaths)
+	case "web-security":
+		return validateWebSecurityProfileContract(ctx, opt, action, targetRef, stopConditions, outputPaths)
+	default:
+		return fmt.Errorf("gate -ProvisionProfile has no fixed production adapter contract for pack=%s action=%s", ctx.Pack, action)
+	}
+}
+
+func validateVMPIDAProfileContract(
+	ctx runtime.Context,
+	opt Options,
+	action,
+	targetRef string,
+	stopConditions,
+	outputPaths []string,
+) error {
+	if action != "inspect" {
+		return fmt.Errorf("gate -ProvisionProfile for pack=%s requires action=inspect for the fixed IDA index adapter", defaults.DefaultPack)
+	}
+	if err := validateVMPIDAProfileTarget(targetRef); err != nil {
+		return err
+	}
+	expectedStopConditions := []string{"scope-drift", "source-drift", "output-exceeds-bounded-evidence-packet"}
+	if !reflect.DeepEqual(stopConditions, expectedStopConditions) {
+		return fmt.Errorf("gate -ProvisionProfile requires the fixed VMP IDA stop conditions")
+	}
+	if len(outputPaths) != 1 {
+		return fmt.Errorf("gate -ProvisionProfile requires one lane-owned VMP IDA output path")
+	}
+	workspace, err := gateProfileLaneWorkspace(ctx, opt.Gate.Lane, "VMP IDA")
+	if err != nil {
+		return err
+	}
+	if !validVMPIDAProfileOutputPath(workspace, outputPaths[0]) {
+		return fmt.Errorf("gate -ProvisionProfile requires one output path under the selected lane workspace for VMP IDA evidence")
+	}
+	if opt.Gate.RuntimeSeconds < 1 || opt.Gate.RuntimeSeconds > 900 || opt.Gate.DiskMB < 1 || opt.Gate.DiskMB > 4 || opt.Gate.Requests != 1 {
+		return fmt.Errorf("gate -ProvisionProfile requires VMP IDA budget runtimeSeconds=1..900 diskMB=1..4 requests=1")
+	}
+	return nil
+}
+
+func validateWebSecurityProfileContract(
+	ctx runtime.Context,
+	opt Options,
+	action,
+	targetRef string,
+	stopConditions,
+	outputPaths []string,
+) error {
+	var (
+		label         string
+		maxInputBytes int64
+		expectedStops []string
+		outputKind    string
+	)
+	switch action {
+	case "inspect":
+		label = "OpenAPI 3 JSON inventory"
+		maxInputBytes = websecurity.MaxOpenAPIBytes
+		expectedStops = []string{"scope-drift", "source-drift", "output-exceeds-bounded-evidence-packet"}
+		outputKind = "openapi"
+	case "network":
+		label = "bounded HTTP replay"
+		maxInputBytes = websecurity.MaxReplayRequestBytes
+		expectedStops = []string{"live-target-ambiguity", "unexpected-outbound-request", "scope-drift", "delivery-uncertain", "response-body-limit", "response-read"}
+		outputKind = "replay"
+	default:
+		return fmt.Errorf("gate -ProvisionProfile for pack=web-security permits only action=inspect or action=network")
+	}
+	if !reflect.DeepEqual(stopConditions, expectedStops) {
+		return fmt.Errorf("gate -ProvisionProfile requires the fixed web-security %s stop conditions", label)
+	}
+	if len(outputPaths) != 1 {
+		return fmt.Errorf("gate -ProvisionProfile requires one lane-owned web-security %s output path", label)
+	}
+	workspace, err := gateProfileLaneWorkspace(ctx, opt.Gate.Lane, label)
+	if err != nil {
+		return err
+	}
+	if !validWebSecurityProfileOutputPath(workspace, outputPaths[0], outputKind) {
+		return fmt.Errorf("gate -ProvisionProfile requires one %s output path under the selected lane workspace", label)
+	}
+	if opt.Gate.RuntimeSeconds < 1 || opt.Gate.RuntimeSeconds > 30 || opt.Gate.DiskMB < 1 || opt.Gate.DiskMB > 4 || opt.Gate.Requests != 1 {
+		return fmt.Errorf("gate -ProvisionProfile requires web-security budget runtimeSeconds=1..30 diskMB=1..4 requests=1")
+	}
+	inputPath, err := rekitfs.SafeJoin(ctx.Target, targetRef)
+	if err != nil {
+		return fmt.Errorf("gate -ProvisionProfile requires a canonical case-relative web-security target: %w", err)
+	}
+	inputData, err := rekitfs.ReadStableRegularFileAnchored(ctx.Target, inputPath, label+" input", maxInputBytes)
+	if err != nil {
+		return err
+	}
+	inputBinding, err := websecurity.BindFile(targetRef, inputData, int(maxInputBytes))
+	if err != nil {
+		return fmt.Errorf("gate -ProvisionProfile requires a canonical case-relative web-security target: %w", err)
+	}
+	if action == "inspect" {
+		if _, importErr := websecurity.ImportOpenAPI(inputBinding, inputData); importErr != nil {
+			return fmt.Errorf("gate -ProvisionProfile requires one valid bounded OpenAPI 3 JSON input: %w", importErr)
+		}
+		return nil
+	}
+	if bindingErr := websecurity.ValidateReplayRequestBinding(inputBinding); bindingErr != nil {
+		return fmt.Errorf("gate -ProvisionProfile requires one content-addressed bounded replay request: %w", bindingErr)
+	}
+	if _, decodeErr := websecurity.DecodeReplayRequest(inputData); decodeErr != nil {
+		return fmt.Errorf("gate -ProvisionProfile requires one canonical secret-free bounded replay request: %w", decodeErr)
+	}
+	return nil
+}
+
+func gateProfileLaneWorkspace(ctx runtime.Context, laneID, label string) (string, error) {
+	board, err := mission.ReadBoard(ctx.Target)
+	if err != nil {
+		return "", fmt.Errorf("read %s profile lane workspace: %w", label, err)
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, laneID, false)
+	if !ok || strings.TrimSpace(lane.Workspace) == "" {
+		return "", fmt.Errorf("gate -ProvisionProfile requires an existing selected lane workspace")
+	}
+	return lane.Workspace, nil
+}
+
+func validWebSecurityProfileOutputPath(workspace, outputPath, kind string) bool {
+	workspace = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(workspace))))
+	outputPath = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(outputPath))))
+	if workspace == "." || workspace == ".." || strings.HasPrefix(workspace, "../") ||
+		outputPath == "." || outputPath == ".." || strings.HasPrefix(outputPath, "../") ||
+		outputPath == workspace || !strings.HasPrefix(outputPath, workspace+"/") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(outputPath, workspace+"/"), "/")
+	return len(parts) >= 2 && parts[0] == kind
 }
 
 func validateVMPIDAProfileTarget(targetRef string) error {

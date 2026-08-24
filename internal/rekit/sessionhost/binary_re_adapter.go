@@ -12,13 +12,19 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/binaryinventory"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -28,15 +34,19 @@ import (
 )
 
 const (
-	binaryREAdapterLifecycleKind       = "binary-re-vmp-ida-adapter-lifecycle"
-	binaryREAdapterExecutionIntentKind = "binary-re-vmp-ida-execution-intent"
-	binaryREAdapterExecutionResultKind = "binary-re-vmp-ida-execution-result"
-	binaryREEvidenceReviewIntentKind   = "binary-re-vmp-ida-evidence-review-intent"
-	binaryREEvidenceReviewDecisionKind = "binary-re-vmp-ida-evidence-review-decision"
-	binaryREEvidenceReviewClosureKind  = "binary-re-vmp-ida-evidence-review-closure"
-	binaryREAdapterActor               = "mission-commander"
-	binaryREAdapterProcessTimeout      = 30 * time.Second
-	binaryREAdapterArtifactMaxBytes    = 2 << 20
+	binaryREAdapterLifecycleKind                = "binary-re-vmp-ida-adapter-lifecycle"
+	binaryREAdapterExecutionIntentKind          = "binary-re-vmp-ida-execution-intent"
+	binaryREAdapterExecutionResultKind          = "binary-re-adapter-execution-result"
+	binaryREEvidenceReviewIntentKind            = "binary-re-vmp-ida-evidence-review-intent"
+	binaryREEvidenceReviewDecisionKind          = "binary-re-vmp-ida-evidence-review-decision"
+	binaryREEvidenceReviewClosureKind           = "binary-re-vmp-ida-evidence-review-closure"
+	binaryREInventoryEvidenceReviewInputKind    = "binary-inventory-evidence-review"
+	binaryREInventoryEvidenceReviewIntentKind   = "binary-re-inventory-evidence-review-intent"
+	binaryREInventoryEvidenceReviewDecisionKind = "binary-re-inventory-evidence-review-decision"
+	binaryREInventoryEvidenceReviewClosureKind  = "binary-re-inventory-evidence-review-closure"
+	binaryREAdapterActor                        = "mission-commander"
+	binaryREAdapterProcessTimeout               = 30 * time.Second
+	binaryREAdapterArtifactMaxBytes             = 2 << 20
 )
 
 var (
@@ -87,7 +97,9 @@ type BinaryREAdapterLifecycleResult struct {
 
 type binaryREAdapterSelection struct {
 	Handoff      workstream.AuthorizedGateAdapterHandoff
+	AdapterID    string
 	Request      adapterhost.VMPIDAIndexRequestRead
+	Source       binaryinventory.SourceBinding
 	CreatedAt    string
 	Acknowledged bool
 }
@@ -124,20 +136,22 @@ func prepareBinaryREAdapterBeforeMember(
 }
 
 type binaryREAdapterExecutionIntent struct {
-	SchemaVersion  int                      `json:"schemaVersion"`
-	Kind           string                   `json:"kind"`
-	Lane           string                   `json:"lane"`
-	GateEventID    string                   `json:"gateEventId"`
-	RequestPath    string                   `json:"requestPath"`
-	RequestSHA256  string                   `json:"requestSha256"`
-	ReportPath     string                   `json:"reportPath"`
-	AdapterSession string                   `json:"adapterSession"`
-	Actor          string                   `json:"actor"`
-	Owner          laneowner.Snapshot       `json:"owner"`
-	Control        executioncontrol.Binding `json:"executionControl"`
-	CreatedAt      string                   `json:"createdAt"`
-	NoAuthority    bool                     `json:"noAuthorityOrConfirmed"`
-	NoAutoGate     bool                     `json:"noAutoGate"`
+	SchemaVersion       int                        `json:"schemaVersion"`
+	Kind                string                     `json:"kind"`
+	AdapterID           string                     `json:"adapterId,omitempty"`
+	Lane                string                     `json:"lane"`
+	GateEventID         string                     `json:"gateEventId"`
+	RequestPath         string                     `json:"requestPath"`
+	RequestSHA256       string                     `json:"requestSha256"`
+	ReportPath          string                     `json:"reportPath"`
+	AdapterSession      string                     `json:"adapterSession"`
+	Actor               string                     `json:"actor"`
+	Owner               laneowner.Snapshot         `json:"owner"`
+	Control             executioncontrol.Binding   `json:"executionControl"`
+	InstructionIdentity instructionpacket.Identity `json:"instructionIdentity"`
+	CreatedAt           string                     `json:"createdAt"`
+	NoAuthority         bool                       `json:"noAuthorityOrConfirmed"`
+	NoAutoGate          bool                       `json:"noAutoGate"`
 }
 
 type binaryREAdapterExecutionResult struct {
@@ -147,45 +161,96 @@ type binaryREAdapterExecutionResult struct {
 	ExecutionIntentPath       string                          `json:"executionIntentPath"`
 	ExecutionIntentSHA256     string                          `json:"executionIntentSha256"`
 	Control                   executioncontrol.Binding        `json:"executionControl"`
+	InstructionIdentity       instructionpacket.Identity      `json:"instructionIdentity"`
 	Run                       adapterhost.AuthorizedRunResult `json:"run"`
 	NoAuthority               bool                            `json:"noAuthorityOrConfirmed"`
 	NoHeavyToolAfterExecution bool                            `json:"noHeavyToolAfterExecution"`
 }
 
 type binaryREEvidenceReviewIntent struct {
-	SchemaVersion            int                      `json:"schemaVersion"`
-	Kind                     string                   `json:"kind"`
-	GateEventID              string                   `json:"gateEventId"`
-	InputPath                string                   `json:"inputPath"`
-	InputSHA256              string                   `json:"inputSha256"`
-	ExecutionIntentPath      string                   `json:"executionIntentPath"`
-	ExecutionIntentSHA256    string                   `json:"executionIntentSha256"`
-	SessionID                string                   `json:"sessionId"`
-	AttemptID                string                   `json:"attemptId"`
-	AttemptSHA256            string                   `json:"attemptSha256"`
-	StartedAt                string                   `json:"startedAt"`
-	AcknowledgementCreatedAt string                   `json:"acknowledgementCreatedAt"`
-	Owner                    laneowner.Snapshot       `json:"owner"`
-	Control                  executioncontrol.Binding `json:"executionControl"`
-	NoAuthority              bool                     `json:"noAuthorityOrConfirmed"`
-	NoHeavyTool              bool                     `json:"noHeavyTool"`
+	SchemaVersion            int                        `json:"schemaVersion"`
+	Kind                     string                     `json:"kind"`
+	GateEventID              string                     `json:"gateEventId"`
+	InputPath                string                     `json:"inputPath"`
+	InputSHA256              string                     `json:"inputSha256"`
+	ExecutionIntentPath      string                     `json:"executionIntentPath"`
+	ExecutionIntentSHA256    string                     `json:"executionIntentSha256"`
+	SessionID                string                     `json:"sessionId"`
+	AttemptID                string                     `json:"attemptId"`
+	AttemptSHA256            string                     `json:"attemptSha256"`
+	StartedAt                string                     `json:"startedAt"`
+	AcknowledgementCreatedAt string                     `json:"acknowledgementCreatedAt"`
+	Owner                    laneowner.Snapshot         `json:"owner"`
+	Control                  executioncontrol.Binding   `json:"executionControl"`
+	InstructionIdentity      instructionpacket.Identity `json:"instructionIdentity"`
+	NoAuthority              bool                       `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool              bool                       `json:"noHeavyTool"`
 }
 
 type binaryREEvidenceReviewDecision struct {
-	SchemaVersion int                           `json:"schemaVersion"`
-	Kind          string                        `json:"kind"`
-	GateEventID   string                        `json:"gateEventId"`
-	InputPath     string                        `json:"inputPath"`
-	InputSHA256   string                        `json:"inputSha256"`
-	IntentPath    string                        `json:"intentPath"`
-	IntentSHA256  string                        `json:"intentSha256"`
-	SessionID     string                        `json:"sessionId"`
-	Control       executioncontrol.Binding      `json:"executionControl"`
-	ObservedAt    string                        `json:"observedAt"`
-	Source        executioncontrol.ResultSource `json:"source"`
-	Response      evidenceReviewResponse        `json:"response"`
-	NoAuthority   bool                          `json:"noAuthorityOrConfirmed"`
-	NoHeavyTool   bool                          `json:"noHeavyTool"`
+	SchemaVersion       int                           `json:"schemaVersion"`
+	Kind                string                        `json:"kind"`
+	GateEventID         string                        `json:"gateEventId"`
+	InputPath           string                        `json:"inputPath"`
+	InputSHA256         string                        `json:"inputSha256"`
+	IntentPath          string                        `json:"intentPath"`
+	IntentSHA256        string                        `json:"intentSha256"`
+	SessionID           string                        `json:"sessionId"`
+	Control             executioncontrol.Binding      `json:"executionControl"`
+	InstructionIdentity instructionpacket.Identity    `json:"instructionIdentity"`
+	ObservedAt          string                        `json:"observedAt"`
+	Source              executioncontrol.ResultSource `json:"source"`
+	Response            evidenceReviewResponse        `json:"response"`
+	NoAuthority         bool                          `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool         bool                          `json:"noHeavyTool"`
+}
+
+type binaryInventoryEvidenceReviewInput struct {
+	SchemaVersion       int                             `json:"schemaVersion"`
+	Kind                string                          `json:"kind"`
+	GateEventID         string                          `json:"gateEventId"`
+	ObservationEventID  string                          `json:"observationEventId"`
+	ProfileSHA256       string                          `json:"profileSha256"`
+	Source              binaryinventory.SourceBinding   `json:"source"`
+	InventoryPath       string                          `json:"inventoryPath"`
+	InventorySHA256     string                          `json:"inventorySha256"`
+	ReportPath          string                          `json:"reportPath"`
+	ReportSHA256        string                          `json:"reportSha256"`
+	DispatchPath        string                          `json:"dispatchPath"`
+	DispatchSHA256      string                          `json:"dispatchSha256"`
+	ReceiptPath         string                          `json:"receiptPath"`
+	ReceiptSHA256       string                          `json:"receiptSha256"`
+	Format              binaryinventory.FormatInventory `json:"format"`
+	SectionCount        int                             `json:"sectionCount"`
+	ImportCount         int                             `json:"importCount"`
+	ExportCount         int                             `json:"exportCount"`
+	EvidenceRefs        []string                        `json:"evidenceRefs"`
+	SelectedEvidenceRef string                          `json:"selectedEvidenceRef"`
+	NoAuthority         bool                            `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool         bool                            `json:"noHeavyTool"`
+}
+
+type binaryREEvidenceReviewBinding struct {
+	Kind                string
+	GateEventID         string
+	ObservationEventID  string
+	ObservationPath     string
+	ObservationSHA256   string
+	ProfileSHA256       string
+	TargetPath          string
+	TargetSHA256        string
+	ArtifactPath        string
+	ArtifactSHA256      string
+	ReportPath          string
+	ReportSHA256        string
+	DispatchPath        string
+	DispatchSHA256      string
+	ReceiptPath         string
+	ReceiptSHA256       string
+	SelectedEvidenceRef string
+	EvidenceRefs        []string
+	NoAuthority         bool
+	NoHeavyTool         bool
 }
 
 type binaryREEvidenceReviewClosure struct {
@@ -212,6 +277,80 @@ type binaryREEvidenceReviewClosure struct {
 	NoHeavyTool            bool                     `json:"noHeavyTool"`
 }
 
+func binaryRESelectionRequestPath(selection binaryREAdapterSelection) string {
+	if selection.AdapterID == binaryinventory.AdapterID {
+		return selection.Source.Path
+	}
+	return selection.Request.RequestPath
+}
+
+func binaryRESelectionRequestSHA256(selection binaryREAdapterSelection) string {
+	if selection.AdapterID == binaryinventory.AdapterID {
+		return selection.Source.SHA256
+	}
+	return selection.Request.RequestSHA256
+}
+
+func binaryREVMPIDAEvidenceReviewBinding(input binaryREVMPIDAEvidenceReviewInput) binaryREEvidenceReviewBinding {
+	return binaryREEvidenceReviewBinding{
+		Kind: input.Kind, GateEventID: input.GateEventID, ObservationEventID: input.ObservationEventID,
+		ProfileSHA256: input.ProfileSHA256, TargetPath: input.RequestPath, TargetSHA256: input.RequestSHA256,
+		ArtifactPath: input.PacketPath, ArtifactSHA256: input.PacketSHA256,
+		ReportPath: input.ReportPath, ReportSHA256: input.ReportSHA256,
+		DispatchPath: input.DispatchPath, DispatchSHA256: input.DispatchSHA256,
+		ReceiptPath: input.ReceiptPath, ReceiptSHA256: input.ReceiptSHA256,
+		SelectedEvidenceRef: input.Selected.EvidenceRef, EvidenceRefs: append([]string{}, input.EvidenceRefs...),
+		NoAuthority: input.NoAuthority, NoHeavyTool: input.NoHeavyTool,
+	}
+}
+
+func binaryInventoryEvidenceReviewBinding(input binaryInventoryEvidenceReviewInput) binaryREEvidenceReviewBinding {
+	return binaryREEvidenceReviewBinding{
+		Kind: input.Kind, GateEventID: input.GateEventID, ObservationEventID: input.ObservationEventID,
+		ProfileSHA256: input.ProfileSHA256, TargetPath: input.Source.Path, TargetSHA256: input.Source.SHA256,
+		ArtifactPath: input.InventoryPath, ArtifactSHA256: input.InventorySHA256,
+		ReportPath: input.ReportPath, ReportSHA256: input.ReportSHA256,
+		DispatchPath: input.DispatchPath, DispatchSHA256: input.DispatchSHA256,
+		ReceiptPath: input.ReceiptPath, ReceiptSHA256: input.ReceiptSHA256,
+		SelectedEvidenceRef: input.SelectedEvidenceRef, EvidenceRefs: append([]string{}, input.EvidenceRefs...),
+		NoAuthority: input.NoAuthority, NoHeavyTool: input.NoHeavyTool,
+	}
+}
+
+func binaryREEvidenceReviewKinds(adapterID string) (string, string, string) {
+	if intentKind, decisionKind, closureKind, ok := webSecurityEvidenceReviewKinds(adapterID); ok {
+		return intentKind, decisionKind, closureKind
+	}
+	if adapterID == binaryinventory.AdapterID {
+		return binaryREInventoryEvidenceReviewIntentKind, binaryREInventoryEvidenceReviewDecisionKind, binaryREInventoryEvidenceReviewClosureKind
+	}
+	return binaryREEvidenceReviewIntentKind, binaryREEvidenceReviewDecisionKind, binaryREEvidenceReviewClosureKind
+}
+
+func binaryREEvidenceReviewInputRole(adapterID string) string {
+	if role, ok := webSecurityEvidenceReviewInputRole(adapterID); ok {
+		return role
+	}
+	if adapterID == binaryinventory.AdapterID {
+		return "mission-commander-binary-inventory-evidence-review-input"
+	}
+	return "mission-commander-evidence-review-input"
+}
+
+func binaryREEvidenceReviewAttemptPrefix(adapterID string) string {
+	if isWebSecurityAdapterID(adapterID) {
+		return "web-security-evidence-review-"
+	}
+	return "binary-re-evidence-review-"
+}
+
+func binaryREEvidenceReviewRun(adapterID string) func(context.Context, Options, mission.CurrentLoopExternalSessionHarnessPackage, string, func() error) claudeRun {
+	if isWebSecurityAdapterID(adapterID) {
+		return webSecurityEvidenceReviewRunClaude
+	}
+	return binaryREEvidenceReviewRunClaude
+}
+
 func runBinaryREAdapterLifecycle(
 	parent context.Context,
 	dailyOpt DailyOptions,
@@ -226,18 +365,22 @@ func runBinaryREAdapterLifecycle(
 	if err != nil {
 		return BinaryREAdapterLifecycleResult{}, false, err
 	}
-	selection, found, err := discoverBinaryREVMPIDASelection(repoRoot, caseRoot, pack, lane)
+	selection, found, err := discoverBinaryREAdapterSelection(repoRoot, caseRoot, pack, lane)
 	if err != nil || !found {
 		return BinaryREAdapterLifecycleResult{}, found, err
 	}
-	intent, intentPath, intentSHA, err := ensureBinaryREAdapterExecutionIntent(caseRoot, lane, selection)
+	instructionIdentity, err := currentProductionInstructionIdentity(caseRoot, pack)
+	if err != nil {
+		return BinaryREAdapterLifecycleResult{}, true, err
+	}
+	intent, intentPath, intentSHA, err := ensureBinaryREAdapterExecutionIntent(caseRoot, pack, lane, selection, instructionIdentity)
 	if err != nil {
 		return BinaryREAdapterLifecycleResult{}, true, err
 	}
 	result := BinaryREAdapterLifecycleResult{
 		SchemaVersion: 1, Kind: binaryREAdapterLifecycleKind, State: "execution-ready",
-		GateEventID: selection.Handoff.EventID, AdapterID: adapterhost.VMPIDAIndexAdapterID,
-		RequestPath: selection.Request.RequestPath, RequestSHA256: selection.Request.RequestSHA256,
+		GateEventID: selection.Handoff.EventID, AdapterID: selection.AdapterID,
+		RequestPath: binaryRESelectionRequestPath(selection), RequestSHA256: binaryRESelectionRequestSHA256(selection),
 		ExecutionIntentPath: intentPath, ExecutionIntentSHA256: intentSHA,
 		NoAuthority: true, NoHeavyToolAfterExecution: true,
 	}
@@ -282,9 +425,10 @@ func runBinaryREAdapterLifecycle(
 		run, processID, err = runner(adapterPath, adapterhost.AuthorizedRunOptions{
 			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: pack,
 			GateEventID: selection.Handoff.EventID, ExecutionReportPath: intent.ReportPath,
-			AdapterSession: intent.AdapterSession, Actor: intent.Actor,
+			AdapterID: selection.AdapterID, AdapterSession: intent.AdapterSession, Actor: intent.Actor,
 			DeferSuccessfulTaskBinding: true,
 			ExecutionControlBinding:    executioncontrol.CloneBinding(&intent.Control),
+			InstructionIdentity:        cloneProductionInstructionIdentityPointer(&intent.InstructionIdentity),
 		}, binaryREAdapterProcessTimeout)
 		result.AdapterProcessID = processID
 		result.ChildLaunched = run.ChildLaunched
@@ -298,7 +442,8 @@ func runBinaryREAdapterLifecycle(
 		storedExecution = binaryREAdapterExecutionResult{
 			SchemaVersion: 1, Kind: binaryREAdapterExecutionResultKind,
 			GateEventID: intent.GateEventID, ExecutionIntentPath: intentPath,
-			ExecutionIntentSHA256: intentSHA, Control: intent.Control, Run: run,
+			ExecutionIntentSHA256: intentSHA, Control: intent.Control,
+			InstructionIdentity: cloneProductionInstructionIdentity(intent.InstructionIdentity), Run: run,
 			NoAuthority: true, NoHeavyToolAfterExecution: true,
 		}
 		executionSHA, replay, persistErr := persistBinaryREAdapterExecutionResult(
@@ -323,15 +468,31 @@ func runBinaryREAdapterLifecycle(
 	if err != nil {
 		return result, true, err
 	}
-	input, err := inspectBinaryREVMPIDAEvidence(caseRoot, lane, item, intent.RequestPath, intent.RequestSHA256, run)
-	if err != nil {
-		return result, true, err
-	}
 	inputPath, err := binaryREAdapterArtifactPath(caseRoot, lane, intent.GateEventID, "evidence-review", "input.json")
 	if err != nil {
 		return result, true, err
 	}
-	inputSHA, err := writeBinaryREAdapterArtifact(caseRoot, inputPath, "binary-re evidence review input", input)
+	inputSHA := ""
+	binding := binaryREEvidenceReviewBinding{}
+	var vmpInput *binaryREVMPIDAEvidenceReviewInput
+	var inventoryInput *binaryInventoryEvidenceReviewInput
+	if intent.AdapterID == binaryinventory.AdapterID {
+		input, inspectErr := inspectBinaryInventoryEvidence(caseRoot, lane, item, selection.Source, run)
+		if inspectErr != nil {
+			return result, true, inspectErr
+		}
+		inputSHA, err = writeBinaryREAdapterArtifact(caseRoot, inputPath, "binary inventory evidence review input", input)
+		binding = binaryInventoryEvidenceReviewBinding(input)
+		inventoryInput = &input
+	} else {
+		input, inspectErr := inspectBinaryREVMPIDAEvidence(caseRoot, lane, item, intent.RequestPath, intent.RequestSHA256, run)
+		if inspectErr != nil {
+			return result, true, inspectErr
+		}
+		inputSHA, err = writeBinaryREAdapterArtifact(caseRoot, inputPath, "binary-re evidence review input", input)
+		binding = binaryREVMPIDAEvidenceReviewBinding(input)
+		vmpInput = &input
+	}
 	if err != nil {
 		return result, true, err
 	}
@@ -346,7 +507,7 @@ func runBinaryREAdapterLifecycle(
 	result.EvidenceReviewIntentPath = reviewIntentPath
 	result.EvidenceReviewIntentSHA256 = reviewIntentSHA
 	decision, decisionPath, decisionSHA, publication, replay, err := runBinaryREEvidenceReview(
-		parent, dailyOpt, caseRoot, pack, lane, input, inputPath, inputSHA,
+		parent, dailyOpt, caseRoot, pack, lane, intent.AdapterID, binding, inputPath, inputSHA,
 		reviewIntent, reviewIntentPath, reviewIntentSHA,
 	)
 	result.EvidenceReviewDecisionPath = decisionPath
@@ -355,7 +516,7 @@ func runBinaryREAdapterLifecycle(
 	result.EvidenceReviewDecision = decision.Response.Decision
 	result.EvidenceReviewReplay = replay
 	result.ResultPublication = &publication
-	result.SelectedEvidenceRef = input.Selected.EvidenceRef
+	result.SelectedEvidenceRef = binding.SelectedEvidenceRef
 	if err != nil {
 		return result, true, err
 	}
@@ -369,7 +530,7 @@ func runBinaryREAdapterLifecycle(
 	}
 
 	ackID, ackSHA, err := acknowledgeBinaryREEvidenceReview(
-		caseRoot, pack, lane, item, input, reviewIntent, decision.Response,
+		caseRoot, pack, lane, item, binding, reviewIntent, decision.Response,
 	)
 	if err != nil {
 		return result, true, err
@@ -378,15 +539,16 @@ func runBinaryREAdapterLifecycle(
 	if err != nil {
 		return result, true, err
 	}
+	_, _, closureKind := binaryREEvidenceReviewKinds(intent.AdapterID)
 	closure := binaryREEvidenceReviewClosure{
-		SchemaVersion: 1, Kind: binaryREEvidenceReviewClosureKind, GateEventID: intent.GateEventID,
+		SchemaVersion: 1, Kind: closureKind, GateEventID: intent.GateEventID,
 		ExecutionIntentPath: intentPath, ExecutionIntentSHA256: intentSHA,
 		ExecutionResultPath: executionResultPath, ExecutionResultSHA256: result.ExecutionResultSHA256,
 		InputPath: inputPath, InputSHA256: inputSHA,
 		IntentPath: reviewIntentPath, IntentSHA256: reviewIntentSHA,
 		DecisionPath: decisionPath, DecisionSHA256: decisionSHA,
 		SessionID: reviewIntent.SessionID, AcknowledgementEventID: ackID,
-		AcknowledgementSHA256: ackSHA, SelectedEvidenceRef: input.Selected.EvidenceRef,
+		AcknowledgementSHA256: ackSHA, SelectedEvidenceRef: binding.SelectedEvidenceRef,
 		Control: intent.Control, ClosedAt: reviewIntent.AcknowledgementCreatedAt,
 		NoAuthority: true, NoHeavyTool: true,
 	}
@@ -394,13 +556,21 @@ func runBinaryREAdapterLifecycle(
 	if err != nil {
 		return result, true, err
 	}
-	bindingPath, bindingSHA, err := bindBinaryREEvidenceForMember(
-		caseRoot, lane, intent.Control, input,
-		intentPath, intentSHA, executionResultPath, result.ExecutionResultSHA256,
-		inputPath, inputSHA, reviewIntentPath, reviewIntentSHA,
-		decisionPath, decisionSHA, closurePath, closureSHA,
-		reviewIntent.SessionID, ackID, ackSHA,
-	)
+	memberBinding := memberexecution.TaskBinding{}
+	if inventoryInput != nil {
+		memberBinding = binaryInventoryMemberTaskBinding(
+			*inventoryInput, intentPath, intentSHA, executionResultPath, result.ExecutionResultSHA256,
+			inputPath, inputSHA, reviewIntentPath, reviewIntentSHA, decisionPath, decisionSHA,
+			closurePath, closureSHA, reviewIntent.SessionID, ackID, ackSHA,
+		)
+	} else {
+		memberBinding = binaryREMemberTaskBinding(
+			*vmpInput, intentPath, intentSHA, executionResultPath, result.ExecutionResultSHA256,
+			inputPath, inputSHA, reviewIntentPath, reviewIntentSHA, decisionPath, decisionSHA,
+			closurePath, closureSHA, reviewIntent.SessionID, ackID, ackSHA,
+		)
+	}
+	bindingPath, bindingSHA, err := bindBinaryREEvidenceForMember(caseRoot, lane, intent.Control, memberBinding)
 	if err != nil {
 		return result, true, err
 	}
@@ -415,7 +585,107 @@ func runBinaryREAdapterLifecycle(
 	return result, true, nil
 }
 
-func discoverBinaryREVMPIDASelection(repoRoot, caseRoot, pack, lane string) (binaryREAdapterSelection, bool, error) {
+var errBinaryRENotStaticTarget = errors.New("binary-re target is not a supported PE or ELF input")
+
+func inspectBinaryInventoryEvidence(
+	caseRoot,
+	lane string,
+	item mission.ExecutionEvidenceReviewItem,
+	source binaryinventory.SourceBinding,
+	run adapterhost.AuthorizedRunResult,
+) (binaryInventoryEvidenceReviewInput, error) {
+	if run.AdapterID != binaryinventory.AdapterID || item.GateEventID != run.GateEventID ||
+		item.EventID != run.ObservationEventID || item.Target != source.Path ||
+		item.ExecutionReportPath != run.ReportPath || !strings.EqualFold(item.ExecutionReportSHA256, run.ReportSHA256) ||
+		item.AdapterExecutionDispatchPath != run.DispatchPath || !strings.EqualFold(item.AdapterExecutionDispatchSHA256, run.DispatchSHA256) ||
+		item.AdapterExecutionReceiptPath != run.ReceiptPath || !strings.EqualFold(item.AdapterExecutionReceiptSHA256, run.ReceiptSHA256) ||
+		item.AdapterID != binaryinventory.AdapterID || item.AdapterSession != run.AdapterSession ||
+		item.AdapterExecutionArtifactCount != 1 {
+		return binaryInventoryEvidenceReviewInput{}, fmt.Errorf("binary inventory evidence review observation lineage drifted")
+	}
+	inventoryData, err := readLiveAcceptanceVMPIDAFile(
+		caseRoot, run.PacketPath, "binary inventory evidence review sidecar", binaryinventory.MaxOutputBytes,
+	)
+	if err != nil || !strings.EqualFold(bytesSHA256(inventoryData), run.PacketSHA256) {
+		return binaryInventoryEvidenceReviewInput{}, fmt.Errorf("binary inventory evidence review sidecar hash drifted: %w", err)
+	}
+	inventory, err := binaryinventory.Decode(inventoryData)
+	if err != nil || !reflect.DeepEqual(inventory.Source, source) || inventory.AdapterID != binaryinventory.AdapterID ||
+		!inventory.Boundaries.ReadOnlyInput || !inventory.Boundaries.NoSampleExecution || !inventory.Boundaries.NoNetwork ||
+		!inventory.Boundaries.NoCatalogEntryExec || !inventory.Boundaries.NoAuthorityConfirmed {
+		return binaryInventoryEvidenceReviewInput{}, fmt.Errorf("binary inventory evidence review sidecar is invalid or source-drifted: %w", err)
+	}
+	sourceData, err := readLiveAcceptanceVMPIDAFile(
+		caseRoot, source.Path, "binary inventory evidence review source", binaryinventory.MaxInputBytes,
+	)
+	if err != nil || int64(len(sourceData)) != source.Bytes || !strings.EqualFold(binaryinventory.SHA256(sourceData), source.SHA256) {
+		return binaryInventoryEvidenceReviewInput{}, fmt.Errorf("binary inventory evidence review source drifted: %w", err)
+	}
+	dispatchData, err := readLiveAcceptanceVMPIDAFile(
+		caseRoot, run.DispatchPath, "binary inventory evidence review dispatch", binaryREAdapterArtifactMaxBytes,
+	)
+	if err != nil || !strings.EqualFold(bytesSHA256(dispatchData), run.DispatchSHA256) {
+		return binaryInventoryEvidenceReviewInput{}, fmt.Errorf("binary inventory evidence review dispatch hash drifted: %w", err)
+	}
+	dispatch, err := adapterexecution.DecodeDispatch(dispatchData)
+	if err != nil || dispatch.Gate.GateEventID != run.GateEventID || dispatch.Gate.Target != source.Path ||
+		dispatch.Adapter.AdapterID != binaryinventory.AdapterID || dispatch.Owner.AdapterSession != run.AdapterSession ||
+		dispatch.ReportPath != run.ReportPath {
+		return binaryInventoryEvidenceReviewInput{}, fmt.Errorf("binary inventory evidence review dispatch drifted: %w", err)
+	}
+	receipt, receiptPath, receiptSHA, present, err := gate.ReadAdapterExecutionReceipt(caseRoot, lane, run.GateEventID)
+	if err != nil || !present || receipt == nil || receiptPath != run.ReceiptPath ||
+		!strings.EqualFold(receiptSHA, run.ReceiptSHA256) {
+		return binaryInventoryEvidenceReviewInput{}, fmt.Errorf("binary inventory evidence review receipt drifted: %w", err)
+	}
+	if err := adapterhost.ValidateBinaryInventoryReceiptArtifacts(
+		caseRoot, dispatch, run.DispatchPath, run.DispatchSHA256, run, *receipt,
+	); err != nil {
+		return binaryInventoryEvidenceReviewInput{}, err
+	}
+	return binaryInventoryEvidenceReviewInput{
+		SchemaVersion: 1, Kind: binaryREInventoryEvidenceReviewInputKind,
+		GateEventID: run.GateEventID, ObservationEventID: run.ObservationEventID,
+		ProfileSHA256: receipt.Gate.Authorization.ProfileHash, Source: inventory.Source,
+		InventoryPath: run.PacketPath, InventorySHA256: run.PacketSHA256,
+		ReportPath: run.ReportPath, ReportSHA256: run.ReportSHA256,
+		DispatchPath: run.DispatchPath, DispatchSHA256: run.DispatchSHA256,
+		ReceiptPath: run.ReceiptPath, ReceiptSHA256: run.ReceiptSHA256,
+		Format: inventory.Format, SectionCount: len(inventory.Sections),
+		ImportCount: len(inventory.Imports), ExportCount: len(inventory.Exports),
+		EvidenceRefs:        []string{run.PacketPath, run.ReportPath, run.ReceiptPath},
+		SelectedEvidenceRef: run.PacketPath, NoAuthority: true, NoHeavyTool: true,
+	}, nil
+}
+
+func inspectBinaryREStaticTarget(caseRoot, target string) (binaryinventory.SourceBinding, error) {
+	target = filepath.ToSlash(strings.TrimSpace(target))
+	if target == "" || filepath.IsAbs(target) || target != filepath.ToSlash(filepath.Clean(filepath.FromSlash(target))) ||
+		target == "." || target == ".." || strings.HasPrefix(target, "../") {
+		return binaryinventory.SourceBinding{}, errBinaryRENotStaticTarget
+	}
+	full, err := rekitfs.SafeJoin(caseRoot, target)
+	if err != nil {
+		return binaryinventory.SourceBinding{}, errBinaryRENotStaticTarget
+	}
+	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, full, "binary-re static target", binaryinventory.MaxInputBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return binaryinventory.SourceBinding{}, errBinaryRENotStaticTarget
+	}
+	if err != nil {
+		return binaryinventory.SourceBinding{}, err
+	}
+	if len(data) < 4 || (!bytes.HasPrefix(data, []byte{'M', 'Z'}) && !bytes.HasPrefix(data, []byte{0x7f, 'E', 'L', 'F'})) {
+		return binaryinventory.SourceBinding{}, errBinaryRENotStaticTarget
+	}
+	source, err := binaryinventory.BindSource(target, data)
+	if err != nil {
+		return binaryinventory.SourceBinding{}, err
+	}
+	return source, nil
+}
+
+func discoverBinaryREAdapterSelection(repoRoot, caseRoot, pack, lane string) (binaryREAdapterSelection, bool, error) {
 	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
 	if err != nil {
 		return binaryREAdapterSelection{}, false, err
@@ -434,29 +704,52 @@ func discoverBinaryREVMPIDASelection(repoRoot, caseRoot, pack, lane string) (bin
 		}
 		handoff := handoffs[0]
 		target := filepath.ToSlash(strings.TrimSpace(handoff.Target))
-		if !strings.HasPrefix(target, adapterhost.VMPIDAIndexRequestRoot+"/") {
-			continue
-		}
-		request, readErr := adapterhost.ReadVMPIDAIndexRequest(caseRoot, target)
-		if readErr != nil {
-			return binaryREAdapterSelection{}, false, fmt.Errorf("read binary-re VMP IDA gate request: %w", readErr)
+		adapterID := ""
+		request := adapterhost.VMPIDAIndexRequestRead{}
+		source := binaryinventory.SourceBinding{}
+		if strings.HasPrefix(target, adapterhost.VMPIDAIndexRequestRoot+"/") {
+			adapterID = adapterhost.VMPIDAIndexAdapterID
+			var readErr error
+			request, readErr = adapterhost.ReadVMPIDAIndexRequest(caseRoot, target)
+			if readErr != nil {
+				return binaryREAdapterSelection{}, false, fmt.Errorf("read binary-re VMP IDA gate request: %w", readErr)
+			}
+		} else {
+			var inspectErr error
+			source, inspectErr = inspectBinaryREStaticTarget(caseRoot, target)
+			if inspectErr != nil {
+				if errors.Is(inspectErr, errBinaryRENotStaticTarget) {
+					continue
+				}
+				return binaryREAdapterSelection{}, false, inspectErr
+			}
+			adapterID = binaryinventory.AdapterID
 		}
 		if handoff.Status != "authorized-gate" || handoff.Action != "inspect" || handoff.Authorization != "preauthorized" {
-			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re VMP IDA gate authorization projection drifted")
+			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re gate authorization projection drifted")
 		}
 		if handoff.LiveValidation == nil {
-			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re VMP IDA gate omitted live adapter validation")
+			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re gate omitted live adapter validation")
 		}
 		live := handoff.LiveValidation
-		if live.AdapterCandidateCount == 0 {
-			continue
+		var candidate *gate.AdapterToolCandidate
+		for _, item := range live.AdapterCandidates {
+			if item.ID != adapterID {
+				continue
+			}
+			if candidate != nil {
+				return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re gate has duplicate candidate %s", adapterID)
+			}
+			copy := item
+			candidate = &copy
 		}
-		if live.AdapterCandidateCount != 1 || live.SelectedAdapter == nil ||
-			live.SelectedAdapterID != adapterhost.VMPIDAIndexAdapterID ||
-			live.SelectedAdapter.ID != adapterhost.VMPIDAIndexAdapterID ||
-			live.SidecarTemplateAdapterID != adapterhost.VMPIDAIndexAdapterID ||
-			!slices.Contains(live.SelectedAdapter.GateActions, "inspect") {
-			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re VMP IDA gate adapter candidate is ambiguous or drifted")
+		if candidate == nil || !slices.Contains(candidate.GateActions, "inspect") {
+			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re gate omitted exact candidate %s", adapterID)
+		}
+		if live.DispatchPresent && (!live.DispatchCurrent || live.SelectedAdapter == nil ||
+			live.SelectedAdapterID != adapterID || live.SelectedAdapter.ID != adapterID ||
+			live.SidecarTemplateAdapterID != adapterID) {
+			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re gate dispatch selected a different or stale adapter")
 		}
 		if strings.TrimSpace(handoff.ReportContractError) != "" || strings.TrimSpace(handoff.ReportPath) == "" {
 			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re VMP IDA gate report contract is unavailable: %s", handoff.ReportContractError)
@@ -466,7 +759,8 @@ func discoverBinaryREVMPIDASelection(repoRoot, caseRoot, pack, lane string) (bin
 			return binaryREAdapterSelection{}, false, fmt.Errorf("binary-re VMP IDA gate createdAt is invalid: %w", timeErr)
 		}
 		selection := binaryREAdapterSelection{
-			Handoff: handoff, Request: request, CreatedAt: createdAt, Acknowledged: handoff.Acknowledged,
+			Handoff: handoff, AdapterID: adapterID, Request: request, Source: source,
+			CreatedAt: createdAt, Acknowledged: handoff.Acknowledged,
 		}
 		if selection.Acknowledged {
 			complete, completionErr := completedBinaryREAdapterLifecycle(caseRoot, lane, selection)
@@ -510,7 +804,7 @@ func completedBinaryREAdapterLifecycle(
 		// not an ordinary lifecycle to recover.
 		return true, nil
 	}
-	if err := validateBinaryREAdapterExecutionIntent(intent, lane, selection); err != nil {
+	if err := validateBinaryREAdapterExecutionIntent(caseRoot, defaults.DefaultPack, intent, lane, selection); err != nil {
 		return false, err
 	}
 	intentSHA := bytesSHA256(intentData)
@@ -540,31 +834,50 @@ func completedBinaryREAdapterLifecycle(
 	if err != nil {
 		return false, err
 	}
-	expectedInput, err := inspectBinaryREVMPIDAEvidence(
-		caseRoot,
-		lane,
-		item,
-		intent.RequestPath,
-		intent.RequestSHA256,
-		executionResult.Run,
-	)
-	if err != nil {
-		return false, err
-	}
 	inputPath, err := binaryREAdapterArtifactPath(caseRoot, lane, intent.GateEventID, "evidence-review", "input.json")
 	if err != nil {
 		return false, err
 	}
-	input, inputData, found, err := readBinaryREAdapterArtifact[binaryREVMPIDAEvidenceReviewInput](
-		caseRoot,
-		inputPath,
-		"binary-re evidence review input",
-	)
-	if err != nil {
-		return false, err
-	}
-	if !found || !reflect.DeepEqual(input, expectedInput) {
-		return false, fmt.Errorf("acknowledged binary-re evidence review input is missing or drifted")
+	inputData := []byte(nil)
+	reviewBinding := binaryREEvidenceReviewBinding{}
+	var vmpInput *binaryREVMPIDAEvidenceReviewInput
+	var inventoryInput *binaryInventoryEvidenceReviewInput
+	if selection.AdapterID == binaryinventory.AdapterID {
+		expectedInput, inspectErr := inspectBinaryInventoryEvidence(caseRoot, lane, item, selection.Source, executionResult.Run)
+		if inspectErr != nil {
+			return false, inspectErr
+		}
+		input, data, present, readErr := readBinaryREAdapterArtifact[binaryInventoryEvidenceReviewInput](
+			caseRoot, inputPath, "binary inventory evidence review input",
+		)
+		if readErr != nil {
+			return false, readErr
+		}
+		if !present || !reflect.DeepEqual(input, expectedInput) {
+			return false, fmt.Errorf("acknowledged binary inventory evidence review input is missing or drifted")
+		}
+		inputData = data
+		reviewBinding = binaryInventoryEvidenceReviewBinding(input)
+		inventoryInput = &input
+	} else {
+		expectedInput, inspectErr := inspectBinaryREVMPIDAEvidence(
+			caseRoot, lane, item, intent.RequestPath, intent.RequestSHA256, executionResult.Run,
+		)
+		if inspectErr != nil {
+			return false, inspectErr
+		}
+		input, data, present, readErr := readBinaryREAdapterArtifact[binaryREVMPIDAEvidenceReviewInput](
+			caseRoot, inputPath, "binary-re evidence review input",
+		)
+		if readErr != nil {
+			return false, readErr
+		}
+		if !present || !reflect.DeepEqual(input, expectedInput) {
+			return false, fmt.Errorf("acknowledged binary-re evidence review input is missing or drifted")
+		}
+		inputData = data
+		reviewBinding = binaryREVMPIDAEvidenceReviewBinding(input)
+		vmpInput = &input
 	}
 	inputSHA := bytesSHA256(inputData)
 	reviewIntentPath, err := binaryREAdapterArtifactPath(caseRoot, lane, intent.GateEventID, "evidence-review", "intent.json")
@@ -611,7 +924,8 @@ func completedBinaryREAdapterLifecycle(
 	decisionSHA := bytesSHA256(decisionData)
 	if err := validateBinaryREEvidenceReviewDecision(
 		decision,
-		input,
+		selection.AdapterID,
+		reviewBinding,
 		inputPath,
 		inputSHA,
 		reviewIntent,
@@ -647,7 +961,7 @@ func completedBinaryREAdapterLifecycle(
 		intentSHA,
 		executionResultPath,
 		executionResultSHA,
-		input,
+		reviewBinding,
 		inputPath,
 		inputSHA,
 		reviewIntent,
@@ -660,24 +974,22 @@ func completedBinaryREAdapterLifecycle(
 		return false, err
 	}
 	closureSHA := bytesSHA256(closureData)
-	expectedBinding := binaryREMemberTaskBinding(
-		input,
-		intentPath,
-		intentSHA,
-		executionResultPath,
-		executionResultSHA,
-		inputPath,
-		inputSHA,
-		reviewIntentPath,
-		reviewIntentSHA,
-		decisionPath,
-		decisionSHA,
-		closurePath,
-		closureSHA,
-		reviewIntent.SessionID,
-		closure.AcknowledgementEventID,
-		closure.AcknowledgementSHA256,
-	)
+	expectedBinding := memberexecution.TaskBinding{}
+	if inventoryInput != nil {
+		expectedBinding = binaryInventoryMemberTaskBinding(
+			*inventoryInput, intentPath, intentSHA, executionResultPath, executionResultSHA,
+			inputPath, inputSHA, reviewIntentPath, reviewIntentSHA, decisionPath, decisionSHA,
+			closurePath, closureSHA, reviewIntent.SessionID,
+			closure.AcknowledgementEventID, closure.AcknowledgementSHA256,
+		)
+	} else {
+		expectedBinding = binaryREMemberTaskBinding(
+			*vmpInput, intentPath, intentSHA, executionResultPath, executionResultSHA,
+			inputPath, inputSHA, reviewIntentPath, reviewIntentSHA, decisionPath, decisionSHA,
+			closurePath, closureSHA, reviewIntent.SessionID,
+			closure.AcknowledgementEventID, closure.AcknowledgementSHA256,
+		)
+	}
 	binding, _, _, err := memberexecution.ReadTaskBindingForOwner(
 		caseRoot,
 		lane,
@@ -704,7 +1016,7 @@ func validateBinaryREEvidenceReviewClosure(
 	executionIntentSHA,
 	executionResultPath,
 	executionResultSHA string,
-	input binaryREVMPIDAEvidenceReviewInput,
+	input binaryREEvidenceReviewBinding,
 	inputPath,
 	inputSHA string,
 	intent binaryREEvidenceReviewIntent,
@@ -714,7 +1026,8 @@ func validateBinaryREEvidenceReviewClosure(
 	decisionPath,
 	decisionSHA string,
 ) error {
-	if closure.SchemaVersion != 1 || closure.Kind != binaryREEvidenceReviewClosureKind ||
+	_, _, closureKind := binaryREEvidenceReviewKinds(executionIntent.AdapterID)
+	if closure.SchemaVersion != 1 || closure.Kind != closureKind ||
 		closure.GateEventID != executionIntent.GateEventID ||
 		closure.ExecutionIntentPath != executionIntentPath ||
 		!strings.EqualFold(closure.ExecutionIntentSHA256, executionIntentSHA) ||
@@ -723,7 +1036,7 @@ func validateBinaryREEvidenceReviewClosure(
 		closure.InputPath != inputPath || !strings.EqualFold(closure.InputSHA256, inputSHA) ||
 		closure.IntentPath != intentPath || !strings.EqualFold(closure.IntentSHA256, intentSHA) ||
 		closure.DecisionPath != decisionPath || !strings.EqualFold(closure.DecisionSHA256, decisionSHA) ||
-		closure.SessionID != intent.SessionID || closure.SelectedEvidenceRef != input.Selected.EvidenceRef ||
+		closure.SessionID != intent.SessionID || closure.SelectedEvidenceRef != input.SelectedEvidenceRef ||
 		closure.Control != executionIntent.Control || closure.ClosedAt != intent.AcknowledgementCreatedAt ||
 		!closure.NoAuthority || !closure.NoHeavyTool || closure.AcknowledgementEventID == "" ||
 		!validBinaryRESHA256(closure.AcknowledgementSHA256) {
@@ -738,7 +1051,7 @@ func validateBinaryREEvidenceReviewClosure(
 func validateBinaryREAcknowledgement(
 	caseRoot,
 	lane string,
-	input binaryREVMPIDAEvidenceReviewInput,
+	input binaryREEvidenceReviewBinding,
 	intent binaryREEvidenceReviewIntent,
 	decision binaryREEvidenceReviewDecision,
 	closure binaryREEvidenceReviewClosure,
@@ -763,7 +1076,7 @@ func validateBinaryREAcknowledgement(
 			mission.Value(event, "actor") != binaryREAdapterActor || mission.Value(event, "verifier") != "tool-review" ||
 			mission.Value(event, "verdict") != "accepted" || mission.Value(event, "status") != "resolved" ||
 			mission.Value(event, "reason") != decision.Response.Summary+"; "+decision.Response.Reason ||
-			mission.Value(event, "target") != input.RequestPath ||
+			mission.Value(event, "target") != input.TargetPath ||
 			mission.Value(event, "createdAt") != intent.AcknowledgementCreatedAt ||
 			!slices.Equal(binaryREEventStrings(event["evidenceRefs"]), input.EvidenceRefs) ||
 			!slices.Contains(binaryREEventStrings(event["related"]), input.GateEventID) {
@@ -794,8 +1107,10 @@ func binaryREEventStrings(value any) []string {
 
 func ensureBinaryREAdapterExecutionIntent(
 	caseRoot,
+	pack,
 	lane string,
 	selection binaryREAdapterSelection,
+	instructionIdentity instructionpacket.Identity,
 ) (_ binaryREAdapterExecutionIntent, _ string, _ string, retErr error) {
 	path, err := binaryREAdapterArtifactPath(caseRoot, lane, selection.Handoff.EventID, "execution-intent.json")
 	if err != nil {
@@ -804,7 +1119,7 @@ func ensureBinaryREAdapterExecutionIntent(
 	if existing, data, found, readErr := readBinaryREAdapterArtifact[binaryREAdapterExecutionIntent](caseRoot, path, "binary-re adapter execution intent"); readErr != nil {
 		return binaryREAdapterExecutionIntent{}, "", "", readErr
 	} else if found {
-		if err := validateBinaryREAdapterExecutionIntent(existing, lane, selection); err != nil {
+		if err := validateBinaryREAdapterExecutionIntent(caseRoot, defaults.DefaultPack, existing, lane, selection); err != nil {
 			return binaryREAdapterExecutionIntent{}, "", "", err
 		}
 		if err := requireBinaryREControlCurrent(caseRoot, existing.Control); err != nil {
@@ -816,19 +1131,24 @@ func ensureBinaryREAdapterExecutionIntent(
 	if err != nil {
 		return binaryREAdapterExecutionIntent{}, "", "", err
 	}
-	control, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	capability, err := capabilitycontract.Bind(capabilitycontract.AuthorizedHeavy())
+	if err != nil {
+		return binaryREAdapterExecutionIntent{}, "", "", err
+	}
+	control, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
 	if err != nil {
 		return binaryREAdapterExecutionIntent{}, "", "", err
 	}
 	intent := binaryREAdapterExecutionIntent{
-		SchemaVersion: 1, Kind: binaryREAdapterExecutionIntentKind, Lane: lane,
-		GateEventID: selection.Handoff.EventID, RequestPath: selection.Request.RequestPath,
-		RequestSHA256: selection.Request.RequestSHA256, ReportPath: selection.Handoff.ReportPath,
-		AdapterSession: "binary-re-vmp-ida-" + shortStableIdentity(selection.Handoff.EventID),
-		Actor:          binaryREAdapterActor, Owner: owner, Control: control, CreatedAt: selection.CreatedAt,
-		NoAuthority: true, NoAutoGate: true,
+		SchemaVersion: 1, Kind: binaryREAdapterExecutionIntentKind, AdapterID: selection.AdapterID, Lane: lane,
+		GateEventID: selection.Handoff.EventID, RequestPath: binaryRESelectionRequestPath(selection),
+		RequestSHA256: binaryRESelectionRequestSHA256(selection), ReportPath: selection.Handoff.ReportPath,
+		AdapterSession: binaryREAdapterSession(selection.AdapterID, selection.Handoff.EventID),
+		Actor:          binaryREAdapterActor, Owner: owner, Control: control,
+		InstructionIdentity: cloneProductionInstructionIdentity(instructionIdentity),
+		CreatedAt:           selection.CreatedAt, NoAuthority: true, NoAutoGate: true,
 	}
-	if err := validateBinaryREAdapterExecutionIntent(intent, lane, selection); err != nil {
+	if err := validateBinaryREAdapterExecutionIntent(caseRoot, pack, intent, lane, selection); err != nil {
 		return binaryREAdapterExecutionIntent{}, "", "", err
 	}
 	lease, err := lanemutation.AcquireLane(caseRoot, lane)
@@ -842,7 +1162,7 @@ func ensureBinaryREAdapterExecutionIntent(
 	if existing, data, found, readErr := readBinaryREAdapterArtifact[binaryREAdapterExecutionIntent](caseRoot, path, "binary-re adapter execution intent"); readErr != nil {
 		return binaryREAdapterExecutionIntent{}, "", "", readErr
 	} else if found {
-		if err := validateBinaryREAdapterExecutionIntent(existing, lane, selection); err != nil {
+		if err := validateBinaryREAdapterExecutionIntent(caseRoot, defaults.DefaultPack, existing, lane, selection); err != nil {
 			return binaryREAdapterExecutionIntent{}, "", "", err
 		}
 		if err := executioncontrol.RequireCurrentBindingWithLease(caseRoot, lease, existing.Control); err != nil {
@@ -860,11 +1180,15 @@ func ensureBinaryREAdapterExecutionIntent(
 	return intent, path, sha, nil
 }
 
-func validateBinaryREAdapterExecutionIntent(intent binaryREAdapterExecutionIntent, lane string, selection binaryREAdapterSelection) error {
-	if intent.SchemaVersion != 1 || intent.Kind != binaryREAdapterExecutionIntentKind || intent.Lane != lane ||
-		intent.GateEventID != selection.Handoff.EventID || intent.RequestPath != selection.Request.RequestPath ||
-		!strings.EqualFold(intent.RequestSHA256, selection.Request.RequestSHA256) || intent.ReportPath != selection.Handoff.ReportPath ||
-		intent.AdapterSession != "binary-re-vmp-ida-"+shortStableIdentity(selection.Handoff.EventID) ||
+func validateBinaryREAdapterExecutionIntent(caseRoot, pack string, intent binaryREAdapterExecutionIntent, lane string, selection binaryREAdapterSelection) error {
+	intentAdapterID := intent.AdapterID
+	if intentAdapterID == "" && selection.AdapterID == adapterhost.VMPIDAIndexAdapterID {
+		intentAdapterID = adapterhost.VMPIDAIndexAdapterID
+	}
+	if intent.SchemaVersion != 1 || intent.Kind != binaryREAdapterExecutionIntentKind || intentAdapterID != selection.AdapterID || intent.Lane != lane ||
+		intent.GateEventID != selection.Handoff.EventID || intent.RequestPath != binaryRESelectionRequestPath(selection) ||
+		!strings.EqualFold(intent.RequestSHA256, binaryRESelectionRequestSHA256(selection)) || intent.ReportPath != selection.Handoff.ReportPath ||
+		intent.AdapterSession != binaryREAdapterSession(intentAdapterID, selection.Handoff.EventID) ||
 		intent.Actor != binaryREAdapterActor || intent.Owner != intent.Control.Owner || intent.Control.Lane != lane ||
 		intent.CreatedAt != selection.CreatedAt || !intent.NoAuthority || !intent.NoAutoGate {
 		return fmt.Errorf("binary-re adapter execution intent drifted from the exact gate, request, owner, or boundary")
@@ -872,13 +1196,28 @@ func validateBinaryREAdapterExecutionIntent(intent binaryREAdapterExecutionInten
 	if _, err := time.Parse(time.RFC3339Nano, intent.CreatedAt); err != nil {
 		return err
 	}
+	if err := validateCurrentProductionInstructionIdentity(caseRoot, pack, intent.InstructionIdentity); err != nil {
+		return fmt.Errorf("binary-re adapter execution intent instruction identity: %w", err)
+	}
 	return executioncontrol.ValidateBinding(intent.Control)
 }
 
+func binaryREAdapterSession(adapterID, gateEventID string) string {
+	if adapterID == adapterhost.VMPIDAIndexAdapterID {
+		return "binary-re-vmp-ida-" + shortStableIdentity(gateEventID)
+	}
+	return "binary-re-" + shortStableIdentity(adapterID) + "-" + shortStableIdentity(gateEventID)
+}
+
 func validateBinaryREAuthorizedRun(caseRoot string, intent binaryREAdapterExecutionIntent, run adapterhost.AuthorizedRunResult) error {
-	if run.SchemaVersion != 1 || run.Kind != "vmp-ida-index-authorized-run" ||
+	expectedKind := "vmp-ida-index-authorized-run"
+	if run.AdapterID == binaryinventory.AdapterID {
+		expectedKind = "binary-inventory-authorized-run"
+	}
+	if run.SchemaVersion != 1 || run.Kind != expectedKind ||
 		!casePathEqual(run.CaseRoot, caseRoot) || run.Pack != defaults.DefaultPack ||
-		run.GateEventID != intent.GateEventID || run.AdapterID != adapterhost.VMPIDAIndexAdapterID ||
+		run.GateEventID != intent.GateEventID ||
+		(run.AdapterID != adapterhost.VMPIDAIndexAdapterID && run.AdapterID != binaryinventory.AdapterID) ||
 		run.AdapterSession != intent.AdapterSession || run.ReportPath != intent.ReportPath ||
 		run.DispatchPath == "" || !validBinaryRESHA256(run.DispatchSHA256) ||
 		!validBinaryRESHA256(run.ReportSHA256) || run.ReceiptPath == "" ||
@@ -886,7 +1225,7 @@ func validateBinaryREAuthorizedRun(caseRoot string, intent binaryREAdapterExecut
 		run.TaskBindingPath != "" || run.TaskBindingSHA256 != "" ||
 		run.ProfilePath == "" || !validBinaryRESHA256(run.ProfileSHA256) ||
 		(!run.ProfileRevoked && !run.ProfileAlreadyManual) || run.ExecutionExitStatus == "" ||
-		!run.NoNetwork || run.NoNetworkBoundary != adapterhost.VMPIDAIndexNoNetworkBoundary || !run.NoAuthority {
+		!run.NoNetwork || run.NoNetworkBoundary != adapterhost.VMPIDAIndexNoNetworkBoundary || !run.NoAuthority || !equalProductionInstructionIdentityPointers(run.InstructionIdentity, &intent.InstructionIdentity) {
 		return fmt.Errorf("binary-re authorized adapter result omitted deferred-review or strict execution lineage")
 	}
 	switch run.ExecutionStatus {
@@ -913,8 +1252,10 @@ func validateBinaryREAdapterExecutionResult(
 	intentSHA string,
 ) error {
 	if result.SchemaVersion != 1 || result.Kind != binaryREAdapterExecutionResultKind ||
+		result.InstructionIdentity.ReceiptKind != result.Kind ||
 		result.GateEventID != intent.GateEventID || result.ExecutionIntentPath != intentPath ||
 		!strings.EqualFold(result.ExecutionIntentSHA256, intentSHA) || result.Control != intent.Control ||
+		!instructionpacket.EqualIdentity(result.InstructionIdentity, intent.InstructionIdentity) ||
 		!result.NoAuthority || !result.NoHeavyToolAfterExecution {
 		return fmt.Errorf("binary-re adapter execution result drifted from its exact intent or control birth")
 	}
@@ -974,26 +1315,68 @@ func validBinaryRESHA256(value string) bool {
 }
 
 func binaryREObservationItem(caseRoot, lane string, run adapterhost.AuthorizedRunResult) (mission.ExecutionEvidenceReviewItem, error) {
+	item, _, err := binaryREObservation(caseRoot, lane, run)
+	return item, err
+}
+
+func binaryREObservation(
+	caseRoot,
+	lane string,
+	run adapterhost.AuthorizedRunResult,
+) (mission.ExecutionEvidenceReviewItem, map[string]any, error) {
 	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
 	if err != nil {
-		return mission.ExecutionEvidenceReviewItem{}, err
+		return mission.ExecutionEvidenceReviewItem{}, nil, err
 	}
-	var matched *mission.ExecutionEvidenceReviewItem
+	var matchedItem *mission.ExecutionEvidenceReviewItem
+	var matchedObservation map[string]any
 	for _, observation := range facts.Observations {
 		item, ok := mission.ExecutionEvidenceReviewItemFromObservation(observation, lane, nil)
 		if !ok || item.EventID != run.ObservationEventID || item.GateEventID != run.GateEventID {
 			continue
 		}
-		if matched != nil {
-			return mission.ExecutionEvidenceReviewItem{}, fmt.Errorf("binary-re adapter observation identity is not unique")
+		if matchedItem != nil {
+			return mission.ExecutionEvidenceReviewItem{}, nil, fmt.Errorf("binary-re adapter observation identity is not unique")
 		}
 		copy := item
-		matched = &copy
+		matchedItem = &copy
+		matchedObservation = observation
 	}
-	if matched == nil {
-		return mission.ExecutionEvidenceReviewItem{}, fmt.Errorf("binary-re adapter observation lineage is missing")
+	if matchedItem == nil {
+		return mission.ExecutionEvidenceReviewItem{}, nil, fmt.Errorf("binary-re adapter observation lineage is missing")
 	}
-	return *matched, nil
+	return *matchedItem, matchedObservation, nil
+}
+
+func ensureBinaryREObservationSnapshot(
+	caseRoot,
+	lane string,
+	run adapterhost.AuthorizedRunResult,
+) (mission.ExecutionEvidenceReviewItem, string, string, error) {
+	item, observation, err := binaryREObservation(caseRoot, lane, run)
+	if err != nil {
+		return mission.ExecutionEvidenceReviewItem{}, "", "", err
+	}
+	path, err := binaryREAdapterArtifactPath(
+		caseRoot,
+		lane,
+		run.GateEventID,
+		"evidence-review",
+		"observation.json",
+	)
+	if err != nil {
+		return mission.ExecutionEvidenceReviewItem{}, "", "", err
+	}
+	sha, err := writeBinaryREAdapterArtifact(
+		caseRoot,
+		path,
+		"adapter execution observation evidence snapshot",
+		observation,
+	)
+	if err != nil {
+		return mission.ExecutionEvidenceReviewItem{}, "", "", err
+	}
+	return item, path, sha, nil
 }
 
 func ensureBinaryREEvidenceReviewIntent(
@@ -1038,15 +1421,17 @@ func ensureBinaryREEvidenceReviewIntent(
 	}
 	startedAt := binaryREAdapterNow()
 	attemptSHA := hashStableIdentity(inputSHA, executionIntentSHA)
+	intentKind, _, _ := binaryREEvidenceReviewKinds(executionIntent.AdapterID)
 	intent := binaryREEvidenceReviewIntent{
-		SchemaVersion: 1, Kind: binaryREEvidenceReviewIntentKind,
+		SchemaVersion: 1, Kind: intentKind,
 		GateEventID: executionIntent.GateEventID, InputPath: inputPath, InputSHA256: inputSHA,
 		ExecutionIntentPath: executionIntentPath, ExecutionIntentSHA256: executionIntentSHA,
 		SessionID:     stableUUID(executionIntent.GateEventID, inputSHA, executionIntentSHA),
-		AttemptID:     "binary-re-evidence-review-" + shortStableIdentity(executionIntent.GateEventID),
+		AttemptID:     binaryREEvidenceReviewAttemptPrefix(executionIntent.AdapterID) + shortStableIdentity(executionIntent.GateEventID),
 		AttemptSHA256: attemptSHA, StartedAt: startedAt, AcknowledgementCreatedAt: startedAt,
 		Owner: executionIntent.Owner, Control: executionIntent.Control,
-		NoAuthority: true, NoHeavyTool: true,
+		InstructionIdentity: cloneProductionInstructionIdentity(executionIntent.InstructionIdentity),
+		NoAuthority:         true, NoHeavyTool: true,
 	}
 	if err := validateBinaryREEvidenceReviewIntent(intent, executionIntent, executionIntentPath, executionIntentSHA, inputPath, inputSHA); err != nil {
 		return binaryREEvidenceReviewIntent{}, "", "", err
@@ -1069,12 +1454,15 @@ func validateBinaryREEvidenceReviewIntent(
 	inputPath,
 	inputSHA string,
 ) error {
-	if intent.SchemaVersion != 1 || intent.Kind != binaryREEvidenceReviewIntentKind ||
+	intentKind, _, _ := binaryREEvidenceReviewKinds(executionIntent.AdapterID)
+	if intent.SchemaVersion != 1 || intent.Kind != intentKind ||
 		intent.GateEventID != executionIntent.GateEventID || intent.InputPath != inputPath ||
 		!strings.EqualFold(intent.InputSHA256, inputSHA) || intent.ExecutionIntentPath != executionIntentPath ||
 		!strings.EqualFold(intent.ExecutionIntentSHA256, executionIntentSHA) || intent.Owner != executionIntent.Owner ||
-		intent.Control != executionIntent.Control || intent.SessionID != stableUUID(executionIntent.GateEventID, inputSHA, executionIntentSHA) ||
-		intent.AttemptID != "binary-re-evidence-review-"+shortStableIdentity(executionIntent.GateEventID) ||
+		intent.Control != executionIntent.Control ||
+		!instructionpacket.EqualIdentity(intent.InstructionIdentity, executionIntent.InstructionIdentity) ||
+		intent.SessionID != stableUUID(executionIntent.GateEventID, inputSHA, executionIntentSHA) ||
+		intent.AttemptID != binaryREEvidenceReviewAttemptPrefix(executionIntent.AdapterID)+shortStableIdentity(executionIntent.GateEventID) ||
 		!strings.EqualFold(intent.AttemptSHA256, hashStableIdentity(inputSHA, executionIntentSHA)) ||
 		!intent.NoAuthority || !intent.NoHeavyTool {
 		return fmt.Errorf("binary-re evidence review intent drifted from its exact input, execution intent, or control birth")
@@ -1093,8 +1481,9 @@ func runBinaryREEvidenceReview(
 	dailyOpt DailyOptions,
 	caseRoot,
 	pack,
-	lane string,
-	input binaryREVMPIDAEvidenceReviewInput,
+	lane,
+	adapterID string,
+	input binaryREEvidenceReviewBinding,
 	inputPath,
 	inputSHA string,
 	intent binaryREEvidenceReviewIntent,
@@ -1105,12 +1494,12 @@ func runBinaryREEvidenceReview(
 	if err != nil {
 		return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, false, err
 	}
-	pkg := binaryREEvidenceReviewPackage(caseRoot, inputPath, inputSHA, intent)
+	pkg := binaryREEvidenceReviewPackage(caseRoot, pack, inputPath, inputSHA, adapterID, intent)
 	reviewOpt := binaryREEvidenceReviewOptions(dailyOpt, caseRoot, pack, intent.Control)
 	if existing, data, found, readErr := readBinaryREAdapterArtifact[binaryREEvidenceReviewDecision](caseRoot, decisionPath, "binary-re evidence review decision"); readErr != nil {
 		return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, false, readErr
 	} else if found {
-		if err := validateBinaryREEvidenceReviewDecision(existing, input, inputPath, inputSHA, intent, intentPath, intentSHA); err != nil {
+		if err := validateBinaryREEvidenceReviewDecision(existing, adapterID, input, inputPath, inputSHA, intent, intentPath, intentSHA); err != nil {
 			return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, false, err
 		}
 		if recovered, ok, recoverErr := recoverClaudeRunForCase(caseRoot, reviewOpt, pkg); recoverErr != nil {
@@ -1123,13 +1512,21 @@ func runBinaryREEvidenceReview(
 		return existing, decisionPath, bytesSHA256(data), executioncontrol.ResultPublication{Published: true, Disposition: executioncontrol.ResultDispositionPublished}, true, nil
 	}
 
+	runner := dailyOpt.evidenceReviewRunner
+	if runner == nil {
+		reviewOpt, err = bindTrustedEvidenceReviewOptions(reviewOpt)
+		if err != nil {
+			return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, false, err
+		}
+		runner = binaryREEvidenceReviewRun(adapterID)
+	}
 	run, recovered, err := recoverClaudeRunForCase(caseRoot, reviewOpt, pkg)
 	if err != nil {
 		return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, false, err
 	}
 	replay := recovered
 	if !recovered {
-		run = binaryREEvidenceReviewRunClaude(parent, reviewOpt, pkg, intent.SessionID, nil)
+		run = runner(parent, reviewOpt, pkg, intent.SessionID, nil)
 		if !run.success() {
 			return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, false, fmt.Errorf("independent binary-re evidence review failed: %s", run.failureReason())
 		}
@@ -1155,13 +1552,16 @@ func runBinaryREEvidenceReview(
 	if err != nil {
 		return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, replay, err
 	}
+	_, decisionKind, _ := binaryREEvidenceReviewKinds(adapterID)
 	decision := binaryREEvidenceReviewDecision{
-		SchemaVersion: 1, Kind: binaryREEvidenceReviewDecisionKind, GateEventID: intent.GateEventID,
+		SchemaVersion: 1, Kind: decisionKind, GateEventID: intent.GateEventID,
 		InputPath: inputPath, InputSHA256: inputSHA, IntentPath: intentPath, IntentSHA256: intentSHA,
-		SessionID: intent.SessionID, Control: intent.Control, ObservedAt: publicationOpt.ObservedAt,
-		Source: publicationOpt.Source, Response: response, NoAuthority: true, NoHeavyTool: true,
+		SessionID: intent.SessionID, Control: intent.Control,
+		InstructionIdentity: cloneProductionInstructionIdentity(intent.InstructionIdentity),
+		ObservedAt:          publicationOpt.ObservedAt,
+		Source:              publicationOpt.Source, Response: response, NoAuthority: true, NoHeavyTool: true,
 	}
-	if err := validateBinaryREEvidenceReviewDecision(decision, input, inputPath, inputSHA, intent, intentPath, intentSHA); err != nil {
+	if err := validateBinaryREEvidenceReviewDecision(decision, adapterID, input, inputPath, inputSHA, intent, intentPath, intentSHA); err != nil {
 		return binaryREEvidenceReviewDecision{}, "", "", executioncontrol.ResultPublication{}, replay, err
 	}
 	decisionSHA := ""
@@ -1185,18 +1585,33 @@ func runBinaryREEvidenceReview(
 	return decision, decisionPath, decisionSHA, publication, replay, nil
 }
 
-func binaryREEvidenceReviewPackage(caseRoot, inputPath, inputSHA string, intent binaryREEvidenceReviewIntent) mission.CurrentLoopExternalSessionHarnessPackage {
+func binaryREEvidenceReviewPackage(caseRoot, pack, inputPath, inputSHA, adapterID string, intent binaryREEvidenceReviewIntent) mission.CurrentLoopExternalSessionHarnessPackage {
 	control := intent.Control
+	capability, err := capabilitycontract.Bind(capabilitycontract.ReadOnly())
+	if err != nil {
+		panic(err)
+	}
+	expectedOutput := "one strict accepted/rejected evidence review decision bound to the exact selected row, observation, and receipt"
+	if webExpected, ok := webSecurityEvidenceReviewExpectedOutput(adapterID); ok {
+		expectedOutput = webExpected
+	} else if adapterID == binaryinventory.AdapterID {
+		expectedOutput = "one strict accepted/rejected evidence review decision bound to the exact binary inventory, source, observation, and receipt"
+	}
+	identity := cloneProductionInstructionIdentity(intent.InstructionIdentity)
 	return mission.CurrentLoopExternalSessionHarnessPackage{
-		SchemaVersion: 1, State: "launch-ready", CaseRoot: caseRoot,
+		SchemaVersion: 1, State: "launch-ready", CaseRoot: caseRoot, Pack: pack,
 		SessionKind: "mission-commander-evidence-review",
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
 			Ready: true, Tool: "Claude Code Agent", AgentType: "read-only-evidence-reviewer", ReadOnly: true,
-			Input:          mission.CurrentLoopExternalSessionHarnessInput{Path: inputPath, SHA256: inputSHA, Role: "mission-commander-evidence-review-input"},
-			ExpectedOutput: "one strict accepted/rejected evidence review decision bound to the exact selected row, observation, and receipt",
+			Capability:          capability,
+			InstructionIdentity: &identity,
+			Input: mission.CurrentLoopExternalSessionHarnessInput{
+				Path: inputPath, SHA256: inputSHA, Role: binaryREEvidenceReviewInputRole(adapterID),
+			},
+			ExpectedOutput: expectedOutput,
 			Attempt: mission.CurrentLoopExternalSessionAttempt{
 				AttemptID: intent.AttemptID, AttemptSHA256: intent.AttemptSHA256, Generation: 1,
-				Harness: defaultHarness, Session: intent.SessionID, Actor: binaryREAdapterActor,
+				Harness: defaultHarness, Session: intent.SessionID, Actor: evidenceReviewAdapterActor(adapterID),
 				StartedAt: intent.StartedAt, LaunchControl: &control,
 			},
 		},
@@ -1209,7 +1624,7 @@ func binaryREEvidenceReviewOptions(dailyOpt DailyOptions, caseRoot, pack string,
 		timeout = defaultTimeout
 	}
 	return Options{
-		Target: caseRoot, Pack: pack, Actor: binaryREAdapterActor,
+		Target: caseRoot, Pack: pack, Actor: evidenceReviewAdapterActorForPack(pack),
 		ClaudePath:                        dailyOpt.ClaudePath,
 		ExpectedClaudeExecutableSHA256:    dailyOpt.ExpectedClaudeExecutableSHA256,
 		ExpectedClaudeExecutablePublisher: dailyOpt.ExpectedClaudeExecutablePublisher,
@@ -1219,11 +1634,11 @@ func binaryREEvidenceReviewOptions(dailyOpt DailyOptions, caseRoot, pack string,
 	}
 }
 
-func validateBinaryREEvidenceReviewResponse(response evidenceReviewResponse, input binaryREVMPIDAEvidenceReviewInput) error {
+func validateBinaryREEvidenceReviewResponse(response evidenceReviewResponse, input binaryREEvidenceReviewBinding) error {
 	if err := validateEvidenceReviewResponse(response); err != nil {
 		return err
 	}
-	if response.SelectedEvidenceRef != input.Selected.EvidenceRef ||
+	if response.SelectedEvidenceRef != input.SelectedEvidenceRef ||
 		response.ObservationEventID != input.ObservationEventID ||
 		!strings.EqualFold(response.ReceiptSHA256, input.ReceiptSHA256) ||
 		!slices.Equal(response.EvidenceRefs, input.EvidenceRefs) {
@@ -1234,18 +1649,22 @@ func validateBinaryREEvidenceReviewResponse(response evidenceReviewResponse, inp
 
 func validateBinaryREEvidenceReviewDecision(
 	decision binaryREEvidenceReviewDecision,
-	input binaryREVMPIDAEvidenceReviewInput,
+	adapterID string,
+	input binaryREEvidenceReviewBinding,
 	inputPath,
 	inputSHA string,
 	intent binaryREEvidenceReviewIntent,
 	intentPath,
 	intentSHA string,
 ) error {
-	if decision.SchemaVersion != 1 || decision.Kind != binaryREEvidenceReviewDecisionKind ||
+	_, decisionKind, _ := binaryREEvidenceReviewKinds(adapterID)
+	if decision.SchemaVersion != 1 || decision.Kind != decisionKind ||
 		decision.GateEventID != intent.GateEventID || decision.InputPath != inputPath ||
 		!strings.EqualFold(decision.InputSHA256, inputSHA) || decision.IntentPath != intentPath ||
 		!strings.EqualFold(decision.IntentSHA256, intentSHA) || decision.SessionID != intent.SessionID ||
-		decision.Control != intent.Control || !decision.NoAuthority || !decision.NoHeavyTool {
+		decision.Control != intent.Control ||
+		!instructionpacket.EqualIdentity(decision.InstructionIdentity, intent.InstructionIdentity) ||
+		!decision.NoAuthority || !decision.NoHeavyTool {
 		return fmt.Errorf("binary-re evidence review decision drifted from its exact intent or control birth")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, decision.ObservedAt); err != nil {
@@ -1268,7 +1687,7 @@ func acknowledgeBinaryREEvidenceReview(
 	pack,
 	lane string,
 	item mission.ExecutionEvidenceReviewItem,
-	input binaryREVMPIDAEvidenceReviewInput,
+	input binaryREEvidenceReviewBinding,
 	intent binaryREEvidenceReviewIntent,
 	decision evidenceReviewResponse,
 ) (string, string, error) {
@@ -1283,7 +1702,7 @@ func acknowledgeBinaryREEvidenceReview(
 		"-Status", "resolved",
 		"-Related", strings.Join([]string{item.EventID, item.GateEventID}, ","),
 		"-Reason", decision.Summary + "; " + decision.Reason,
-		"-TargetRef", input.RequestPath,
+		"-TargetRef", input.TargetPath,
 		"-EvidenceRefs", strings.Join(input.EvidenceRefs, ","),
 		"-CreatedAt", intent.AcknowledgementCreatedAt,
 	}
@@ -1305,7 +1724,15 @@ func bindBinaryREEvidenceForMember(
 	caseRoot,
 	lane string,
 	control executioncontrol.Binding,
-	input binaryREVMPIDAEvidenceReviewInput,
+	binding memberexecution.TaskBinding,
+) (string, string, error) {
+	return memberexecution.WriteTaskBindingForOwnerWithControlBinding(
+		caseRoot, lane, control.Owner.CurrentExecutor, control.Owner.ExecutorGeneration, control, binding,
+	)
+}
+
+func binaryInventoryMemberTaskBinding(
+	input binaryInventoryEvidenceReviewInput,
 	executionIntentPath,
 	executionIntentSHA,
 	executionResultPath,
@@ -1321,28 +1748,38 @@ func bindBinaryREEvidenceForMember(
 	sessionID,
 	ackID,
 	ackSHA string,
-) (string, string, error) {
-	binding := binaryREMemberTaskBinding(
-		input,
-		executionIntentPath,
-		executionIntentSHA,
-		executionResultPath,
-		executionResultSHA,
-		inputPath,
-		inputSHA,
-		intentPath,
-		intentSHA,
-		decisionPath,
-		decisionSHA,
-		closurePath,
-		closureSHA,
-		sessionID,
-		ackID,
-		ackSHA,
-	)
-	return memberexecution.WriteTaskBindingForOwnerWithControlBinding(
-		caseRoot, lane, control.Owner.CurrentExecutor, control.Owner.ExecutorGeneration, control, binding,
-	)
+) memberexecution.TaskBinding {
+	return memberexecution.TaskBinding{
+		Kind: "binary-inventory-evidence",
+		Values: map[string]string{
+			"gate-event-id": input.GateEventID,
+			"source-path":   input.Source.Path, "source-sha256": input.Source.SHA256,
+			"inventory-path": input.InventoryPath, "inventory-sha256": input.InventorySHA256,
+			"report-path": input.ReportPath, "report-sha256": input.ReportSHA256,
+			"dispatch-path": input.DispatchPath, "dispatch-sha256": input.DispatchSHA256,
+			"receipt-path": input.ReceiptPath, "receipt-sha256": input.ReceiptSHA256,
+			"observation-event-id":  input.ObservationEventID,
+			"selected-evidence-ref": input.SelectedEvidenceRef,
+			"format-family":         input.Format.Family,
+			"section-count":         strconv.Itoa(input.SectionCount), "import-count": strconv.Itoa(input.ImportCount),
+			"export-count":                     strconv.Itoa(input.ExportCount),
+			"execution-intent-path":            executionIntentPath,
+			"execution-intent-sha256":          executionIntentSHA,
+			"execution-result-path":            executionResultPath,
+			"execution-result-sha256":          executionResultSHA,
+			"evidence-review-input-path":       inputPath,
+			"evidence-review-input-sha256":     inputSHA,
+			"evidence-review-intent-path":      intentPath,
+			"evidence-review-intent-sha256":    intentSHA,
+			"evidence-review-decision-path":    decisionPath,
+			"evidence-review-decision-sha256":  decisionSHA,
+			"evidence-review-closure-path":     closurePath,
+			"evidence-review-closure-sha256":   closureSHA,
+			"evidence-review-session-id":       sessionID,
+			"evidence-review-ack-event-id":     ackID,
+			"evidence-review-ack-event-sha256": ackSHA,
+		},
+	}
 }
 
 func binaryREMemberTaskBinding(

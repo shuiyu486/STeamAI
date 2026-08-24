@@ -37,6 +37,9 @@ jobs:
       - name: Go vet
         run: go vet ./...
 
+      - name: Go-native pack smoke matrix
+        run: go test -count=1 -timeout=30m ./internal/rekit/cli -run '^TestRunGoSkeletonPackSmokeMatrix$'
+
       - name: Go tests
         run: go test -count=1 -p=2 -timeout=30m ./...
 
@@ -68,6 +71,9 @@ jobs:
       - name: Go vet
         run: go vet ./...
 
+      - name: Go-native pack smoke matrix
+        run: go test -count=1 -timeout=30m ./internal/rekit/cli -run '^TestRunGoSkeletonPackSmokeMatrix$'
+
       - name: Go tests
         run: go test -count=1 -p=2 -timeout=30m ./...
 
@@ -98,6 +104,9 @@ jobs:
 
       - name: Go vet
         run: go vet ./...
+
+      - name: Go-native pack smoke matrix
+        run: go test -count=1 -timeout=30m ./internal/rekit/cli -run '^TestRunGoSkeletonPackSmokeMatrix$'
 
       - name: Go tests
         run: go test -count=1 -p=2 -timeout=30m ./...

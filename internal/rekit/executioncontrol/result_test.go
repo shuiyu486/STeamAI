@@ -1,15 +1,181 @@
 package executioncontrol
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
+
+func testResultBirth(owner laneowner.Snapshot) ResultBirth {
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		panic(err)
+	}
+	return ResultBirth{
+		SchemaVersion: ResultBirthSchemaVersion,
+		Owner:         owner,
+		Capability:    capability,
+	}
+}
+
+func TestDecodeVersionedResultBirthKeepsLegacyOutOfPublication(t *testing.T) {
+	owner := laneowner.Snapshot{Lane: testLane, CurrentExecutor: "member-main", ExecutorGeneration: 7}
+	legacy := `{"controlGeneration":0,"owner":{"lane":"` + testLane + `","currentExecutor":"member-main","executorGeneration":7}}`
+	decoded, err := DecodeVersionedResultBirth([]byte(legacy))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Version != LegacyResultBirthSchemaVersion || decoded.Legacy == nil || decoded.Current != nil || decoded.WholeSHA256 != hash([]byte(legacy)) || !bytes.Equal(decoded.Raw, []byte(legacy)) {
+		t.Fatalf("legacy result birth decode = %+v", decoded)
+	}
+	current := testResultBirth(owner)
+	currentData, err := json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentDecoded, err := DecodeVersionedResultBirth(currentData)
+	if err != nil || currentDecoded.Version != ResultBirthSchemaVersion || currentDecoded.Current == nil || currentDecoded.Legacy != nil {
+		t.Fatalf("current result birth decode = %+v err=%v", currentDecoded, err)
+	}
+}
+
+func TestReadHeldResultHistoryKeepsLegacyDecodeOnly(t *testing.T) {
+	caseRoot := controlFixture(t, false)
+	owner, err := laneowner.Read(caseRoot, testLane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := ResultSource{
+		Kind: "host-owned-claude-result", Ref: "attempt:legacy/session:legacy",
+		SHA256: strings.Repeat("a", 64), Bytes: 24, SessionKind: "member",
+		AttemptID: "legacy-attempt", AttemptSHA256: strings.Repeat("b", 64), SessionID: "legacy-session",
+	}
+	legacy := LegacyHeldResultReceipt{
+		SchemaVersion: LegacyHeldResultReceiptSchemaVersion,
+		Kind:          "lane-execution-held-result",
+		Lane:          testLane,
+		Birth: LegacyResultBirth{
+			ControlGeneration: 0,
+			Owner:             owner,
+		},
+		ArrivalControlGeneration: 0,
+		ArrivalControlState:      StatePaused,
+		ArrivalOwner:             &owner,
+		Source:                   source,
+		Disposition:              ResultDispositionHeldWhilePaused,
+		Actor:                    "legacy-result-test",
+		ObservedAt:               "2026-08-18T15:02:00Z",
+		Reason:                   "lane execution is paused",
+		Advanced:                 false,
+		CanonicalPublication:     false,
+		NoAuthority:              true,
+		NoConfirmed:              true,
+		NoHeavyTool:              true,
+		NoAutoResume:             true,
+	}
+	legacyData, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityData, err := json.Marshal(struct {
+		Lane   string            `json:"lane"`
+		Birth  LegacyResultBirth `json:"birth"`
+		Source ResultSource      `json:"source"`
+	}{Lane: testLane, Birth: legacy.Birth, Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.ReceiptPath, err = projectstate.Rel(caseRoot, "lanes", testLane, controlDir, heldResultDir, hash(identityData)+".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyData, err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(caseRoot, filepath.FromSlash(legacy.ReceiptPath))
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, legacyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	history, found, err := ReadHeldResultHistory(caseRoot, legacy.ReceiptPath)
+	if err != nil || !found || history.Version != LegacyHeldResultReceiptSchemaVersion ||
+		history.Legacy == nil || history.Current != nil || history.WholeSHA256 != hash(legacyData) ||
+		!bytes.Equal(history.Raw, legacyData) {
+		t.Fatalf("legacy held result history = %+v found=%t err=%v", history, found, err)
+	}
+	if history.Legacy.Birth.Owner != owner || history.Legacy.ReceiptPath != legacy.ReceiptPath {
+		t.Fatalf("legacy held result identity changed: %+v", history.Legacy)
+	}
+
+	currentOptions := ResultPublicationOptions{
+		Lane: testLane, Birth: testResultBirth(owner), Source: source,
+		Actor: "current-result-test", ObservedAt: "2026-08-18T15:03:00Z",
+	}
+	canonicalCalls := 0
+	if _, err := PublishResult(caseRoot, currentOptions, func() error {
+		canonicalCalls++
+		return nil
+	}); err == nil || !strings.Contains(err.Error(), "decode-only") {
+		t.Fatalf("current publication accepted legacy held receipt: %v", err)
+	}
+	if canonicalCalls != 0 {
+		t.Fatalf("legacy held receipt crossed canonical publication boundary %d times", canonicalCalls)
+	}
+	unchanged, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unchanged, legacyData) {
+		t.Fatalf("legacy held receipt bytes changed during current publication attempt")
+	}
+}
+
+func TestDecodeVersionedHeldResultReceiptRejectsLegacyBoundaryDrift(t *testing.T) {
+	owner := laneowner.Snapshot{Lane: testLane, CurrentExecutor: "member-main", ExecutorGeneration: 7}
+	receipt := LegacyHeldResultReceipt{
+		SchemaVersion: LegacyHeldResultReceiptSchemaVersion, Kind: "lane-execution-held-result", Lane: testLane,
+		Birth: LegacyResultBirth{Owner: owner}, ArrivalControlState: StatePaused, ArrivalOwner: &owner,
+		Source:      ResultSource{Kind: "result", Ref: "legacy-ref", SHA256: strings.Repeat("c", 64), Bytes: 1, SessionKind: "member", AttemptID: "attempt", AttemptSHA256: strings.Repeat("d", 64), SessionID: "session"},
+		Disposition: ResultDispositionHeldWhilePaused, Actor: "legacy-test", ObservedAt: "2026-08-18T15:02:00Z", Reason: "paused", ReceiptPath: ".steamai/lanes/" + testLane + "/execution-control/held-results/legacy.json",
+		NoAuthority: true, NoConfirmed: true, NoHeavyTool: true, NoAutoResume: true,
+	}
+	for _, fixture := range []struct {
+		name   string
+		mutate func(*LegacyHeldResultReceipt)
+	}{
+		{name: "authority", mutate: func(value *LegacyHeldResultReceipt) { value.NoAuthority = false }},
+		{name: "canonical publication", mutate: func(value *LegacyHeldResultReceipt) { value.CanonicalPublication = true }},
+		{name: "owner", mutate: func(value *LegacyHeldResultReceipt) { value.ArrivalOwner.ExecutorGeneration = 0 }},
+		{name: "source hash", mutate: func(value *LegacyHeldResultReceipt) { value.Source.SHA256 = "bad" }},
+		{name: "disposition", mutate: func(value *LegacyHeldResultReceipt) { value.Disposition = ResultDispositionPublished }},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			drifted := receipt
+			ownerCopy := *receipt.ArrivalOwner
+			drifted.ArrivalOwner = &ownerCopy
+			fixture.mutate(&drifted)
+			data, err := json.Marshal(drifted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeVersionedHeldResultReceipt(data); err == nil {
+				t.Fatal("legacy held receipt boundary drift was accepted")
+			}
+		})
+	}
+}
 
 func TestPublishResultLinearizesCanonicalOrHeldByExactControlHead(t *testing.T) {
 	for _, fixture := range []struct {
@@ -54,7 +220,7 @@ func TestPublishResultLinearizesCanonicalOrHeldByExactControlHead(t *testing.T) 
 			calls := 0
 			result, err := PublishResult(caseRoot, ResultPublicationOptions{
 				Lane:  testLane,
-				Birth: ResultBirth{ControlGeneration: 0, Owner: owner},
+				Birth: testResultBirth(owner),
 				Source: ResultSource{
 					Kind: "host-owned-claude-result", Ref: "attempt:test/session:test",
 					SHA256: strings.Repeat("a", 64), Bytes: 128, SessionKind: "member",
@@ -95,6 +261,9 @@ func TestPublishResultLinearizesCanonicalOrHeldByExactControlHead(t *testing.T) 
 			if receipt.Advanced || receipt.CanonicalPublication || !receipt.NoAuthority || !receipt.NoConfirmed || !receipt.NoHeavyTool || !receipt.NoAutoResume || receipt.Disposition != fixture.disposition {
 				t.Fatalf("held receipt crossed its boundary: %+v", receipt)
 			}
+			if err := capabilitycontract.RequireBindingPolicy(receipt.Capability, capabilitycontract.PolicyClassTransport); err != nil {
+				t.Fatalf("held receipt capability contract drifted: %v", err)
+			}
 			inspection, err := Inspect(caseRoot, testLane)
 			if err != nil {
 				t.Fatalf("held receipt broke control inspection: %v", err)
@@ -107,7 +276,7 @@ func TestPublishResultLinearizesCanonicalOrHeldByExactControlHead(t *testing.T) 
 			}
 			replayed, err := PublishResult(caseRoot, ResultPublicationOptions{
 				Lane:  testLane,
-				Birth: ResultBirth{ControlGeneration: 0, Owner: owner},
+				Birth: testResultBirth(owner),
 				Source: ResultSource{
 					Kind: "host-owned-claude-result", Ref: "attempt:test/session:test",
 					SHA256: strings.Repeat("a", 64), Bytes: 128, SessionKind: "member",
@@ -122,6 +291,44 @@ func TestPublishResultLinearizesCanonicalOrHeldByExactControlHead(t *testing.T) 
 				t.Fatalf("held replay = %+v calls=%d err=%v", replayed, calls, err)
 			}
 		})
+	}
+}
+
+func TestHeldResultRejectsCapabilityHashDrift(t *testing.T) {
+	caseRoot := controlFixture(t, false)
+	owner, err := laneowner.Read(caseRoot, testLane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyControl(t, caseRoot, ActionPause, "hold capability-bound result", "2026-08-18T15:10:00Z", 1, StatePaused)
+	options := ResultPublicationOptions{
+		Lane: testLane, Birth: testResultBirth(owner),
+		Source: ResultSource{Kind: "host-owned-claude-result", Ref: "attempt:capability/session:test", SHA256: strings.Repeat("3", 64), Bytes: 32, SessionKind: "reviewer", AttemptID: "capability-attempt", AttemptSHA256: strings.Repeat("4", 64), SessionID: "capability-session"},
+		Actor:  "capability-test", ObservedAt: "2026-08-18T15:11:00Z",
+	}
+	result, err := PrepareResult(caseRoot, options)
+	if err != nil || !result.Held {
+		t.Fatalf("prepare capability-bound held result: result=%+v err=%v", result, err)
+	}
+	path := filepath.Join(caseRoot, filepath.FromSlash(result.ReceiptPath))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt HeldResultReceipt
+	if err := json.Unmarshal(data, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	receipt.Capability.SHA256 = strings.Repeat("5", 64)
+	data, err = json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareResult(caseRoot, options); err == nil || !strings.Contains(err.Error(), "capability") {
+		t.Fatalf("held result capability hash drift was accepted: %v", err)
 	}
 }
 
@@ -146,7 +353,7 @@ func TestPrepareResultClassifiesWithoutCanonicalPublication(t *testing.T) {
 			}
 			result, err := PrepareResult(caseRoot, ResultPublicationOptions{
 				Lane:  testLane,
-				Birth: ResultBirth{ControlGeneration: 0, Owner: owner},
+				Birth: testResultBirth(owner),
 				Source: ResultSource{
 					Kind: "host-owned-claude-result", Ref: "attempt:prepare/session:test",
 					SHA256: strings.Repeat("e", 64), Bytes: 32, SessionKind: "reviewer",
@@ -198,7 +405,7 @@ func TestPublishResultWithLeaseRejectsDifferentLaneLease(t *testing.T) {
 	calls := 0
 	_, err = PublishResultWithLease(caseRoot, lease, ResultPublicationOptions{
 		Lane:  otherLane,
-		Birth: ResultBirth{ControlGeneration: 0, Owner: owner},
+		Birth: testResultBirth(owner),
 		Source: ResultSource{
 			Kind: "host-owned-claude-result", Ref: "attempt:wrong-lease/session:test",
 			SHA256: strings.Repeat("1", 64), Bytes: 16, SessionKind: "reviewer",
@@ -251,7 +458,7 @@ func TestPublishResultWithExistingMutationLeaseMatchesOwnerClassification(t *tes
 			calls := 0
 			result, err := PublishResultWithLease(caseRoot, lease, ResultPublicationOptions{
 				Lane:  testLane,
-				Birth: ResultBirth{ControlGeneration: 0, Owner: owner},
+				Birth: testResultBirth(owner),
 				Source: ResultSource{
 					Kind: "host-owned-claude-result", Ref: "attempt:existing-lease/session:test",
 					SHA256: strings.Repeat("c", 64), Bytes: 64, SessionKind: "reviewer",

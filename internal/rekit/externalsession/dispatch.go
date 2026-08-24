@@ -12,10 +12,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/productioninstruction"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimeinstruction"
 )
 
 const (
@@ -32,13 +37,15 @@ type DispatchInput struct {
 }
 
 type DispatchLaunch struct {
-	Ready          bool          `json:"ready"`
-	Tool           string        `json:"tool"`
-	AgentType      string        `json:"agentType"`
-	ReadOnly       bool          `json:"readOnly"`
-	Input          DispatchInput `json:"input"`
-	ExpectedOutput string        `json:"expectedOutput"`
-	Boundary       []string      `json:"boundary"`
+	Ready               bool                        `json:"ready"`
+	Tool                string                      `json:"tool"`
+	AgentType           string                      `json:"agentType"`
+	ReadOnly            bool                        `json:"readOnly"`
+	Capability          capabilitycontract.Binding  `json:"capability"`
+	Input               DispatchInput               `json:"input"`
+	ExpectedOutput      string                      `json:"expectedOutput"`
+	InstructionIdentity *instructionpacket.Identity `json:"instructionIdentity,omitempty"`
+	Boundary            []string                    `json:"boundary"`
 }
 
 type DispatchSubmissionTemplate struct {
@@ -618,10 +625,82 @@ func validateDispatchTicket(job Job, attempt Attempt, attemptPath, attemptSHA st
 	if ticket.SchemaVersion != SchemaVersion || ticket.Kind != KindDispatchTicket || ticket.JobID != job.JobID || !strings.EqualFold(ticket.JobSHA256, attempt.JobSHA256) || ticket.CheckpointSHA256 != job.CheckpointSHA256 || ticket.SessionKind != job.SessionKind || !equalAttempt(ticket.Attempt, attempt) || ticket.AttemptPath != attemptPath || !strings.EqualFold(ticket.AttemptSHA256, attemptSHA) || !ticket.Launch.Ready || ticket.Launch.Input.Path == "" || !isSHA(ticket.Launch.Input.SHA256) || ticket.Return.SubmissionPath != attempt.SubmissionPath || ticket.Return.SubmissionOutputs != attempt.SubmissionOutputs || ticket.Return.SubmissionResult != attempt.SubmissionResult || !ticket.Return.SubmissionLast || len(ticket.Return.Templates) != len(attempt.AllowedOutcomes) || ticket.RefreshStatusCommand == "" || !ticket.NoSessionManagement || !ticket.NoHeavyTool || !ticket.NoAuthority || !ticket.NoConfirmed {
 		return fmt.Errorf("external session dispatch ticket contract is invalid")
 	}
+	if err := validateDispatchLaunchCapability(job, ticket.Launch); err != nil {
+		return err
+	}
 	for idx, template := range ticket.Return.Templates {
 		if template.Outcome != attempt.AllowedOutcomes[idx] || strings.TrimSpace(template.JSON) == "" || len(template.RequiredWrites) == 0 {
 			return fmt.Errorf("external session dispatch return template is invalid")
 		}
+	}
+	if err := validateDispatchInstructionIdentity(job, ticket.Launch.InstructionIdentity); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateDispatchLaunchCapability(job Job, launch DispatchLaunch) error {
+	policyClass := ""
+	switch job.SessionKind {
+	case "member":
+		policyClass = capabilitycontract.PolicyClassTransport
+		if launch.ReadOnly {
+			return fmt.Errorf("external member dispatch capability cannot be projected as read-only")
+		}
+		if launch.Capability != job.Capability {
+			return fmt.Errorf("external member dispatch capability does not match its exact job lineage")
+		}
+	case "reviewer":
+		policyClass = capabilitycontract.PolicyClassReadOnly
+		if !launch.ReadOnly {
+			return fmt.Errorf("external reviewer dispatch capability must be projected as read-only")
+		}
+		if job.Reviewer == nil || strings.TrimSpace(job.Reviewer.DispatchPath) == "" || !isSHA(job.Reviewer.DispatchSHA256) {
+			return fmt.Errorf("external reviewer dispatch capability requires exact durable dispatch lineage")
+		}
+		receipt, err := reviewersession.ReadDispatch(job.CaseRoot, job.Reviewer.DispatchPath, job.Reviewer.DispatchSHA256)
+		if err != nil {
+			return fmt.Errorf("read external reviewer dispatch capability lineage: %w", err)
+		}
+		if launch.Capability != receipt.Capability {
+			return fmt.Errorf("external reviewer dispatch capability does not match its exact durable dispatch lineage")
+		}
+	default:
+		return fmt.Errorf("external session dispatch capability does not support session kind %q", job.SessionKind)
+	}
+	if err := capabilitycontract.RequireBindingPolicy(launch.Capability, policyClass); err != nil {
+		return fmt.Errorf("external %s dispatch capability contract is invalid: %w", job.SessionKind, err)
+	}
+	return nil
+}
+
+func validateDispatchInstructionIdentity(job Job, identity *instructionpacket.Identity) error {
+	pack := strings.TrimSpace(job.Pack)
+	_, production := productioninstruction.ContractFor(pack)
+	if !production {
+		if identity != nil {
+			return fmt.Errorf("non-production external session dispatch cannot claim a production instruction identity")
+		}
+		return nil
+	}
+	root, err := projectstate.Resolve(job.CaseRoot)
+	if err != nil {
+		return fmt.Errorf("resolve external session dispatch instruction state root: %w", err)
+	}
+	if !root.Legacy && !root.Existing {
+		return fmt.Errorf("production external session dispatch requires an attached project-local or legacy instruction runtime")
+	}
+	if identity == nil {
+		if root.Legacy {
+			return nil
+		}
+		return fmt.Errorf("production external session dispatch omitted its durable instruction identity")
+	}
+	if err := productioninstruction.ValidateIdentity(pack, *identity); err != nil {
+		return fmt.Errorf("external session dispatch instruction identity is invalid: %w", err)
+	}
+	if _, err := runtimeinstruction.Reload(job.CaseRoot, pack, *identity); err != nil {
+		return fmt.Errorf("external session dispatch instruction identity is not current: %w", err)
 	}
 	return nil
 }

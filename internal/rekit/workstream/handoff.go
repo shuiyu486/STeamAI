@@ -24,6 +24,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
@@ -124,6 +125,7 @@ type HandoffResult struct {
 	PublicationPlanSHA256              string                                      `json:"publicationPlanSha256,omitempty"`
 	PublicationStamp                   string                                      `json:"publicationStamp,omitempty"`
 	ApplyCommand                       string                                      `json:"applyCommand,omitempty"`
+	ApplyArgs                          []string                                    `json:"applyArgs,omitempty"`
 	Writes                             []StartWrite                                `json:"writes"`
 	BlockedActions                     []string                                    `json:"blockedActions"`
 	NextSteps                          []string                                    `json:"nextSteps"`
@@ -135,6 +137,15 @@ func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (Handof
 		return missingBoardHandoffPreview(repoRoot, caseRoot, pack)
 	}
 	if err != nil {
+		return HandoffResult{}, err
+	}
+	if _, err := plancontract.ValidatePhase(
+		commands.Handoff,
+		"-ExpectedHandoffPlanSha256",
+		true,
+		false,
+		opt.ExpectedPublicationPlanSHA256,
+	); err != nil {
 		return HandoffResult{}, err
 	}
 	writes, err := ctx.plannedWrites(false)
@@ -157,7 +168,8 @@ func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (Handof
 	result = plan.Preview
 	result.PublicationPlanSHA256 = plan.PublicationSHA256
 	result.PublicationStamp = ctx.stamp
-	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), result.PublicationPlanSHA256, ctx.stamp)
+	result.ApplyArgs = handoffApplyArgs(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), result.PublicationPlanSHA256, ctx.stamp)
+	result.ApplyCommand = handoffCommandForArgs(result.ApplyArgs)
 	bindHandoffApplyRoute(&result, result.ApplyCommand)
 	return result, nil
 }
@@ -259,7 +271,7 @@ func missingBoardHandoffPreview(repoRoot, caseRoot, pack string) (HandoffResult,
 		return HandoffResult{}, err
 	}
 	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{action})
-	runbook := DailyMissionControlRunbookFor(inst.CaseRoot, "case-onboarding", queue, handoffPreviewCommand(inst.CaseRoot, ""), handoffApplyCommand(inst.CaseRoot, ""))
+	runbook := DailyMissionControlRunbookFor(inst.CaseRoot, "case-onboarding", queue, handoffPreviewCommand(inst.CaseRoot, m.Pack, ""), handoffApplyCommand(inst.CaseRoot, m.Pack, ""))
 	packagePath, err := stateRelPath(inst.CaseRoot, "handovers", "latest-replacement-executor-takeover.json")
 	if err != nil {
 		return HandoffResult{}, err
@@ -298,13 +310,17 @@ func missingBoardHandoffPreview(repoRoot, caseRoot, pack string) (HandoffResult,
 }
 
 func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result HandoffResult, err error) {
-	expected := strings.TrimSpace(opt.ExpectedPublicationPlanSHA256)
 	ctx, err := newHandoffContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return HandoffResult{}, err
 	}
-	if expected == "" {
-		return HandoffResult{}, fmt.Errorf("handoff apply requires -ExpectedHandoffPlanSha256 from a fresh WhatIf preview")
+	expected, err := plancontract.RequireApplyBinding(
+		commands.Handoff,
+		"-ExpectedHandoffPlanSha256",
+		opt.ExpectedPublicationPlanSHA256,
+	)
+	if err != nil {
+		return HandoffResult{}, err
 	}
 	if strings.TrimSpace(opt.PublicationStamp) == "" {
 		return HandoffResult{}, fmt.Errorf("handoff apply requires -HandoffPublicationStamp from the same WhatIf preview")
@@ -338,8 +354,13 @@ func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result H
 	if err != nil {
 		return HandoffResult{}, err
 	}
-	if !strings.EqualFold(expected, plan.PublicationSHA256) {
-		return HandoffResult{}, fmt.Errorf("handoff publication plan sha256 mismatch: got %s want %s; rerun handoff -WhatIf", expected, plan.PublicationSHA256)
+	if _, err := plancontract.Match(
+		commands.Handoff,
+		"-ExpectedHandoffPlanSha256",
+		expected,
+		plan.PublicationSHA256,
+	); err != nil {
+		return HandoffResult{}, err
 	}
 	if err := ctx.publishPublicationPlan(plan); err != nil {
 		return HandoffResult{}, err
@@ -350,7 +371,8 @@ func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result H
 	result.RequiresConfirmation = false
 	result.PublicationPlanSHA256 = plan.PublicationSHA256
 	result.PublicationStamp = ctx.stamp
-	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), plan.PublicationSHA256, ctx.stamp)
+	result.ApplyArgs = handoffApplyArgs(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), plan.PublicationSHA256, ctx.stamp)
+	result.ApplyCommand = handoffCommandForArgs(result.ApplyArgs)
 	bindHandoffApplyRoute(&result, result.ApplyCommand)
 	result.Writes = appliedHandoffWrites(plan.Writes)
 	nextSteps, err := appliedHandoffNextSteps(result)
@@ -379,11 +401,11 @@ type handoffContext struct {
 }
 
 func (ctx handoffContext) dailyMissionControlRunbook(scope, selector string, queue mission.MissionCommanderActionQueue) *DailyMissionControlRunbook {
-	applyCommand := handoffApplyCommand(ctx.inst.CaseRoot, selector)
+	applyCommand := handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, selector)
 	applyReady := strings.TrimSpace(ctx.publicationPlanSHA256) != "" &&
 		strings.EqualFold(strings.TrimSpace(selector), ctx.canonicalSelector())
 	if applyReady {
-		applyCommand = handoffApplyCommand(ctx.inst.CaseRoot, selector, ctx.publicationPlanSHA256, ctx.stamp)
+		applyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, selector, ctx.publicationPlanSHA256, ctx.stamp)
 	}
 	refreshCommand := ""
 	if queue.CurrentDriverRequest != nil {
@@ -393,7 +415,7 @@ func (ctx handoffContext) dailyMissionControlRunbook(scope, selector string, que
 		ctx.inst.CaseRoot,
 		scope,
 		queue,
-		handoffPreviewCommand(ctx.inst.CaseRoot, selector),
+		handoffPreviewCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, selector),
 		applyCommand,
 		applyReady,
 		refreshCommand,
@@ -459,6 +481,7 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 			return handoffContext{}, err
 		}
 		ctx.lane = &lane
+		ctx.selector = lane.ID
 	}
 	expectedLane := ""
 	if ctx.lane != nil {
@@ -939,7 +962,7 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 	if err != nil {
 		return handoffPublicationPlan{}, err
 	}
-	bindHandoffApplyRoute(&preview, handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), handoffPublicationPlanSHA256Marker, ctx.stamp))
+	bindHandoffApplyRoute(&preview, handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), handoffPublicationPlanSHA256Marker, ctx.stamp))
 	takeoverWrites, err := ctx.replacementExecutorTakeoverPackageArtifactWrites(false, preview.ReplacementExecutorTakeoverPackage)
 	if err != nil {
 		return handoffPublicationPlan{}, err
@@ -1346,8 +1369,8 @@ func readStableHandoffPublicationInput(path string, before os.FileInfo) ([]byte,
 }
 
 func (ctx handoffContext) bindHandoffPublicationMarkdown(markdown, publicationPlanSHA256 string) string {
-	generic := handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector())
-	bound := handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), publicationPlanSHA256, ctx.stamp)
+	generic := handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector())
+	bound := handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), publicationPlanSHA256, ctx.stamp)
 	markdown = strings.ReplaceAll(markdown, generic, bound)
 	if !strings.Contains(markdown, bound) {
 		markdown += "\n## Handoff publication plan\n\n"
@@ -1380,11 +1403,11 @@ func handoffRunbookScope(project bool, selector string) string {
 	return "lane:" + selector
 }
 
-func handoffPreviewCommand(caseRoot, selector string) string {
-	return handoffCommand(caseRoot, selector, false, "", "")
+func handoffPreviewCommand(caseRoot, pack, selector string) string {
+	return handoffCommand(caseRoot, pack, selector, false, "", "")
 }
 
-func handoffApplyCommand(caseRoot, selector string, expected ...string) string {
+func handoffApplyCommand(caseRoot, pack, selector string, expected ...string) string {
 	sha256 := ""
 	stamp := ""
 	if len(expected) > 0 {
@@ -1393,27 +1416,39 @@ func handoffApplyCommand(caseRoot, selector string, expected ...string) string {
 	if len(expected) > 1 {
 		stamp = strings.TrimSpace(expected[1])
 	}
-	return handoffCommand(caseRoot, selector, true, sha256, stamp)
+	return handoffCommandForArgs(handoffApplyArgs(caseRoot, pack, selector, sha256, stamp))
 }
 
-func handoffCommand(caseRoot, selector string, apply bool, expectedSHA256, publicationStamp string) string {
-	parts := []string{"/rekit", "handoff", "-Target", caseRoot}
+func handoffApplyArgs(caseRoot, pack, selector, expectedSHA256, publicationStamp string) []string {
+	return handoffArgs(caseRoot, pack, selector, true, expectedSHA256, publicationStamp)
+}
+
+func handoffCommand(caseRoot, pack, selector string, apply bool, expectedSHA256, publicationStamp string) string {
+	return handoffCommandForArgs(handoffArgs(caseRoot, pack, selector, apply, expectedSHA256, publicationStamp))
+}
+
+func handoffArgs(caseRoot, pack, selector string, apply bool, expectedSHA256, publicationStamp string) []string {
+	args := []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", pack}
 	if apply {
-		parts = append(parts, "-Apply")
+		args = append(args, "-Apply")
 		if expectedSHA256 != "" {
-			parts = append(parts, "-ExpectedHandoffPlanSha256", expectedSHA256)
+			args = append(args, "-ExpectedHandoffPlanSha256", expectedSHA256)
 		}
 		if publicationStamp != "" {
-			parts = append(parts, "-HandoffPublicationStamp", publicationStamp)
+			args = append(args, "-HandoffPublicationStamp", publicationStamp)
 		}
 	} else {
-		parts = append(parts, "-WhatIf")
+		args = append(args, "-WhatIf")
 	}
 	selector = strings.TrimSpace(selector)
 	if selector != "" {
-		parts = append(parts, "-Lane", selector)
+		args = append(args, "-Lane", selector)
 	}
-	parts = append(parts, "-Format", "json")
+	return append(args, "-Format", "json")
+}
+
+func handoffCommandForArgs(args []string) string {
+	parts := append([]string{"/rekit", "handoff"}, args[2:]...)
 	for i, part := range parts {
 		parts[i] = quoteCommandArg(part)
 	}
@@ -1816,6 +1851,39 @@ func BindLaneAuthorityContinueCommand(command string, lane mission.BoardLane) st
 
 func BindLaneAuthorityContinueCommands(action mission.ExecutorAction, lane mission.BoardLane) mission.ExecutorAction {
 	return bindLaneContinueCommands(action, workstreamLanesFromBoard([]mission.BoardLane{lane})[0])
+}
+
+func BindMissionCommanderNextActionAuthorityContinueCommands(items []mission.MissionCommanderNextActionItem, lane mission.BoardLane) ([]mission.MissionCommanderNextActionItem, error) {
+	currentLane := workstreamLanesFromBoard([]mission.BoardLane{lane})[0]
+	out := append([]mission.MissionCommanderNextActionItem{}, items...)
+	for idx := range out {
+		originalCommand := strings.TrimSpace(out[idx].Command)
+		boundCommand := bindContinueCommand(originalCommand, currentLane)
+		if boundCommand == originalCommand {
+			continue
+		}
+
+		originalInvocation, err := commands.ParsePublicInvocation(originalCommand)
+		if err != nil {
+			return nil, fmt.Errorf("bind Mission Commander continue action to current lane owner: %w", err)
+		}
+		if out[idx].Invocation != nil {
+			if err := out[idx].Invocation.Validate(); err != nil {
+				return nil, fmt.Errorf("bind Mission Commander continue action to current lane owner: %w", err)
+			}
+			if !out[idx].Invocation.Equivalent(originalInvocation) {
+				return nil, fmt.Errorf("bind Mission Commander continue action to current lane owner: typed invocation does not match the command projection")
+			}
+		}
+
+		boundInvocation, err := commands.ParsePublicInvocation(boundCommand)
+		if err != nil {
+			return nil, fmt.Errorf("bind Mission Commander continue action to current lane owner: %w", err)
+		}
+		out[idx].Command = boundCommand
+		out[idx].Invocation = &boundInvocation
+	}
+	return out, nil
 }
 
 func BindMissionBriefAuthorityContinueCommands(brief mission.Brief, lanes []mission.BoardLane) mission.Brief {

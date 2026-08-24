@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -43,8 +44,15 @@ func TestAcquireReviewerResultPublicationLeaseReturnsTypedHeldBeforePlanBuild(t 
 	}); err != nil {
 		t.Fatal(err)
 	}
+	capability, err := capabilitycontract.Bind(capabilitycontract.ReadOnly())
+	if err != nil {
+		t.Fatal(err)
+	}
 	publication := executioncontrol.ResultPublicationOptions{
-		Lane: lane, Birth: executioncontrol.ResultBirth{ControlGeneration: 0, Owner: owner},
+		Lane: lane, Birth: executioncontrol.ResultBirth{
+			SchemaVersion:     executioncontrol.ResultBirthSchemaVersion,
+			ControlGeneration: 0, Owner: owner, Capability: capability,
+		},
 		Source: executioncontrol.ResultSource{
 			Kind: "host-owned-claude-structured-output", Ref: "claude-result:reviewer:attempt:session",
 			SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Bytes: 32,

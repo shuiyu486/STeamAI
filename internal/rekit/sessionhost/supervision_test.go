@@ -44,6 +44,20 @@ func TestSupervisionSpecBindsAttemptSessionExecutableAndPackage(t *testing.T) {
 	}
 }
 
+func TestSupervisionSpecRoundTripsProductionInstructionIdentity(t *testing.T) {
+	caseRoot, opt, pkg, _, _ := projectExecutionLaunchFixture(t)
+	_, spec, _, _, err := prepareSupervision(opt, pkg, pkg.Launch.Attempt.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip := spec.Execution.packageForRun()
+	if roundTrip.Pack != pkg.Pack || roundTrip.Launch == nil || roundTrip.Launch.InstructionIdentity == nil ||
+		roundTrip.Launch.Capability != pkg.Launch.Capability ||
+		!equalProductionInstructionIdentityPointers(roundTrip.Launch.InstructionIdentity, pkg.Launch.InstructionIdentity) {
+		t.Fatalf("supervision dropped production instruction identity: case=%s got=%+v want=%+v", caseRoot, roundTrip, pkg)
+	}
+}
+
 func TestSupervisionSpecRoundTripsReviewerIdentity(t *testing.T) {
 	opt := recoveryOptionsForTest()
 	opt.Target = t.TempDir()
@@ -51,6 +65,8 @@ func TestSupervisionSpecRoundTripsReviewerIdentity(t *testing.T) {
 	opt.Timeout = time.Minute
 	pkg := recoveryPackageForTest()
 	pkg.SessionKind = "reviewer"
+	pkg.Launch.ReadOnly = true
+	pkg.Launch.Capability = readOnlyCapabilityForTest()
 	pkg.Launch.ReviewerIdentity = &mission.CurrentLoopExternalSessionReviewerIdentity{
 		PacketID: "packet-exact", RouteID: "_template:lane-feature-analysis",
 		ShardID: "shard-01", Items: []string{"evidence/manifest.json"},
@@ -58,6 +74,7 @@ func TestSupervisionSpecRoundTripsReviewerIdentity(t *testing.T) {
 		DispatchPath: ".rekit/dispatch.json", DispatchSHA256: strings.Repeat("a", 64),
 		DispatchID: "dispatch-exact", ReviewerSession: pkg.Launch.Attempt.Session,
 		PromptPath: ".rekit/reviewer-prompt.md", PromptSHA256: strings.Repeat("b", 64),
+		Capability:  pkg.Launch.Capability,
 		NoHeavyTool: true, NoAuthority: true,
 	}
 
@@ -66,7 +83,7 @@ func TestSupervisionSpecRoundTripsReviewerIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	roundTrip := spec.Execution.packageForRun()
-	if roundTrip.Launch == nil || roundTrip.Launch.ReviewerIdentity == nil {
+	if roundTrip.Launch == nil || roundTrip.Launch.ReviewerIdentity == nil || roundTrip.Launch.Capability != pkg.Launch.Capability {
 		t.Fatalf("supervision dropped reviewer identity: got=%+v want=%+v", roundTrip.Launch, pkg.Launch)
 	}
 	gotIdentity, err := json.Marshal(roundTrip.Launch.ReviewerIdentity)

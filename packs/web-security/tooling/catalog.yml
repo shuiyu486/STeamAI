@@ -9,21 +9,24 @@ paths:
   sidecar: <caseRoot>/evidence/sidecars
 
 tools:
-  - id: passive-doc-review
-    status: mainline-template
-    entry: case-local docs / OpenAPI / route map
-    purpose: Build route and endpoint inventory without external side effects.
-    sideEffects: none
+  - id: openapi-v3-json-inventory
+    status: supported
+    entry: compiled-in rekit-adapter-host child; catalog entry is provenance only and is never executed
+    purpose: Build a bounded typed endpoint, server, parameter, and auth inventory from one case-local OpenAPI 3 JSON document without network access or secret-value persistence.
+    sideEffects: filesystem-read,bounded-packet-write
+    gateActions: inspect
     reusableNotes:
-      - Store endpoint inventory as case-local sidecar, then cite only summaries in Markdown.
-  - id: request-replay-harness
-    status: cautious
-    entry: <caseRoot>/tools/request-replay
-    purpose: Replay a bounded set of authorized requests for verification.
-    sideEffects: network requests and possible state changes
+      - Emit tooling/schemas/openapi-inventory-v1.schema.json through the fixed compiled-in adapter; do not fetch remote refs, execute catalog entry text, or retain descriptions, examples, defaults, credentials, tokens, cookies, or response bodies.
+      - Store the typed inventory as a case-local sidecar and cite only bounded paths and hashes in Markdown.
+  - id: bounded-http-replay
+    status: supported
+    entry: compiled-in rekit-adapter-host child; catalog entry is provenance only and is never executed
+    purpose: Replay exactly one inventoried GET, HEAD, or OPTIONS request to an exact loopback IP origin and emit a deterministic digest-only response diff.
+    sideEffects: network,bounded-packet-write
+    gateActions: network
     reusableNotes:
-      - Requires explicit scope, request budget, rate limit, and stop conditions before use.
-      - Never store credentials, cookies, tokens, or full responses in pack docs.
+      - Requires strict durable profile plus exact authorized gate, one request, zero redirects, no ambient proxy, no retries, bounded runtime/body bytes, and an authRef environment reference rather than secret bytes.
+      - Uncertain delivery is terminal and is never retried or replaced; result sidecars contain only status, byte counts, and SHA-256 digests, never credential or response bytes.
   - id: proxy-export-review
     status: auxiliary
     entry: Burp/ZAP/HAR export summary sidecar

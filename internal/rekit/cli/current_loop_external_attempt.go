@@ -127,7 +127,9 @@ func externalSessionDispatchTicket(job externalsession.Job, inspection externals
 	ticket := externalsession.DispatchTicket{
 		Launch: externalsession.DispatchLaunch{
 			Ready: pkg.Launch.Ready, Tool: pkg.Launch.Tool, AgentType: pkg.Launch.AgentType,
-			ReadOnly: pkg.Launch.ReadOnly, ExpectedOutput: pkg.Launch.ExpectedOutput,
+			ReadOnly: pkg.Launch.ReadOnly, Capability: pkg.Launch.Capability,
+			ExpectedOutput:      pkg.Launch.ExpectedOutput,
+			InstructionIdentity: cloneInstructionIdentity(pkg.Launch.InstructionIdentity),
 			Input: externalsession.DispatchInput{
 				Path: pkg.Launch.Input.Path, SHA256: pkg.Launch.Input.SHA256, Role: pkg.Launch.Input.Role,
 			},

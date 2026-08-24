@@ -2,7 +2,6 @@ package sessionhost
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
@@ -37,22 +36,20 @@ func runDailyGoalFlow(
 	pack string,
 	result *DailyResult,
 ) error {
-	hostOpt.StopAfterMemberIntake = true
-	if _, err := bindHostCurrentDriverRequest(&hostOpt); err != nil {
-		return fmt.Errorf("bind daily member current driver request: %w", err)
-	}
-	member, err := Run(parent, hostOpt)
-	addDailyHostRun(result, member)
+	owner, err := newDailySessionTransitionOwner(caseRoot, pack, result.Lane)
 	if err != nil {
 		return err
 	}
-	result.FinalState = member.FinalMode
-	if member.FinalMode == "reviewer-rejected-awaiting-correction" {
+	hostOpt.StopAfterMemberIntake = true
+	if err := owner.runHostSegment(parent, hostOpt, result); err != nil {
+		return err
+	}
+	if result.FinalState == "reviewer-rejected-awaiting-correction" {
 		result.Blocked = true
 		return nil
 	}
-	if member.FinalMode != "reviewer-ready" {
-		return finishDailyCompletion(caseRoot, pack, result)
+	if result.FinalState != "reviewer-ready" {
+		return owner.finish(result)
 	}
 
 	status, err := runPublicStatus(caseRoot, pack, result.Lane)
@@ -65,14 +62,8 @@ func runDailyGoalFlow(
 		return nil
 	}
 	hostOpt.StopAfterMemberIntake = false
-	if _, err := bindHostCurrentDriverRequest(&hostOpt); err != nil {
-		return fmt.Errorf("bind daily Reviewer current driver request: %w", err)
-	}
-	reviewer, err := Run(parent, hostOpt)
-	addDailyHostRun(result, reviewer)
-	if err != nil {
+	if err := owner.runHostSegment(parent, hostOpt, result); err != nil {
 		return err
 	}
-	result.FinalState = reviewer.FinalMode
-	return finishDailyCompletion(caseRoot, pack, result)
+	return owner.finish(result)
 }

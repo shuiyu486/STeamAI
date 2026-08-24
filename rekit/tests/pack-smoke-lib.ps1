@@ -48,6 +48,16 @@ function Invoke-GoRekitSmoke {
   }
 }
 
+function Read-PackSmokeJsonFile {
+  param([Parameter(Mandatory=$true)][string]$Path)
+
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+  $serializer.MaxJsonLength = [int]::MaxValue
+  $serializer.RecursionLimit = 512
+  return $serializer.DeserializeObject([System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8))
+}
+
 function Assert-PackSmokeContainsText {
   param(
     [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Text,
@@ -108,7 +118,12 @@ function Invoke-RekitPackSmoke {
     Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Pack',$Pack) | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','doctor','-Pack',$Pack) | Out-Null
 
-    Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',("$ProjectNamePrefix-$suffix"),'-Apply') | Out-Null
+    $initPreview = Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',("$ProjectNamePrefix-$suffix"),'-WhatIf','-Format','json') | ConvertFrom-Json
+    $initApplyArgs = @($initPreview.applyArgs | ForEach-Object { [string]$_ })
+    if ([string]$initPreview.command -ne 'init' -or [bool]$initPreview.isMutation -or [string]::IsNullOrWhiteSpace([string]$initPreview.expectedPlanSha256) -or $initApplyArgs.Count -eq 0) {
+      throw "unexpected $Pack init preview: $($initPreview | ConvertTo-Json -Depth 20)"
+    }
+    Invoke-GoRekitSmoke -Arguments $initApplyArgs | Out-Null
     foreach ($rel in $ExpectedCaseFiles) {
       if (-not (Test-Path -LiteralPath (Join-Path $caseRoot $rel))) { throw "missing $Pack case file: $rel" }
     }
@@ -120,13 +135,13 @@ function Invoke-RekitPackSmoke {
 
     $goPlan = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType',$PlanTaskType,'-Items',$PlanItems,'-ReviewOutputDir',$reviewRoot) | ConvertFrom-Json
     if ([string]$goPlan.command -ne 'plan-subagents' -or [bool]$goPlan.isMutation -or -not [bool]$goPlan.writesReviewArtifacts -or [int]$goPlan.itemCount -ne $ExpectedItemCount) { throw "unexpected Go $Pack plan: $($goPlan | ConvertTo-Json -Depth 20)" }
-    $packet = Get-Content -LiteralPath ([string]$goPlan.packetPath) -Raw | ConvertFrom-Json
+    $packet = Read-PackSmokeJsonFile -Path ([string]$goPlan.packetPath)
     if ([string]$packet.route.id -ne $ExpectedPlanRoute -or [string]$packet.observability.routeDebug.selectedBy -ne 'taskType') { throw "unexpected Go $Pack packet: $($packet | ConvertTo-Json -Depth 20)" }
     Assert-PackSmokeContainsText -Text ([string]$packet.outputContract) -Expected $ExpectedOutputContractText -Label "$Pack output contract"
 
     $facadePlan = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType',$FacadeTaskType,'-Items',$FacadeItems,'-ReviewOutputDir',$facadeReviewRoot)
     Assert-PackSmokeContainsText -Text $facadePlan -Expected '"command": "plan-subagents"' -Label "$Pack facade plan default Go"
-    $facadePacket = Get-Content -LiteralPath (Join-Path $facadeReviewRoot 'packet.json') -Raw | ConvertFrom-Json
+    $facadePacket = Read-PackSmokeJsonFile -Path (Join-Path $facadeReviewRoot 'packet.json')
     if ([string]$facadePacket.route.id -ne $ExpectedFacadeRoute) { throw "unexpected facade $Pack route: $($facadePacket | ConvertTo-Json -Depth 20)" }
 
     $workflowRel = ($PromoteManagedDocPath -split '/') -join [System.IO.Path]::DirectorySeparatorChar
@@ -134,13 +149,14 @@ function Invoke-RekitPackSmoke {
     Add-Content -LiteralPath $workflowPath -Value ("`r`n{0}" -f $PromoteNote)
     $promoteReview = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-ReviewOutputDir',$promoteReviewRoot) | ConvertFrom-Json
     if ([string]$promoteReview.command -ne 'promote' -or [bool]$promoteReview.isMutation) { throw "unexpected $Pack promote review result: $($promoteReview | ConvertTo-Json -Depth 20)" }
-    $promotePacket = Get-Content -LiteralPath ([string]$promoteReview.packetPath) -Raw | ConvertFrom-Json
+    $promotePacket = Read-PackSmokeJsonFile -Path ([string]$promoteReview.packetPath)
     $workflowItems = @($promotePacket.items | Where-Object { [string]$_.path -eq $PromoteManagedDocPath -and [string]$_.kind -eq 'managed-doc' })
     if ($workflowItems.Count -ne 1 -or [string]$workflowItems[0].action -ne 'candidate-after-llm-review') { throw "$Pack workflow promote should not be blocked by deny pattern: $($promotePacket | ConvertTo-Json -Depth 20)" }
 
-    foreach ($unexpected in @('.rekit\board.json','.rekit\facts','.rekit\lanes')) {
+    foreach ($unexpected in @('.steamai\board.json','.steamai\facts','.steamai\lanes')) {
       if (Test-Path -LiteralPath (Join-Path $caseRoot $unexpected)) { throw "$Pack plan-subagents created $unexpected" }
     }
+    if (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit')) { throw "$Pack current init created legacy .rekit state" }
 
     $SuccessMessage
   } finally {

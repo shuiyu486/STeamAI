@@ -66,7 +66,11 @@ function Write-Utf8File {
 
 function Read-JsonFile {
   param([Parameter(Mandatory=$true)][string]$Path)
-  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+  $serializer.MaxJsonLength = [int]::MaxValue
+  $serializer.RecursionLimit = 512
+  return $serializer.DeserializeObject([System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8))
 }
 
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
@@ -75,7 +79,10 @@ $caseRoot = Join-Path $WorkRoot "unpack-pe-agent-team-dryrun-$suffix"
 $reviewRoot = Join-Path $WorkRoot "unpack-pe-agent-team-review-$suffix"
 
 try {
-  Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"unpack-pe-dryrun-$suffix",'-Apply') | Out-Null
+  $initPreview = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"unpack-pe-dryrun-$suffix",'-WhatIf','-Format','json') | ConvertFrom-Json
+  $initApplyArgs = @($initPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ($initApplyArgs.Count -eq 0) { throw 'unpack-pe dry-run init preview omitted applyArgs' }
+  Invoke-RekitSmoke -Arguments $initApplyArgs | Out-Null
 
   $start = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$caseRoot,'-Pack',$Pack,'-Name','loader','-Apply','-Format','json') | ConvertFrom-Json
   if ([string]$start.command -ne 'start' -or -not [bool]$start.isMutation -or -not [bool]$start.applied -or [string]$start.lane.id -ne 'unpack-analysis-loader' -or [string]$start.lane.type -ne 'unpack-analysis' -or [string]$start.lane.workspace -ne 'workspace/unpack/unpack-analysis-loader') {
@@ -101,20 +108,20 @@ try {
   }
 
   $candidate = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-Kind','candidate','-Lane','unpack-analysis-loader','-Subject','loader unpack candidate','-Summary','candidate awaiting bounded PE unpacking review','-Actor','unpack-agent','-Confidence','high','-Status','open','-Risk','high','-TargetRef','packed-sample','-BatchId','batch-unpack-pe-real-dryrun','-EvidenceRefs','workspace/unpack/unpack-analysis-loader/packet.md') | ConvertFrom-Json
-  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.rekit/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'unpack-analysis-loader') {
+  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.steamai/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'unpack-analysis-loader') {
     throw "unexpected unpack-pe candidate append: $($candidate | ConvertTo-Json -Depth 20)"
   }
 
-  $requestsPath = Join-Path $caseRoot '.rekit\facts\requests.jsonl'
+  $requestsPath = Join-Path $caseRoot '.steamai\facts\requests.jsonl'
   $beforeRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
-  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','dump','-Lane','unpack-analysis-loader','-Actor','runtime-test','-Subject','loader dump gate','-Summary','needs user confirmation before memory dump or unpacked binary extraction','-TargetRef','packed-sample','-BatchId','batch-unpack-pe-real-dryrun','-Scope','single loader stage only','-Budget','30s','-TriedLightSteps','plan-subagents,static PE triage','-StopConditions','timeout,no unpacked binary writeback') | ConvertFrom-Json
+  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','dump','-Lane','unpack-analysis-loader','-Actor','runtime-test','-Subject','loader dump gate','-Summary','needs user confirmation before memory dump or unpacked binary extraction','-TargetRef','packed-sample','-BatchId','batch-unpack-pe-real-dryrun','-Scope','single loader stage only','-Budget','30s','-TriedLightSteps','plan-subagents,static PE triage','-StopConditions','timeout,no-unpacked-binary-writeback') | ConvertFrom-Json
   if ([string]$gatePreview.command -ne 'gate' -or [bool]$gatePreview.isMutation -or -not [bool]$gatePreview.requiresConfirmation -or [string]$gatePreview.eventPreview.status -ne 'pending-gate' -or [string]$gatePreview.eventPreview.gate.action -ne 'dump') {
     throw "unexpected unpack-pe gate preview: $($gatePreview | ConvertTo-Json -Depth 20)"
   }
   $afterPreviewRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
   if ($beforeRequests -ne $afterPreviewRequests) { throw 'unpack-pe gate what-if changed requests ledger' }
 
-  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','dump','-Lane','unpack-analysis-loader','-Actor','runtime-test','-Risk','high','-Subject','loader dump gate','-Summary','needs user confirmation before memory dump or unpacked binary extraction','-TargetRef','packed-sample','-BatchId','batch-unpack-pe-real-dryrun','-Scope','single loader stage only','-Budget','30s','-TriedLightSteps','plan-subagents,static PE triage','-StopConditions','timeout,no unpacked binary writeback') | ConvertFrom-Json
+  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','dump','-Lane','unpack-analysis-loader','-Actor','runtime-test','-Risk','high','-Subject','loader dump gate','-Summary','needs user confirmation before memory dump or unpacked binary extraction','-TargetRef','packed-sample','-BatchId','batch-unpack-pe-real-dryrun','-Scope','single loader stage only','-Budget','30s','-TriedLightSteps','plan-subagents,static PE triage','-StopConditions','timeout,no-unpacked-binary-writeback') | ConvertFrom-Json
   if ([string]$gateApply.command -ne 'gate' -or -not [bool]$gateApply.isMutation -or -not [bool]$gateApply.applied -or [string]$gateApply.event.status -ne 'pending-gate' -or [string]$gateApply.event.gate.action -ne 'dump' -or [string]$gateApply.event.gate.scope -ne 'single loader stage only') {
     throw "unexpected unpack-pe gate apply: $($gateApply | ConvertTo-Json -Depth 20)"
   }
@@ -148,14 +155,17 @@ try {
     Assert-ContainsText -Text $overview -Expected $expected -Label 'unpack-pe overview text'
   }
 
-  $handoff = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','loader') | ConvertFrom-Json
+  $handoffPreview = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Format','json','loader') | ConvertFrom-Json
+  $handoffApplyArgs = @($handoffPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ([string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationPlanSha256) -or [string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationStamp) -or $handoffApplyArgs.Count -eq 0) { throw 'unpack-pe handoff preview omitted exact Apply action' }
+  $handoff = Invoke-RekitSmoke -Arguments $handoffApplyArgs | ConvertFrom-Json
   if ([string]$handoff.command -ne 'handoff' -or -not [bool]$handoff.isMutation -or -not [bool]$handoff.applied -or [bool]$handoff.project -or [string]$handoff.lane.id -ne 'unpack-analysis-loader' -or [string]$handoff.lane.workspace -ne 'workspace/unpack/unpack-analysis-loader') {
     throw "unexpected unpack-pe handoff result: $($handoff | ConvertTo-Json -Depth 20)"
   }
-  $handoffPath = Join-Path $caseRoot '.rekit\handovers\unpack-analysis-loader-latest.md'
+  $handoffPath = Join-Path $caseRoot '.steamai\handovers\unpack-analysis-loader-latest.md'
   if (-not (Test-Path -LiteralPath $handoffPath)) { throw "missing unpack-pe handoff: $handoffPath" }
   $handoffText = [System.IO.File]::ReadAllText($handoffPath, [System.Text.Encoding]::UTF8)
-  foreach ($expected in @('unpack-analysis-loader','/rekit continue unpack-analysis-loader','workspace/unpack/unpack-analysis-loader/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=dump','scope=single loader stage only')) {
+  foreach ($expected in @('unpack-analysis-loader','/rekit continue -Lane unpack-analysis-loader','workspace/unpack/unpack-analysis-loader/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=dump','scope=single loader stage only')) {
     Assert-ContainsText -Text $handoffText -Expected $expected -Label 'unpack-pe handoff text'
   }
   foreach ($unexpected in @('web-security','workspace/features','endpoint-login','generic-binary-re','workspace/binary','binary-analysis-sample','malware-analysis','workspace/samples','sample-alpha','vuln-research','workspace/vulns','ctf','workspace/challenges','challenge-alpha','references/template','vmp-re')) {

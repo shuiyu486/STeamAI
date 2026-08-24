@@ -14,6 +14,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
@@ -81,6 +82,7 @@ type InitPlan struct {
 	AdoptionReady        bool          `json:"adoptionReady"`
 	AdoptionBlockers     []string      `json:"adoptionBlockers,omitempty"`
 	ExpectedPlanSHA256   string        `json:"expectedPlanSha256"`
+	ApplyCommand         string        `json:"applyCommand,omitempty"`
 	ApplyArgs            []string      `json:"applyArgs,omitempty"`
 	BackupRoot           string        `json:"backupRoot"`
 	Writes               []WriteResult `json:"writes"`
@@ -232,6 +234,15 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	command := strings.TrimSpace(opt.Command)
 	if command == "" {
 		command = "init"
+	}
+	if _, err := plancontract.ValidatePhase(
+		command,
+		"-ExpectedInitPlanSha256",
+		true,
+		false,
+		opt.ExpectedPlanSHA256,
+	); err != nil {
+		return InitPlan{}, err
 	}
 	if casebind.SamePath(caseFull, repoFull) {
 		return InitPlan{}, fmt.Errorf("%s target must be an external case directory, not the kit repo root: %s", command, caseFull)
@@ -433,6 +444,17 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	if opt.CreateLocalFiles {
+		expectedPlanSHA256, err := plancontract.RequireApplyBinding(
+			command,
+			"-ExpectedInitPlanSha256",
+			opt.ExpectedPlanSHA256,
+		)
+		if err != nil {
+			return ApplyResult{}, err
+		}
+		opt.ExpectedPlanSHA256 = expectedPlanSHA256
+	}
 	lease, err := acquireMutationLease(caseFull)
 	if err != nil {
 		return ApplyResult{}, err
@@ -445,18 +467,19 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 	}()
 	canonicalSources := false
 	if opt.CreateLocalFiles {
-		if strings.TrimSpace(opt.ExpectedPlanSHA256) != "" && !validInitPlanSHA256(opt.ExpectedPlanSHA256) {
-			return ApplyResult{}, fmt.Errorf("%s -Apply requires a valid -ExpectedInitPlanSha256 from -WhatIf", command)
-		}
-		fresh, err := InitPreview(repoFull, caseFull, pack, opt)
+		previewOpt := opt
+		previewOpt.ExpectedPlanSHA256 = ""
+		fresh, err := InitPreview(repoFull, caseFull, pack, previewOpt)
 		if err != nil {
 			return ApplyResult{}, err
 		}
-		if (fresh.TargetClass == "missing" || fresh.TargetClass == "ordinary-directory") && !validInitPlanSHA256(opt.ExpectedPlanSHA256) {
-			return ApplyResult{}, fmt.Errorf("%s new project initialization requires a valid -ExpectedInitPlanSha256 from -WhatIf", command)
-		}
-		if validInitPlanSHA256(opt.ExpectedPlanSHA256) && !strings.EqualFold(fresh.ExpectedPlanSHA256, opt.ExpectedPlanSHA256) {
-			return ApplyResult{}, fmt.Errorf("%s plan changed after preview; rerun -WhatIf", command)
+		if _, err := plancontract.Match(
+			command,
+			"-ExpectedInitPlanSha256",
+			opt.ExpectedPlanSHA256,
+			fresh.ExpectedPlanSHA256,
+		); err != nil {
+			return ApplyResult{}, err
 		}
 		if fresh.TargetClass == "ordinary-directory" && !fresh.AdoptionReady {
 			return ApplyResult{}, fmt.Errorf("%s ordinary-directory adoption is blocked: %s", command, strings.Join(fresh.AdoptionBlockers, ", "))

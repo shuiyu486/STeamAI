@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
-	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
 func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing.T) {
@@ -889,9 +888,7 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	for _, legacyCase := range []string{freshCase, attachedCase} {
 		writeLegacyInitMarker(t, legacyCase, repoRoot, pack)
 	}
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReviewed reusable candidate.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -906,12 +903,8 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	if applied.Receipt == nil || applied.ReceiptPath == "" || !applied.Receipt.VerificationPending || !strings.Contains(applied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") {
 		t.Fatalf("candidate decision receipt omitted verification handoff: %+v", applied)
 	}
-	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := syncpkg.Apply(repoRoot, attachedCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "attached"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, freshCase, pack, "fresh")
+	applyInitForPromoteTest(t, repoRoot, attachedCase, pack, "attached")
 	preview, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase, WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
@@ -970,9 +963,7 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 
 func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	repoRoot, sourceCase, _, pack := packMemoryReconsumeFixture(t)
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReview-first cross-case reusable candidate.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1131,9 +1122,7 @@ func TestVerifyCandidateDecisionClosesMixedManagedAcceptAndToolingReject(t *test
 	for _, legacyCase := range []string{freshCase, attachedCase} {
 		writeLegacyInitMarker(t, legacyCase, repoRoot, pack)
 	}
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReviewed reusable candidate.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1201,12 +1190,8 @@ func TestVerifyCandidateDecisionClosesMixedManagedAcceptAndToolingReject(t *test
 			t.Fatalf("mixed decision candidate was not cleaned up: action=%+v err=%v", action, err)
 		}
 	}
-	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := syncpkg.Apply(repoRoot, attachedCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "attached"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, freshCase, pack, "fresh")
+	applyInitForPromoteTest(t, repoRoot, attachedCase, pack, "attached")
 	verified, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase})
 	if err != nil {
 		t.Fatal(err)
@@ -1255,9 +1240,7 @@ func TestVerifyCandidateDecisionClosesMixedManagedAcceptAndToolingReject(t *test
 
 func TestApplyCandidateDecisionsClosesToolingOnlyReject(t *testing.T) {
 	repoRoot, sourceCase, _, pack := packMemoryReconsumeFixture(t)
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	created, err := CreateCandidates(repoRoot, sourceCase, pack, CandidateOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -1347,14 +1330,10 @@ func TestVerifyCandidateDecisionRejectsDriftAndInvalidRoots(t *testing.T) {
 	for _, legacyCase := range []string{freshCase, attachedCase} {
 		writeLegacyInitMarker(t, legacyCase, repoRoot, pack)
 	}
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	staleFreshCase := filepath.Join(t.TempDir(), "stale-fresh-case")
 	writeLegacyInitMarker(t, staleFreshCase, repoRoot, pack)
-	if _, err := syncpkg.Apply(repoRoot, staleFreshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "stale-fresh"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, staleFreshCase, pack, "stale-fresh")
 	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReviewed reusable candidate.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1366,12 +1345,8 @@ func TestVerifyCandidateDecisionRejectsDriftAndInvalidRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := syncpkg.Apply(repoRoot, attachedCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "attached"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, freshCase, pack, "fresh")
+	applyInitForPromoteTest(t, repoRoot, attachedCase, pack, "attached")
 	base := CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase, WhatIf: true}
 	missing := base
 	missing.FreshCaseRoot = ""

@@ -456,13 +456,13 @@ func applyReviewerWaveObservationWithInterventionGuard(ctx runtime.Context, opt 
 	if err := ensureReviewerWaveLaneNotIntervened(ctx.Target, strings.TrimSpace(opt.Note.Lane)); err != nil {
 		return reviewerWaveObservationApplyResult{}, err
 	}
-	return applyReviewerWaveObservation(ctx, opt, observation, preview)
+	return applyReviewerWaveObservationWithLease(ctx, opt, observation, preview, lease)
 }
 
-func applyReviewerWaveObservation(ctx runtime.Context, opt Options, observation reviewerWaveObservation, preview reviewerWaveObservationPreview) (reviewerWaveObservationApplyResult, error) {
+func applyReviewerWaveObservationWithLease(ctx runtime.Context, opt Options, observation reviewerWaveObservation, preview reviewerWaveObservationPreview, lease *lanemutation.Lease) (reviewerWaveObservationApplyResult, error) {
 	switch preview.Kind {
 	case "accepted":
-		_, err := subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: observation.ReviewerHarness, ReviewerSession: observation.ReviewerSession, ExpectedBindingSHA256: preview.ExpectedBindingSHA256})
+		_, err := subagents.RecordReviewerSessionDispatchWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: observation.ReviewerHarness, ReviewerSession: observation.ReviewerSession, ExpectedBindingSHA256: preview.ExpectedBindingSHA256}, lease)
 		return reviewerWaveObservationApplyResult{Mutated: err == nil}, err
 	case "returned":
 		save, err := subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, SourcePath: observation.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: preview.DispatchID, ExpectedReviewerResultSHA256: preview.ExpectedInputSaveSHA256})

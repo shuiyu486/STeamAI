@@ -10,6 +10,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 )
 
 func TestReopenApplyRecoversExactPendingOperationIntent(t *testing.T) {
@@ -68,8 +69,10 @@ func TestReopenApplyRecoversExactPendingOperationIntent(t *testing.T) {
 	}
 	wrong := opt
 	wrong.ExpectedPreviewSHA256 = strings.Repeat("0", 64)
-	if _, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, wrong); err == nil || !strings.Contains(err.Error(), "does not match") {
-		t.Fatalf("wrong recovery hash was accepted: %v", err)
+	_, err = ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, wrong)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" || !IsZeroProgress(err) {
+		t.Fatalf("wrong recovery hash was accepted: %v failure=%+v typed=%t", err, failure, typed)
 	}
 
 	applied, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, opt)

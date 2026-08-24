@@ -11,6 +11,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 func TestRunStatusCompactJSONCurrentRequestIdentityParity(t *testing.T) {
@@ -42,17 +43,18 @@ func TestRunStatusCompactJSONCurrentRequestIdentityParity(t *testing.T) {
 	}
 }
 
-func TestRunStatusCompactJSONPreservesAllTypedChoices(t *testing.T) {
-	first := compactStatusChoiceFixture(t, "feature-login", "login", "ready-to-continue")
-	second := compactStatusChoiceFixture(t, "main", "main", "ready-to-continue")
+func TestRunStatusCompactJSONQualifiesAllTypedContinueChoices(t *testing.T) {
+	first := compactStatusRawContinueChoice("feature-login", "login", "ready-to-continue")
+	second := compactStatusRawContinueChoice("main", "main", "ready-to-continue")
 	caseMission := &statusCaseMission{
 		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{first, second}),
 	}
 	status := statusInventory{
-		Command:       commands.Status,
-		SchemaVersion: 1,
-		Mode:          "case",
-		CaseMission:   caseMission,
+		Command:          commands.Status,
+		SchemaVersion:    1,
+		Mode:             "case",
+		CaseMission:      caseMission,
+		publicProjection: projectPublicProjection{entrypoint: commands.CurrentPublicEntrypoint},
 	}
 	status.MissionControlRunbook = buildStatusMissionControlRunbook("", caseMission, nil)
 
@@ -69,8 +71,8 @@ func TestRunStatusCompactJSONPreservesAllTypedChoices(t *testing.T) {
 		t.Fatalf("compact choices = %+v, want all typed choices %+v", compact.Choices, want)
 	}
 	for _, choice := range compact.Choices {
-		if choice.Invocation == nil {
-			t.Fatalf("compact choice lost typed invocation: %+v", choice)
+		if choice.Invocation == nil || !choice.Invocation.HasFlag("-WhatIf") || !choice.Invocation.HasFlag("-Format") || !choice.RequiresReview {
+			t.Fatalf("compact choice is not a typed review-first preview: %+v", choice)
 		}
 		projected, err := choice.Invocation.Render()
 		if err != nil || projected != choice.Command {
@@ -85,12 +87,49 @@ func TestRunStatusCompactJSONPreservesAllTypedChoices(t *testing.T) {
 	}
 }
 
+func TestStatusCompactJSONFailsClosedOnCurrentRequestAliasDrift(t *testing.T) {
+	request := compactStatusRequestFixture(t, "main", "ok")
+	request = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(request, "/steamai status -Format compact-json")
+	hash, err := mission.MissionCommanderDriverRequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		step    string
+		refresh string
+	}{
+		{name: "run-loop step", step: "stale-step", refresh: request.ExpectedReceipt.RefreshStatusCommand},
+		{name: "refresh command", step: request.RunLoopStepID, refresh: "/steamai status -Format json"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			status := statusInventory{
+				Command:          commands.Status,
+				SchemaVersion:    1,
+				publicProjection: projectPublicProjection{entrypoint: commands.CurrentPublicEntrypoint},
+				MissionControlRunbook: &statusMissionControlRunbook{
+					CurrentRunLoopStepID:       test.step,
+					CurrentDriverRequest:       &request,
+					CurrentDriverRequestSHA256: hash,
+					RefreshStatusCommand:       test.refresh,
+				},
+			}
+			data, err := marshalStatusCompactJSON(status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertStatusCompactBlockedEnvelope(t, data, statusCompactReasonIdentityInvalid, "/steamai")
+		})
+	}
+}
+
 func TestStatusCompactJSONBudgetIncludesNewline(t *testing.T) {
 	status := statusInventory{
-		Command:       commands.Status,
-		SchemaVersion: 1,
-		Mode:          "case",
-		Target:        strings.Repeat("界", 1200),
+		Command:          commands.Status,
+		SchemaVersion:    1,
+		Mode:             "case",
+		Target:           strings.Repeat("界", 1200),
+		publicProjection: projectPublicProjection{entrypoint: commands.CurrentPublicEntrypoint},
 	}
 	data, err := marshalStatusCompactJSON(status)
 	if err != nil {
@@ -129,9 +168,10 @@ func TestStatusCompactJSONFailsClosedOnRequestIdentityAndChoiceOverflow(t *testi
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			status := statusInventory{
-				Command:       commands.Status,
-				SchemaVersion: 1,
-				Target:        strings.Repeat("界", 2000),
+				Command:          commands.Status,
+				SchemaVersion:    1,
+				Target:           strings.Repeat("界", 2000),
+				publicProjection: projectPublicProjection{entrypoint: commands.CurrentPublicEntrypoint},
 				MissionControlRunbook: &statusMissionControlRunbook{
 					CurrentDriverRequest:       fixture.request,
 					CurrentDriverRequestSHA256: fixture.hash,
@@ -153,14 +193,15 @@ func TestStatusCompactJSONFailsClosedOnRequestIdentityAndChoiceOverflow(t *testi
 	}
 
 	choices := make([]mission.MissionCommanderNextActionItem, 0, 40)
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		choices = append(choices, compactStatusChoiceFixture(t, "lane-"+strings.Repeat("x", 80)+string(rune('A'+i)), strings.Repeat("label", 20), "ready-to-continue"))
 	}
 	caseMission := &statusCaseMission{MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(choices)}
 	status := statusInventory{
-		Command:       commands.Status,
-		SchemaVersion: 1,
-		CaseMission:   caseMission,
+		Command:          commands.Status,
+		SchemaVersion:    1,
+		CaseMission:      caseMission,
+		publicProjection: projectPublicProjection{entrypoint: commands.CurrentPublicEntrypoint},
 	}
 	status.MissionControlRunbook = buildStatusMissionControlRunbook("", caseMission, nil)
 	if got := len(statusCompactChoices(caseMission)); got != len(choices) {
@@ -195,9 +236,10 @@ func TestStatusCompactJSONBlockedEnvelopeSelectsCurrentAndLegacyEntrypoints(t *t
 				t.Fatal(err)
 			}
 			status := statusInventory{
-				Command:       commands.Status,
-				SchemaVersion: 1,
-				Target:        target,
+				Command:          commands.Status,
+				SchemaVersion:    1,
+				Target:           target,
+				publicProjection: projectPublicProjection{entrypoint: fixture.entrypoint},
 				CaseMission: &statusCaseMission{
 					Summary: strings.Repeat("details", 700),
 				},
@@ -279,6 +321,40 @@ func TestRunStatusCompactJSONIsAdditiveToLegacyFormats(t *testing.T) {
 	}
 }
 
+func TestStatusCompactJSONRequiresFinalizedPublicProjection(t *testing.T) {
+	status := statusInventory{
+		Command:       commands.Status,
+		SchemaVersion: 1,
+		Target:        t.TempDir(),
+	}
+	if _, err := marshalStatusCompactJSON(status); err == nil || !strings.Contains(err.Error(), "requires finalized public projection") {
+		t.Fatalf("compact status without finalized projection error = %v", err)
+	}
+}
+
+func TestStatusCompactJSONUsesFinalizedProjectionWithoutReparsingTarget(t *testing.T) {
+	target := t.TempDir()
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(target, stateDir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := statusInventory{
+		Command:          commands.Status,
+		SchemaVersion:    1,
+		Target:           target,
+		publicProjection: projectPublicProjection{entrypoint: commands.CurrentPublicEntrypoint},
+		CaseMission: &statusCaseMission{
+			Summary: strings.Repeat("details", 700),
+		},
+	}
+	data, err := marshalStatusCompactJSON(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStatusCompactBlockedEnvelope(t, data, statusCompactReasonBudgetExceeded, commands.CurrentPublicEntrypoint)
+}
+
 func assertStatusCompactBlockedEnvelope(t *testing.T, data []byte, reason, entrypoint string) {
 	t.Helper()
 	if len(data) == 0 || len(data) > statusCompactJSONMaxBytes || data[len(data)-1] != '\n' {
@@ -318,6 +394,17 @@ func runStatusIdentityForFormat(t *testing.T, baseArgs []string, format string) 
 		t.Fatalf("status %s did not decode: %v\n%s", format, err, out.String())
 	}
 	return snapshot
+}
+
+func compactStatusRawContinueChoice(lane, label, state string) mission.MissionCommanderNextActionItem {
+	return mission.MissionCommanderNextActionItem{
+		Lane:     lane,
+		Label:    label,
+		ActionID: "continue-" + lane,
+		State:    state,
+		Command:  "/rekit continue -Lane " + lane,
+		Source:   "missionCommanderActions",
+	}
 }
 
 func compactStatusChoiceFixture(t *testing.T, lane, label, state string) mission.MissionCommanderNextActionItem {

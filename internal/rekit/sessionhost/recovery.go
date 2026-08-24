@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -24,6 +26,9 @@ type claudeRecovery struct {
 	AttemptID                 string                      `json:"attemptId"`
 	AttemptSHA256             string                      `json:"attemptSha256"`
 	SessionID                 string                      `json:"sessionId"`
+	Pack                      string                      `json:"pack,omitempty"`
+	InstructionIdentity       *instructionpacket.Identity `json:"instructionIdentity,omitempty"`
+	Capability                capabilitycontract.Binding  `json:"capability"`
 	LaunchControl             *claudeLaunchControlBinding `json:"launchControl,omitempty"`
 	ObservedAt                string                      `json:"observedAt,omitempty"`
 	ClaudeExecutableSHA256    string                      `json:"claudeExecutableSha256"`
@@ -267,6 +272,12 @@ func claudeRecoveryFor(opt Options, pkg mission.CurrentLoopExternalSessionHarnes
 	if pkg.Launch == nil || strings.TrimSpace(pkg.SessionKind) == "" || strings.TrimSpace(pkg.Launch.Attempt.AttemptID) == "" || strings.TrimSpace(pkg.Launch.Attempt.AttemptSHA256) == "" || strings.TrimSpace(sessionID) == "" || pkg.Launch.Attempt.Session != sessionID || len(output) == 0 || len(hash) != 64 || !strings.EqualFold(publisher, liveAcceptanceClaudePublisher) {
 		return claudeRecovery{}, "", fmt.Errorf("Claude recovery requires exact kind, attempt, session, output, and trusted executable bindings")
 	}
+	if err := validateClaudeCapabilityPolicy(pkg); err != nil {
+		return claudeRecovery{}, "", err
+	}
+	if err := validateProductionInstructionBirth(pkg.Pack, pkg.Launch.InstructionIdentity); err != nil {
+		return claudeRecovery{}, "", err
+	}
 	if observedAt != "" {
 		parsed, err := time.Parse(time.RFC3339Nano, observedAt)
 		if err != nil || parsed.Format(time.RFC3339Nano) != observedAt {
@@ -292,6 +303,9 @@ func claudeRecoveryFor(opt Options, pkg mission.CurrentLoopExternalSessionHarnes
 		AttemptID:                 pkg.Launch.Attempt.AttemptID,
 		AttemptSHA256:             pkg.Launch.Attempt.AttemptSHA256,
 		SessionID:                 sessionID,
+		Pack:                      pkg.Pack,
+		InstructionIdentity:       cloneProductionInstructionIdentityPointer(pkg.Launch.InstructionIdentity),
+		Capability:                pkg.Launch.Capability,
 		LaunchControl:             cloneClaudeLaunchControlBinding(opt.launchControlBinding),
 		ObservedAt:                observedAt,
 		ClaudeExecutableSHA256:    hash,
@@ -420,10 +434,16 @@ func hasClaudeRecoveryForOtherControl(root string, pkg mission.CurrentLoopExtern
 }
 
 func claudeRecoveryEqual(left, right claudeRecovery) bool {
-	if !sameClaudeLaunchControlBinding(left.LaunchControl, right.LaunchControl) {
+	if left.Capability != right.Capability ||
+		!sameClaudeLaunchControlBinding(left.LaunchControl, right.LaunchControl) ||
+		!equalProductionInstructionIdentityPointers(left.InstructionIdentity, right.InstructionIdentity) {
 		return false
 	}
+	left.Capability = capabilitycontract.Binding{}
+	right.Capability = capabilitycontract.Binding{}
 	left.LaunchControl = nil
 	right.LaunchControl = nil
+	left.InstructionIdentity = nil
+	right.InstructionIdentity = nil
 	return left == right
 }

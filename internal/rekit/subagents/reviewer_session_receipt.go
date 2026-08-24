@@ -9,9 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
@@ -104,6 +109,7 @@ type preparedReviewerSessionDispatch struct {
 	actor          string
 	harness        string
 	session        string
+	launchControl  *executioncontrol.Binding
 }
 
 type preparedReviewerSessionCompletion struct {
@@ -127,11 +133,15 @@ type preparedReviewerSessionCompletion struct {
 }
 
 func RecordReviewerSessionDispatch(repoRoot, caseRoot, pack string, opt ReviewerSessionDispatchOptions) (ReviewerSessionReceiptResult, error) {
+	return RecordReviewerSessionDispatchWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func RecordReviewerSessionDispatchWithLease(repoRoot, caseRoot, pack string, opt ReviewerSessionDispatchOptions, lease *lanemutation.Lease) (ReviewerSessionReceiptResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerSessionReceiptResult{}, err
 	}
-	prepared, err := prepareReviewerSessionDispatch(repoRoot, inst.CaseRoot, pack, opt)
+	prepared, err := prepareReviewerSessionDispatch(repoRoot, inst.CaseRoot, pack, opt, lease)
 	if err != nil {
 		return ReviewerSessionReceiptResult{}, err
 	}
@@ -150,7 +160,7 @@ func RecordReviewerSessionDispatch(repoRoot, caseRoot, pack string, opt Reviewer
 		return ReviewerSessionReceiptResult{}, err
 	}
 	defer unlock()
-	prepared, err = prepareReviewerSessionDispatch(repoRoot, inst.CaseRoot, pack, opt)
+	prepared, err = prepareReviewerSessionDispatch(repoRoot, inst.CaseRoot, pack, opt, lease)
 	if err != nil {
 		return ReviewerSessionReceiptResult{}, err
 	}
@@ -235,7 +245,7 @@ func RecordReviewerSessionCompletion(repoRoot, caseRoot, pack string, opt Review
 	return finalizeReviewerSessionReceiptResult(result), nil
 }
 
-func prepareReviewerSessionDispatch(repoRoot, caseRoot, pack string, opt ReviewerSessionDispatchOptions) (preparedReviewerSessionDispatch, error) {
+func prepareReviewerSessionDispatch(repoRoot, caseRoot, pack string, opt ReviewerSessionDispatchOptions, lease *lanemutation.Lease) (preparedReviewerSessionDispatch, error) {
 	packetPath, packet, packetBytes, snapshot, err := loadReviewerSessionPacket(repoRoot, caseRoot, pack, opt.PacketPath)
 	if err != nil {
 		return preparedReviewerSessionDispatch{}, err
@@ -265,13 +275,20 @@ func prepareReviewerSessionDispatch(repoRoot, caseRoot, pack string, opt Reviewe
 		return preparedReviewerSessionDispatch{}, err
 	}
 	adoptionPath, adoptionSHA := reviewerSessionAdoptionProvenance(caseRoot, packet.PacketID, adoption)
+	launchControl, err := captureReviewerSessionLaunchControl(caseRoot, effective, lease)
+	if err != nil {
+		return preparedReviewerSessionDispatch{}, err
+	}
 	dispatchID := reviewerSessionDispatchID(packet.PacketID, packet.Route.ID, shardID, handoff.DispatchPromptSHA256, harness, session)
 	receiptPath := reviewerSessionDispatchPath(packetPath, shardID, dispatchID)
-	binding := reviewerSessionDispatchBindingSHA(packet, packetBytes, handoff, effective, adoptionSHA, harness, session)
+	binding, err := reviewerSessionDispatchBindingSHA(packet, packetBytes, handoff, effective, adoptionSHA, harness, session, launchControl)
+	if err != nil {
+		return preparedReviewerSessionDispatch{}, err
+	}
 	if !reviewerPacketSnapshotCurrent(caseRoot, packetPath, snapshot) {
 		return preparedReviewerSessionDispatch{}, fmt.Errorf("review packet changed while validating reviewer session dispatch")
 	}
-	return preparedReviewerSessionDispatch{packetPath: packetPath, packet: packet, packetBytes: packetBytes, packetSnapshot: snapshot, handoff: handoff, effectiveOwner: effective, adoptionPath: adoptionPath, adoptionSHA256: adoptionSHA, dispatchID: dispatchID, receiptPath: receiptPath, bindingSHA256: binding, actor: actor, harness: harness, session: session}, nil
+	return preparedReviewerSessionDispatch{packetPath: packetPath, packet: packet, packetBytes: packetBytes, packetSnapshot: snapshot, handoff: handoff, effectiveOwner: effective, adoptionPath: adoptionPath, adoptionSHA256: adoptionSHA, dispatchID: dispatchID, receiptPath: receiptPath, bindingSHA256: binding, actor: actor, harness: harness, session: session, launchControl: launchControl}, nil
 }
 
 func prepareReviewerSessionCompletion(repoRoot, caseRoot, pack string, opt ReviewerSessionCompletionOptions) (preparedReviewerSessionCompletion, error) {
@@ -374,11 +391,36 @@ func loadReviewerSessionPacket(repoRoot, caseRoot, pack, path string) (string, P
 }
 
 func reviewerSessionDispatchReceipt(p preparedReviewerSessionDispatch) ReviewerSessionDispatchReceipt {
-	return ReviewerSessionDispatchReceipt{SchemaVersion: 1, Kind: "reviewer-session-dispatch", DispatchID: p.dispatchID, PacketID: p.packet.PacketID, PacketPath: p.packetPath, PacketSHA256: sha256Hex(p.packetBytes), RouteID: p.packet.Route.ID, ShardID: p.handoff.ShardID, Items: append([]string{}, p.handoff.Items...), PromptPath: p.handoff.DispatchPromptPath, PromptSHA256: p.handoff.DispatchPromptSHA256, AgentType: p.handoff.AgentToolRequest.AgentType, ReadOnly: p.handoff.AgentToolRequest.ReadOnly, TargetLane: p.packet.TargetLane, PacketOwner: reviewerSessionOwner(p.packet.OwnerBinding), EffectiveOwner: reviewerSessionOwner(p.effectiveOwner), OwnerAdoptionPath: p.adoptionPath, OwnerAdoptionSHA256: p.adoptionSHA256, ReviewerHarness: p.harness, ReviewerSession: p.session, Actor: p.actor, RecordedAt: time.Now().UTC().Format(time.RFC3339Nano), NoSpawn: true, NoHeavyTool: true, NoAuthority: true}
+	return ReviewerSessionDispatchReceipt{SchemaVersion: 1, Kind: "reviewer-session-dispatch", DispatchID: p.dispatchID, PacketID: p.packet.PacketID, PacketPath: p.packetPath, PacketSHA256: sha256Hex(p.packetBytes), RouteID: p.packet.Route.ID, ShardID: p.handoff.ShardID, Items: append([]string{}, p.handoff.Items...), PromptPath: p.handoff.DispatchPromptPath, PromptSHA256: p.handoff.DispatchPromptSHA256, AgentType: p.handoff.AgentToolRequest.AgentType, ReadOnly: p.handoff.AgentToolRequest.ReadOnly, TargetLane: p.packet.TargetLane, PacketOwner: reviewerSessionOwner(p.packet.OwnerBinding), EffectiveOwner: reviewerSessionOwner(p.effectiveOwner), OwnerAdoptionPath: p.adoptionPath, OwnerAdoptionSHA256: p.adoptionSHA256, ReviewerHarness: p.harness, ReviewerSession: p.session, Actor: p.actor, RecordedAt: time.Now().UTC().Format(time.RFC3339Nano), Capability: reviewersession.ReadOnlyCapability(), LaunchControl: executioncontrol.CloneBinding(p.launchControl), NoSpawn: true, NoHeavyTool: true, NoAuthority: true}
+}
+
+func captureReviewerSessionLaunchControl(caseRoot string, owner OwnerBinding, lease *lanemutation.Lease) (*executioncontrol.Binding, error) {
+	state, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !state.Existing || state.Legacy {
+		return nil, nil
+	}
+	snapshot := laneowner.Snapshot{
+		Lane:               owner.TargetLane,
+		CurrentExecutor:    owner.CurrentExecutor,
+		ExecutorGeneration: owner.ExecutorGeneration,
+	}
+	var binding executioncontrol.Binding
+	if lease == nil {
+		binding, err = executioncontrol.CaptureBinding(caseRoot, snapshot, reviewersession.ReadOnlyCapability())
+	} else {
+		binding, err = executioncontrol.CaptureBindingWithLease(caseRoot, lease, snapshot, reviewersession.ReadOnlyCapability())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("capture current reviewer launch control binding: %w", err)
+	}
+	return executioncontrol.CloneBinding(&binding), nil
 }
 
 func reviewerSessionCompletionReceipt(p preparedReviewerSessionCompletion) ReviewerSessionCompletionReceipt {
-	return ReviewerSessionCompletionReceipt{SchemaVersion: 1, Kind: "reviewer-session-completion", DispatchID: p.dispatch.DispatchID, DispatchReceiptPath: p.dispatchPath, DispatchReceiptSHA256: sha256Hex(p.dispatchBytes), PacketID: p.packet.PacketID, RouteID: p.packet.Route.ID, ShardID: p.dispatch.ShardID, ReviewerHarness: p.dispatch.ReviewerHarness, ReviewerSession: p.dispatch.ReviewerSession, Outcome: p.outcome, ExitStatus: p.exitStatus, ReviewerResultInputPath: p.inputPath, ReviewerResultInputSHA256: sha256Hex(p.input), ReviewerResultInputBytes: len(p.input), CompletionOwner: reviewerSessionOwner(p.effectiveOwner), OwnerAdoptionPath: p.adoptionPath, OwnerAdoptionSHA256: p.adoptionSHA256, Actor: p.actor, RecordedAt: time.Now().UTC().Format(time.RFC3339Nano), NoCollection: true, NoIntake: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true}
+	return ReviewerSessionCompletionReceipt{SchemaVersion: 1, Kind: "reviewer-session-completion", DispatchID: p.dispatch.DispatchID, DispatchReceiptPath: p.dispatchPath, DispatchReceiptSHA256: sha256Hex(p.dispatchBytes), PacketID: p.packet.PacketID, RouteID: p.packet.Route.ID, ShardID: p.dispatch.ShardID, ReviewerHarness: p.dispatch.ReviewerHarness, ReviewerSession: p.dispatch.ReviewerSession, Outcome: p.outcome, ExitStatus: p.exitStatus, ReviewerResultInputPath: p.inputPath, ReviewerResultInputSHA256: sha256Hex(p.input), ReviewerResultInputBytes: len(p.input), CompletionOwner: reviewerSessionOwner(p.effectiveOwner), OwnerAdoptionPath: p.adoptionPath, OwnerAdoptionSHA256: p.adoptionSHA256, Actor: p.actor, RecordedAt: time.Now().UTC().Format(time.RFC3339Nano), Capability: p.dispatch.Capability, NoCollection: true, NoIntake: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true}
 }
 
 func reviewerSessionOwner(binding OwnerBinding) ReviewerSessionOwner {
@@ -404,9 +446,35 @@ func reviewerSessionDispatchID(packetID, routeID, shardID, promptSHA, harness, s
 	return sha256Hex([]byte(strings.Join([]string{packetID, routeID, shardID, strings.ToLower(promptSHA), harness, session}, "\n")))
 }
 
-func reviewerSessionDispatchBindingSHA(packet Packet, packetBytes []byte, handoff ShardHandoff, owner OwnerBinding, adoptionSHA, harness, session string) string {
-	value := strings.Join([]string{packet.PacketID, sha256Hex(packetBytes), packet.Route.ID, handoff.ShardID, handoff.DispatchPromptSHA256, harness, session, owner.CurrentExecutor, fmt.Sprint(owner.ExecutorGeneration), owner.BindingMode, adoptionSHA}, "\n")
-	return sha256Hex([]byte(value))
+func reviewerSessionDispatchBindingSHA(packet Packet, packetBytes []byte, handoff ShardHandoff, owner OwnerBinding, adoptionSHA, harness, session string, launchControl *executioncontrol.Binding) (string, error) {
+	value := struct {
+		PacketID        string                    `json:"packetId"`
+		PacketSHA256    string                    `json:"packetSha256"`
+		RouteID         string                    `json:"routeId"`
+		ShardID         string                    `json:"shardId"`
+		PromptSHA256    string                    `json:"promptSha256"`
+		ReviewerHarness string                    `json:"reviewerHarness"`
+		ReviewerSession string                    `json:"reviewerSession"`
+		Owner           OwnerBinding              `json:"owner"`
+		AdoptionSHA256  string                    `json:"adoptionSha256,omitempty"`
+		LaunchControl   *executioncontrol.Binding `json:"launchControl,omitempty"`
+	}{
+		PacketID:        packet.PacketID,
+		PacketSHA256:    sha256Hex(packetBytes),
+		RouteID:         packet.Route.ID,
+		ShardID:         handoff.ShardID,
+		PromptSHA256:    handoff.DispatchPromptSHA256,
+		ReviewerHarness: harness,
+		ReviewerSession: session,
+		Owner:           owner,
+		AdoptionSHA256:  adoptionSHA,
+		LaunchControl:   executioncontrol.CloneBinding(launchControl),
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return sha256Hex(data), nil
 }
 
 func reviewerSessionRoot(packetPath, shardID string) string {
@@ -522,11 +590,11 @@ func findReviewerSessionDispatch(caseRoot, packetPath, dispatchID string) (strin
 }
 
 func reviewerSessionDispatchEquivalent(left, right ReviewerSessionDispatchReceipt) bool {
-	return left.SchemaVersion == right.SchemaVersion && left.Kind == right.Kind && left.DispatchID == right.DispatchID && left.PacketID == right.PacketID && casebind.SamePath(left.PacketPath, right.PacketPath) && left.PacketSHA256 == right.PacketSHA256 && left.RouteID == right.RouteID && left.ShardID == right.ShardID && stringSlicesEqual(left.Items, right.Items) && casebind.SamePath(left.PromptPath, right.PromptPath) && left.PromptSHA256 == right.PromptSHA256 && left.AgentType == right.AgentType && left.ReadOnly == right.ReadOnly && left.TargetLane == right.TargetLane && left.PacketOwner == right.PacketOwner && left.EffectiveOwner == right.EffectiveOwner && sameOptionalPath(left.OwnerAdoptionPath, right.OwnerAdoptionPath) && left.OwnerAdoptionSHA256 == right.OwnerAdoptionSHA256 && left.ReviewerHarness == right.ReviewerHarness && left.ReviewerSession == right.ReviewerSession && left.Actor == right.Actor && left.NoSpawn == right.NoSpawn && left.NoHeavyTool == right.NoHeavyTool && left.NoAuthority == right.NoAuthority
+	return left.SchemaVersion == right.SchemaVersion && left.Kind == right.Kind && left.DispatchID == right.DispatchID && left.Capability == right.Capability && executioncontrol.SameBinding(left.LaunchControl, right.LaunchControl) && left.PacketID == right.PacketID && casebind.SamePath(left.PacketPath, right.PacketPath) && left.PacketSHA256 == right.PacketSHA256 && left.RouteID == right.RouteID && left.ShardID == right.ShardID && stringSlicesEqual(left.Items, right.Items) && casebind.SamePath(left.PromptPath, right.PromptPath) && left.PromptSHA256 == right.PromptSHA256 && left.AgentType == right.AgentType && left.ReadOnly == right.ReadOnly && left.TargetLane == right.TargetLane && left.PacketOwner == right.PacketOwner && left.EffectiveOwner == right.EffectiveOwner && sameOptionalPath(left.OwnerAdoptionPath, right.OwnerAdoptionPath) && left.OwnerAdoptionSHA256 == right.OwnerAdoptionSHA256 && left.ReviewerHarness == right.ReviewerHarness && left.ReviewerSession == right.ReviewerSession && left.Actor == right.Actor && left.NoSpawn == right.NoSpawn && left.NoHeavyTool == right.NoHeavyTool && left.NoAuthority == right.NoAuthority
 }
 
 func reviewerSessionCompletionEquivalent(left, right ReviewerSessionCompletionReceipt) bool {
-	return left.SchemaVersion == right.SchemaVersion && left.Kind == right.Kind && left.DispatchID == right.DispatchID && casebind.SamePath(left.DispatchReceiptPath, right.DispatchReceiptPath) && left.DispatchReceiptSHA256 == right.DispatchReceiptSHA256 && left.PacketID == right.PacketID && left.RouteID == right.RouteID && left.ShardID == right.ShardID && left.ReviewerHarness == right.ReviewerHarness && left.ReviewerSession == right.ReviewerSession && left.Outcome == right.Outcome && left.ExitStatus == right.ExitStatus && sameOptionalPath(left.ReviewerResultInputPath, right.ReviewerResultInputPath) && left.ReviewerResultInputSHA256 == right.ReviewerResultInputSHA256 && left.ReviewerResultInputBytes == right.ReviewerResultInputBytes && left.CompletionOwner == right.CompletionOwner && sameOptionalPath(left.OwnerAdoptionPath, right.OwnerAdoptionPath) && left.OwnerAdoptionSHA256 == right.OwnerAdoptionSHA256 && left.Actor == right.Actor && left.NoCollection == right.NoCollection && left.NoIntake == right.NoIntake && left.NoFacts == right.NoFacts && left.NoHeavyTool == right.NoHeavyTool && left.NoAuthority == right.NoAuthority
+	return left.SchemaVersion == right.SchemaVersion && left.Kind == right.Kind && left.DispatchID == right.DispatchID && left.Capability == right.Capability && casebind.SamePath(left.DispatchReceiptPath, right.DispatchReceiptPath) && left.DispatchReceiptSHA256 == right.DispatchReceiptSHA256 && left.PacketID == right.PacketID && left.RouteID == right.RouteID && left.ShardID == right.ShardID && left.ReviewerHarness == right.ReviewerHarness && left.ReviewerSession == right.ReviewerSession && left.Outcome == right.Outcome && left.ExitStatus == right.ExitStatus && sameOptionalPath(left.ReviewerResultInputPath, right.ReviewerResultInputPath) && left.ReviewerResultInputSHA256 == right.ReviewerResultInputSHA256 && left.ReviewerResultInputBytes == right.ReviewerResultInputBytes && left.CompletionOwner == right.CompletionOwner && sameOptionalPath(left.OwnerAdoptionPath, right.OwnerAdoptionPath) && left.OwnerAdoptionSHA256 == right.OwnerAdoptionSHA256 && left.Actor == right.Actor && left.NoCollection == right.NoCollection && left.NoIntake == right.NoIntake && left.NoFacts == right.NoFacts && left.NoHeavyTool == right.NoHeavyTool && left.NoAuthority == right.NoAuthority
 }
 
 func sameOptionalPath(left, right string) bool {
@@ -615,6 +683,14 @@ func reviewerSessionDispatchMatchesCurrent(packetPath, dispatchPath string, pack
 	if handoff.AgentToolRequest == nil {
 		return false
 	}
+	state, err := projectstate.Resolve(packet.PlanRoot)
+	if err != nil || (state.Existing && !state.Legacy && dispatch.LaunchControl == nil) ||
+		(dispatch.LaunchControl != nil && (executioncontrol.ValidateBinding(*dispatch.LaunchControl) != nil ||
+			dispatch.LaunchControl.Lane != packet.TargetLane ||
+			dispatch.LaunchControl.Owner != (laneowner.Snapshot{Lane: packet.TargetLane, CurrentExecutor: effective.CurrentExecutor, ExecutorGeneration: effective.ExecutorGeneration}) ||
+			dispatch.LaunchControl.Capability != dispatch.Capability)) {
+		return false
+	}
 	expectedID := reviewerSessionDispatchID(packet.PacketID, packet.Route.ID, handoff.ShardID, handoff.DispatchPromptSHA256, dispatch.ReviewerHarness, dispatch.ReviewerSession)
 	return dispatch.DispatchID == expectedID &&
 		samePath(dispatchPath, reviewerSessionDispatchPath(packetPath, handoff.ShardID, expectedID)) &&
@@ -632,7 +708,8 @@ func reviewerSessionDispatchMatchesCurrent(packetPath, dispatchPath string, pack
 		dispatch.PacketOwner == reviewerSessionOwner(packet.OwnerBinding) &&
 		dispatch.EffectiveOwner == reviewerSessionOwner(effective) &&
 		sameOptionalPath(dispatch.OwnerAdoptionPath, adoptionPath) &&
-		dispatch.OwnerAdoptionSHA256 == adoptionSHA256
+		dispatch.OwnerAdoptionSHA256 == adoptionSHA256 &&
+		capabilitycontract.RequireBindingPolicy(dispatch.Capability, capabilitycontract.PolicyClassReadOnly) == nil
 }
 
 func validateReviewerSessionCompletionForInput(caseRoot, packetPath string, packet Packet, handoff ShardHandoff, inputPath string, input []byte, result reviewerresult.Result) error {

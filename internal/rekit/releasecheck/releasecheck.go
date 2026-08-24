@@ -12,37 +12,42 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/productioncontract"
 )
 
 const (
-	commandName            = "release-check"
-	CanonicalGoTestCommand = "go test -count=1 -p=2 -timeout=30m ./..."
+	commandName                 = "release-check"
+	CanonicalGoTestCommand      = "go test -count=1 -p=2 -timeout=30m ./..."
+	CanonicalGoPackSmokeCommand = "go test -count=1 -timeout=30m ./internal/rekit/cli -run '^TestRunGoSkeletonPackSmokeMatrix$'"
 )
 
 type Result struct {
-	Command               string                 `json:"command"`
-	SchemaVersion         int                    `json:"schemaVersion"`
-	IsMutation            bool                   `json:"isMutation"`
-	RepoRoot              string                 `json:"repoRoot"`
-	Ready                 bool                   `json:"ready"`
-	Summary               string                 `json:"summary"`
-	GateProfile           GateProfile            `json:"gateProfile"`
-	CIReleaseGate         CIReleaseGate          `json:"ciReleaseGate"`
-	RecommendedMinimum    []GateStep             `json:"recommendedMinimum"`
-	RequiredCommands      []GateStep             `json:"requiredCommands"`
-	Documents             []DocumentCheck        `json:"documents"`
-	Packs                 []manifest.PackSummary `json:"packs"`
-	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
-	GoNativePublicSurface GoNativePublicSurface  `json:"goNativePublicSurface"`
-	PublicFacadeRemoval   PublicFacadeRemoval    `json:"publicFacadeRemoval"`
-	CaseShim              caseshim.Readiness     `json:"caseShim"` // Legacy /rekit + .rekit compatibility gate; retained key preserves schema history.
-	PublicDefaultDocs     defaultdocs.Readiness  `json:"publicDefaultDocs"`
-	ReleaseHandoff        ReleaseHandoff         `json:"releaseHandoff"`
-	ReadinessLayers       ReadinessLayers        `json:"readinessLayers"`
-	HeavyToolGateActions  []string               `json:"heavyToolGateActions"`
-	Boundaries            []string               `json:"boundaries"`
-	KnownGaps             []string               `json:"knownGaps"`
-	Warnings              []string               `json:"warnings"`
+	Command               string                                 `json:"command"`
+	SchemaVersion         int                                    `json:"schemaVersion"`
+	IsMutation            bool                                   `json:"isMutation"`
+	RepoRoot              string                                 `json:"repoRoot"`
+	Ready                 bool                                   `json:"ready"`
+	Summary               string                                 `json:"summary"`
+	GateProfile           GateProfile                            `json:"gateProfile"`
+	CIReleaseGate         CIReleaseGate                          `json:"ciReleaseGate"`
+	RecommendedMinimum    []GateStep                             `json:"recommendedMinimum"`
+	RequiredCommands      []GateStep                             `json:"requiredCommands"`
+	Documents             []DocumentCheck                        `json:"documents"`
+	Packs                 []manifest.PackSummary                 `json:"packs"`
+	ProductionRegistry    productioncontract.RegistryAdmission   `json:"productionRegistry"`
+	ProductionPacks       []productioncontract.Admission         `json:"productionPacks"`
+	CapabilityContract    productioncontract.CapabilityAdmission `json:"capabilityContract"`
+	PowerShellDeprecation PowerShellDeprecation                  `json:"powerShellDeprecation"`
+	GoNativePublicSurface GoNativePublicSurface                  `json:"goNativePublicSurface"`
+	PublicFacadeRemoval   PublicFacadeRemoval                    `json:"publicFacadeRemoval"`
+	CaseShim              caseshim.Readiness                     `json:"caseShim"` // Legacy /rekit + .rekit compatibility gate; retained key preserves schema history.
+	PublicDefaultDocs     defaultdocs.Readiness                  `json:"publicDefaultDocs"`
+	ReleaseHandoff        ReleaseHandoff                         `json:"releaseHandoff"`
+	ReadinessLayers       ReadinessLayers                        `json:"readinessLayers"`
+	HeavyToolGateActions  []string                               `json:"heavyToolGateActions"`
+	Boundaries            []string                               `json:"boundaries"`
+	KnownGaps             []string                               `json:"knownGaps"`
+	Warnings              []string                               `json:"warnings"`
 }
 
 type ReadinessLayers struct {
@@ -185,6 +190,13 @@ func Build(repoRoot string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	productionRegistry := productioncontract.BuildRegistryAdmission(packs)
+	productionPacks := []productioncontract.Admission{}
+	for _, pack := range packs {
+		if pack.Maturity == "mature" {
+			productionPacks = append(productionPacks, productioncontract.BuildAdmission(repo, pack))
+		}
+	}
 	check := Result{
 		Command:               commandName,
 		SchemaVersion:         1,
@@ -197,6 +209,9 @@ func Build(repoRoot string) (Result, error) {
 		RequiredCommands:      requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum),
 		Documents:             documentChecks(repo, requiredDocuments),
 		Packs:                 packs,
+		ProductionRegistry:    productionRegistry,
+		ProductionPacks:       productionPacks,
+		CapabilityContract:    productioncontract.BuildCapabilityAdmission(repo),
 		PowerShellDeprecation: powerShellDeprecation(repo),
 		GoNativePublicSurface: goNativePublicSurface(repo),
 		CaseShim:              caseshim.Inspect(repo),
@@ -233,6 +248,27 @@ func Build(repoRoot string) (Result, error) {
 		if !pack.SchemaValid {
 			check.Ready = false
 			check.Warnings = append(check.Warnings, fmt.Sprintf("pack manifest invalid: %s: %s", pack.ID, pack.Error))
+		}
+	}
+	if !check.ProductionRegistry.Ready {
+		check.Ready = false
+		for _, warning := range check.ProductionRegistry.Warnings {
+			check.Warnings = append(check.Warnings, "production registry: "+warning)
+		}
+	}
+	for _, pack := range check.ProductionPacks {
+		if pack.Ready {
+			continue
+		}
+		check.Ready = false
+		for _, warning := range pack.Warnings {
+			check.Warnings = append(check.Warnings, fmt.Sprintf("production pack %s: %s", pack.Pack, warning))
+		}
+	}
+	if !check.CapabilityContract.Ready {
+		check.Ready = false
+		for _, warning := range check.CapabilityContract.Warnings {
+			check.Warnings = append(check.Warnings, "capability contract: "+warning)
 		}
 	}
 	if ReleaseCheckResultCountsFor(check).HeavyToolGateActions == 0 {

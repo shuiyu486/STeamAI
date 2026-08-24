@@ -328,7 +328,7 @@ func TestReviewerRelayRejectsAcceptedDispatchSessionMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	attempt, _ := InspectAttempt(job)
-	writeTestJSON(t, caseRoot, attempt.Current.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256, Outcome: "returned", Actor: "harness", ReviewerSession: "session-b", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256, Harness: "claude-code", Session: "session-b", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	writeTestJSON(t, caseRoot, attempt.Current.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256, Capability: job.Capability, Outcome: "returned", Actor: "harness", ReviewerSession: "session-b", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256, Harness: "claude-code", Session: "session-b", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
 	inspection, err := Inspect(job)
 	if err != nil || inspection.State != "invalid" {
 		t.Fatalf("dispatch mismatch inspection=%+v err=%v", inspection, err)
@@ -451,7 +451,7 @@ func reviewerRelayIdentity(t *testing.T, caseRoot string) ReviewerIdentity {
 		ShardID: "shard-a", Items: []string{"item-a"}, PromptPath: filepath.ToSlash(filepath.Join(filepath.Dir(packetRel), "prompt.md")),
 		PromptSHA256: strings.Repeat("d", 64), AgentType: "read-only-reviewer", ReadOnly: true,
 		TargetLane: "analysis", ReviewerHarness: "harness", ReviewerSession: "session-test",
-		Actor: "harness", RecordedAt: "2026-08-09T00:00:00Z", NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
+		Actor: "harness", RecordedAt: "2026-08-09T00:00:00Z", Capability: reviewersession.ReadOnlyCapability(), NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
 	}
 	dispatch, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
@@ -469,6 +469,7 @@ func reviewerRelayIdentity(t *testing.T, caseRoot string) ReviewerIdentity {
 
 func bindTestSubmissionAttempt(t *testing.T, job Job, submission *Submission) {
 	t.Helper()
+	submission.Capability = job.Capability
 	inspection, err := InspectAttempt(job)
 	if err != nil {
 		t.Fatal(err)
@@ -507,6 +508,54 @@ func bindTestSubmissionAttempt(t *testing.T, job Job, submission *Submission) {
 		submission.Session = submission.ReviewerSession
 		if submission.Session != inspection.Current.Session {
 			t.Fatalf("reviewer test session %s differs from attempt session %s", submission.Session, inspection.Current.Session)
+		}
+	}
+}
+
+func TestExternalSessionSubmissionRejectsCapabilityDrift(t *testing.T) {
+	caseRoot := externalSessionTestCaseRoot(t)
+	job, err := NewMemberJob(
+		caseRoot,
+		defaults.DefaultPack,
+		testCheckpointSHA,
+		"g000001-a000001-capability",
+		memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1},
+		".rekit/member/manifest.json",
+		".rekit/member/outputs",
+		[]string{"failed"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission := Submission{
+		SchemaVersion: SchemaVersion,
+		Kind:          KindSubmission,
+		JobID:         job.JobID,
+		JobSHA256:     inspection.JobSHA256,
+		Capability:    job.Capability,
+		Outcome:       "failed",
+		Actor:         "harness",
+		ObservedAt:    "2026-08-04T12:00:00Z",
+		Reason:        "bounded failure",
+		NoAuthorityOrConfirmed: true,
+		NoHeavyTool:            true,
+	}
+	bindTestSubmissionAttempt(t, job, &submission)
+	if err := validateSubmission(job, inspection.JobSHA256, submission); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*Submission){
+		func(value *Submission) { value.Capability.SHA256 = strings.Repeat("f", 64) },
+		func(value *Submission) { value.Capability = reviewersession.ReadOnlyCapability() },
+	} {
+		drifted := submission
+		mutate(&drifted)
+		if err := validateSubmission(job, inspection.JobSHA256, drifted); err == nil || !strings.Contains(err.Error(), "capability") {
+			t.Fatalf("submission capability drift accepted: %v", err)
 		}
 	}
 }

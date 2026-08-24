@@ -98,7 +98,15 @@ func buildTransportEvidenceBundle(job Job, ticket DispatchTicket, binding Transp
 	if !utf8.Valid(promptSource) || bytes.IndexByte(promptSource, 0) >= 0 {
 		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer prompt must be UTF-8 text")
 	}
-	promptText := redactTransportCaseRoot(string(promptSource), job.CaseRoot)
+	tokenizedPromptText := redactTransportCaseRoot(string(promptSource), job.CaseRoot)
+	promptText := tokenizedPromptText
+	canonicalPrompt, canonicalPromptOK, err := reviewersession.CanonicalDispatchPrompt(job.CaseRoot, receipt)
+	if err != nil {
+		return TransportEvidenceBundle{}, nil, err
+	}
+	if canonicalPromptOK && canonicalPrompt == string(promptSource) {
+		promptText, _ = compactTransportReviewerPrompt(tokenizedPromptText, receipt, fields)
+	}
 	promptBytes := []byte(promptText)
 	if transportContainsCaseRoot(promptBytes, job.CaseRoot) {
 		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer prompt still contains the local case root after tokenization")
@@ -121,7 +129,7 @@ func buildTransportEvidenceBundle(job Job, ticket DispatchTicket, binding Transp
 			Path: promptRel, Role: ticket.Launch.Input.Role,
 			SourceSHA256: ticket.Launch.Input.SHA256, SourceBytes: len(promptSource),
 			TransportedSHA256: hash(promptBytes), TransportedBytes: len(promptBytes), Content: promptText,
-			CaseRootTokenized: !bytes.Equal(promptSource, promptBytes),
+			CaseRootTokenized: string(promptSource) != tokenizedPromptText,
 		},
 		NoFileTransfer: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
 	}
@@ -161,7 +169,7 @@ func buildTransportEvidenceBundle(job Job, ticket DispatchTicket, binding Transp
 		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control evidence bundle exceeds %d artifacts", maxTransportBundleArtifacts)
 	}
 	if rawBytes > maxTransportBundleRawBytes {
-		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control evidence bundle exceeds %d raw bytes", maxTransportBundleRawBytes)
+		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control evidence bundle exceeds %d raw bytes: got %d", maxTransportBundleRawBytes, rawBytes)
 	}
 	bundle.ArtifactCount = artifactCount
 	bundle.RawBytes = rawBytes
@@ -170,7 +178,7 @@ func buildTransportEvidenceBundle(job Job, ticket DispatchTicket, binding Transp
 		return TransportEvidenceBundle{}, nil, err
 	}
 	if len(data) > maxTransportBundleBytes {
-		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control canonical evidence bundle exceeds %d bytes", maxTransportBundleBytes)
+		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control canonical evidence bundle exceeds %d bytes: got %d", maxTransportBundleBytes, len(data))
 	}
 	if transportContainsCaseRoot(data, job.CaseRoot) {
 		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control canonical evidence bundle contains the local case root")

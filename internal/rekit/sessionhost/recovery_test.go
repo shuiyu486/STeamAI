@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -97,6 +99,19 @@ func TestClaudeRecoveryBindsCurrentProjectControlHead(t *testing.T) {
 	}
 	if err := validateClaudeRawResultArtifact(caseRoot, recovered); err != nil {
 		t.Fatalf("validate recovered raw artifact: %v", err)
+	}
+	driftedPackage := pkg
+	driftedLaunch := *pkg.Launch
+	driftedIdentity := instructionpacket.CloneIdentity(*pkg.Launch.InstructionIdentity)
+	driftedIdentity.ReceiptKind += "-different"
+	driftedIdentity.SHA256 = instructionIdentityHashForTest(t, driftedIdentity)
+	if err := instructionpacket.ValidateIdentity(driftedIdentity); err != nil {
+		t.Fatalf("construct valid alternate production identity: %v", err)
+	}
+	driftedLaunch.InstructionIdentity = &driftedIdentity
+	driftedPackage.Launch = &driftedLaunch
+	if _, ok, err := recoverClaudeRunForCase(caseRoot, opt, driftedPackage); err == nil || ok {
+		t.Fatalf("recovery accepted a different production instruction birth identity: ok=%t err=%v", ok, err)
 	}
 }
 
@@ -193,6 +208,8 @@ func TestClaudeReviewerRecoveryUsesDispatchAndSessionBinding(t *testing.T) {
 	pkg := recoveryPackageForTest()
 	opt := recoveryOptionsForTest()
 	pkg.SessionKind = "reviewer"
+	pkg.Launch.ReadOnly = true
+	pkg.Launch.Capability = readOnlyCapabilityForTest()
 	pkg.Launch.Attempt.AttemptID = "reviewer-dispatch-id"
 	output := json.RawMessage(`{"opaque":"bounded-bytes-4"}`)
 	run := claudeRun{envelope: claudeEnvelope{Type: "result", Subtype: "success", SessionID: "session-id"}, sessionID: "session-id", structuredOutput: output, started: true, exitCode: 0}
@@ -244,6 +261,38 @@ func TestClaudeRecoveryIgnoresCaseLocalForgery(t *testing.T) {
 	}
 }
 
+func instructionIdentityHashForTest(t *testing.T, identity instructionpacket.Identity) string {
+	t.Helper()
+	data, err := json.Marshal(struct {
+		SchemaVersion int                               `json:"schemaVersion"`
+		Pack          string                            `json:"pack"`
+		Mode          string                            `json:"mode"`
+		ReceiptKind   string                            `json:"receiptKind"`
+		Sources       []instructionpacket.SourceBinding `json:"sources"`
+		Bytes         int64                             `json:"bytes"`
+	}{identity.SchemaVersion, identity.Pack, identity.Mode, identity.ReceiptKind, identity.Sources, identity.Bytes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bytesSHA256(data)
+}
+
+func capabilityForTest(contract capabilitycontract.Contract) capabilitycontract.Binding {
+	binding, err := capabilitycontract.Bind(contract)
+	if err != nil {
+		panic(err)
+	}
+	return binding
+}
+
+func transportCapabilityForTest() capabilitycontract.Binding {
+	return capabilityForTest(capabilitycontract.Transport())
+}
+
+func readOnlyCapabilityForTest() capabilitycontract.Binding {
+	return capabilityForTest(capabilitycontract.ReadOnly())
+}
+
 func recoveryOptionsForTest() Options {
 	return Options{
 		ExpectedClaudeExecutableSHA256:    strings.Repeat("a", 64),
@@ -254,7 +303,7 @@ func recoveryOptionsForTest() Options {
 func recoveryPackageForTest() mission.CurrentLoopExternalSessionHarnessPackage {
 	return mission.CurrentLoopExternalSessionHarnessPackage{
 		SessionKind: "member",
-		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{Attempt: mission.CurrentLoopExternalSessionAttempt{
+		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{Capability: transportCapabilityForTest(), Attempt: mission.CurrentLoopExternalSessionAttempt{
 			AttemptID: "attempt-id", AttemptSHA256: "attempt-sha", Session: "session-id",
 		}},
 	}

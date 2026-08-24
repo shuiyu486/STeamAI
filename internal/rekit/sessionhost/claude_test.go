@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +14,47 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
+
+func TestClaudeLaunchCapabilityPolicySeparatesMemberAndReadOnlyReview(t *testing.T) {
+	member := mission.CurrentLoopExternalSessionHarnessPackage{
+		SessionKind: "member",
+		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
+			Capability: transportCapabilityForTest(),
+		},
+	}
+	if err := validateClaudeCapabilityPolicy(member); err != nil {
+		t.Fatal(err)
+	}
+	member.Launch.Capability = readOnlyCapabilityForTest()
+	if err := validateClaudeCapabilityPolicy(member); err == nil || !strings.Contains(err.Error(), "policy class mismatch") {
+		t.Fatalf("member launch accepted read-only capability: %v", err)
+	}
+	member.Launch.Capability = transportCapabilityForTest()
+	member.Launch.ReadOnly = true
+	if err := validateClaudeCapabilityPolicy(member); err == nil || !strings.Contains(err.Error(), "cannot be projected as read-only") {
+		t.Fatalf("member launch accepted read-only projection: %v", err)
+	}
+
+	review := mission.CurrentLoopExternalSessionHarnessPackage{
+		SessionKind: "mission-commander-evidence-review",
+		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
+			ReadOnly:   true,
+			Capability: readOnlyCapabilityForTest(),
+		},
+	}
+	if err := validateClaudeCapabilityPolicy(review); err != nil {
+		t.Fatal(err)
+	}
+	review.Launch.Capability = transportCapabilityForTest()
+	if err := validateClaudeCapabilityPolicy(review); err == nil || !strings.Contains(err.Error(), "policy class mismatch") {
+		t.Fatalf("evidence review accepted transport capability: %v", err)
+	}
+	review.Launch.Capability = readOnlyCapabilityForTest()
+	review.Launch.ReadOnly = false
+	if err := validateClaudeCapabilityPolicy(review); err == nil || !strings.Contains(err.Error(), "must be projected as read-only") {
+		t.Fatalf("evidence review accepted writable projection: %v", err)
+	}
+}
 
 func TestPublishValidatedMemberOutputsCopiesBoundedTransportBytes(t *testing.T) {
 	caseRoot := t.TempDir()
@@ -326,7 +366,8 @@ func TestLimitedBufferFailsClosedWithoutTruncationSuccess(t *testing.T) {
 }
 
 func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
-	caseRoot := t.TempDir()
+	caseRoot, _, memberPackage, _, _ := projectExecutionLaunchFixture(t)
+	pack := memberPackage.Pack
 	reviewRoot := filepath.Join(caseRoot, projectstate.CurrentDir, "reviews", "review-exact")
 	inputRel := filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "reviews", "review-exact", "prompts", "shard-01.md"))
 	input := []byte("review bounded evidence\n")
@@ -363,7 +404,7 @@ func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 		PacketOwner:     reviewersession.Owner{CurrentExecutor: "member", ExecutorGeneration: 1, BindingMode: "current-executor-generation"},
 		EffectiveOwner:  reviewersession.Owner{CurrentExecutor: "member", ExecutorGeneration: 1, BindingMode: "current-executor-generation"},
 		ReviewerHarness: defaultHarness, ReviewerSession: "session-id",
-		Actor: "test", RecordedAt: "2026-08-09T00:00:00Z",
+		Actor: "test", RecordedAt: "2026-08-09T00:00:00Z", Capability: reviewersession.ReadOnlyCapability(),
 		NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
 	}
 	dispatch, err := json.MarshalIndent(receipt, "", "  ")
@@ -374,12 +415,31 @@ func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 	if err := os.WriteFile(dispatchPath, dispatch, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	pkg := hostPackageForTest(caseRoot, inputRel, input)
-	pkg.SessionKind = "reviewer"
-	pkg.Launch.ReadOnly = true
-	pkg.Launch.Input.Path = inputPath
-	pkg.Launch.ExpectedOutput = reviewerExpectedOutput(receipt, fields)
-	pkg.Launch.ReviewerIdentity = reviewerLaunchIdentity(receipt, fields, dispatchRel, bytesSHA256(dispatch))
+	handoff := reviewerExternalHandoff{
+		State:                         "reviewer-session-running-unknown",
+		RunLoopStepID:                 "save-result-input",
+		DispatchPromptPath:            receipt.PromptPath,
+		DispatchPromptSHA256:          receipt.PromptSHA256,
+		ReviewerDispatchID:            receipt.DispatchID,
+		ReviewerDispatchReceiptPath:   dispatchRel,
+		ReviewerDispatchReceiptSHA256: bytesSHA256(dispatch),
+		ReviewerHarness:               receipt.ReviewerHarness,
+		ReviewerSession:               receipt.ReviewerSession,
+	}
+	pkg, _, err := reviewerClaudePackage(caseRoot, pack, handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Pack != pack || pkg.Launch == nil || pkg.Launch.InstructionIdentity == nil ||
+		pkg.Launch.Capability != receipt.Capability || pkg.Launch.ReviewerIdentity == nil ||
+		pkg.Launch.ReviewerIdentity.Capability != receipt.Capability ||
+		pkg.Launch.ExpectedOutput != reviewerExpectedOutput(receipt, fields) {
+		t.Fatalf("reviewer package omitted its production instruction binding: %+v", pkg)
+	}
+	productionInstructions, err := inlineProductionInstructions(caseRoot, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	prompt, _, err := claudeRequest(caseRoot, pkg, "session-id")
 	if err != nil {
 		t.Fatal(err)
@@ -390,6 +450,8 @@ func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 		`shardId="shard-01"`,
 		`items=["evidence/manifest.json"]`,
 		`exactly these fields: ["item","decision","candidate_path"]`,
+		productionInstructions,
+		"Packet SHA-256: `" + pkg.Launch.InstructionIdentity.SHA256 + "`",
 		"Do not copy placeholder text such as packet.packetId",
 		"Judge only the current reviewed manifest",
 		"This session is the independent Reviewer for the current attempt",
@@ -431,6 +493,12 @@ func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 	if err := validateClaudeStructuredResult(pkg, placeholderRun); err == nil || !strings.Contains(err.Error(), "exact dispatch") {
 		t.Fatalf("pre-publication validation accepted placeholder reviewer identity: %v", err)
 	}
+	drifted := *pkg.Launch.ReviewerIdentity
+	drifted.Capability = transportCapabilityForTest()
+	pkg.Launch.ReviewerIdentity = &drifted
+	if err := validateClaudeCapabilityBinding(caseRoot, pkg); err == nil || !strings.Contains(err.Error(), "durable dispatch lineage") {
+		t.Fatalf("reviewer launch accepted capability drift: %v", err)
+	}
 	pkg.Launch.ReviewerIdentity = nil
 	if _, _, err := claudeRequest(caseRoot, pkg, "session-id"); err == nil || !strings.Contains(err.Error(), "exact durable dispatch identity") {
 		t.Fatalf("reviewer request accepted missing exact durable identity: %v", err)
@@ -464,6 +532,181 @@ func TestClaudeEvidenceReviewRequestBindsExactReadOnlyDecision(t *testing.T) {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("evidence review schema omitted %q: %s", expected, schema)
 		}
+	}
+}
+
+func TestClaudeBinaryInventoryEvidenceReviewRequestUsesTypedPolicy(t *testing.T) {
+	caseRoot := t.TempDir()
+	inputRel := ".rekit/binary-inventory-evidence-review-input.json"
+	input := []byte(`{"schemaVersion":1,"kind":"binary-inventory-evidence-review"}` + "\n")
+	inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg := hostPackageForTest(caseRoot, inputRel, input)
+	pkg.SessionKind = "mission-commander-evidence-review"
+	pkg.Launch.ReadOnly = true
+	pkg.Launch.Input.Role = "mission-commander-binary-inventory-evidence-review-input"
+	prompt, schema, err := claudeRequest(caseRoot, pkg, "session-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"binary inventory evidence review",
+		"exact source, canonical inventory, report, dispatch, receipt, and observation",
+		"all five safety boundaries",
+		"inventory path is the exact selectedEvidenceRef",
+		`"content":"{\"schemaVersion\":1,\"kind\":\"binary-inventory-evidence-review\"}\n"`,
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("binary inventory evidence review prompt omitted %q: %s", expected, prompt)
+		}
+	}
+	for _, forbidden := range []string{"selected row is an exact source line", "matched term and evidence ref are exact"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("binary inventory evidence review inherited VMP policy %q: %s", forbidden, prompt)
+		}
+	}
+	if !strings.Contains(schema, `"selectedEvidenceRef"`) || !strings.Contains(schema, `"additionalProperties":false`) {
+		t.Fatalf("binary inventory evidence review schema drifted: %s", schema)
+	}
+
+	pkg.Launch.Input.Role = "unknown-evidence-review-input"
+	if _, _, err := claudeRequest(caseRoot, pkg, "session-id"); err == nil || !strings.Contains(err.Error(), "unsupported Mission Commander evidence review input role") {
+		t.Fatalf("unknown evidence review role was accepted: %v", err)
+	}
+}
+
+func TestRunTrustedEvidenceReviewClaudeRejectsUnboundExecutableBeforeLaunch(t *testing.T) {
+	caseRoot := t.TempDir()
+	run := runTrustedEvidenceReviewClaude(
+		context.Background(),
+		Options{
+			Target:                            caseRoot,
+			ClaudePath:                        filepath.Join(caseRoot, "missing-claude.exe"),
+			ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+			ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		},
+		mission.CurrentLoopExternalSessionHarnessPackage{},
+		"evidence-review-test",
+		nil,
+	)
+	if run.started || run.spawnErr == nil || !strings.Contains(run.spawnErr.Error(), "bind trusted Claude for independent evidence review") ||
+		strings.Contains(run.failureReason(), "exec: no command") {
+		t.Fatalf("trusted evidence review did not fail at executable binding: %+v", run)
+	}
+}
+
+func TestClaudeWebSecurityEvidenceReviewRequestsUseTypedPolicies(t *testing.T) {
+	tests := []struct {
+		name      string
+		role      string
+		kind      string
+		expected  []string
+		forbidden []string
+	}{
+		{
+			name: "OpenAPI inventory", role: webSecurityOpenAPIReviewInputRole, kind: webSecurityOpenAPIReviewInputKind,
+			expected: []string{
+				"web-security OpenAPI inventory evidence review",
+				"exact source, canonical inventory, report, dispatch, receipt, and observation",
+				"Do not make a network request, construct or execute a replay",
+				"use ambient credentials", "output a secret",
+			},
+			forbidden: []string{"selected row is an exact source line", "matched term and evidence ref are exact"},
+		},
+		{
+			name: "bounded replay", role: webSecurityReplayReviewInputRole, kind: webSecurityReplayReviewInputKind,
+			expected: []string{
+				"web-security bounded replay evidence review",
+				"exact redacted replay result, inventory, report, dispatch, receipt, and observation",
+				"Do not make or repeat any network request", "do not retry or replace delivery-uncertain",
+				"do not read an authRef environment value", "do not infer response body content from a digest",
+				"Treat delivery-uncertain as terminal evidence", "do not output a secret",
+			},
+			forbidden: []string{"selected row is an exact source line", "matched term and evidence ref are exact"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			inputRel := ".rekit/web-security-evidence-review-input.json"
+			input := []byte(`{"schemaVersion":1,"kind":"` + tt.kind + `"}` + "\n")
+			inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
+			if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			pkg := hostPackageForTest(caseRoot, inputRel, input)
+			pkg.SessionKind = "mission-commander-evidence-review"
+			pkg.Launch.ReadOnly = true
+			pkg.Launch.Input.Role = tt.role
+			prompt, schema, err := claudeRequest(caseRoot, pkg, "session-id")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range tt.expected {
+				if !strings.Contains(prompt, expected) {
+					t.Fatalf("web-security evidence review prompt omitted %q: %s", expected, prompt)
+				}
+			}
+			for _, forbidden := range tt.forbidden {
+				if strings.Contains(prompt, forbidden) {
+					t.Fatalf("web-security evidence review inherited VMP policy %q: %s", forbidden, prompt)
+				}
+			}
+			if !strings.Contains(prompt, `"role":"`+tt.role+`"`) || !strings.Contains(prompt, `"content":"{\"schemaVersion\":1`) {
+				t.Fatalf("web-security evidence review prompt omitted bound role/content: %s", prompt)
+			}
+			if !strings.Contains(schema, `"selectedEvidenceRef"`) || !strings.Contains(schema, `"additionalProperties":false`) {
+				t.Fatalf("web-security evidence review schema drifted: %s", schema)
+			}
+		})
+	}
+}
+
+func TestClaudeWebSecurityMemberBindingPolicies(t *testing.T) {
+	tests := []struct {
+		kind     string
+		expected []string
+	}{
+		{
+			kind:     webSecurityOpenAPIMemberBindingKind,
+			expected: []string{"web-security-openapi-inventory-evidence", "Do not make a network request", "construct or execute a replay", "output any secret"},
+		},
+		{
+			kind:     webSecurityReplayMemberBindingKind,
+			expected: []string{"web-security-bounded-replay-evidence", "Do not make or repeat any network request", "do not retry or replace a delivery-uncertain", "do not read an authRef environment value", "do not infer response body content from a digest", "Treat delivery-uncertain as terminal evidence", "do not output any secret"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			inputRel := ".rekit/member-task-context.json"
+			input := []byte(`{"schemaVersion":2,"kind":"member-lane-execution-task-context","binding":{"kind":"` + tt.kind + `","values":{"artifact-path":"evidence.json"}}}` + "\n")
+			inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
+			if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			pkg := hostPackageForTest(caseRoot, inputRel, input)
+			prompt, _, err := claudeRequest(caseRoot, pkg, "session-id")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range tt.expected {
+				if !strings.Contains(prompt, expected) {
+					t.Fatalf("web-security member prompt omitted %q: %s", expected, prompt)
+				}
+			}
+		})
 	}
 }
 
@@ -535,6 +778,23 @@ func TestClaudeRequestRejectsUnknownSessionKind(t *testing.T) {
 	}
 }
 
+func TestClaudeRequestRejectsNonUTF8BoundInput(t *testing.T) {
+	caseRoot := t.TempDir()
+	inputRel := ".rekit/non-utf8-input.bin"
+	input := []byte{0xff, 0xfe, 0xfd}
+	inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg := hostPackageForTest(caseRoot, inputRel, input)
+	if _, _, err := claudeRequest(caseRoot, pkg, "session-id"); err == nil || !strings.Contains(err.Error(), "valid UTF-8") {
+		t.Fatalf("non-UTF-8 bound input error=%v", err)
+	}
+}
+
 func TestClaudeFailureReasonPreservesStructuredValidationDetail(t *testing.T) {
 	run := claudeRun{failureDetail: `validate real Claude ReviewerResult: packetId "packet.packetId" does not match current packet`}
 	if reason := run.failureReason(); !strings.Contains(reason, "packet.packetId") || strings.Contains(reason, "did not return a successful structured result") {
@@ -557,8 +817,34 @@ func TestClaudeSchemasBindImmutableInputAndDurableSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, strconv.Quote(filepath.Join(caseRoot, filepath.FromSlash(inputRel)))) || !strings.Contains(prompt, strconv.Quote(caseRoot)) || !strings.Contains(prompt, "using the Read tool") || !strings.Contains(prompt, "never end the response with another Read call") || !strings.Contains(prompt, "missing bounded evidence is not a process failure") || !strings.Contains(prompt, "independent Reviewer can reject it") || !strings.Contains(prompt, "independent Reviewer is a later runtime-owned segment") || !strings.Contains(prompt, "do not defer merely because that later review has not happened") || !strings.Contains(prompt, "explicitly address every field") || !strings.Contains(prompt, "historical Reviewer rejection") || !strings.Contains(schema, `"outputs"`) {
-		t.Fatalf("member Claude request omitted input or output contract: prompt=%q schema=%s", prompt, schema)
+	for _, expected := range []string{
+		`boundInput={"sha256":"` + bytesSHA256(input) + `","bytes":13,"content":"bounded task\n"}`,
+		"Do not ask for, reconstruct, concatenate, or Read an input file path",
+		"boundInput.content is the complete task instruction",
+		"never end the response with another Read call",
+		"missing bounded evidence is not a process failure",
+		"independent Reviewer can reject it",
+		"independent Reviewer is a later runtime-owned segment",
+		"do not defer merely because that later review has not happened",
+		"explicitly address every field",
+		"historical Reviewer rejection",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("member Claude request omitted %q: %s", expected, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		filepath.Join(caseRoot, filepath.FromSlash(inputRel)),
+		caseRoot,
+		"exact absolute path",
+		"using the Read tool before answering",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("member Claude request leaked hand-copied input path %q: %s", forbidden, prompt)
+		}
+	}
+	if !strings.Contains(schema, `"outputs"`) {
+		t.Fatalf("member Claude schema omitted outputs: %s", schema)
 	}
 	pkg.Launch.Attempt.Session = "different"
 	if _, _, err := claudeRequest(caseRoot, pkg, "session-id"); err == nil {

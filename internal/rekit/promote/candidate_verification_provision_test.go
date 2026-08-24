@@ -50,9 +50,7 @@ func TestCandidateDecisionVerificationWorkspaceUsesSingleStateRoot(t *testing.T)
 
 func TestProvisionCandidateVerificationCasesPreviewsAppliesReplaysAndVerifies(t *testing.T) {
 	repoRoot, sourceCase, _, pack := packMemoryReconsumeFixture(t)
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nProvisioned reusable candidate.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -512,9 +510,7 @@ func TestProvisionCandidateVerificationCasesRejectsWorkspaceAncestorSymlink(t *t
 
 func TestProvisionCandidateVerificationCasesRejectsRootsAndDrift(t *testing.T) {
 	repoRoot, sourceCase, _, pack := packMemoryReconsumeFixture(t)
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nProvision root candidate.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -557,9 +553,7 @@ func candidateProvisionFixture(t *testing.T, name string) (repoRoot, sourceCase,
 	var ignored string
 	repoRoot, sourceCase, ignored, pack = packMemoryReconsumeFixture(t)
 	_ = ignored
-	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForPromoteTest(t, repoRoot, sourceCase, pack, "source")
 	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\n"+name+" candidate.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

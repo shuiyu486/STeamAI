@@ -80,8 +80,9 @@ $reviewRoot = Join-Path $WorkRoot "binary-re-agent-team-review-$suffix"
 
 try {
   $initPreview = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"binary-re-dryrun-$suffix",'-WhatIf','-Format','json') | ConvertFrom-Json
-  if ([string]::IsNullOrWhiteSpace([string]$initPreview.expectedPlanSha256)) { throw 'binary-re dry-run init preview omitted expectedPlanSha256' }
-  Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"binary-re-dryrun-$suffix",'-ExpectedInitPlanSha256',([string]$initPreview.expectedPlanSha256),'-Apply') | Out-Null
+  $initApplyArgs = @($initPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ([string]::IsNullOrWhiteSpace([string]$initPreview.expectedPlanSha256) -or $initApplyArgs.Count -eq 0) { throw 'binary-re dry-run init preview omitted exact Apply action' }
+  Invoke-RekitSmoke -Arguments $initApplyArgs | Out-Null
 
   $start = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$caseRoot,'-Pack',$Pack,'-Name','sample','-Apply','-Format','json') | ConvertFrom-Json
   if ([string]$start.command -ne 'start' -or -not [bool]$start.isMutation -or -not [bool]$start.applied -or [string]$start.lane.id -ne 'binary-analysis-sample' -or [string]$start.lane.type -ne 'binary-analysis' -or [string]$start.lane.workspace -ne 'captures/binary_analysis/binary-analysis-sample') {
@@ -155,8 +156,9 @@ try {
   }
 
   $handoffPreview = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Format','json','sample') | ConvertFrom-Json
-  if ([string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationPlanSha256) -or [string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationStamp)) { throw 'binary-re handoff preview omitted exact publication identity' }
-  $handoff = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','-ExpectedHandoffPlanSha256',([string]$handoffPreview.publicationPlanSha256),'-HandoffPublicationStamp',([string]$handoffPreview.publicationStamp),'sample') | ConvertFrom-Json
+  $handoffApplyArgs = @($handoffPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ([string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationPlanSha256) -or [string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationStamp) -or $handoffApplyArgs.Count -eq 0) { throw 'binary-re handoff preview omitted exact Apply action' }
+  $handoff = Invoke-RekitSmoke -Arguments $handoffApplyArgs | ConvertFrom-Json
   if ([string]$handoff.command -ne 'handoff' -or -not [bool]$handoff.isMutation -or -not [bool]$handoff.applied -or [bool]$handoff.project -or [string]$handoff.lane.id -ne 'binary-analysis-sample' -or [string]$handoff.lane.workspace -ne 'captures/binary_analysis/binary-analysis-sample') {
     throw "unexpected binary-re handoff result: $($handoff | ConvertTo-Json -Depth 20)"
   }

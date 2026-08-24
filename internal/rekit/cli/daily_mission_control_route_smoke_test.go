@@ -56,7 +56,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 	}
 	runDailyMissionControlRouteJSON(t, &out, continuePreviewArgs, &continuePreview)
-	continueApplyRequest := requireMissionCommanderDriverRequest(t, continuePreview.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	continueApplyRequest := requireContinueApplyDriverRequest(t, continuePreview.MissionCommanderActionQueue, "/rekit continue main")
 	if continuePreview.Command != "continue" || continuePreview.Applied || continuePreview.Blocked || continueApplyRequest.Command == readyRunbook.Quickstart.Command {
 		t.Fatalf("continue preview should return a case-local apply request: preview=%+v request=%+v", continuePreview, continueApplyRequest)
 	}
@@ -66,7 +66,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 	if !ok {
 		t.Fatalf("continue preview returned request should be executable: %+v", continueApplyRequest)
 	}
-	continueApplyArgs = append(continueApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json")
+	continueApplyArgs = append(continueApplyArgs, "-Target", caseRoot, "-Pack", "_template")
 	var continued struct {
 		Command                       string                                 `json:"command"`
 		RunID                         string                                 `json:"runId"`
@@ -78,7 +78,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		Writes                        []startWrite                           `json:"writes"`
 	}
 	runDailyMissionControlRouteJSON(t, &out, continueApplyArgs, &continued)
-	continuedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	continuedRequest := requireContinuePreviewDriverRequest(t, continued.MissionCommanderActionQueue, "/rekit continue main")
 	if continued.Command != "continue" || !continued.Applied || continued.Blocked || continued.RunID == "" || continued.BatchID != "batch-"+continued.RunID || continued.MissionCommanderDriverReceipt == nil || continued.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || continued.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != continuedRequest.Command {
 		t.Fatalf("continue apply should persist a durable run receipt: result=%+v request=%+v", continued, continuedRequest)
 	}
@@ -167,7 +167,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		Writes                        []startWrite                           `json:"writes"`
 	}
 	runDailyMissionControlRouteJSON(t, &out, reconcileApplyArgs, &reconciled)
-	reconciledRequest := requireMissionCommanderDriverRequest(t, reconciled.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main -Executor main-agent -ExpectedExecutorGeneration 1", true, false, false)
+	reconciledRequest := requireContinuePreviewDriverRequest(t, reconciled.MissionCommanderActionQueue, "/rekit continue main -Executor main-agent -ExpectedExecutorGeneration 1")
 	if reconciled.Command != "reconcile" || !reconciled.Applied || reconciled.ResolutionEventID == "" || reconciled.MissionCommanderDriverReceipt == nil || reconciled.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || reconciled.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != reconciledRequest.Command || reconciledRequest.ExpectedReceipt.RefreshStatusCommand != blockedRunbook.Quickstart.RefreshStatusCommand {
 		t.Fatalf("reconcile apply should restore the durable continue request: result=%+v request=%+v", reconciled, reconciledRequest)
 	}

@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:steamai:web-security:bounded-replay-result-v1",
+  "title": "STeamAI Bounded Replay Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "adapterId", "request", "inventory", "target", "operation", "status", "delivery", "limits", "boundaries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "web-security-bounded-replay-result" },
+    "adapterId": { "const": "bounded-http-replay" },
+    "request": { "$ref": "#/$defs/fileBinding" },
+    "inventory": { "$ref": "#/$defs/fileBinding" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "host", "port", "basePath"],
+      "properties": {
+        "scheme": { "enum": ["http", "https"] },
+        "host": { "type": "string", "pattern": "^(127(?:\\.[0-9]{1,3}){3}|::1)$" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "basePath": { "$ref": "#/$defs/urlPath" }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "method", "pathTemplate", "path"],
+      "properties": {
+        "key": { "$ref": "#/$defs/boundedText" },
+        "method": { "enum": ["get", "head", "options"] },
+        "pathTemplate": { "$ref": "#/$defs/urlPath" },
+        "path": { "$ref": "#/$defs/urlPath" }
+      }
+    },
+    "status": { "enum": ["matched", "different", "delivery-uncertain", "aborted-after-delivery", "failed-before-delivery"] },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempts", "certain"],
+      "properties": {
+        "attempts": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "certain": { "type": "boolean" },
+        "errorCode": { "enum": ["delivery-uncertain", "response-body-limit", "response-read", "auth-ref-unavailable", "auth-value-invalid", "auth-scheme-drift", "context-unavailable"] }
+      }
+    },
+    "actual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statusCode", "body", "headers"],
+      "properties": {
+        "statusCode": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "body": { "$ref": "#/$defs/digest" },
+        "headers": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "sha256", "bytes"],
+            "properties": {
+              "name": { "const": "content-type" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "bytes": { "type": "integer", "minimum": 0, "maximum": 512 }
+            }
+          }
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["match", "statusMatch", "bodyMatch", "headersMatch"],
+      "properties": {
+        "match": { "type": "boolean" },
+        "statusMatch": { "type": "boolean" },
+        "bodyMatch": { "type": "boolean" },
+        "headersMatch": { "type": "boolean" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtimeMillis", "responseBodyBytes", "requests", "redirects"],
+      "properties": {
+        "runtimeMillis": { "type": "integer", "minimum": 1, "maximum": 30000 },
+        "responseBodyBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "requests": { "const": 1 },
+        "redirects": { "const": 0 }
+      }
+    },
+    "boundaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loopbackOnly", "noAmbientProxy", "noRedirects", "noRetries", "noRequestBody", "noSecretsPersisted", "noCatalogEntryExecution", "noAuthorityOrConfirmed"],
+      "properties": {
+        "loopbackOnly": { "const": true },
+        "noAmbientProxy": { "const": true },
+        "noRedirects": { "const": true },
+        "noRetries": { "const": true },
+        "noRequestBody": { "const": true },
+        "noSecretsPersisted": { "const": true },
+        "noCatalogEntryExecution": { "const": true },
+        "noAuthorityOrConfirmed": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "boundedText": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "urlPath": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^/[^?#\\\\]*$" },
+    "fileBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+      }
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 1048576 }
+      }
+    }
+  }
+}

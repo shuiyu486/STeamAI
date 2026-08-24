@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 func TestPlanDryRunDoesNotWriteRequestLedger(t *testing.T) {
@@ -286,16 +287,28 @@ func gateFixtureWithStateRoot(t *testing.T, stateDir string) (repoRoot, caseRoot
 
 func gateFixtureWithDefaultRisk(t *testing.T, defaultRisk string) (repoRoot, caseRoot, pack string) {
 	t.Helper()
-	return gateFixtureWithDefaultRiskAndStateRoot(t, defaultRisk, ".rekit")
+	return gateFixtureWithDefaultRiskAndStateRoot(t, defaultRisk, projectstate.LegacyDir)
 }
 
 func gateFixtureWithDefaultRiskAndStateRoot(t *testing.T, defaultRisk, stateDir string) (repoRoot, caseRoot, pack string) {
 	t.Helper()
-	root := t.TempDir()
-	repoRoot = filepath.Join(root, "repo")
-	caseRoot = filepath.Join(root, "case")
-	pack = defaults.DefaultPack
-	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: binary-re
+	layout := testfixture.LegacyCase
+	options := testfixture.ProjectOptions{
+		Layout:      layout,
+		Pack:        "binary-re",
+		ProjectName: "gate-fixture",
+	}
+	switch stateDir {
+	case projectstate.CurrentDir:
+		if defaultRisk != "high" {
+			t.Fatalf("current gate fixture requires the canonical debug risk")
+		}
+		options.Layout = testfixture.CurrentProject
+	case projectstate.LegacyDir:
+		root := t.TempDir()
+		options.SourceRepo = filepath.Join(root, "repo")
+		options.CaseRoot = filepath.Join(root, "case")
+		writeGateText(t, filepath.Join(options.SourceRepo, "packs", options.Pack, "manifest.yml"), `name: binary-re
 managedFiles:
   - references/binary-re/README.md
 heavyToolGates:
@@ -312,9 +325,12 @@ heavyToolGates:
     requiresConfirmation: true
     stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
 `)
-	writeGateText(t, filepath.Join(caseRoot, stateDir, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"gate-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
-	writeGateText(t, filepath.Join(caseRoot, stateDir, "board.json"), `{"lanes":[{"id":"main"}]}`)
-	return repoRoot, caseRoot, pack
+	default:
+		t.Fatalf("unsupported gate fixture state root: %s", stateDir)
+	}
+	project := testfixture.NewProject(t, options)
+	writeGateText(t, filepath.Join(project.StateRoot, "board.json"), `{"lanes":[{"id":"main"}]}`)
+	return project.RuntimeRepoRoot, project.CaseRoot, project.Pack
 }
 
 func gateToolingFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
@@ -483,8 +499,8 @@ func TestRecordExecutionWritesObservationForAuthorizedGate(t *testing.T) {
 	}
 	assertAdapterReportRunbookContains(t, result.RunbookSteps, "confirm adapter report record state=ready-for-evidence-review")
 	assertAdapterReportRunbookContains(t, result.RunbookSteps, "after record, review outputRefs/evidenceRefs before any authority/confirmed outcome")
-	assertGateActionQueue(t, result.MissionCommanderActionQueue, 6, 6, 0, 4, 4, ackReviewCommand)
-	if result.ExecutionEvidenceReviewSummary.Total != 1 || result.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || result.ExecutionEvidenceReviewSummary.MainEscalationCount != 0 || result.ExecutionEvidenceReviewSummary.OutputRefCount != 1 || result.ExecutionEvidenceReviewSummary.EvidenceRefCount != 1 || result.ExecutionEvidenceReviewSummary.LatestGateEventID != authorized.EventID || result.ExecutionEvidenceReviewSummary.LatestStatus != "succeeded" || result.ExecutionEvidenceReviewSummary.CurrentAction != ackReviewCommand || result.ExecutionEvidenceReviewSummary.NextActionCount != 6 || result.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 4 || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "summary is read-only") || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "no authority/confirmed") {
+	assertGateActionQueue(t, result.MissionCommanderActionQueue, 6, 6, 0, 5, 4, ackReviewCommand)
+	if result.ExecutionEvidenceReviewSummary.Total != 1 || result.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || result.ExecutionEvidenceReviewSummary.MainEscalationCount != 0 || result.ExecutionEvidenceReviewSummary.OutputRefCount != 1 || result.ExecutionEvidenceReviewSummary.EvidenceRefCount != 1 || result.ExecutionEvidenceReviewSummary.LatestGateEventID != authorized.EventID || result.ExecutionEvidenceReviewSummary.LatestStatus != "succeeded" || result.ExecutionEvidenceReviewSummary.CurrentAction != ackReviewCommand || result.ExecutionEvidenceReviewSummary.NextActionCount != 6 || result.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 5 || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "summary is read-only") || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "no authority/confirmed") {
 		t.Fatalf("execution evidence review summary omitted compact acknowledgement handoff: %+v", result.ExecutionEvidenceReviewSummary)
 	}
 	if result.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !executionEvidenceFollowThroughContainsForTest(result.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") || result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.CurrentAction == nil || result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.CurrentAction.Command != ackReviewCommand || strings.Contains(result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.Summary, "/rekit continue") {
@@ -650,7 +666,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "confirm adapter report contract state=needs-adapter-report-validation")
 	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "run current Mission Commander command: "+wantValidate)
 	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "keep contract, scaffold/draft, validation, record, and evidence review as separate bounded operations")
-	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "/rekit does not execute adapter or heavy tool")
+	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "Mission Control runtime does not execute adapter or heavy tool")
 	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "do not write authority/confirmed")
 	assertAdapterReportRunbookContains(t, contract.LiveValidation.RunbookSteps, "record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256")
 	stages := map[string]bool{}
@@ -696,6 +712,90 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestAdapterReportContractRequiresExplicitSelectionForMultipleCandidates(t *testing.T) {
+	repoRoot, caseRoot, pack := gateToolingFixture(t)
+	manifestPath := filepath.Join(repoRoot, "packs", pack, "manifest.yml")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGateText(t, manifestPath, strings.Replace(string(manifestData), "  - id: debug\n", "  - id: inspect\n    title: Bounded inspection\n    sideEffects: inspect,filesystem-read,bounded-packet-write\n    defaultRisk: medium\n    requiresConfirmation: true\n    stopConditions: scope-drift,source-drift,output-exceeds-bounded-evidence-packet\n  - id: debug\n", 1))
+	catalogPath := filepath.Join(repoRoot, "packs", pack, "tooling", "catalog.yml")
+	catalogData, err := os.ReadFile(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGateText(t, catalogPath, string(catalogData)+`  - id: static-binary-triage-sidecar
+    status: supported
+    entry: compiled-in static inventory adapter; provenance only
+    purpose: Build a bounded PE or ELF inventory without executing the target.
+    sideEffects: filesystem-read,bounded-packet-write
+    gateActions: inspect
+  - id: vmp-ida-index-inspector
+    status: supported
+    entry: compiled-in IDA index adapter; provenance only
+    purpose: Query existing IDA index exports without opening an IDB.
+    sideEffects: filesystem-read,bounded-packet-write
+    gateActions: inspect
+`)
+	writePreauthorizedInspectProfile(t, caseRoot)
+	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "lane.json"), `{
+  "schemaVersion": 1,
+  "id": "main",
+  "type": "main",
+  "name": "main",
+  "title": "Main",
+  "status": "active",
+  "authority": true,
+  "workspace": "workspace/main",
+  "laneRoot": ".rekit/lanes/main",
+  "canWrite": [],
+  "readOnly": [],
+  "outputs": [],
+  "counters": {},
+  "currentExecutor": "executor-a",
+  "executorGeneration": 1,
+  "createdAt": "2026-07-29T00:00:00Z",
+  "updatedAt": "2026-07-29T00:00:00Z"
+}`)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "inspect", Lane: "main", Actor: "gate-test", Subject: "authorized inspect", TargetRef: "inputs/fixture.bin", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/inspect/session-1", StopConditions: "scope-drift,source-drift,output-exceeds-bounded-evidence-packet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := AdapterReportContract(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := contract.LiveValidation
+	if len(live.AdapterCandidates) != 2 || live.SelectedAdapter != nil || live.SidecarTemplate.AdapterID != "<adapter-id>" {
+		t.Fatalf("multiple adapter candidates were implicitly selected: %+v", live)
+	}
+	if contract.MissionCommanderAction.State != "needs-explicit-adapter-selection" || contract.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || strings.Contains(contract.MissionCommanderAction.PrimaryCommand, "-RecordAdapterExecutionDispatch") {
+		t.Fatalf("ambiguous adapter selection published an executable dispatch: %+v", contract.MissionCommanderAction)
+	}
+	if live.DispatchCommand != "" || gateContainsSubstring(contract.NextSteps, "-RecordAdapterExecutionDispatch") {
+		t.Fatalf("ambiguous contract leaked a dispatch command: live=%+v next=%+v", live, contract.NextSteps)
+	}
+
+	opt := Options{GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/inspect/session-1/adapter-report.json", AdapterID: "static-binary-triage-sidecar", Executor: "executor-a", ExpectedExecutorGeneration: 1, AdapterHarness: "claude-code", AdapterSession: "adapter-session-a", Actor: "mission-commander"}
+	preview, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.ExpectedAdapterExecutionDispatchBindingSHA256 = preview.BindingSHA256
+	if _, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, opt); err != nil {
+		t.Fatal(err)
+	}
+	contract, err = AdapterReportContract(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live = contract.LiveValidation
+	if live.SelectedAdapter == nil || live.SelectedAdapter.ID != "static-binary-triage-sidecar" || live.SidecarTemplate.AdapterID != "static-binary-triage-sidecar" || contract.MissionCommanderAction.State != "adapter-execution-dispatched-awaiting-report" {
+		t.Fatalf("current dispatch did not restore exact adapter selection: contract=%+v", contract)
+	}
 }
 
 func TestAdapterReportContractProjectsPackToolingCandidateOperationalClosure(t *testing.T) {
@@ -2029,6 +2129,27 @@ func writePreauthorizedProfile(t *testing.T, caseRoot string) {
   "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
   "stopConditions": ["timeout", "unexpected-side-effect", "scope-drift", "budget-exhausted"],
   "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit", "new-risk"],
+  "grantedBy": "user",
+  "grantedAt": "2026-01-01T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+}
+
+func writePreauthorizedInspectProfile(t *testing.T, caseRoot string) {
+	t.Helper()
+	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "autonomy.json"), `{
+  "schemaVersion": 1,
+  "profileId": "prof-main-inspect",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["inspect"],
+  "deniedActions": ["debug", "symex"],
+  "targetScope": [{"match":"exact","value":"inputs/fixture.bin"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["scope-drift", "source-drift", "output-exceeds-bounded-evidence-packet"],
+  "outputPaths": ["workspace/main/inspect"],
   "recordRequired": true,
   "notifyMainOn": ["boundary-hit", "new-risk"],
   "grantedBy": "user",

@@ -12,12 +12,18 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
 const (
 	remoteControlTestActor   = "mission-commander"
 	remoteControlTestSession = "remote-reviewer-binding-a"
+
+	transportReviewerShapePrefix    = "Reviewer result JSON shape template: "
+	transportReviewerShapeSuffix    = ". The shape template contains instructions, not default verdict values: inspect the listed evidence before selecting decision, confidence, recommendedVerdict, risk, next_action, and defer_reason; do not copy instruction text into the result."
+	transportReviewerEvidencePrefix = "For each member evidence manifest, use its own exact binding: "
+	transportReviewerEvidenceSuffix = " The deterministic runtime revalidates declared SHA-256 and byte counts during strict completion; do not invent a missing semantic or provenance check."
 )
 
 type remoteControlFixture struct {
@@ -47,6 +53,8 @@ func TestRemoteControlTransportVerticalSlicePublishesSelfContainedBundle(t *test
 	}
 	if endpoint.Endpoint == nil || endpoint.Endpoint.Envelope.Operation != "SendMessage" ||
 		endpoint.Endpoint.Envelope.Recipient != "reviewer [opaque-ref]" ||
+		endpoint.Endpoint.Capability != fixture.job.Capability ||
+		endpoint.Endpoint.Envelope.Capability != fixture.job.Capability ||
 		!endpoint.Endpoint.Envelope.NoFileTransfer ||
 		endpoint.BundlePath == "" || endpoint.BundleSHA256 == "" || endpoint.BundleBytes == 0 {
 		t.Fatalf("endpoint plan=%+v", endpoint)
@@ -105,6 +113,95 @@ func TestRemoteControlTransportVerticalSlicePublishesSelfContainedBundle(t *test
 		harness != RemoteControlHarness || session != remoteControlTestSession || reason != "" {
 		t.Fatalf("launch transition=%q %q %q %q %q %q err=%v", outcome, actor, observedAt, harness, session, reason, err)
 	}
+}
+
+func TestCompactTransportReviewerPromptRequiresExactCanonicalContract(t *testing.T) {
+	item := ".rekit/lanes/feature-analysis/member-executions/g000001-a000001/evidence/manifest.json"
+	fields := []string{"item", "decision", "confidence", "evidence", "risk", "next_action", "tier_used", "tool_scope", "defer_reason"}
+	receipt := reviewersession.DispatchReceipt{
+		PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a", Items: []string{item},
+		TargetLane: "feature-review", EffectiveOwner: reviewersession.Owner{
+			CurrentExecutor: "review-owner", ExecutorGeneration: 3, BindingMode: "current-executor-generation",
+		},
+		ReviewerSession: "reviewer-session-a",
+	}
+	contract := reviewerresult.CurrentContract()
+	shape, err := transportCanonicalSourceReviewerShape(receipt, fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptRoot := strings.TrimSuffix(item, "/evidence/manifest.json")
+	source := strings.Join([]string{
+		"You are a read-only reviewer for rekit plan-subagents shard " + receipt.ShardID + ".",
+		"Route: " + receipt.RouteID + ".",
+		"Items: " + strings.Join(receipt.Items, ", ") + ".",
+		"Owner binding: targetLane=feature-review, mode=current-executor-generation, currentExecutor=review-owner, executorGeneration=3.",
+		"Return exactly one reviewer result JSON object; do not return routeOutput alone.",
+		"Reviewer result contract: " + contract.OutputFormat + ".",
+		"Required result fields: " + strings.Join(contract.RequiredFields, ", ") + ".",
+		"Route output required fields: item=exact item.",
+		transportReviewerShapePrefix + shape + transportReviewerShapeSuffix,
+		"Choose accept with recommendedVerdict=accepted when the immutable evidence and its declared hashes support the bounded item; choose reject only with inspected contrary evidence; choose defer or needs-more-evidence only when a concrete evidence gap remains.",
+		"Use the exact canonical decision mapping for recommendedVerdict: accept=accepted, reject=rejected, defer=inconclusive, abandon=inconclusive, needs-more-evidence=needs-more-evidence. Do not invent synonyms such as deferred.",
+		transportReviewerEvidencePrefix + "item " + string(mustJSON(item)) + " uses immutable task context " + string(mustJSON(attemptRoot+"/task-context.json")) + " and exact canonical outputs root " + string(mustJSON(attemptRoot+"/evidence/outputs")) + ". For each binding, first read that immutable task context and the manifest item. Treat explicit acceptance requirements in the task context as mandatory output conditions: contrary evidence must produce decision=reject with recommendedVerdict=rejected, not accept or defer. A self-consistent manifest does not satisfy a missing goal, acceptance requirement, or correction requirement. Keep every item exactly as listed in Items and keep routeOutput.item equal to the reviewed item required by the route contract." + transportReviewerEvidenceSuffix,
+		"Replace packet.packetId with the packet packetId, set routeId to " + receipt.RouteID + ", shardId to " + receipt.ShardID + ", and set reviewerSession to your session identifier supplied by the main agent.",
+		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
+		"Return the result to the main agent. The main agent will save it directly at reviewerResultPath for strict reviewer intake: result.json. Do not write ledger paths yourself.",
+		"Do not write files, run heavy tools, append ledgers, or change authority/confirmed state.",
+		"The main agent owns reviewer spawn, merge, validation, handoff, and ledger writeback: /rekit plan-subagents -ReviewerResultPath result.json.",
+	}, " ")
+
+	compacted, ok := compactTransportReviewerPrompt(source, receipt, fields)
+	if !ok || compacted == source || len(compacted) >= len(source) {
+		t.Fatalf("canonical Reviewer prompt was not compacted: ok=%t source=%d compacted=%d", ok, len(source), len(compacted))
+	}
+	for _, expected := range []string{
+		"packetId=packet-a", "reviewerSession=reviewer-session-a", mustJSON(receipt.Items),
+		"member-task-context", "member-evidence-manifest", "member-evidence-output",
+		"explicit acceptance requirements", "decision=reject", "recommendedVerdict=rejected",
+		"Required routeOutput fields: " + strings.Join(fields, ", "), "tool_scope must be read-only",
+		"Do not write files or ledgers, run heavy tools", "authority/confirmed state",
+	} {
+		if !strings.Contains(compacted, expected) {
+			t.Fatalf("compacted Reviewer prompt omitted %q:\n%s", expected, compacted)
+		}
+	}
+
+	short := "Review this custom bounded evidence exactly as written."
+	shortResult, shortCompacted := compactTransportReviewerPrompt(short, receipt, fields)
+	if shortCompacted || shortResult != short {
+		t.Fatalf("transport renderer expanded a source that does not benefit from compaction: compacted=%t got=%q", shortCompacted, shortResult)
+	}
+}
+
+func transportCanonicalSourceReviewerShape(receipt reviewersession.DispatchReceipt, fields []string) (string, error) {
+	routeOutput := map[string]string{}
+	for _, field := range fields {
+		routeOutput[field] = "fill " + field
+	}
+	shape := struct {
+		PacketID           string            `json:"packetId"`
+		RouteID            string            `json:"routeId"`
+		ShardID            string            `json:"shardId"`
+		Items              []string          `json:"items"`
+		ReviewerSession    string            `json:"reviewerSession"`
+		Decision           string            `json:"decision"`
+		Confidence         string            `json:"confidence"`
+		Summary            string            `json:"summary"`
+		EvidenceRefs       []string          `json:"evidenceRefs"`
+		Risks              []string          `json:"risks"`
+		Conflicts          []string          `json:"conflicts"`
+		RecommendedVerdict string            `json:"recommendedVerdict"`
+		RouteOutput        map[string]string `json:"routeOutput"`
+	}{
+		PacketID: "packet.packetId", RouteID: receipt.RouteID, ShardID: receipt.ShardID,
+		Items: append([]string{}, receipt.Items...), ReviewerSession: "reviewer-session-id",
+		Decision: "select after inspecting evidence", Confidence: "select after inspecting evidence",
+		Summary: "fill evidence-based summary for this shard", EvidenceRefs: []string{"packet.packetId"},
+		Risks: []string{}, Conflicts: []string{}, RecommendedVerdict: "map from the selected decision", RouteOutput: routeOutput,
+	}
+	data, err := json.Marshal(shape)
+	return string(data), err
 }
 
 func TestRemoteControlTransportRejectsMemberAndNonExplicitReviewerBindings(t *testing.T) {
@@ -592,6 +689,57 @@ func TestRemoteControlTransportRejectsTamperAndStaleApply(t *testing.T) {
 	}
 }
 
+func TestRemoteControlTransportProviderAcknowledgementDoesNotChangeCapability(t *testing.T) {
+	fixture := newRemoteControlFixture(t)
+	applyRemoteControlEndpoint(t, fixture)
+	delivery, err := PreviewTransportDelivery(
+		fixture.job,
+		fixture.attempt,
+		fixture.dispatch,
+		"accepted",
+		strings.Repeat("e", 64),
+		remoteControlTestActor,
+		"2026-08-12T03:03:00Z",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivery.Delivery == nil || delivery.Delivery.ProviderAckFingerprint == "" ||
+		delivery.Delivery.Capability != fixture.job.Capability {
+		t.Fatalf("provider acknowledgement changed capability lineage: %+v", delivery.Delivery)
+	}
+}
+
+func TestRemoteControlTransportRejectsCapabilityHashAndPolicyDrift(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*TransportDeliveryObservation)
+	}{
+		{name: "hash", mutate: func(delivery *TransportDeliveryObservation) { delivery.Capability.SHA256 = strings.Repeat("7", 64) }},
+		{name: "policy", mutate: func(delivery *TransportDeliveryObservation) {
+			delivery.Capability = reviewersession.ReadOnlyCapability()
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRemoteControlFixture(t)
+			applyRemoteControlEndpoint(t, fixture)
+			delivery, err := PreviewTransportDelivery(fixture.job, fixture.attempt, fixture.dispatch, "accepted", strings.Repeat("e", 64), remoteControlTestActor, "2026-08-12T03:03:00Z", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ApplyTransportCurrent(delivery, delivery.ExpectedPlanSHA256, nil); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(delivery.Delivery)
+			writeTestJSON(t, fixture.job.CaseRoot, delivery.ArtifactPath, *delivery.Delivery)
+			if _, err := InspectTransport(fixture.job, fixture.attempt, fixture.dispatch); err == nil || !strings.Contains(err.Error(), "capability") {
+				t.Fatalf("delivery capability drift error=%v", err)
+			}
+		})
+	}
+}
+
 func TestRemoteControlTransportRejectsDeliveryBindingTamper(t *testing.T) {
 	fixture := newRemoteControlFixture(t)
 	applyRemoteControlEndpoint(t, fixture)
@@ -674,7 +822,7 @@ func newRemoteControlFixtureWithItems(t *testing.T, output, prompt []byte, itemF
 		AgentType: "read-only-reviewer", ReadOnly: true, TargetLane: memberPlan.Owner.Lane,
 		PacketOwner: owner, EffectiveOwner: owner, ReviewerHarness: RemoteControlHarness,
 		ReviewerSession: remoteControlTestSession, Actor: remoteControlTestActor,
-		RecordedAt: "2026-08-12T01:00:00Z", NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
+		RecordedAt: "2026-08-12T01:00:00Z", Capability: reviewersession.ReadOnlyCapability(), NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
 	}
 	dispatchData, err := canonical(receipt)
 	if err != nil {
@@ -733,6 +881,7 @@ func remoteControlDispatchTicket(plan AttemptPlan, promptRel string, prompt []by
 	return DispatchTicket{
 		Launch: DispatchLaunch{
 			Ready: true, Tool: "Claude Code Remote Control", AgentType: "read-only-reviewer", ReadOnly: true,
+			Capability:     reviewersession.ReadOnlyCapability(),
 			Input:          DispatchInput{Path: promptRel, SHA256: hash(prompt), Role: "reviewer-dispatch-prompt"},
 			ExpectedOutput: "exactly one ReviewerResult JSON object", Boundary: []string{"read-only Reviewer"},
 		},

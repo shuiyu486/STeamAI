@@ -100,11 +100,111 @@ func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
 	}
 	for _, pack := range result.Packs {
 		want := 7
-		if pack.ID == "_template" || pack.ID == defaults.DefaultPack {
+		if pack.ID == "_template" || pack.ID == defaults.DefaultPack || pack.ID == "web-security" {
 			want = 8
 		}
 		if pack.HeavyToolGates != want {
 			t.Fatalf("pack %s HeavyToolGates = %d, want %d", pack.ID, pack.HeavyToolGates, want)
+		}
+	}
+}
+
+func TestReleaseCheckIncludesProductionMaturityAdmission(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Ready || !result.ProductionRegistry.Ready {
+		t.Fatalf("release-check production registry unexpectedly not ready: registry=%+v warnings=%v", result.ProductionRegistry, result.Warnings)
+	}
+	if len(result.ProductionPacks) != 2 {
+		t.Fatalf("production pack admission count=%d, want 2: %+v", len(result.ProductionPacks), result.ProductionPacks)
+	}
+	for _, admission := range result.ProductionPacks {
+		if !admission.Ready || admission.InstructionIdentity == nil || admission.InstructionIdentity.SHA256 == "" || len(admission.InstructionIdentity.Sources) == 0 {
+			t.Fatalf("production pack admission omitted four-element or instruction identity evidence: %+v", admission)
+		}
+		data, err := json.Marshal(admission.InstructionIdentity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "content") {
+			t.Fatalf("release admission exposed instruction source content: %s", data)
+		}
+	}
+}
+
+func TestReleaseCheckIncludesSharedCapabilityAdmission(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission := result.CapabilityContract
+	if !admission.Ready || len(admission.Warnings) != 0 || len(admission.PolicyClasses) != 4 ||
+		admission.Contract == "" || admission.Sinks == "" || admission.Evidence == "" {
+		t.Fatalf("release-check capability admission is incomplete: %+v", admission)
+	}
+}
+
+func TestReleaseCheckRejectsCapabilitySinkSymbolDrift(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	path := filepath.Join(repo, "internal", "rekit", "externalsession", "transport.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := strings.Replace(string(data), "func validateTransportDelivery(", "func validateTransportDeliveryDrift(", 1)
+	if drifted == string(data) {
+		t.Fatal("failed to create capability sink symbol drift fixture")
+	}
+	writeFile(t, path, drifted)
+
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ready || result.CapabilityContract.Ready {
+		t.Fatalf("release-check accepted capability sink drift: admission=%+v warnings=%v", result.CapabilityContract, result.Warnings)
+	}
+	matched := false
+	for _, warning := range result.CapabilityContract.Warnings {
+		matched = matched || strings.Contains(warning, "capability sink symbol is missing")
+	}
+	if !matched {
+		t.Fatalf("release-check capability sink drift omitted exact warning: %+v", result.CapabilityContract)
+	}
+}
+
+func TestReleaseCheckRejectsProductionVerifierSymbolDrift(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	path := filepath.Join(repo, "internal", "rekit", "websecurity", "openapi.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := strings.Replace(string(data), "func ImportOpenAPI(", "func ImportOpenAPIDrift(", 1)
+	if drifted == string(data) {
+		t.Fatal("failed to create verifier symbol drift fixture")
+	}
+	writeFile(t, path, drifted)
+
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ready {
+		t.Fatalf("release-check accepted production verifier symbol drift: %+v", result.ProductionPacks)
+	}
+	assertWarningContains(t, result.Warnings, "production pack web-security: production contract semantic verifier symbol is missing")
+	for _, admission := range result.ProductionPacks {
+		if admission.Pack == "web-security" && admission.Ready {
+			t.Fatalf("web-security admission stayed ready after verifier symbol drift: %+v", admission)
 		}
 	}
 }
@@ -118,7 +218,7 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 	if gate.Kind != "workflow-definition" || !gate.DefinitionReady || gate.DefinitionReady != gate.Ready || gate.ReadyMeaning != "workflow-definition" || gate.ProvesRemoteExecution || gate.ProvesRemoteGreen {
 		t.Fatalf("CI release gate readiness meaning drifted: %+v", gate)
 	}
-	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 18 || counts.ForbiddenStrings == 0 {
+	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 21 || counts.ForbiddenStrings == 0 {
 		t.Fatalf("CI release gate omitted required sections: %+v", gate)
 	}
 	assertCIJob(t, gate, "go-checks-linux", "Go release checks (Linux)", "ubuntu-latest")
@@ -129,6 +229,7 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command status")
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command packs")
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command doctor")
+		assertCICommand(t, gate, job, CanonicalGoPackSmokeCommand)
 		assertCICommand(t, gate, job, CanonicalGoTestCommand)
 		assertCICommand(t, gate, job, "go vet ./...")
 	}
@@ -146,8 +247,8 @@ func TestCIReleaseGateInventoryRequiresVetBeforeTests(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.ReplaceAll(string(workflow), "\r\n", "\n")
-	old := "      - name: Go vet\n        run: go vet ./...\n\n      - name: Go tests\n        run: " + CanonicalGoTestCommand
-	new := "      - name: Go tests\n        run: " + CanonicalGoTestCommand + "\n\n      - name: Go vet\n        run: go vet ./..."
+	old := "      - name: Go vet\n        run: go vet ./...\n\n      - name: Go-native pack smoke matrix\n        run: " + CanonicalGoPackSmokeCommand + "\n\n      - name: Go tests\n        run: " + CanonicalGoTestCommand
+	new := "      - name: Go tests\n        run: " + CanonicalGoTestCommand + "\n\n      - name: Go vet\n        run: go vet ./...\n\n      - name: Go-native pack smoke matrix\n        run: " + CanonicalGoPackSmokeCommand
 	prefix, suffix, ok := strings.Cut(text, old)
 	if !ok {
 		t.Fatal("failed to locate vet-before-tests workflow fixture block")
@@ -191,6 +292,7 @@ jobs:
 	assertWarningContains(t, gate.Warnings, "go-checks-macos")
 	assertWarningContains(t, gate.Warnings, "go run ./cmd/rekit -- -Command status")
 	assertWarningContains(t, gate.Warnings, "go vet ./...")
+	assertWarningContains(t, gate.Warnings, CanonicalGoPackSmokeCommand)
 	assertWarningContains(t, gate.Warnings, "pack-smoke-matrix.ps1")
 }
 
@@ -313,7 +415,7 @@ func TestReleaseCheckJSONCompatibilityAddsExplicitReadinessLayers(t *testing.T) 
 	if err := json.Unmarshal(data, &wire); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"command", "schemaVersion", "isMutation", "repoRoot", "ready", "summary", "gateProfile", "ciReleaseGate", "recommendedMinimum", "requiredCommands", "documents", "packs", "powerShellDeprecation", "goNativePublicSurface", "publicFacadeRemoval", "caseShim", "publicDefaultDocs", "releaseHandoff", "heavyToolGateActions", "boundaries", "knownGaps", "warnings", "readinessLayers"} {
+	for _, key := range []string{"command", "schemaVersion", "isMutation", "repoRoot", "ready", "summary", "gateProfile", "ciReleaseGate", "recommendedMinimum", "requiredCommands", "documents", "packs", "productionRegistry", "productionPacks", "powerShellDeprecation", "goNativePublicSurface", "publicFacadeRemoval", "caseShim", "publicDefaultDocs", "releaseHandoff", "heavyToolGateActions", "boundaries", "knownGaps", "warnings", "readinessLayers"} {
 		if _, present := wire[key]; !present {
 			t.Fatalf("release-check JSON omitted compatible field %q", key)
 		}
@@ -423,6 +525,16 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 			t.Fatalf("Go-native public command %s missing from catalog or handler coverage: %+v", command, inventory)
 		}
 	}
+	if len(inventory.RuntimeOwners) != 69 {
+		t.Fatalf("Go-native exact runtime owner inventory=%d, want 69", len(inventory.RuntimeOwners))
+	}
+	if warnings := GoNativePublicRuntimeOwnerWarningsFor(inventory.RuntimeOwners, inventory.Commands); len(warnings) != 0 {
+		t.Fatalf("Go-native exact runtime owner inventory drifted: %v", warnings)
+	}
+	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "sync", commands.MutationModeCurrentSync, "pre-runtime-exclusive-owner", "wantsCurrentSyncMaintenance", "", "validateCurrentSyncMaintenanceOptions", "inline-func", "runWithOptions->runPreRuntimeCommand->inline-func")
+	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "sync", commands.MutationModeOrdinarySync, "scoped-runtime-owner", "resolveSyncCommandMode", "bindSyncCommand", "validateSyncCommand", "handleSyncCommand", "runWithOptions->runOwnedCommand->runScopedCommand->executeScopedCommandRoute->handleSyncCommand")
+	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "plan-subagents", commands.MutationModeReviewerIntake, "scoped-runtime-owner", "resolvePlanSubagentsCommandMode", "bindPlanSubagentsCommand", "validatePlanSubagentsCommand", "handlePlanSubagentsCommand", "runWithOptions->runOwnedCommand->runScopedCommand->executeScopedCommandRoute->handlePlanSubagentsCommand")
+	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "*", "pending-current-sync-recovery", "pre-runtime-interceptor-owner", "inline-func", "", "inline-func", "runCurrentSyncRecoveryFrontDoor", "runWithOptions->runPreRuntimeCommand->runCurrentSyncRecoveryFrontDoor")
 	if surfaceCounts.SymbolCatalog.Symbols != 32 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || inventory.SymbolCommands["Control"] != "control" || inventory.SymbolCommands["MigrateState"] != "migrate-state" || inventory.SymbolCommands["NextBatch"] != "next-batch" || inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["Reconcile"] != "reconcile" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" || inventory.SymbolCommands["ReleaseRun"] != "release-run" || inventory.SymbolCommands["RunCurrentLoop"] != "run-current-loop" || inventory.SymbolCommands["RunCurrentStep"] != "run-current-step" {
 		t.Fatalf("Go-native public symbol catalog drifted: %+v", inventory.SymbolCommands)
 	}
@@ -448,8 +560,97 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if surfaceCounts.Policies.Rows != 5 || surfaceCounts.Policies.Violations != 0 || surfaceCounts.Policies.ViolationCommands != 0 || inventory.CommandProfilePolicies[0].Policy != commands.PublicProfilePolicyNoHeavyTool || !inventory.CommandProfilePolicies[0].Ready || inventory.CommandProfilePolicies[3].Policy != commands.PublicProfilePolicyReviewFirstApplyRequired || GoNativePublicSurfacePolicyRowCountsFor(inventory.CommandProfilePolicies[3]).Commands != 0 {
 		t.Fatalf("Go-native public command profile policy rows drifted: %+v", inventory.CommandProfilePolicies)
 	}
-	if !inventory.FacadeRemovalReady || surfaceCounts.FacadeRemoval.Rows != 5 || surfaceCounts.FacadeRemoval.NotReady != 0 || inventory.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !inventory.FacadeRemovalPrerequisites[0].Ready || inventory.FacadeRemovalPrerequisites[4].Name != "unsupported-command-diagnostic" || !inventory.FacadeRemovalPrerequisites[4].Ready {
+	if !inventory.FacadeRemovalReady || surfaceCounts.FacadeRemoval.Rows != 6 || surfaceCounts.FacadeRemoval.NotReady != 0 || inventory.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !inventory.FacadeRemovalPrerequisites[0].Ready || inventory.FacadeRemovalPrerequisites[2].Name != "runtime-owner-inventory" || !inventory.FacadeRemovalPrerequisites[2].Ready || inventory.FacadeRemovalPrerequisites[5].Name != "unsupported-command-diagnostic" || !inventory.FacadeRemovalPrerequisites[5].Ready {
 		t.Fatalf("Go-native public surface facade removal prerequisites drifted: ready=%t prerequisites=%+v", inventory.FacadeRemovalReady, inventory.FacadeRemovalPrerequisites)
+	}
+}
+
+func assertGoNativeRuntimeOwner(t *testing.T, owners []GoNativePublicRuntimeOwner, command, mode, kind, resolver, binder, validator, handler, callPath string) {
+	t.Helper()
+	for _, owner := range owners {
+		if owner.Command == command && owner.Mode == mode {
+			if owner.OwnerKind != kind || owner.Resolver != resolver || owner.Binder != binder || owner.Validator != validator || owner.Handler != handler || owner.PublicationOwner != handler || owner.CallPath != callPath {
+				t.Fatalf("Go-native runtime owner %s mode %s drifted: %+v", command, mode, owner)
+			}
+			return
+		}
+	}
+	t.Fatalf("Go-native runtime owner missing: %s mode %s", command, mode)
+}
+
+func TestGoNativePublicRuntimeOwnerWarningsFailClosed(t *testing.T) {
+	inventory := goNativePublicSurface(repoRoot(t))
+	for _, test := range []struct {
+		name   string
+		mutate func([]GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner
+		want   string
+	}{
+		{
+			name: "missing callback",
+			mutate: func(owners []GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner {
+				owners[0].Handler = ""
+				return owners
+			},
+			want: "incomplete",
+		},
+		{
+			name: "duplicate exact scope",
+			mutate: func(owners []GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner {
+				for _, owner := range owners {
+					if owner.Command != "*" {
+						return append(owners, owner)
+					}
+				}
+				return owners
+			},
+			want: "duplicates scope",
+		},
+		{
+			name: "missing exact mode",
+			mutate: func(owners []GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner {
+				for index, owner := range owners {
+					if owner.Command != "*" {
+						return append(owners[:index], owners[index+1:]...)
+					}
+				}
+				return owners
+			},
+			want: "missing scope",
+		},
+		{
+			name: "wrong pre-runtime call path",
+			mutate: func(owners []GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner {
+				for index := range owners {
+					if owners[index].OwnerKind == "pre-runtime-exclusive-owner" {
+						owners[index].CallPath = "runWithOptions->runOwnedCommand"
+						break
+					}
+				}
+				return owners
+			},
+			want: "pre-runtime owner inventory is incomplete",
+		},
+		{
+			name: "missing recovery interceptor",
+			mutate: func(owners []GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner {
+				out := owners[:0]
+				for _, owner := range owners {
+					if owner.OwnerKind != "pre-runtime-interceptor-owner" {
+						out = append(out, owner)
+					}
+				}
+				return out
+			},
+			want: "interceptor owner count drifted",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			owners := append([]GoNativePublicRuntimeOwner{}, inventory.RuntimeOwners...)
+			warnings := GoNativePublicRuntimeOwnerWarningsFor(test.mutate(owners), inventory.Commands)
+			if !slices.ContainsFunc(warnings, func(warning string) bool { return strings.Contains(warning, test.want) }) {
+				t.Fatalf("runtime owner warnings=%v, want containing %q", warnings, test.want)
+			}
+		})
 	}
 }
 
@@ -457,18 +658,17 @@ func TestGoNativePublicSurfaceInventoryDetectsDispatcherDrift(t *testing.T) {
 	repo := t.TempDir()
 	writeFile(t, filepath.Join(repo, "cmd", "rekit", "main.go"), "package main\n")
 	writeFile(t, filepath.Join(repo, "internal", "rekit", "commands", "commands.go"), "package commands\n")
-	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "cli.go"), `package cli
+	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "cli.go"), "package cli\n")
+	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "scoped_registry.go"), `package cli
 
 import "github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 
-func dispatch(command string) error {
-	switch command {
-	case commands.Status:
-		return nil
-	default:
-		// commands.UnsupportedError(opt.Command)
-		return commands.UnsupportedError(command)
-	}
+var directCommandRuntimeOwners = []directCommandRuntimeOwner{
+	{Command: commands.Status, Handle: runStatus},
+}
+
+func runOwnedCommand(opt Options) error {
+	return commands.UnsupportedError(opt.Command)
 }
 `)
 
@@ -477,6 +677,56 @@ func dispatch(command string) error {
 		t.Fatalf("Go-native public surface unexpectedly ready despite dispatcher drift: %+v", inventory)
 	}
 	assertWarningContains(t, inventory.Warnings, "Go CLI dispatcher missing public command handler: release-check")
+}
+
+func TestGoNativePublicHandlerCommandsCombinesDirectAndScopedOwners(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "scoped_registry.go"), `package cli
+
+import "github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+
+var directCommandRuntimeOwners = []directCommandRuntimeOwner{
+	{Command: commands.Status, Handle: runStatus},
+}
+
+var scopedCommandRuntimeOwners = []scopedCommandRuntimeOwner{
+	defaultScopedCommandRuntimeOwner(commands.ReleaseCheck, bindReleaseCheckCommand, validateReleaseCheckCommand, handleReleaseCheckCommand),
+}
+`)
+
+	got := goNativePublicHandlerCommands(repo)
+	if strings.Join(got, ",") != "release-check,status" {
+		t.Fatalf("handler coverage did not combine direct and scoped runtime owners: %v", got)
+	}
+}
+
+func TestGoNativePublicHandlerCommandsRejectsIncompleteOrTextOnlyScopedRoutes(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "scoped_registry.go"), `package cli
+
+import "github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+
+// Direct owner text must not count as an actual callback.
+const fakeDirectOwner = "{Command: commands.Status, Handle: runStatus}"
+
+var directCommandRuntimeOwners = []directCommandRuntimeOwner{
+	{Command: commands.Status, Handle: nil},
+}
+
+// Scope: commands.CommandScope{Command: commands.ReleaseCheck}
+var scopedCommandRoutes = []scopedCommandRoute{
+	{
+		Scope: commands.CommandScope{Command: commands.ReleaseCheck, Mode: commands.MutationModeDefault},
+		Bind: bindReleaseCheckCommand,
+		Validate: validateReleaseCheckCommand,
+		Handle: nil,
+	},
+}
+`)
+
+	if got := goNativePublicHandlerCommands(repo); len(got) != 0 {
+		t.Fatalf("incomplete or text-only routes counted as handlers: %v", got)
+	}
 }
 
 func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {

@@ -48,6 +48,9 @@ func TestProjectStatusPublicEntrypointProjectsDeepCaseSurface(t *testing.T) {
 			if got := status.CaseShim.Entrypoint.CaseLocalFirstScreenCommand; got != test.entrypoint {
 				t.Fatalf("case-local first-screen selector = %q, want %q", got, test.entrypoint)
 			}
+			if test.entrypoint == commands.CurrentPublicEntrypoint && status.ProjectHandoff != nil && (len(status.ProjectHandoff.ValidationCommands) != 0 || status.ProjectHandoff.NextBatchSelectionPackage != nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 0) {
+				t.Fatalf("current public status retained central project handoff state: %+v", status.ProjectHandoff)
+			}
 			if got := status.MemberExecution.CorrectionCommand; got != deepProjectionHostCommand {
 				t.Fatalf("non-slash host command changed: %q", got)
 			}
@@ -96,6 +99,50 @@ func TestProjectStatusPublicEntrypointProjectsDeepCaseSurface(t *testing.T) {
 				summary.LatestCommanderPrimary != evidence.MissionCommanderAction.PrimaryCommand ||
 				summary.CurrentAction != status.CaseMission.MissionCommanderActionQueue.CurrentAction.Command {
 				t.Fatalf("execution evidence summary mirrors are stale: %+v", summary)
+			}
+		})
+	}
+}
+
+func TestProjectStatusPublicEntrypointClearsGuidanceCommandAliases(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		stateDir   string
+		entrypoint string
+	}{
+		{name: "current", stateDir: projectstate.CurrentDir, entrypoint: commands.CurrentPublicEntrypoint},
+		{name: "legacy", stateDir: projectstate.LegacyDir, entrypoint: commands.LegacyPublicEntrypoint},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, test.stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{{
+				State:   "ready-for-next-batch-selection",
+				Command: "select the next Windows-verifiable product-path closure",
+				Source:  "releaseHandoffNextBatch",
+			}})
+			runbook := buildStatusMissionControlRunbook("", nil, &statusProjectHandoff{
+				MissionCommanderActionQueue: queue,
+			})
+			if runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.CommandExecutable || runbook.CurrentDriverRequest.Guidance == "" {
+				t.Fatalf("guidance fixture drifted: %+v", runbook)
+			}
+			status := statusInventory{Target: caseRoot, MissionControlRunbook: runbook}
+			if err := projectStatusPublicEntrypoint(&status); err != nil {
+				t.Fatal(err)
+			}
+			request := status.MissionControlRunbook.CurrentDriverRequest
+			if status.MissionControlRunbook.CurrentCommand != "" || status.MissionControlRunbook.CurrentRunLoopStepID != request.RunLoopStepID || status.MissionControlRunbook.RefreshStatusCommand != request.ExpectedReceipt.RefreshStatusCommand {
+				t.Fatalf("public runbook aliases differ from guidance request: %+v", status.MissionControlRunbook)
+			}
+			if status.MissionControlRunbook.Quickstart == nil || status.MissionControlRunbook.Quickstart.Command != "" || status.MissionControlRunbook.Quickstart.Guidance == "" {
+				t.Fatalf("quickstart guidance alias drifted: %+v", status.MissionControlRunbook.Quickstart)
+			}
+			actualSHA, err := mission.MissionCommanderDriverRequestSHA256(*request)
+			if err != nil || actualSHA != status.MissionControlRunbook.CurrentDriverRequestSHA256 {
+				t.Fatalf("projected guidance request SHA drifted: actual=%q stored=%q err=%v", actualSHA, status.MissionControlRunbook.CurrentDriverRequestSHA256, err)
 			}
 		})
 	}
@@ -264,6 +311,65 @@ func TestProjectStatusPublicEntrypointRejectsMalformedDeepCommand(t *testing.T) 
 	if err := projectStatusPublicEntrypoint(&status); err == nil ||
 		!strings.Contains(err.Error(), "nextActionCollectionApplyCommand") {
 		t.Fatalf("malformed deep command did not fail closed: %v", err)
+	}
+}
+
+func TestBuildStatusDiagnosticsDTOProjectsWithoutMutatingSource(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := deepProjectionStatusFixture(t, caseRoot)
+	source.selectedCurrentLane = "feature-mission"
+	source.CaseMission.Sections = &overview.OverviewSections{
+		PendingGates: overview.EventSection{Events: []map[string]any{{
+			"generation": int64(9007199254740993),
+		}}},
+	}
+	before := mustJSONBytes(t, source)
+
+	diagnostics, err := buildStatusDiagnosticsDTO(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := mustJSONBytes(t, source)
+	if string(after) != string(before) {
+		t.Fatalf("status diagnostics projection mutated source:\nbefore=%s\nafter=%s", before, after)
+	}
+	projected := statusInventory(diagnostics)
+	if projected.selectedCurrentLane != source.selectedCurrentLane {
+		t.Fatalf("status diagnostics lost internal selector binding: got %q want %q", projected.selectedCurrentLane, source.selectedCurrentLane)
+	}
+	if got := projected.MissionControlRunbook.CurrentDriverRequest.Command; !strings.HasPrefix(got, commands.CurrentPublicEntrypoint+" ") {
+		t.Fatalf("status diagnostics did not project current entrypoint: %q", got)
+	}
+	if got := source.MissionControlRunbook.CurrentDriverRequest.Command; got != deepProjectionLegacyCommand {
+		t.Fatalf("status diagnostics projection aliased source request: %q", got)
+	}
+	encoded := string(mustJSONBytes(t, diagnostics))
+	if !strings.Contains(encoded, `"generation":9007199254740993`) {
+		t.Fatalf("status diagnostics changed a large integer token: %s", encoded)
+	}
+}
+
+func TestBuildStatusDiagnosticsDTOFailureDoesNotPartiallyMutateSource(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := deepProjectionStatusFixture(t, caseRoot)
+	source.CaseMission.ReviewerDispatchIntakeSummary.NextActionCollectionApplyCommand = "/rekit unknown -Format json"
+	before := mustJSONBytes(t, source)
+	_, err := buildStatusDiagnosticsDTO(source)
+	if err == nil || !strings.Contains(err.Error(), "nextActionCollectionApplyCommand") {
+		t.Fatalf("invalid status diagnostics command error=%v", err)
+	}
+	after := mustJSONBytes(t, source)
+	if string(after) != string(before) {
+		t.Fatalf("failed status diagnostics projection partially mutated source:\nbefore=%s\nafter=%s", before, after)
+	}
+	if source.CaseShim.Entrypoint.CaseLocalFirstScreenCommand != commands.LegacyPublicEntrypoint {
+		t.Fatalf("failed status projection leaked clone mutation: %+v", source.CaseShim.Entrypoint)
 	}
 }
 

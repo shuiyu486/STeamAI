@@ -569,6 +569,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedHandoffPlanSha256")
 			}
 			opt.Handoff.ExpectedPublicationPlanSHA256 = args[i]
+		case "-ExpectedContinuePlanSha256", "-ExpectedContinuePlanSHA256", "--expected-continue-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedContinuePlanSha256")
+			}
+			opt.Continue.ExpectedContinuePlanSHA256 = args[i]
 		case "-ExpectedCompletePlanSha256", "-ExpectedCompletePlanSHA256", "--expected-complete-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -1813,10 +1819,7 @@ func runWithOptions(
 	if err := validateCurrentSyncMaintenanceOptions(opt); err != nil {
 		return err
 	}
-	if wantsCurrentSyncMaintenance(opt) {
-		return runCurrentSyncMaintenance(opt, stdout)
-	}
-	if handled, err := runCurrentSyncRecoveryFrontDoor(opt, stdout); handled || err != nil {
+	if handled, err := runPreRuntimeCommand(opt, stdout); handled || err != nil {
 		return err
 	}
 	runtimePack := opt.Pack
@@ -1874,6 +1877,9 @@ func runWithOptions(
 	}
 	if strings.TrimSpace(opt.ExpectedMigrationPlanSHA256) != "" && opt.Command != commands.MigrateState {
 		return fmt.Errorf("-ExpectedMigrationPlanSha256 is supported only by migrate-state")
+	}
+	if strings.TrimSpace(opt.Continue.ExpectedContinuePlanSHA256) != "" && opt.Command != commands.Continue {
+		return fmt.Errorf("-ExpectedContinuePlanSha256 is supported only by continue")
 	}
 	if strings.TrimSpace(opt.Complete.ExpectedPreviewSHA256) != "" && opt.Command != commands.Complete {
 		return fmt.Errorf("-ExpectedCompletePlanSha256 is supported only by complete")
@@ -1935,68 +1941,7 @@ func runWithOptions(
 	if (strings.TrimSpace(opt.ProjectID) != "" || strings.TrimSpace(opt.Goal) != "" || strings.TrimSpace(opt.InitialLane) != "" || strings.TrimSpace(opt.OnboardingPublicationStamp) != "" || strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) != "") && opt.Command != commands.Onboard {
 		return fmt.Errorf("mission onboarding flags are supported only by onboard")
 	}
-	switch opt.Command {
-	case commands.Status:
-		return runStatus(ctx, opt, stdout)
-	case commands.Packs:
-		return runPacks(ctx, opt, stdout)
-	case commands.ReleaseCheck:
-		return runReleaseCheck(ctx, opt, stdout)
-	case commands.ReleaseRun:
-		return runReleaseRun(ctx, opt, stdout)
-	case commands.RunCurrentLoop:
-		return runCurrentLoop(ctx, opt, stdout)
-	case commands.RunCurrentStep:
-		return runCurrentStep(ctx, opt, stdout)
-	case commands.RunDriverStep:
-		return runDriverStep(ctx, opt, stdout)
-	case commands.RunReviewerStep:
-		return runReviewerStep(ctx, opt, stdout)
-	case commands.RunReviewerWave:
-		return runReviewerWave(ctx, opt, stdout)
-	case commands.NextBatch:
-		return runNextBatch(ctx, opt, stdout)
-	case commands.Onboard:
-		return runOnboard(ctx, opt, stdout)
-	case commands.Doctor, commands.Validate:
-		return runDoctor(ctx, opt, stdout)
-	case commands.Attach:
-		return runAttach(ctx, opt, stdout)
-	case commands.Repair:
-		return runRepair(ctx, opt, stdout)
-	case commands.Init, commands.Bootstrap:
-		return runInitBootstrap(ctx, opt, stdout)
-	case commands.MigrateState:
-		return runMigrateState(ctx, opt, stdout)
-	case commands.Sync, commands.Update:
-		return runSyncReview(ctx, opt, stdout)
-	case commands.Promote:
-		return runPromoteReview(ctx, opt, stdout)
-	case commands.Overview:
-		return runOverview(ctx, opt, stdout)
-	case commands.Start:
-		return runStart(ctx, opt, stdout)
-	case commands.Handoff:
-		return runHandoff(ctx, opt, stdout)
-	case commands.Complete:
-		return runComplete(ctx, opt, stdout)
-	case commands.Control:
-		return runControl(ctx, opt, stdout)
-	case commands.Reopen:
-		return runReopen(ctx, opt, stdout)
-	case commands.Continue:
-		return runContinue(ctx, opt, stdout)
-	case commands.Reconcile:
-		return runReconcile(ctx, opt, stdout)
-	case commands.PlanSubagents:
-		return runPlanSubagents(ctx, opt, stdout)
-	case commands.Gate:
-		return runGate(ctx, opt, stdout)
-	case commands.Note:
-		return runNote(ctx, opt, stdout)
-	default:
-		return commands.UnsupportedError(opt.Command)
-	}
+	return runOwnedCommand(ctx, opt, stdout)
 }
 
 func Main() int {
@@ -2016,21 +1961,11 @@ type packsInventory struct {
 }
 
 func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
-	if ctx.TargetProvided {
-		return fmt.Errorf("release-check runs against the kit repo; omit -Target")
-	}
-	if opt.Apply || opt.WhatIf || opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
-		return fmt.Errorf("release-check is read-only and does not accept mutation, review artifact, or list flags")
-	}
 	result, err := releaseCheckBuild(ctx.RepoRoot)
 	if err != nil {
 		return err
 	}
-	format := strings.ToLower(strings.TrimSpace(opt.Format))
-	if format == "" {
-		format = "table"
-	}
-	return writeReleaseCheckResult(out, result, format)
+	return writeReleaseCheckResult(out, result, opt.Format)
 }
 
 type releaseRunResult struct {
@@ -2898,6 +2833,7 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 			fmt.Fprintf(out, "- [%s] %s (%s)\n", status, doc.Path, doc.Purpose)
 		}
 		fmt.Fprintf(out, "packs: %d\n", resultCounts.Packs)
+		fmt.Fprintf(out, "capability contract: ready=%t policies=%s contract=%s sinks=%s evidence=%s\n", result.CapabilityContract.Ready, strings.Join(result.CapabilityContract.PolicyClasses, ","), result.CapabilityContract.Contract, result.CapabilityContract.Sinks, result.CapabilityContract.Evidence)
 		fmt.Fprintf(out, "heavy-tool gate actions: %s\n", strings.Join(result.HeavyToolGateActions, ","))
 		powerShellCounts := releasecheck.PowerShellDeprecationCountsFor(result.PowerShellDeprecation)
 		fmt.Fprintf(out, "PowerShell deprecation: %s ready=%t commands=%d modules=%d freezeGates=%d blocked=%d fallbackRetirement=%t noFallback=%d candidates=%d removalModules=%d retiredModules=%d facadeRuntime=%t legacyImports=%t dispatcher=%t publicFacade=%t retained=%t facadeCommands=%d noFallback=%d moduleRemoval=%t removalCandidates=%d retired=%d facadeDeps=%d undocumented=%d moduleReferences=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d\n", result.PowerShellDeprecation.Summary, result.PowerShellDeprecation.Ready, powerShellCounts.CommandOwnership, powerShellCounts.ModuleStatus, powerShellCounts.FreezeGates, powerShellCounts.BlockedMigrations, result.PowerShellDeprecation.FallbackRetirement.Ready, powerShellCounts.FallbackNoFallbackCommands, powerShellCounts.FallbackCandidateCommands, powerShellCounts.FallbackRemovalCandidateModules, powerShellCounts.FallbackRetiredModules, result.PowerShellDeprecation.FacadeRuntime.Ready, result.PowerShellDeprecation.FacadeRuntime.LegacyModuleImportsPresent, result.PowerShellDeprecation.FacadeRuntime.CommandDispatcherPresent, result.PowerShellDeprecation.PublicFacade.Ready, result.PowerShellDeprecation.PublicFacade.Retained, powerShellCounts.PublicFacadeCommandSurface, powerShellCounts.PublicFacadeNoFallbackCommands, result.PowerShellDeprecation.ModuleRemoval.Ready, powerShellCounts.ModuleRemovalCandidateModules, powerShellCounts.ModuleRemovalRetiredModules, powerShellCounts.ModuleRemovalFacadeRuntimeDependencies, powerShellCounts.ModuleRemovalUndocumentedModules, result.PowerShellDeprecation.ModuleReferences.Ready, powerShellCounts.ModuleReferencesActiveTestDependencies, powerShellCounts.ModuleReferencesCompatibilityFixtures, powerShellCounts.ModuleReferencesRemovalBlockers, powerShellCounts.ModuleReferencesUnclassifiedReferences)
@@ -3773,12 +3709,13 @@ type statusInventory struct {
 	ProjectHandoff        *statusProjectHandoff           `json:"projectHandoff,omitempty"`
 	PackMemoryConsumption *packMemoryConsumptionStatus    `json:"packMemoryConsumption,omitempty"`
 	CaseMission           *statusCaseMission              `json:"caseMission,omitempty"`
-	Onboarding            *missionintent.Inspection       `json:"onboarding,omitempty"`
+	Onboarding            *statusOnboarding               `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusMissionControlRunbook    `json:"missionControlRunbook,omitempty"`
 	MemberExecution       *memberExecutionStatus          `json:"memberExecution,omitempty"`
 	ExecutionControls     []statusExecutionControl        `json:"executionControls,omitempty"`
 	CurrentSyncRecovery   *syncreview.CurrentSyncRecovery `json:"currentSyncRecovery,omitempty"`
 	selectedCurrentLane   string
+	publicProjection      projectPublicProjection
 }
 
 // statusExecutionControl is the selected lane's read-only durable control head.
@@ -3795,6 +3732,21 @@ type statusExecutionControl struct {
 	Blocked              bool     `json:"blocked"`
 	Reason               string   `json:"reason,omitempty"`
 	Boundary             []string `json:"boundary"`
+}
+
+type statusOnboarding struct {
+	missionintent.Inspection
+	SelectedPack string                       `json:"selectedPack,omitempty"`
+	PackChoices  []statusOnboardingPackChoice `json:"packChoices,omitempty"`
+}
+
+type statusOnboardingPackChoice struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Maturity    string `json:"maturity"`
+	Description string `json:"description,omitempty"`
+	Selected    bool   `json:"selected"`
+	Selectable  bool   `json:"selectable"`
 }
 
 type statusCase struct {
@@ -4268,8 +4220,7 @@ func statusCaseShimNextSteps(shim statusCaseShim, caseRoot, pack string) []strin
 	if strings.TrimSpace(caseRoot) == "" || shim.Ready {
 		return nil
 	}
-	root, err := projectstate.Resolve(caseRoot)
-	if err == nil && !root.Legacy {
+	if shim.Entrypoint != nil && shim.Entrypoint.CaseLocalFirstScreenCommand == commands.CurrentPublicEntrypoint {
 		return []string{fmt.Sprintf("/steamai repair -Target %s -Pack %s -WhatIf -Format text previews project-local skill refresh only; run repair -Apply only after explicit confirmation", statusQuoteCommandArg(caseRoot), pack)}
 	}
 	if shim.InstalledShimMatches != nil && !*shim.InstalledShimMatches {
@@ -4527,7 +4478,7 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 		RefreshStatusCommand: refreshStatusCommand,
 		RoutingReasons:       statusMissionCommanderFirstScreenFocusRoutingReasons(focus, caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent),
 		Boundary: mission.UniqueStrings([]string{
-			"missionControlRunbook is read-only; it does not execute /rekit commands or spawn sessions",
+			"missionControlRunbook is read-only; it does not execute project-local commands or spawn sessions",
 			"consume only the focused currentDriverRequest; do not reconstruct commands from terminal prose",
 			"only execute currentDriverRequest.command when commandExecutable=true",
 			"guidance-only driver requests require main-agent selection/review and must not be run as shell commands",
@@ -4586,24 +4537,47 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 			invocationRequest := statusMissionControlInvocationDriverRequest(target, *request)
 			invocationRequest = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(invocationRequest, runbook.RefreshStatusCommand)
 			runbook.CurrentDriverRequest = &invocationRequest
-			if strings.TrimSpace(invocationRequest.Command) != "" {
-				runbook.CurrentCommand = strings.TrimSpace(invocationRequest.Command)
-			}
 		}
 	}
 	if laneChoiceScope == "" {
 		bindStatusCurrentLoop(target, caseMission, runbook)
 	}
-	bindStatusFocusedLaneHandoff(target, runbook)
-	if runbook.CurrentDriverRequest != nil {
-		runbook.CurrentDriverRequestSHA256, _ = mission.MissionCommanderDriverRequestSHA256(*runbook.CurrentDriverRequest)
+	if err := bindStatusMissionControlCurrentDriverRequest(runbook, runbook.CurrentDriverRequest); err != nil {
+		runbook.Ready = false
+		runbook.Boundary = mission.UniqueStrings(append(
+			runbook.Boundary,
+			"focused current driver request is invalid: "+err.Error(),
+		))
 	}
+	bindStatusFocusedLaneHandoff(target, runbook)
 	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
 	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, projectHandoff)
 	return runbook
+}
+
+func bindStatusMissionControlCurrentDriverRequest(runbook *statusMissionControlRunbook, request *mission.MissionCommanderDriverRequest) error {
+	if runbook == nil {
+		return nil
+	}
+	runbook.CurrentDriverRequest = request
+	runbook.CurrentCommand = ""
+	runbook.CurrentRunLoopStepID = ""
+	runbook.CurrentDriverRequestSHA256 = ""
+	if request == nil {
+		return nil
+	}
+	runbook.CurrentCommand = strings.TrimSpace(request.Command)
+	runbook.CurrentRunLoopStepID = strings.TrimSpace(request.RunLoopStepID)
+	runbook.RefreshStatusCommand = strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand)
+	hash, err := mission.MissionCommanderDriverRequestSHA256(*request)
+	if err != nil {
+		return err
+	}
+	runbook.CurrentDriverRequestSHA256 = hash
+	return nil
 }
 
 func bindStatusFocusedLaneHandoff(target string, runbook *statusMissionControlRunbook) {
@@ -6208,11 +6182,11 @@ func statusTakeoverArtifactProjectIdentitySHA256(target string, pkg *mission.Rep
 	if err := json.Unmarshal(data, &projected); err != nil {
 		return "", fmt.Errorf("clone durable takeover artifact package: %w", err)
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(target)
+	projection, err := resolveProjectPublicProjection(target)
 	if err != nil {
 		return "", fmt.Errorf("resolve durable takeover artifact public entrypoint: %w", err)
 	}
-	if err := projectReplacementExecutorTakeoverPublicEntrypoint(&projected, entrypoint); err != nil {
+	if err := projectReplacementExecutorTakeoverPublicEntrypoint(&projected, projection.entrypoint); err != nil {
 		return "", fmt.Errorf("project durable takeover artifact public entrypoint: %w", err)
 	}
 	identity := mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(projected)
@@ -6402,7 +6376,7 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 	}
 	addedTarget := false
 	if statusMissionControlCommandUsesCaseTarget(invocation.Command) {
-		value, present, valid := statusMissionControlInvocationFlagValue(invocation, "-Target", "--target")
+		value, present, valid := invocation.FlagValue("-Target", "--target")
 		if present && (!valid || !sameDriverStepPath(value, target)) {
 			return statusMissionControlInvalidInvocationRequest(request, "typed invocation attempts to rebind the status target")
 		}
@@ -6411,16 +6385,7 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 			addedTarget = true
 		}
 	}
-	addedWhatIf := false
-	if invocation.Command == commands.Continue && !invocation.HasFlag("-WhatIf") && !invocation.HasFlag("--what-if") && !invocation.HasFlag("-Apply") && !invocation.HasFlag("--apply") {
-		invocation.Arguments = append(invocation.Arguments, "-WhatIf")
-		addedWhatIf = true
-		request.Kind = "preview-command"
-		request.RunLoopStepID = "preview-current"
-		request.RequiresReview = true
-		request.Boundary = append(request.Boundary, "status missionControlRunbook qualifies continue commands as WhatIf previews for invocation-scoped handoff")
-	}
-	_, present, valid := statusMissionControlInvocationFlagValue(invocation, "-Format", "--format")
+	_, present, valid := invocation.FlagValue("-Format", "--format")
 	if present && !valid {
 		return statusMissionControlInvalidInvocationRequest(request, "typed invocation contains an invalid or duplicate format binding")
 	}
@@ -6432,7 +6397,7 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 	if err != nil {
 		return statusMissionControlInvalidInvocationRequest(request, err.Error())
 	}
-	command, err := statusMissionControlQualifiedCommand(request.Command, qualified, target, addedTarget, addedWhatIf, addedFormat)
+	command, err := statusMissionControlQualifiedCommand(request.Command, qualified, target, addedTarget, addedFormat)
 	if err != nil {
 		return statusMissionControlInvalidInvocationRequest(request, err.Error())
 	}
@@ -6444,7 +6409,7 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 	return request
 }
 
-func statusMissionControlQualifiedCommand(original string, invocation commands.PublicInvocation, target string, addedTarget, addedWhatIf, addedFormat bool) (string, error) {
+func statusMissionControlQualifiedCommand(original string, invocation commands.PublicInvocation, target string, addedTarget, addedFormat bool) (string, error) {
 	command := strings.TrimSpace(original)
 	if addedTarget {
 		fields, err := splitDriverCommand(command)
@@ -6453,9 +6418,6 @@ func statusMissionControlQualifiedCommand(original string, invocation commands.P
 		}
 		fields = append(fields[:2], append([]string{"-Target", target}, fields[2:]...)...)
 		command = joinDriverCommand(fields)
-	}
-	if addedWhatIf {
-		command += " -WhatIf"
 	}
 	if addedFormat {
 		command += " -Format json"
@@ -6493,26 +6455,7 @@ func statusMissionControlInvalidInvocationRequest(request mission.MissionCommand
 }
 
 func statusMissionControlInvocationFlagValue(invocation commands.PublicInvocation, names ...string) (string, bool, bool) {
-	value := ""
-	present := false
-	for index, argument := range invocation.Arguments {
-		matched := false
-		for _, name := range names {
-			if strings.EqualFold(argument, name) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		if present || index+1 >= len(invocation.Arguments) {
-			return "", true, false
-		}
-		present = true
-		value = invocation.Arguments[index+1]
-	}
-	return value, present, true
+	return invocation.FlagValue(names...)
 }
 
 func statusMissionControlCommandName(command string) string {
@@ -6582,15 +6525,19 @@ func statusMissionControlRefreshCommand(target string) (string, error) {
 	if target == "" {
 		return statusMissionControlTargetlessRefreshCommand, nil
 	}
-	entrypoint, err := projectstate.PublicEntrypoint(target)
+	projection, err := resolveProjectPublicProjection(target)
 	if err != nil {
 		return "", fmt.Errorf("resolve status refresh project state root: %w", err)
 	}
-	return entrypoint + " status -Target " + statusQuoteCommandArg(target) + " -Format compact-json", nil
+	return projection.entrypoint + " status -Target " + statusQuoteCommandArg(target) + " -Format compact-json", nil
 }
 
 func projectVisibleCommand(target, command string) (string, error) {
-	projected, err := projectstate.ProjectPublicCommand(target, command)
+	projection, err := resolveProjectPublicProjection(target)
+	if err != nil {
+		return "", fmt.Errorf("project-visible command is invalid: %w", err)
+	}
+	projected, err := projection.visibleCommand(command)
 	if err != nil {
 		return "", fmt.Errorf("project-visible command is invalid: %w", err)
 	}
@@ -7326,11 +7273,14 @@ func statusCaseMissionFirstScreenPriority(action *mission.MissionCommanderNextAc
 	if action == nil {
 		return statusMissionCommanderFirstScreenNoActionPriority
 	}
-	if action.Blocked || action.RequiresReview {
+	if action.Blocked {
 		return 0
 	}
 	if action.Source == "missionCommanderActions" && action.State == "ready-to-continue" {
 		return 90
+	}
+	if action.RequiresReview {
+		return 0
 	}
 	return 20
 }
@@ -8910,19 +8860,40 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 	}
 	if !instance.LooksLikeCase(ctx.Target) {
 		inspection, inspectErr := missionintent.Inspect(ctx.Target)
+		if inspectErr == nil && inspection.State == "absent" && ctx.TargetProvided {
+			status.Mode = "case-onboarding-required"
+			onboardingStatus, statusErr := buildStatusOnboarding(ctx.RepoRoot, ctx.Pack, inspection, true)
+			if statusErr != nil {
+				return statusInventory{}, statusErr
+			}
+			status.Onboarding = onboardingStatus
+			status.CaseMission = statusOnboardingBlockedMission(ctx.Target, "project onboarding requires a goal and pack selection")
+			status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, status.CaseMission, nil)
+			return status, nil
+		}
 		if inspectErr != nil || inspection.State == "pending" || inspection.State == "corrupt" {
 			if inspection.State == "pending" {
 				inspection.ApplyArgs = onboardingApplyArgs(ctx.Target, inspection.Identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
 			}
 			status.Mode = "case-onboarding-pending"
-			status.Onboarding = &inspection
+			onboardingStatus, err := buildStatusOnboarding(ctx.RepoRoot, statusFirstText(inspection.Identity.Pack, ctx.Pack), inspection, false)
+			if err != nil {
+				return statusInventory{}, err
+			}
+			status.Onboarding = onboardingStatus
 			summary := "onboarding state is corrupt"
 			if inspectErr != nil {
 				summary += ": " + inspectErr.Error()
 			} else if inspection.State == "pending" {
-				summary = fmt.Sprintf("onboarding publication is pending; execute onboarding.applyArgs exactly with stamp %s and plan hash %s", inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
+				summary = "onboarding publication is pending; the exact recovery action is current"
+				action, actionErr := statusOnboardingPendingAction(inspection)
+				if actionErr != nil {
+					return statusInventory{}, actionErr
+				}
+				status.CaseMission = statusOnboardingBlockedMission(ctx.Target, summary, action)
+			} else {
+				status.CaseMission = statusOnboardingBlockedMission(ctx.Target, summary)
 			}
-			status.CaseMission = statusOnboardingBlockedMission(ctx.Target, summary)
 			status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, status.CaseMission, nil)
 			return status, nil
 		}
@@ -8961,11 +8932,21 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 			ShimMatchesTemplate: boolPtrValue(caseShim.InstalledShimMatches),
 		}
 		onboardingInspection, onboardingErr := missionintent.Inspect(inst.CaseRoot)
-		status.Onboarding = &onboardingInspection
+		if onboardingInspection.State == "pending" {
+			onboardingInspection.ApplyArgs = onboardingApplyArgs(inst.CaseRoot, onboardingInspection.Identity, onboardingInspection.PublicationStamp, onboardingInspection.OnboardingPlanSHA256)
+		}
+		status.Onboarding, err = buildStatusOnboarding(ctx.RepoRoot, statusFirstText(onboardingInspection.Identity.Pack, ctx.Pack), onboardingInspection, false)
+		if err != nil {
+			return statusInventory{}, err
+		}
 		if onboardingErr != nil {
 			status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, "onboarding state is corrupt: "+onboardingErr.Error())
 		} else if onboardingInspection.State == "pending" {
-			status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, fmt.Sprintf("onboarding publication is pending; rerun exact onboard Apply with stamp %s and plan hash %s", onboardingInspection.PublicationStamp, onboardingInspection.OnboardingPlanSHA256))
+			action, actionErr := statusOnboardingPendingAction(onboardingInspection)
+			if actionErr != nil {
+				return statusInventory{}, actionErr
+			}
+			status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, "onboarding publication is pending; the exact recovery action is current", action)
 		} else {
 			status.CaseMission, err = buildStatusCaseMission(ctx.RepoRoot, inst.CaseRoot, ctx.Pack, onboardingInspection)
 			if err != nil {
@@ -9034,13 +9015,79 @@ func onboardingApplyArgs(caseRoot string, identity missionintent.Identity, stamp
 	return append(args, "-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor, "-Executor", identity.Executor, "-InitialLane", identity.InitialLane, "-OnboardingPublicationStamp", stamp, "-ExpectedOnboardingPlanSha256", hash, "-Apply", "-Format", "json")
 }
 
-func statusOnboardingBlockedMission(caseRoot, summary string) *statusCaseMission {
+func buildStatusOnboarding(repoRoot, selectedPack string, inspection missionintent.Inspection, includePackChoices bool) (*statusOnboarding, error) {
+	status := &statusOnboarding{Inspection: inspection}
+	if inspection.State == "pending" || includePackChoices {
+		status.SelectedPack = strings.TrimSpace(selectedPack)
+	}
+	if !includePackChoices {
+		return status, nil
+	}
+	packs, err := manifest.List(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	for _, pack := range packs {
+		if !pack.SchemaValid || pack.Maturity == "template" {
+			continue
+		}
+		status.PackChoices = append(status.PackChoices, statusOnboardingPackChoice{
+			ID:          pack.ID,
+			Name:        pack.Name,
+			Maturity:    pack.Maturity,
+			Description: pack.Description,
+			Selected:    strings.EqualFold(pack.ID, selectedPack),
+			Selectable:  true,
+		})
+	}
+	return status, nil
+}
+
+func statusOnboardingPendingAction(inspection missionintent.Inspection) (mission.MissionCommanderNextActionItem, error) {
+	action, err := commands.ExactActionFromCLIArgs(inspection.ApplyArgs)
+	if err != nil {
+		return mission.MissionCommanderNextActionItem{}, fmt.Errorf("onboarding exact Apply action: %w", err)
+	}
+	if err := action.ValidatePlanApply(commands.Onboard, inspection.OnboardingPlanSHA256); err != nil {
+		return mission.MissionCommanderNextActionItem{}, fmt.Errorf("onboarding exact Apply binding: %w", err)
+	}
+	command, err := action.RenderForEntrypoint(commands.LegacyPublicEntrypoint)
+	if err != nil {
+		return mission.MissionCommanderNextActionItem{}, err
+	}
+	invocation := action.Invocation
+	return mission.MissionCommanderNextActionItem{
+		ActionID:       "onboarding-publication-recovery",
+		State:          "onboarding-apply-ready",
+		Invocation:     &invocation,
+		Command:        command,
+		Source:         "onboarding.pendingPublication",
+		RequiresReview: true,
+		Reasons: []string{
+			"a durable onboarding intent exists without its final commit",
+			"the exact Apply action reuses the persisted identity, publication stamp, and plan binding",
+		},
+		Boundary: []string{
+			"execute only this typed Apply action; do not reconstruct onboarding fields from diagnostics",
+			"onboarding recovery writes project-local setup state only; it does not write authority/confirmed or execute heavy tools",
+		},
+	}, nil
+}
+
+func statusOnboardingBlockedMission(caseRoot, summary string, action ...mission.MissionCommanderNextActionItem) *statusCaseMission {
+	queue := mission.MissionCommanderActionQueueFor(action)
+	brief := []string{summary}
+	if queue.CurrentAction != nil {
+		brief = []string{"consume the single typed onboarding recovery request"}
+	}
 	return &statusCaseMission{
 		Ready:                         false,
 		Summary:                       summary,
-		DailyMissionControlRunbook:    workstream.DailyMissionControlRunbookFor(caseRoot, "onboarding-publication-blocked", mission.MissionCommanderActionQueue{}, "", ""),
+		MissionCommanderActionQueue:   queue,
+		MissionCommanderNextActions:   append([]mission.MissionCommanderNextActionItem{}, action...),
+		DailyMissionControlRunbook:    workstream.DailyMissionControlRunbookFor(caseRoot, "onboarding-publication", queue, "", ""),
 		ContinueRequiresExplicitApply: "status is read-only; ordinary attached commands remain blocked until exact onboarding recovery commits",
-		MissionBriefNextActions:       []string{summary},
+		MissionBriefNextActions:       brief,
 	}
 }
 
@@ -9049,13 +9096,13 @@ func statusCaseMissionStartBootstrapAction(caseRoot string) mission.MissionComma
 }
 
 func projectVisibleMissionBriefNextActions(caseRoot string, actions []string) ([]string, error) {
-	entrypoint, err := projectstate.PublicEntrypoint(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return nil, err
 	}
 	visible := make([]string, 0, len(actions))
 	for index, action := range actions {
-		projected, err := projectPublicCommandForEntrypoint(action, entrypoint)
+		projected, err := projection.visibleCommand(action)
 		if err != nil {
 			return nil, fmt.Errorf("mission brief next action %d: %w", index, err)
 		}
@@ -9132,14 +9179,11 @@ func statusCaseMissionIntentStartAction(repoRoot, caseRoot, pack string, identit
 }
 
 func buildStatusCaseMission(repoRoot, caseRoot, pack string, onboarding ...missionintent.Inspection) (*statusCaseMission, error) {
-	entrypoint := "/steamai"
-	root, err := projectstate.Resolve(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil {
 		return nil, err
 	}
-	if root.Legacy {
-		entrypoint = "/rekit"
-	}
+	entrypoint := projection.entrypoint
 	previewCommand := fmt.Sprintf("%s handoff -Target %s -WhatIf -Format json", entrypoint, statusQuoteCommandArg(caseRoot))
 	applyCommand := fmt.Sprintf("%s handoff -Target %s -Apply -Format json", entrypoint, statusQuoteCommandArg(caseRoot))
 	continueBoundary := "status is read-only; run continue with -WhatIf first, then -Apply only after reviewing blockers/evidence"
@@ -10443,8 +10487,9 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 }
 
 func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {
+	entrypoint := ""
 	if strings.TrimSpace(caseRoot) != "" {
-		root, err := projectstate.Resolve(caseRoot)
+		projection, err := resolveProjectPublicProjection(caseRoot)
 		if err != nil {
 			return statusCaseShim{
 				Ready:    false,
@@ -10452,7 +10497,8 @@ func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {
 				Warnings: []string{err.Error()},
 			}
 		}
-		if !root.Legacy {
+		entrypoint = projection.entrypoint
+		if entrypoint == commands.CurrentPublicEntrypoint {
 			return buildStatusSTeamAIProjectSkill(repoRoot, caseRoot)
 		}
 	}
@@ -10475,7 +10521,7 @@ func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {
 	installed := caseshim.InspectInstalled(repoRoot, caseRoot)
 	shim.InstalledShimPath = installed.ShimPath
 	shim.InstalledShimMatches = &installed.MatchesTemplate
-	shim.Entrypoint = statusCaseShimEntrypointHandoff(caseRoot, shim.CanonicalSkillPath, installed.ShimPath)
+	shim.Entrypoint = statusCaseShimEntrypointHandoff(caseRoot, shim.CanonicalSkillPath, installed.ShimPath, entrypoint)
 	if !installed.Ready {
 		shim.Ready = false
 		shim.Warnings = append(shim.Warnings, installed.Warnings...)
@@ -10549,6 +10595,7 @@ func buildStatusSTeamAIProjectSkill(repoRoot, caseRoot string) statusCaseShim {
 		caseRoot,
 		templatePath,
 		installedPath,
+		commands.CurrentPublicEntrypoint,
 	)
 	if len(shim.Warnings) > 0 {
 		shim.Ready = false
@@ -10557,16 +10604,15 @@ func buildStatusSTeamAIProjectSkill(repoRoot, caseRoot string) statusCaseShim {
 	return shim
 }
 
-func statusCaseShimEntrypointHandoff(caseRoot, canonicalSkillPath, installedShimPath string) *statusCaseShimEntrypoint {
-	root, err := projectstate.Resolve(caseRoot)
-	if err != nil {
-		return nil
-	}
-	entrypoint := "/steamai"
-	skillPath := ".claude/skills/steamai/SKILL.md"
-	if root.Legacy {
-		entrypoint = "/rekit"
+func statusCaseShimEntrypointHandoff(caseRoot, canonicalSkillPath, installedShimPath, entrypoint string) *statusCaseShimEntrypoint {
+	entrypoint = strings.TrimSpace(entrypoint)
+	var skillPath string
+	if entrypoint == commands.CurrentPublicEntrypoint {
+		skillPath = ".claude/skills/steamai/SKILL.md"
+	} else if entrypoint == commands.LegacyPublicEntrypoint {
 		skillPath = ".claude/skills/rekit/SKILL.md"
+	} else {
+		return nil
 	}
 	stateRel := func(parts ...string) string {
 		rel, err := projectstate.Rel(caseRoot, parts...)
@@ -11039,9 +11085,6 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, CreateLocalFiles: true, Command: opt.Command, ExpectedPlanSHA256: opt.ExpectedInitPlanSHA256}
 	if opt.WhatIf {
-		if strings.TrimSpace(opt.ExpectedInitPlanSHA256) != "" {
-			return fmt.Errorf("%s -WhatIf does not accept -ExpectedInitPlanSha256", opt.Command)
-		}
 		result, err := syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
 		if err != nil {
 			return err
@@ -11052,11 +11095,10 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeInitPlanText(out, result)
 	}
 	if opt.Apply {
-		if _, err := syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt); err != nil {
+		previewOpt := applyOpt
+		previewOpt.ExpectedPlanSHA256 = ""
+		if _, err := syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, previewOpt); err != nil {
 			return err
-		}
-		if strings.TrimSpace(opt.ExpectedInitPlanSHA256) == "" {
-			return fmt.Errorf("%s -Apply requires -ExpectedInitPlanSha256 from -WhatIf", opt.Command)
 		}
 		result, err := syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
 		if err != nil {
@@ -11071,31 +11113,12 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runMigrateState(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("migrate-state requires an explicit -Target project directory")
-	}
-	if opt.WhatIf && opt.Apply {
-		return fmt.Errorf("migrate-state -WhatIf cannot be combined with -Apply")
-	}
-	if opt.CreateCandidates || opt.Force || opt.Review || wantsReviewArtifacts(opt) {
-		return fmt.Errorf("migrate-state supports only zero-write preview or exact hash-bound -Apply")
-	}
-	format, err := workstreamFormat(opt.Format)
-	if err != nil {
-		return fmt.Errorf("unsupported migrate-state format: %s", opt.Format)
-	}
-	if strings.TrimSpace(opt.ExpectedMigrationPlanSHA256) != "" && !opt.Apply {
-		return fmt.Errorf("migrate-state preview does not accept -ExpectedMigrationPlanSha256")
-	}
 	if opt.Apply {
-		if strings.TrimSpace(opt.ExpectedMigrationPlanSHA256) == "" {
-			return fmt.Errorf("migrate-state -Apply requires -ExpectedMigrationPlanSha256 from preview")
-		}
 		result, err := statemigration.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.ExpectedMigrationPlanSHA256)
 		if err != nil {
 			return err
 		}
-		if format == "json" {
+		if opt.Format == "json" {
 			return writeJSON(out, result)
 		}
 		_, err = fmt.Fprintf(out, "migrate-state apply: status=%s applied=%t replay=%t planSha256=%s receipt=%s\n", result.Status, result.Applied, result.Replay, result.PlanSHA256, result.ReceiptPath)
@@ -11105,7 +11128,7 @@ func runMigrateState(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if format == "json" {
+	if opt.Format == "json" {
 		return writeJSON(out, plan)
 	}
 	_, err = fmt.Fprintf(out, "migrate-state preview: status=%s mutation=false reviewRequired=%t planSha256=%s legacyFiles=%d writes=%d\n", plan.Status, plan.RequiresReview, plan.ExpectedPlanSHA256, plan.LegacyInventory.Files, len(plan.Writes))
@@ -11737,8 +11760,9 @@ func bindCurrentLaneContinueCommands(caseRoot, laneID string, brief *mission.Bri
 			commanderAction.FollowUpCommands[i] = workstream.BindLaneAuthorityContinueCommand(commanderAction.FollowUpCommands[i], lane)
 		}
 	}
-	for i := range nextActions {
-		nextActions[i].Command = workstream.BindLaneAuthorityContinueCommand(nextActions[i].Command, lane)
+	nextActions, err = workstream.BindMissionCommanderNextActionAuthorityContinueCommands(nextActions, lane)
+	if err != nil {
+		return nil, err
 	}
 	return nextActions, nil
 }
@@ -12329,25 +12353,20 @@ func runComplete(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runControl(ctx runtime.Context, opt Options, out io.Writer) error {
+	route, ok := scopedCommandRouteFor(commands.CommandScope{
+		Command: commands.Control,
+		Mode:    commands.MutationModeDefault,
+	})
+	if !ok {
+		return fmt.Errorf("control scoped route is unavailable")
+	}
+	return executeScopedCommandRoute(ctx, opt, out, route)
+}
+
+func executeControl(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, commands.Control, "attached project")
 	if err != nil {
 		return err
-	}
-	if opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
-		return fmt.Errorf("control supports only review-first WhatIf or exact hash-bound Apply")
-	}
-	if opt.WhatIf == opt.Apply {
-		return fmt.Errorf("control requires exactly one of -WhatIf or -Apply")
-	}
-	format, err := workstreamFormat(opt.Format)
-	if err != nil {
-		return fmt.Errorf("unsupported control format: %s", opt.Format)
-	}
-	if format != "json" && format != "text" {
-		return fmt.Errorf("control supports only -Format json or text")
-	}
-	if opt.WhatIf && strings.TrimSpace(opt.Control.PublicationStamp) != "" {
-		return fmt.Errorf("control preview creates its own publication stamp")
 	}
 	var result executioncontrol.Plan
 	if opt.WhatIf {
@@ -12358,7 +12377,7 @@ func runControl(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if format == "json" {
+	if opt.Format == "json" {
 		return writeJSON(out, result)
 	}
 	return writeControlText(out, result)
@@ -12406,7 +12425,7 @@ func runReopen(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeReopenText(out, result)
 }
 
-func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
+func executeContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, "continue", "attached case")
 	if err != nil {
 		return err
@@ -12446,10 +12465,11 @@ func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 		}
 	}
 	if format == "json" {
-		if err := projectContinueResultPublicEntrypoint(&result, target); err != nil {
+		diagnostics, err := buildContinueDiagnosticsDTO(result, target)
+		if err != nil {
 			return err
 		}
-		return writeJSON(out, result)
+		return writeJSON(out, diagnostics)
 	}
 	return writeContinueText(out, result)
 }
@@ -13910,8 +13930,8 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			if opt.Apply && strings.TrimSpace(opt.ExpectedReviewerDispatchBindingSHA256) == "" {
 				return fmt.Errorf("reviewer session dispatch apply requires expected binding hash from WhatIf")
 			}
-			result, err = executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerSessionReceiptResult, error) {
-				return subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf})
+			result, err = executeReviewerMutationWithInterventionLease(target, opt.Note.Lane, opt.WhatIf, func(lease *lanemutation.Lease) (subagents.ReviewerSessionReceiptResult, error) {
+				return subagents.RecordReviewerSessionDispatchWithLease(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf}, lease)
 			})
 		} else {
 			if strings.TrimSpace(opt.ReviewerDispatchID) == "" || strings.TrimSpace(opt.ReviewerOutcome) == "" || strings.TrimSpace(opt.ReviewerExitStatus) == "" {
@@ -13926,7 +13946,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			if opt.Apply && strings.EqualFold(strings.TrimSpace(opt.ReviewerOutcome), "succeeded") && strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) == "" {
 				return fmt.Errorf("successful reviewer session completion apply requires expected result input hash from WhatIf")
 			}
-			result, err = executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerSessionReceiptResult, error) {
+			result, err = executeReviewerMutationWithInterventionLease(target, opt.Note.Lane, opt.WhatIf, func(lease *lanemutation.Lease) (subagents.ReviewerSessionReceiptResult, error) {
 				return subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
 			})
 		}
@@ -15774,7 +15794,7 @@ func writePromoteMemberOutputStagingText(out io.Writer, result promote.MemberOut
 	return nil
 }
 
-func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
+func executeGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, "gate", "attached case")
 	if err != nil {
 		return err
@@ -15969,7 +15989,11 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 			return err
 		}
 		if format == "json" {
-			return writeJSON(out, plan)
+			diagnostics, projectionErr := buildGatePlanDiagnosticsDTO(plan, target)
+			if projectionErr != nil {
+				return projectionErr
+			}
+			return writeJSON(out, diagnostics)
 		}
 		return writeGatePlanText(out, plan)
 	}
@@ -16003,7 +16027,11 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	result.ExecutionEvidenceReview = workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(result.ExecutionEvidenceReview, []mission.BoardLane{laneAuthority})
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	if format == "json" {
-		return writeJSON(out, result)
+		diagnostics, projectionErr := buildGateApplyDiagnosticsDTO(result, target)
+		if projectionErr != nil {
+			return projectionErr
+		}
+		return writeJSON(out, diagnostics)
 	}
 	return writeGateApplyText(out, result)
 }

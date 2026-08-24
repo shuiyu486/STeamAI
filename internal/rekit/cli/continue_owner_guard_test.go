@@ -70,7 +70,7 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 	}
 
 	out.Reset()
-	if err := Run([]string{"continue", "login", "-Apply", "-Executor", "session-a", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
+	if err := runReviewedContinueRequest(t, &out, []string{"continue", "login", "-Apply", "-Executor", "session-a", "-ExpectedExecutorGeneration", "1", "-Format", "json"}); err != nil {
 		t.Fatal(err)
 	}
 	var firstContinue struct {
@@ -130,7 +130,7 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 	assertSnapshotEqual(t, beforeStale, snapshotFiles(t, caseRoot))
 
 	out.Reset()
-	if err := Run([]string{"continue", "login", "-Apply", "--executor", "session-a", "--expected-executor-generation", "1", "-Format", "text"}, &out); err != nil {
+	if err := runReviewedContinueRequest(t, &out, []string{"continue", "login", "-Apply", "--executor", "session-a", "--expected-executor-generation", "1", "-Format", "text"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"continue owner guard recovery：blocked=true ready=true lane=feature-login label=login", "continue owner guard received：executor=session-a generation=1", "continue owner guard current：executor=session-b generation=2 continue=`/rekit continue login -Executor session-b -ExpectedExecutorGeneration 2`", "continue owner guard paths：resume=`.rekit/lanes/feature-login/prompts/RESUME.md` checkpoint=`.rekit/lanes/feature-login/checkpoints/latest.json` handoff=`.rekit/handovers/feature-login-latest.md`", "continue owner guard takeover：preview=`/rekit start login -WhatIf -Executor <new-executor>", "continue owner guard boundary：owner guard mismatch is fail-closed and zero-write"} {
@@ -162,7 +162,7 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 	if takeoverPreview.IsMutation || takeoverPreview.Applied || takeoverPreview.Lane.ID != "feature-login" || takeoverPreview.Lane.CurrentExecutor != "session-c" || takeoverPreview.Lane.ExecutorGeneration != 3 || takeoverPreview.LaneTakeoverPackage == nil || !takeoverPreview.LaneTakeoverPackage.ApplyRequired || takeoverPreview.LaneTakeoverPackage.CurrentCommand != `/rekit start login -Apply -Executor session-c -Actor mission-commander -Reason "replace stale executor after owner guard mismatch"` || takeoverPreview.ExecutorAction.MissionCommanderAction.PrimaryCommand != takeoverPreview.LaneTakeoverPackage.CurrentCommand {
 		t.Fatalf("recovery-guided takeover preview did not produce apply-ready package: %+v", takeoverPreview)
 	}
-	if !containsMissionCommanderNextAction(takeoverPreview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-c -ExpectedExecutorGeneration 3", true, true) {
+	if !containsMissionCommanderNextAction(takeoverPreview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-c -ExpectedExecutorGeneration 3 -WhatIf -Format json", true, true) {
 		t.Fatalf("recovery-guided takeover preview omitted post-apply continue handoff: %+v", takeoverPreview.MissionCommanderNextActions)
 	}
 	assertSnapshotEqual(t, beforeTakeoverPreview, snapshotFiles(t, caseRoot))
@@ -176,7 +176,7 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 		t.Fatalf("recovery-guided takeover apply did not replace executor: %+v", takeoverApply)
 	}
 	assertStartWrite(t, takeoverApply.Writes, ".rekit/lanes/feature-login/lane.json", "update-executor-takeover")
-	if takeoverApply.LaneTakeoverPackage == nil || takeoverApply.LaneTakeoverPackage.ApplyRequired || !takeoverApply.LaneTakeoverPackage.ContinueReady || takeoverApply.LaneTakeoverPackage.ContinueCommand != "/rekit continue login -Executor session-c -ExpectedExecutorGeneration 3" || takeoverApply.LaneTakeoverPackage.CurrentCommand != "/rekit continue login -Executor session-c -ExpectedExecutorGeneration 3" {
+	if takeoverApply.LaneTakeoverPackage == nil || takeoverApply.LaneTakeoverPackage.ApplyRequired || !takeoverApply.LaneTakeoverPackage.ContinueReady || takeoverApply.LaneTakeoverPackage.ContinueCommand != "/rekit continue login -Executor session-c -ExpectedExecutorGeneration 3" || takeoverApply.LaneTakeoverPackage.CurrentCommand != "/rekit continue login -Executor session-c -ExpectedExecutorGeneration 3 -WhatIf -Format json" {
 		t.Fatalf("recovery-guided takeover apply omitted current continue package: %+v", takeoverApply.LaneTakeoverPackage)
 	}
 
@@ -207,7 +207,7 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 	assertSnapshotEqual(t, beforeSecondStale, snapshotFiles(t, caseRoot))
 
 	out.Reset()
-	if err := Run([]string{"continue", "login", "-Apply", "-Executor", "session-c", "-ExpectedExecutorGeneration", "3", "-Format", "json"}, &out); err != nil {
+	if err := runReviewedContinueRequest(t, &out, []string{"continue", "login", "-Apply", "-Executor", "session-c", "-ExpectedExecutorGeneration", "3", "-Format", "json"}); err != nil {
 		t.Fatal(err)
 	}
 	var currentContinue struct {

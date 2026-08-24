@@ -122,8 +122,19 @@ function New-PackSmokeDiscoveryEnvelope {
   $wrapperPacks = @(Get-ChildItem -LiteralPath $ScriptDir -Filter '*-pack-smoke.ps1' -File | ForEach-Object { $_.BaseName -replace '-pack-smoke$','' } | Sort-Object)
 
   $expectedSkeletonPacks = @($inventoryRows | Where-Object { [bool]$_.schemaValid -and [string]$_.maturity -eq 'skeleton' } | ForEach-Object { [string]$_.id } | Sort-Object)
-  $excludedPacks = @($inventoryRows | Where-Object { -not ([bool]$_.schemaValid -and [string]$_.maturity -eq 'skeleton') } | ForEach-Object {
-    $reason = 'non-skeleton'
+  $productionSmokePacks = @('web-security')
+  $invalidProductionSmokePacks = @()
+  foreach ($productionPack in $productionSmokePacks) {
+    $productionRows = @($inventoryRows | Where-Object { [string]$_.id -eq [string]$productionPack })
+    if ($productionRows.Count -ne 1 -or -not [bool]$productionRows[0].schemaValid -or [string]$productionRows[0].maturity -ne 'mature') {
+      $invalidProductionSmokePacks += [string]$productionPack
+    }
+  }
+  $expectedSmokeSet = @{}
+  foreach ($pack in $expectedSkeletonPacks + $productionSmokePacks) { $expectedSmokeSet[[string]$pack] = $true }
+  $expectedSmokePacks = @($expectedSmokeSet.Keys | Sort-Object)
+  $excludedPacks = @($inventoryRows | Where-Object { -not $expectedSmokeSet.ContainsKey([string]$_.id) } | ForEach-Object {
+    $reason = 'not-retained-production-smoke'
     if (-not [bool]$_.schemaValid) { $reason = 'schema-invalid' }
     [pscustomobject]@{
       pack = [string]$_.id
@@ -135,15 +146,13 @@ function New-PackSmokeDiscoveryEnvelope {
 
   $matrixSet = @{}
   foreach ($pack in $matrixPacks) { $matrixSet[$pack] = $true }
-  $expectedSet = @{}
-  foreach ($pack in $expectedSkeletonPacks) { $expectedSet[$pack] = $true }
 
-  $missingSmokePacks = @($expectedSkeletonPacks | Where-Object { -not $matrixSet.ContainsKey($_) } | Sort-Object)
-  $extraMatrixPacks = @($matrixPacks | Where-Object { -not $expectedSet.ContainsKey($_) } | Sort-Object)
+  $missingSmokePacks = @($expectedSmokePacks | Where-Object { -not $matrixSet.ContainsKey($_) } | Sort-Object)
+  $extraMatrixPacks = @($matrixPacks | Where-Object { -not $expectedSmokeSet.ContainsKey($_) } | Sort-Object)
   $orphanWrapperPacks = @($wrapperPacks | Where-Object { -not $matrixSet.ContainsKey($_) } | Sort-Object)
   $missingScriptPacks = @($matrixPacks | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ScriptDir ([string]$PackSmokeScripts[$_])) -PathType Leaf) } | Sort-Object)
 
-  $ok = ($missingSmokePacks.Count -eq 0 -and $extraMatrixPacks.Count -eq 0 -and $orphanWrapperPacks.Count -eq 0 -and $missingScriptPacks.Count -eq 0)
+  $ok = ($invalidProductionSmokePacks.Count -eq 0 -and $missingSmokePacks.Count -eq 0 -and $extraMatrixPacks.Count -eq 0 -and $orphanWrapperPacks.Count -eq 0 -and $missingScriptPacks.Count -eq 0)
 
   [pscustomobject]@{
     schemaVersion = 1
@@ -152,9 +161,14 @@ function New-PackSmokeDiscoveryEnvelope {
     ok = $ok
     inventoryPackCount = [int]$inventoryRows.Count
     expectedSkeletonPackCount = [int]$expectedSkeletonPacks.Count
+    expectedProductionPackCount = [int]$productionSmokePacks.Count
+    expectedSmokePackCount = [int]$expectedSmokePacks.Count
     matrixPackCount = [int]$matrixPacks.Count
     wrapperPackCount = [int]$wrapperPacks.Count
     expectedSkeletonPacks = @($expectedSkeletonPacks)
+    productionSmokePacks = @($productionSmokePacks)
+    expectedSmokePacks = @($expectedSmokePacks)
+    invalidProductionSmokePacks = @($invalidProductionSmokePacks)
     matrixPacks = @($matrixPacks)
     wrapperPacks = @($wrapperPacks)
     excludedPacks = @($excludedPacks)
@@ -169,18 +183,19 @@ function Write-PackSmokeDiscoveryText {
   param([Parameter(Mandatory=$true)]$Discovery)
 
   if ([bool]$Discovery.ok) {
-    "pack smoke discovery ok ($($Discovery.expectedSkeletonPackCount) skeleton packs)"
+    "pack smoke discovery ok ($($Discovery.expectedSkeletonPackCount) skeleton + $($Discovery.expectedProductionPackCount) production packs; $($Discovery.expectedSmokePackCount) total)"
   } else {
     "pack smoke discovery failed"
   }
 
-  if (@($Discovery.missingSmokePacks).Count -gt 0) { "missing skeleton pack smoke: $(@($Discovery.missingSmokePacks) -join ', ')" }
+  if (@($Discovery.invalidProductionSmokePacks).Count -gt 0) { "invalid production pack smoke: $(@($Discovery.invalidProductionSmokePacks) -join ', ')" }
+  if (@($Discovery.missingSmokePacks).Count -gt 0) { "missing pack smoke: $(@($Discovery.missingSmokePacks) -join ', ')" }
   if (@($Discovery.extraMatrixPacks).Count -gt 0) { "extra matrix pack smoke: $(@($Discovery.extraMatrixPacks) -join ', ')" }
   if (@($Discovery.orphanWrapperPacks).Count -gt 0) { "orphan pack smoke wrapper: $(@($Discovery.orphanWrapperPacks) -join ', ')" }
   if (@($Discovery.missingScriptPacks).Count -gt 0) { "missing matrix script: $(@($Discovery.missingScriptPacks) -join ', ')" }
 
   $excluded = @($Discovery.excludedPacks | ForEach-Object { "$($_.pack):$($_.maturity):$($_.reason)" })
-  if ($excluded.Count -gt 0) { "excluded from skeleton smoke matrix: $($excluded -join ', ')" }
+  if ($excluded.Count -gt 0) { "excluded from pack smoke matrix: $($excluded -join ', ')" }
 }
 
 if ($DiscoveryOnly) {

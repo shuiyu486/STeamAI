@@ -66,7 +66,11 @@ function Write-Utf8File {
 
 function Read-JsonFile {
   param([Parameter(Mandatory=$true)][string]$Path)
-  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+  $serializer.MaxJsonLength = [int]::MaxValue
+  $serializer.RecursionLimit = 512
+  return $serializer.DeserializeObject([System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8))
 }
 
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
@@ -75,7 +79,10 @@ $caseRoot = Join-Path $WorkRoot "vuln-research-agent-team-dryrun-$suffix"
 $reviewRoot = Join-Path $WorkRoot "vuln-research-agent-team-review-$suffix"
 
 try {
-  Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"vuln-research-dryrun-$suffix",'-Apply') | Out-Null
+  $initPreview = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"vuln-research-dryrun-$suffix",'-WhatIf','-Format','json') | ConvertFrom-Json
+  $initApplyArgs = @($initPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ($initApplyArgs.Count -eq 0) { throw 'vuln-research dry-run init preview omitted applyArgs' }
+  Invoke-RekitSmoke -Arguments $initApplyArgs | Out-Null
 
   $start = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$caseRoot,'-Pack',$Pack,'-Name','crash','-Apply','-Format','json') | ConvertFrom-Json
   if ([string]$start.command -ne 'start' -or -not [bool]$start.isMutation -or -not [bool]$start.applied -or [string]$start.lane.id -ne 'vuln-analysis-crash' -or [string]$start.lane.type -ne 'vuln-analysis' -or [string]$start.lane.workspace -ne 'workspace/vulns/vuln-analysis-crash') {
@@ -101,20 +108,20 @@ try {
   }
 
   $candidate = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-Kind','candidate','-Lane','vuln-analysis-crash','-Subject','root cause candidate','-Summary','candidate awaiting bounded vulnerability review','-Actor','vuln-agent','-Confidence','high','-Status','open','-Risk','high','-TargetRef','crash-hypothesis-a','-BatchId','batch-vuln-real-dryrun','-EvidenceRefs','workspace/vulns/vuln-analysis-crash/packet.md') | ConvertFrom-Json
-  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.rekit/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'vuln-analysis-crash') {
+  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.steamai/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'vuln-analysis-crash') {
     throw "unexpected vuln-research candidate append: $($candidate | ConvertTo-Json -Depth 20)"
   }
 
-  $requestsPath = Join-Path $caseRoot '.rekit\facts\requests.jsonl'
+  $requestsPath = Join-Path $caseRoot '.steamai\facts\requests.jsonl'
   $beforeRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
-  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane','vuln-analysis-crash','-Actor','runtime-test','-Subject','crash debugger gate','-Summary','needs user confirmation before debugger-assisted crash reproduction','-TargetRef','crash-hypothesis-a','-BatchId','batch-vuln-real-dryrun','-Scope','single crash sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static crash triage','-StopConditions','timeout,no live target') | ConvertFrom-Json
+  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane','vuln-analysis-crash','-Actor','runtime-test','-Subject','crash debugger gate','-Summary','needs user confirmation before debugger-assisted crash reproduction','-TargetRef','crash-hypothesis-a','-BatchId','batch-vuln-real-dryrun','-Scope','single crash sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static crash triage','-StopConditions','timeout,no-live-target') | ConvertFrom-Json
   if ([string]$gatePreview.command -ne 'gate' -or [bool]$gatePreview.isMutation -or -not [bool]$gatePreview.requiresConfirmation -or [string]$gatePreview.eventPreview.status -ne 'pending-gate' -or [string]$gatePreview.eventPreview.gate.action -ne 'debug') {
     throw "unexpected vuln-research gate preview: $($gatePreview | ConvertTo-Json -Depth 20)"
   }
   $afterPreviewRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
   if ($beforeRequests -ne $afterPreviewRequests) { throw 'vuln-research gate what-if changed requests ledger' }
 
-  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane','vuln-analysis-crash','-Actor','runtime-test','-Risk','high','-Subject','crash debugger gate','-Summary','needs user confirmation before debugger-assisted crash reproduction','-TargetRef','crash-hypothesis-a','-BatchId','batch-vuln-real-dryrun','-Scope','single crash sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static crash triage','-StopConditions','timeout,no live target') | ConvertFrom-Json
+  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane','vuln-analysis-crash','-Actor','runtime-test','-Risk','high','-Subject','crash debugger gate','-Summary','needs user confirmation before debugger-assisted crash reproduction','-TargetRef','crash-hypothesis-a','-BatchId','batch-vuln-real-dryrun','-Scope','single crash sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static crash triage','-StopConditions','timeout,no-live-target') | ConvertFrom-Json
   if ([string]$gateApply.command -ne 'gate' -or -not [bool]$gateApply.isMutation -or -not [bool]$gateApply.applied -or [string]$gateApply.event.status -ne 'pending-gate' -or [string]$gateApply.event.gate.action -ne 'debug' -or [string]$gateApply.event.gate.scope -ne 'single crash sidecar only') {
     throw "unexpected vuln-research gate apply: $($gateApply | ConvertTo-Json -Depth 20)"
   }
@@ -148,14 +155,17 @@ try {
     Assert-ContainsText -Text $overview -Expected $expected -Label 'vuln-research overview text'
   }
 
-  $handoff = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','crash') | ConvertFrom-Json
+  $handoffPreview = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Format','json','crash') | ConvertFrom-Json
+  $handoffApplyArgs = @($handoffPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ([string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationPlanSha256) -or [string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationStamp) -or $handoffApplyArgs.Count -eq 0) { throw 'vuln-research handoff preview omitted exact Apply action' }
+  $handoff = Invoke-RekitSmoke -Arguments $handoffApplyArgs | ConvertFrom-Json
   if ([string]$handoff.command -ne 'handoff' -or -not [bool]$handoff.isMutation -or -not [bool]$handoff.applied -or [bool]$handoff.project -or [string]$handoff.lane.id -ne 'vuln-analysis-crash' -or [string]$handoff.lane.workspace -ne 'workspace/vulns/vuln-analysis-crash') {
     throw "unexpected vuln-research handoff result: $($handoff | ConvertTo-Json -Depth 20)"
   }
-  $handoffPath = Join-Path $caseRoot '.rekit\handovers\vuln-analysis-crash-latest.md'
+  $handoffPath = Join-Path $caseRoot '.steamai\handovers\vuln-analysis-crash-latest.md'
   if (-not (Test-Path -LiteralPath $handoffPath)) { throw "missing vuln-research handoff: $handoffPath" }
   $handoffText = [System.IO.File]::ReadAllText($handoffPath, [System.Text.Encoding]::UTF8)
-  foreach ($expected in @('vuln-analysis-crash','/rekit continue vuln-analysis-crash','workspace/vulns/vuln-analysis-crash/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=debug','scope=single crash sidecar only')) {
+  foreach ($expected in @('vuln-analysis-crash','/rekit continue -Lane vuln-analysis-crash','workspace/vulns/vuln-analysis-crash/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=debug','scope=single crash sidecar only')) {
     Assert-ContainsText -Text $handoffText -Expected $expected -Label 'vuln-research handoff text'
   }
   foreach ($unexpected in @('web-security','workspace/features','endpoint-login','generic-binary-re','workspace/binary','binary-analysis-sample','malware-analysis','workspace/samples','sample-alpha','sandbox','references/template','vmp-re')) {

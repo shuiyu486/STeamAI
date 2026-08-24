@@ -16,7 +16,6 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
-	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -1202,9 +1201,7 @@ func writeReviewerIntakeCase(t *testing.T, repoRoot, caseRoot string) {
 		t.Fatal(err)
 	}
 	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
-	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "reviewer-intake-test", CreateLocalFiles: true, Command: "init"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForSubagentTest(t, root, caseRoot, "reviewer-intake-test")
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-main", Actor: "mission-commander", TakeoverReason: "reviewer intake owner binding fixture"}); err != nil {
 		t.Fatal(err)
 	}

@@ -11,9 +11,11 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
@@ -93,6 +95,18 @@ func finalizeInitPlan(plan InitPlan) (InitPlan, error) {
 		"-Command", plan.Command, "-Target", plan.CaseRoot, "-Pack", plan.Pack,
 		"-ProjectName", plan.ProjectName, "-ExpectedInitPlanSha256", plan.ExpectedPlanSHA256,
 		"-Apply", "-Format", "json",
+	}
+	action, err := commands.ExactActionFromCLIArgs(plan.ApplyArgs)
+	if err != nil {
+		return InitPlan{}, fmt.Errorf("build %s exact Apply action: %w", plan.Command, err)
+	}
+	entrypoint, err := projectstate.PublicEntrypoint(plan.CaseRoot)
+	if err != nil {
+		return InitPlan{}, err
+	}
+	plan.ApplyCommand, err = action.RenderForEntrypoint(entrypoint)
+	if err != nil {
+		return InitPlan{}, err
 	}
 	return plan, nil
 }
@@ -314,15 +328,6 @@ func ordinaryInitAdoptionBlockers(plan InitPlan) []string {
 	}
 	sort.Strings(blockers)
 	return blockers
-}
-
-func validInitPlanSHA256(value string) bool {
-	value = strings.TrimSpace(value)
-	if len(value) != 64 {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
 }
 
 func sha256Bytes(data []byte) string {

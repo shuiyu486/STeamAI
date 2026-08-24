@@ -141,6 +141,10 @@ func writeCurrentSyncRecoveryStatus(
 		enc.SetIndent("", "  ")
 		return enc.Encode(result)
 	case "compact-json":
+		projection, err := resolveProjectPublicProjection(target)
+		if err != nil {
+			return fmt.Errorf("resolve recovery public entrypoint: %w", err)
+		}
 		compact := struct {
 			Command             string                           `json:"command"`
 			SchemaVersion       int                              `json:"schemaVersion"`
@@ -170,9 +174,10 @@ func writeCurrentSyncRecoveryStatus(
 		}
 		if len(data) > statusCompactJSONMaxBytes {
 			data, err = marshalStatusCompactBlockedJSON(statusInventory{
-				Command:       result.Command,
-				SchemaVersion: result.SchemaVersion,
-				Target:        result.Target,
+				Command:          result.Command,
+				SchemaVersion:    result.SchemaVersion,
+				Target:           result.Target,
+				publicProjection: projection,
 			}, statusCompactReasonBudgetExceeded)
 			if err != nil {
 				return err

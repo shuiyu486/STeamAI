@@ -199,17 +199,19 @@ func TestReleaseSkeletonPackSmokeDiscoveryInvariants(t *testing.T) {
 	repo := repoRoot(t)
 	catalog := loadTestCatalog(t, repo)
 	skeletonPacks := schemaValidSkeletonPacks(t, repo)
+	productionPacks := schemaValidProductionPackSmokePacks(t, repo)
+	expectedSmokePacks := mergeStringSets(skeletonPacks, productionPacks)
 	catalogPacks := packSmokeCatalogPacks(catalog)
 	wrapperPacks := packSmokeWrapperPacks(t, filepath.Join(repo, "rekit", "tests"))
 	matrixPacks := packSmokeMatrixPacks(t, filepath.Join(repo, "rekit", "tests", "pack-smoke-matrix.ps1"))
 
-	assertSameStringSet(t, "skeleton manifests", skeletonPacks, "catalog pack-smoke entries", catalogPacks)
-	assertSameStringSet(t, "skeleton manifests", skeletonPacks, "pack smoke wrappers", wrapperPacks)
-	assertSameStringSet(t, "skeleton manifests", skeletonPacks, "pack smoke matrix entries", matrixPacks)
+	assertSameStringSet(t, "expected pack smoke manifests", expectedSmokePacks, "catalog pack-smoke entries", catalogPacks)
+	assertSameStringSet(t, "expected pack smoke manifests", expectedSmokePacks, "pack smoke wrappers", wrapperPacks)
+	assertSameStringSet(t, "expected pack smoke manifests", expectedSmokePacks, "pack smoke matrix entries", matrixPacks)
 
-	for _, nonSkeleton := range []string{"_template", "binary-re", "generic-binary-re", "vmp-re"} {
-		if catalogPacks[nonSkeleton] || wrapperPacks[nonSkeleton] || matrixPacks[nonSkeleton] {
-			t.Fatalf("non-skeleton pack %s must not be in skeleton smoke sets: catalog=%v wrappers=%v matrix=%v", nonSkeleton, catalogPacks[nonSkeleton], wrapperPacks[nonSkeleton], matrixPacks[nonSkeleton])
+	for _, nonSmoke := range []string{"_template", "binary-re", "generic-binary-re", "vmp-re"} {
+		if catalogPacks[nonSmoke] || wrapperPacks[nonSmoke] || matrixPacks[nonSmoke] {
+			t.Fatalf("non-smoke pack %s must not be in pack smoke sets: catalog=%v wrappers=%v matrix=%v", nonSmoke, catalogPacks[nonSmoke], wrapperPacks[nonSmoke], matrixPacks[nonSmoke])
 		}
 	}
 }
@@ -407,6 +409,7 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 		"go run ./cmd/rekit -- -Command status",
 		"go run ./cmd/rekit -- -Command packs",
 		"go run ./cmd/rekit -- -Command doctor",
+		"go test -count=1 -timeout=30m ./internal/rekit/cli -run '^TestRunGoSkeletonPackSmokeMatrix$'",
 		"go test -count=1 -p=2 -timeout=30m ./...",
 		"go vet ./...",
 	} {
@@ -920,6 +923,35 @@ func catalogScriptLeaf(command string) string {
 		return ""
 	}
 	return fields[0]
+}
+
+func schemaValidProductionPackSmokePacks(t *testing.T, repo string) map[string]bool {
+	t.Helper()
+	const productionPack = "web-security"
+	packs, err := List(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pack := range packs {
+		if pack.ID == productionPack {
+			if !pack.SchemaValid || pack.Maturity != "mature" {
+				t.Fatalf("production pack smoke %s is not schema-valid and mature: %+v", productionPack, pack)
+			}
+			return map[string]bool{productionPack: true}
+		}
+	}
+	t.Fatalf("production pack smoke pack %s is missing", productionPack)
+	return nil
+}
+
+func mergeStringSets(sets ...map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for _, set := range sets {
+		for item := range set {
+			out[item] = true
+		}
+	}
+	return out
 }
 
 func schemaValidSkeletonPacks(t *testing.T, repo string) map[string]bool {

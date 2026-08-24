@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -63,8 +62,18 @@ type statusCompactMission struct {
 }
 
 type statusCompactOnboarding struct {
-	State     string `json:"state,omitempty"`
-	Committed bool   `json:"committed,omitempty"`
+	State        string                    `json:"state,omitempty"`
+	Committed    bool                      `json:"committed,omitempty"`
+	SelectedPack string                    `json:"selectedPack,omitempty"`
+	PackChoices  []statusCompactPackChoice `json:"packChoices,omitempty"`
+}
+
+type statusCompactPackChoice struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Maturity   string `json:"maturity"`
+	Selected   bool   `json:"selected"`
+	Selectable bool   `json:"selectable"`
 }
 
 type statusCompactExecutionControl struct {
@@ -122,18 +131,11 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 		Mode:           status.Mode,
 	}
 	if runbook := status.MissionControlRunbook; runbook != nil {
-		compact.MissionControlRunbook = &statusCompactMissionControlRunbook{
-			Ready:                      runbook.Ready,
-			Focus:                      runbook.Focus,
-			Scope:                      runbook.Scope,
-			CurrentRunLoopStepID:       runbook.CurrentRunLoopStepID,
-			CurrentDriverRequest:       runbook.CurrentDriverRequest,
-			CurrentDriverRequestSHA256: runbook.CurrentDriverRequestSHA256,
-			RefreshStatusCommand:       runbook.RefreshStatusCommand,
-		}
-		if err := validateStatusCompactCurrent(*compact.MissionControlRunbook); err != nil {
+		current, err := buildStatusCompactMissionControlRunbook(runbook)
+		if err != nil {
 			return statusCompactInventory{}, err
 		}
+		compact.MissionControlRunbook = current
 	}
 	if status.CaseMission != nil {
 		compact.Choices = statusCompactChoices(status.CaseMission)
@@ -170,8 +172,18 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 	}
 	if status.Onboarding != nil {
 		compact.Onboarding = &statusCompactOnboarding{
-			State:     status.Onboarding.State,
-			Committed: status.Onboarding.Committed,
+			State:        status.Onboarding.State,
+			Committed:    status.Onboarding.Committed,
+			SelectedPack: status.Onboarding.SelectedPack,
+		}
+		for _, choice := range status.Onboarding.PackChoices {
+			compact.Onboarding.PackChoices = append(compact.Onboarding.PackChoices, statusCompactPackChoice{
+				ID:         choice.ID,
+				Name:       choice.Name,
+				Maturity:   choice.Maturity,
+				Selected:   choice.Selected,
+				Selectable: choice.Selectable,
+			})
 		}
 	}
 	if recovery := status.CurrentSyncRecovery; recovery != nil {
@@ -186,6 +198,38 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 		}
 	}
 	return compact, nil
+}
+
+func buildStatusCompactMissionControlRunbook(runbook *statusMissionControlRunbook) (*statusCompactMissionControlRunbook, error) {
+	if runbook == nil {
+		return nil, nil
+	}
+	current := &statusCompactMissionControlRunbook{
+		Ready:                      runbook.Ready,
+		Focus:                      runbook.Focus,
+		Scope:                      runbook.Scope,
+		CurrentRunLoopStepID:       strings.TrimSpace(runbook.CurrentRunLoopStepID),
+		CurrentDriverRequest:       runbook.CurrentDriverRequest,
+		CurrentDriverRequestSHA256: strings.TrimSpace(runbook.CurrentDriverRequestSHA256),
+		RefreshStatusCommand:       strings.TrimSpace(runbook.RefreshStatusCommand),
+	}
+	request := current.CurrentDriverRequest
+	if request != nil {
+		step := strings.TrimSpace(request.RunLoopStepID)
+		refresh := strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand)
+		if current.CurrentRunLoopStepID != step {
+			return nil, fmt.Errorf("status compact-json current run-loop step differs from current driver request")
+		}
+		if current.RefreshStatusCommand != refresh {
+			return nil, fmt.Errorf("status compact-json refresh command differs from current driver request")
+		}
+		current.CurrentRunLoopStepID = step
+		current.RefreshStatusCommand = refresh
+	}
+	if err := validateStatusCompactCurrent(*current); err != nil {
+		return nil, err
+	}
+	return current, nil
 }
 
 func validateStatusCompactCurrent(current statusCompactMissionControlRunbook) error {
@@ -221,6 +265,9 @@ func statusCompactChoices(caseMission *statusCaseMission) []mission.MissionComma
 }
 
 func marshalStatusCompactJSON(status statusInventory) ([]byte, error) {
+	if err := status.publicProjection.validate(); err != nil {
+		return nil, fmt.Errorf("status compact-json requires finalized public projection: %w", err)
+	}
 	compact, err := buildStatusCompactInventory(status)
 	if err != nil {
 		return marshalStatusCompactBlockedJSON(status, statusCompactReasonIdentityInvalid)
@@ -236,6 +283,10 @@ func marshalStatusCompactJSON(status statusInventory) ([]byte, error) {
 }
 
 func marshalStatusCompactBlockedJSON(status statusInventory, reason string) ([]byte, error) {
+	fullDiagnosticsCommand, err := statusCompactFullDiagnosticsCommand(status)
+	if err != nil {
+		return nil, err
+	}
 	envelope := statusCompactBlockedEnvelope{
 		Command:           status.Command,
 		SchemaVersion:     status.SchemaVersion,
@@ -246,7 +297,7 @@ func marshalStatusCompactBlockedJSON(status statusInventory, reason string) ([]b
 		CommandExecutable: false,
 		Reason:            reason,
 		FullDiagnostics: statusCompactFullDiagnostics{
-			Command:                statusCompactFullDiagnosticsCommand(status),
+			Command:                fullDiagnosticsCommand,
 			Format:                 statusCompactFullDiagnosticsFormat,
 			OnDemand:               true,
 			ReuseOriginalSelectors: true,
@@ -267,12 +318,10 @@ func marshalStatusCompactBlockedJSON(status statusInventory, reason string) ([]b
 	return data, nil
 }
 
-func statusCompactFullDiagnosticsCommand(status statusInventory) string {
-	entrypoint := "/steamai"
-	if root, err := projectstate.Resolve(status.Target); err == nil && root.Legacy {
-		entrypoint = "/rekit"
-	}
-	return entrypoint + " status -Format " + statusCompactFullDiagnosticsFormat
+func statusCompactFullDiagnosticsCommand(status statusInventory) (string, error) {
+	return status.publicProjection.command(
+		"/rekit status -Format " + statusCompactFullDiagnosticsFormat,
+	)
 }
 
 func marshalStatusCompactValue(value any) ([]byte, error) {

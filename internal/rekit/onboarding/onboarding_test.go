@@ -10,9 +10,25 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
+
+func TestApplyRequiresTypedPlanBindingBeforeCreatingTarget(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := filepath.Join(t.TempDir(), "missing-plan")
+	opt := testOptions(caseRoot)
+	opt.PublicationStamp = "20260821-120000000"
+	_, err := Apply(repo, opt)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMissing || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("missing onboarding plan failure=%+v typed=%t err=%v", failure, typed, err)
+	}
+	if _, statErr := os.Lstat(caseRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("missing onboarding plan created target: %v", statErr)
+	}
+}
 
 func TestPreviewApplyReplayAndIdentityDrift(t *testing.T) {
 	repo := testRepoRoot(t)

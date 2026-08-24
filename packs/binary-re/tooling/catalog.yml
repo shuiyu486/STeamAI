@@ -12,13 +12,15 @@ paths:
 
 tools:
   - id: static-binary-triage-sidecar
-    status: mainline-template
-    entry: case-local binary metadata / section / import / string / symbol summary
-    purpose: Build binary inventory and function/API behavior hypotheses without executing binaries or writing analysis database state.
-    sideEffects: none
+    status: supported
+    entry: compiled-in rekit-adapter-host child; catalog entry is provenance only and is never executed
+    purpose: Build a bounded typed PE/ELF header, section, import, and export inventory without executing the target or writing analysis database state.
+    sideEffects: filesystem-read,bounded-packet-write
+    gateActions: inspect
     reusableNotes:
-      - Store headers, sections, imports/exports, symbols, strings, file format notes, and initial function group hypotheses as case-local sidecar, then cite only summaries in Markdown.
-      - Use binary/function aliases or sidecar row ids instead of hashes, sample paths, raw function bodies, dumps, traces, patches, or absolute paths in pack-promotable notes.
+      - Emit tooling/schemas/binary-inventory-v1.schema.json through the fixed compiled-in adapter; do not invoke file, objdump, IDA, plugins, shell commands, or the target.
+      - Store the typed inventory as a case-local sidecar and cite only bounded aliases or row ids in Markdown; never promote hashes, sample paths, raw binaries, dumps, traces, patches, or absolute paths.
+      - The adapter revalidates the exact immutable dispatch and reads only bounded stable PE/ELF bytes; catalog entry text is never interpreted as a command.
 
   - id: function-behavior-review
     status: auxiliary

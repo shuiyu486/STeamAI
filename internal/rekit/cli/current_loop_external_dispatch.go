@@ -109,6 +109,8 @@ func externalSessionDispatcherPackage(job externalsession.Job, attemptSHA256 str
 		pkg.Ticket = &mission.CurrentLoopExternalSessionDispatchTicket{
 			Path: inspection.TicketPath, SHA256: inspection.TicketSHA256,
 			AttemptSHA256: attemptSHA256, Generation: inspection.Ticket.Attempt.Generation,
+			Capability:          inspection.Ticket.Launch.Capability,
+			InstructionIdentity: cloneInstructionIdentity(inspection.Ticket.Launch.InstructionIdentity),
 		}
 	}
 	if inspection.Claim != nil {

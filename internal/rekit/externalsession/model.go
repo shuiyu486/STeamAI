@@ -1,6 +1,7 @@
 package externalsession
 
 import (
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -30,58 +31,60 @@ type ReviewerIdentity struct {
 }
 
 type Job struct {
-	SchemaVersion       int                    `json:"schemaVersion"`
-	Kind                string                 `json:"kind"`
-	JobID               string                 `json:"jobId"`
-	CaseRoot            string                 `json:"caseRoot"`
-	Pack                string                 `json:"pack"`
-	CheckpointSHA256    string                 `json:"checkpointSha256"`
-	SessionKind         string                 `json:"sessionKind"`
-	AllowedOutcomes     []string               `json:"allowedOutcomes"`
-	SubmissionPath      string                 `json:"submissionPath"`
-	SubmissionOutputs   string                 `json:"submissionOutputs,omitempty"`
-	SubmissionResult    string                 `json:"submissionResult,omitempty"`
-	MemberAttemptID     string                 `json:"memberAttemptId,omitempty"`
-	MemberOwner         *memberexecution.Owner `json:"memberOwner,omitempty"`
-	MemberManifestPath  string                 `json:"memberManifestPath,omitempty"`
-	MemberOutputsRoot   string                 `json:"memberOutputsRoot,omitempty"`
-	Reviewer            *ReviewerIdentity      `json:"reviewer,omitempty"`
-	RelayResultPath     string                 `json:"relayResultPath,omitempty"`
-	PublicationPath     string                 `json:"publicationPath"`
-	ObservationPath     string                 `json:"observationPath"`
-	SubmissionLast      bool                   `json:"submissionLast"`
-	DispatchRequired    bool                   `json:"dispatchRequired,omitempty"`
-	NoSessionManagement bool                   `json:"noSessionManagement"`
-	NoHeavyTool         bool                   `json:"noHeavyTool"`
-	NoAuthority         bool                   `json:"noAuthority"`
-	NoConfirmed         bool                   `json:"noConfirmed"`
+	SchemaVersion       int                        `json:"schemaVersion"`
+	Kind                string                     `json:"kind"`
+	JobID               string                     `json:"jobId"`
+	CaseRoot            string                     `json:"caseRoot"`
+	Pack                string                     `json:"pack"`
+	CheckpointSHA256    string                     `json:"checkpointSha256"`
+	SessionKind         string                     `json:"sessionKind"`
+	AllowedOutcomes     []string                   `json:"allowedOutcomes"`
+	SubmissionPath      string                     `json:"submissionPath"`
+	SubmissionOutputs   string                     `json:"submissionOutputs,omitempty"`
+	SubmissionResult    string                     `json:"submissionResult,omitempty"`
+	MemberAttemptID     string                     `json:"memberAttemptId,omitempty"`
+	MemberOwner         *memberexecution.Owner     `json:"memberOwner,omitempty"`
+	MemberManifestPath  string                     `json:"memberManifestPath,omitempty"`
+	MemberOutputsRoot   string                     `json:"memberOutputsRoot,omitempty"`
+	Reviewer            *ReviewerIdentity          `json:"reviewer,omitempty"`
+	Capability          capabilitycontract.Binding `json:"capability"`
+	RelayResultPath     string                     `json:"relayResultPath,omitempty"`
+	PublicationPath     string                     `json:"publicationPath"`
+	ObservationPath     string                     `json:"observationPath"`
+	SubmissionLast      bool                       `json:"submissionLast"`
+	DispatchRequired    bool                       `json:"dispatchRequired,omitempty"`
+	NoSessionManagement bool                       `json:"noSessionManagement"`
+	NoHeavyTool         bool                       `json:"noHeavyTool"`
+	NoAuthority         bool                       `json:"noAuthority"`
+	NoConfirmed         bool                       `json:"noConfirmed"`
 }
 
 type Submission struct {
-	SchemaVersion                int                       `json:"schemaVersion"`
-	Kind                         string                    `json:"kind"`
-	JobID                        string                    `json:"jobId"`
-	JobSHA256                    string                    `json:"jobSha256"`
-	Outcome                      string                    `json:"outcome"`
-	Actor                        string                    `json:"actor"`
-	ObservedAt                   string                    `json:"observedAt,omitempty"`
-	Reason                       string                    `json:"reason,omitempty"`
-	Summary                      string                    `json:"summary,omitempty"`
-	ReviewerItemsPath            string                    `json:"reviewerItemsPath,omitempty"`
-	ReviewerHarness              string                    `json:"reviewerHarness,omitempty"`
-	ReviewerSession              string                    `json:"reviewerSession,omitempty"`
-	ReviewerExitStatus           string                    `json:"reviewerExitStatus,omitempty"`
-	AttemptID                    string                    `json:"attemptId"`
-	AttemptSHA256                string                    `json:"attemptSha256"`
-	LaunchControl                *executioncontrol.Binding `json:"launchControl,omitempty"`
-	DispatchClaimSHA256          string                    `json:"dispatchClaimSha256,omitempty"`
-	LaunchReceiptSHA256          string                    `json:"launchReceiptSha256,omitempty"`
-	TransportReturnReceiptPath   string                    `json:"transportReturnReceiptPath,omitempty"`
-	TransportReturnReceiptSHA256 string                    `json:"transportReturnReceiptSha256,omitempty"`
-	Harness                      string                    `json:"harness"`
-	Session                      string                    `json:"session"`
-	NoAuthorityOrConfirmed       bool                      `json:"noAuthorityOrConfirmed"`
-	NoHeavyTool                  bool                      `json:"noHeavyTool"`
+	SchemaVersion                int                        `json:"schemaVersion"`
+	Kind                         string                     `json:"kind"`
+	JobID                        string                     `json:"jobId"`
+	JobSHA256                    string                     `json:"jobSha256"`
+	Outcome                      string                     `json:"outcome"`
+	Actor                        string                     `json:"actor"`
+	ObservedAt                   string                     `json:"observedAt,omitempty"`
+	Reason                       string                     `json:"reason,omitempty"`
+	Summary                      string                     `json:"summary,omitempty"`
+	ReviewerItemsPath            string                     `json:"reviewerItemsPath,omitempty"`
+	ReviewerHarness              string                     `json:"reviewerHarness,omitempty"`
+	ReviewerSession              string                     `json:"reviewerSession,omitempty"`
+	ReviewerExitStatus           string                     `json:"reviewerExitStatus,omitempty"`
+	AttemptID                    string                     `json:"attemptId"`
+	AttemptSHA256                string                     `json:"attemptSha256"`
+	LaunchControl                *executioncontrol.Binding  `json:"launchControl,omitempty"`
+	Capability                   capabilitycontract.Binding `json:"capability"`
+	DispatchClaimSHA256          string                     `json:"dispatchClaimSha256,omitempty"`
+	LaunchReceiptSHA256          string                     `json:"launchReceiptSha256,omitempty"`
+	TransportReturnReceiptPath   string                     `json:"transportReturnReceiptPath,omitempty"`
+	TransportReturnReceiptSHA256 string                     `json:"transportReturnReceiptSha256,omitempty"`
+	Harness                      string                     `json:"harness"`
+	Session                      string                     `json:"session"`
+	NoAuthorityOrConfirmed       bool                       `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool                  bool                       `json:"noHeavyTool"`
 }
 
 type Artifact struct {

@@ -484,6 +484,51 @@ func initProjectLocalProcessFixture(t *testing.T, projectName string) (string, s
 	)
 }
 
+func TestProjectLocalExecutablePublicHelpStatusAndDiagnostics(t *testing.T) {
+	_, _, executable := initProjectLocalProcessFixture(t, "public-frontdoor")
+
+	helpOut, helpErrOut, helpErr := runRekitExecutable(t, executable, "help")
+	if helpErr != nil || helpErrOut != "" || !strings.Contains(helpOut, "STeamAI public commands:") || strings.Contains(helpOut, "internal-supervisor") {
+		t.Fatalf("project-local public help err=%v stderr=%q stdout=%s", helpErr, helpErrOut, helpOut)
+	}
+
+	statusOut, statusErrOut, statusErr := runRekitExecutable(t, executable, "status")
+	if statusErr != nil || statusErrOut != "" || !strings.Contains(statusOut, "现在：") || !strings.Contains(statusOut, "下一步：") || strings.Contains(statusOut, `"runtimeRoot"`) || strings.Contains(statusOut, "currentDriverRequestSha256") || strings.Contains(statusOut, "/rekit") {
+		t.Fatalf("project-local public status err=%v stderr=%q stdout=%s", statusErr, statusErrOut, statusOut)
+	}
+
+	diagnosticsOut, diagnosticsErrOut, diagnosticsErr := runRekitExecutable(t, executable, "status", "--diagnostics")
+	if diagnosticsErr != nil || diagnosticsErrOut != "" || !strings.Contains(diagnosticsOut, `"command": "status"`) || !strings.Contains(diagnosticsOut, `"missionControlRunbook"`) || strings.Contains(diagnosticsOut, `"/rekit `) {
+		t.Fatalf("project-local public diagnostics err=%v stderr=%q stdout=%s", diagnosticsErr, diagnosticsErrOut, diagnosticsOut)
+	}
+
+	rejectedOut, rejectedErrOut, rejectedErr := runRekitExecutable(t, executable, "continue", "--apply")
+	if rejectedErr == nil || rejectedOut != "" || !strings.Contains(rejectedErrOut, "命令未执行") || !strings.Contains(rejectedErrOut, "steamai help") || strings.Contains(rejectedErrOut, "--apply") {
+		t.Fatalf("project-local public continue accepted or leaked internal usage detail: err=%v stdout=%q stderr=%q", rejectedErr, rejectedOut, rejectedErrOut)
+	}
+
+	diagnosticFailureOut, diagnosticFailureErrOut, diagnosticFailureErr := runRekitExecutable(t, executable, "continue", "--diagnostics", "--apply")
+	if diagnosticFailureErr == nil || diagnosticFailureErrOut != "" {
+		t.Fatalf("public diagnostics failure did not use stdout only: err=%v stderr=%q stdout=%s", diagnosticFailureErr, diagnosticFailureErrOut, diagnosticFailureOut)
+	}
+	var failure struct {
+		Kind        string `json:"kind"`
+		Command     string `json:"command"`
+		ExitCode    int    `json:"exitCode"`
+		Diagnostics struct {
+			Code             string `json:"code"`
+			MutationApplied  bool   `json:"mutationApplied"`
+			MutationBoundary string `json:"mutationBoundary"`
+		} `json:"diagnostics"`
+	}
+	if err := json.Unmarshal([]byte(diagnosticFailureOut), &failure); err != nil {
+		t.Fatalf("decode public diagnostics failure: %v\n%s", err, diagnosticFailureOut)
+	}
+	if failure.Kind != "steamai-public-failure" || failure.Command != "continue" || failure.ExitCode != 2 || failure.Diagnostics.Code != "public-usage-invalid" || failure.Diagnostics.MutationApplied || failure.Diagnostics.MutationBoundary != "none" {
+		t.Fatalf("unexpected public diagnostics failure: %+v", failure)
+	}
+}
+
 func TestProjectLocalExecutableWithoutRecoveryFailsClosed(t *testing.T) {
 	repoRoot := rekitTestRepoRoot(t)
 	caseRoot := filepath.Join(t.TempDir(), "project")
@@ -641,6 +686,10 @@ func TestInvocationModeRoutesUnifiedExecutable(t *testing.T) {
 	}{
 		{name: "legacy runtime", args: []string{"-Command", "status"}, wantMode: "runtime", wantArgs: []string{"-Command", "status"}},
 		{name: "explicit runtime", args: []string{"runtime", "-Command", "status"}, wantMode: "runtime", wantArgs: []string{"-Command", "status"}},
+		{name: "public help", args: []string{"help"}, wantMode: "public", wantArgs: []string{"help"}},
+		{name: "public short help", args: []string{"--help"}, wantMode: "public", wantArgs: []string{"help"}},
+		{name: "public status", args: []string{"status", "--diagnostics"}, wantMode: "public", wantArgs: []string{"status", "--diagnostics"}},
+		{name: "public continue", args: []string{"continue", "--lane", "main"}, wantMode: "public", wantArgs: []string{"continue", "--lane", "main"}},
 		{name: "host", args: []string{"host", "-daily", "-target", "project"}, wantMode: "host", wantArgs: []string{"-daily", "-target", "project"}},
 		{name: "internal child", args: []string{"-internal-supervisor", "spec.json", "-internal-supervisor-sha256", strings.Repeat("a", 64)}, wantMode: "host", wantArgs: []string{"-internal-supervisor", "spec.json", "-internal-supervisor-sha256", strings.Repeat("a", 64)}},
 		{name: "unknown", args: []string{"future"}, wantErr: "unknown steamai mode"},

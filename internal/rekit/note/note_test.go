@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 func TestAppendAndListUseCurrentStateRoot(t *testing.T) {
@@ -73,10 +74,10 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction == nil || result.WouldExecutorAction.Blocked || !result.WouldExecutorAction.Ready {
 		t.Fatalf("verification what-if should not change executor readiness: %+v", result)
 	}
-	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
 		t.Fatalf("current commander projection drifted: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
-	if result.WouldMissionCommanderAction == nil || result.WouldMissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+	if result.WouldMissionCommanderAction == nil || result.WouldMissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
 		t.Fatalf("would commander projection drifted: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
@@ -84,12 +85,17 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 
 func TestAppendWhatIfPreservesExecutionControlBindingOnlyInRecordRoute(t *testing.T) {
 	repoRoot, caseRoot, pack := noteFixture(t)
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		t.Fatal(err)
+	}
 	binding := executioncontrol.Binding{
-		SchemaVersion: 1,
+		SchemaVersion: executioncontrol.BindingSchemaVersion,
 		Lane:          "main",
 		Owner: laneowner.Snapshot{
 			Lane: "main", CurrentExecutor: "executor-a", ExecutorGeneration: 1,
 		},
+		Capability: capability,
 	}
 	result, err := Append(repoRoot, caseRoot, pack, Options{
 		Kind: "verification", Lane: "main", Subject: "execution evidence review accepted",
@@ -229,7 +235,7 @@ func TestAppendWhatIfProjectsBlockerKinds(t *testing.T) {
 			if result.MissionCommanderAction.State != "ready-to-continue" || result.WouldMissionCommanderAction == nil || result.WouldMissionCommanderAction.State == "ready-to-continue" {
 				t.Fatalf("blocker what-if should expose current and would commander action delta: current=%+v would=%+v", result.MissionCommanderAction, result.WouldMissionCommanderAction)
 			}
-			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) {
 				t.Fatalf("current commander next action missing ready continue: %+v", result.MissionCommanderNextActions)
 			}
 			wantPrimaryBlocked := !strings.Contains(result.WouldMissionCommanderAction.PrimaryCommand, " -WhatIf")
@@ -256,7 +262,7 @@ func TestAppendWhatIfDuplicateReturnsCurrentActionOnly(t *testing.T) {
 	if result.Applied || result.IsMutation || result.Reason != "duplicate eventId" || result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
 		t.Fatalf("duplicate what-if should return unchanged current action only: %+v", result)
 	}
-	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) {
 		t.Fatalf("duplicate should preserve current commander projection only: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
@@ -335,7 +341,11 @@ func TestAppendVerificationWithControlRejectsStaleHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +382,11 @@ func TestAppendDuplicateWithControlRechecksStaleHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +561,7 @@ func TestAppendDuplicateExplicitEventIDUsesSharedLedgerEventIDs(t *testing.T) {
 	if result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
 		t.Fatalf("duplicate should return the unchanged current action only: %+v", result)
 	}
-	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) {
 		t.Fatalf("duplicate should preserve current commander projection only: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
@@ -583,15 +597,19 @@ func noteFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 
 func noteFixtureWithStateRoot(t *testing.T, stateDir string) (repoRoot, caseRoot, pack string) {
 	t.Helper()
-	root := t.TempDir()
-	repoRoot = filepath.Join(root, "repo")
-	caseRoot = filepath.Join(root, "case")
-	pack = defaults.DefaultPack
-	writeNoteText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), "id: binary-re\n")
-	stateRoot := filepath.Join(caseRoot, stateDir)
-	writeNoteText(t, filepath.Join(stateRoot, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"note-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
-	writeNoteText(t, filepath.Join(stateRoot, "board.json"), `{"lanes":[{"id":"main"}]}`)
-	return repoRoot, caseRoot, pack
+	layout := testfixture.LegacyCase
+	if stateDir == projectstate.CurrentDir {
+		layout = testfixture.CurrentProject
+	} else if stateDir != projectstate.LegacyDir {
+		t.Fatalf("unsupported note fixture state root: %s", stateDir)
+	}
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:      layout,
+		Pack:        "binary-re",
+		ProjectName: "note-fixture",
+	})
+	writeNoteText(t, filepath.Join(project.StateRoot, "board.json"), `{"lanes":[{"id":"main"}]}`)
+	return project.RuntimeRepoRoot, project.CaseRoot, project.Pack
 }
 
 func writeNoteText(t *testing.T, path, text string) {

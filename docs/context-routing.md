@@ -58,7 +58,7 @@
 | GitHub repository identity / clone / rename / Go module compatibility | `README.md` canonical repository 段；需追溯时按 ID 读 `docs/batch-history.md` 的 Batch 829 | 不把已完成 repository rename 当当前路线，不全局替换旧 module/import/internal names，不改写历史事实 |
 | STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移 | `docs/steamai-self-contained-project.md` 顶部执行区，再按当前断点读取对应章节 | 不把旧中央 kit/thin-shim 流程当新项目默认；完成态仍以 active route、fresh machine inventory 与真实验证为准，不只凭专题合同 |
 | 2026-07-28 项目复审 / 历史中长期建议 | `docs/project-reassessment-2026-07-28.md` 顶部执行区；仅在路线整体复审时按需读取 | 不把复审报告加入每轮默认 read-first，不用它临时选批 |
-| 当前真实可用性 / 产品化程度复评 | `docs/current-usability-assessment-2026-08-11.md` 顶部执行区；先只判断 Windows 本机能否真实日用、还差什么和下一步改善什么 | 不把远程 CI、Linux/macOS、三平台兼容或预编译安装包纳入当前评分；只有用户明确启动正式发布、跨平台或安装交付专项时才评估。也不把一次性评估快照当当前路线或默认 read-first，关键结论仍需用 Windows 本机实跑核对 |
+| 历史可用性 / 产品化程度复评 | `docs/current-usability-assessment-2026-08-11.md` 顶部 superseded 说明；当前事实再看 active route、`docs/release-readiness.md` 与 fresh machine inventory | 不把快照中的旧评分、“唯一成熟领域”或“第二个成熟 pack 待做”当当前事实；也不把远程 CI、Linux/macOS、三平台兼容或预编译安装包混入 Windows 本机产品判断 |
 | 日常产品收口实施方案 | `docs/daily-product-closure-plan.md` 顶部执行区；四个 `DPC-*` 与整体验收均已完成，只在复核完成证据时按需读取共同边界和对应卡 | 不从已完成设计自行开始下一阶段，不默认预读四张长卡 |
 | 当前 batch 和指针投影 | `docs/batch-plan.md` 顶部 current milestone / roadmap pointer / current state / latest completed；执行旧健康恢复考古时再读 `docs/health-recovery-and-real-executor-plan.md` 顶部 | 不读 `docs/batch-history.md`，也不默认读旧执行专文全文 |
 | 旧 batch 细节 / 考古 | `docs/batch-history.md` 中按 Batch ID 搜索 | 不从 Batch 0 顺序读 |
@@ -68,7 +68,7 @@
 | ledger / evidence / intervention 字段 | `docs/evidence-ledger.md` 顶部和对应事件类型 | 不读取完整 case ledger 或复制大 sidecar |
 | reviewer / lane / external-session transport / gate product path | CodeGraph 查询相关 Go symbols + `docs/agent-team-usage.md` 顶部及对应 transport 小节；真实 Claude host/live gate 按需读 `docs/health-recovery-and-real-executor-plan.md` 顶部；长期分层按需读 `docs/orchestration-plan.md` 顶部 | 不读全部 batch 历史，不把一次性 transport 评估当 canonical 入口 |
 | durable pause/resume/stop 与 late-result isolation | CodeGraph 查询 `executioncontrol` / result publication / `sessionhost` stop actuation symbols；用户方式读 `docs/agent-team-usage.md` 的 durable control 小节，自包含边界读 `docs/steamai-self-contained-project.md` 对应章节 | 不把pause理解成OS suspend，不用PID或Remote Control endpoint猜stop，不把control receipt当授权 |
-| pack authoring / promote/sync | `docs/pack-authoring.md`、`docs/promote-sync.md` 对应章节 | 不把 case artifact 写回仓库 |
+| pack authoring / promote/sync / maturity admission | authoring 与 sync/promote 读 `docs/pack-authoring.md`、`docs/promote-sync.md` 对应章节；判断 mature release admission 再读 `docs/release-readiness.md` 顶部与 Known gaps | 不把 case artifact 写回仓库，不把 manifest maturity、catalog 或 smoke 存在性当作四要素 admission |
 | 旧 case 迁移 / moved metadata | `docs/case-migration.md` 顶部和对应步骤 | 不记录真实 case 路径或 case-specific 进度 |
 | 文档减压 / 路由审计 | 本文件 + 目标文档顶部；用搜索定位旧 read-first 列表 | 不批量重写所有历史文档、不把索引当必读清单 |
 | smoke 选择 | `rekit/tests/README.md` 对应类别 | 不默认跑大型 matrix |

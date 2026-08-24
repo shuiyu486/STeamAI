@@ -66,7 +66,11 @@ function Write-Utf8File {
 
 function Read-JsonFile {
   param([Parameter(Mandatory=$true)][string]$Path)
-  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+  $serializer.MaxJsonLength = [int]::MaxValue
+  $serializer.RecursionLimit = 512
+  return $serializer.DeserializeObject([System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8))
 }
 
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
@@ -75,7 +79,10 @@ $caseRoot = Join-Path $WorkRoot "android-native-agent-team-dryrun-$suffix"
 $reviewRoot = Join-Path $WorkRoot "android-native-agent-team-review-$suffix"
 
 try {
-  Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"android-native-dryrun-$suffix",'-Apply') | Out-Null
+  $initPreview = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"android-native-dryrun-$suffix",'-WhatIf','-Format','json') | ConvertFrom-Json
+  $initApplyArgs = @($initPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ($initApplyArgs.Count -eq 0) { throw 'android-native dry-run init preview omitted applyArgs' }
+  Invoke-RekitSmoke -Arguments $initApplyArgs | Out-Null
 
   $start = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$caseRoot,'-Pack',$Pack,'-Name','jni','-Apply','-Format','json') | ConvertFrom-Json
   if ([string]$start.command -ne 'start' -or -not [bool]$start.isMutation -or -not [bool]$start.applied -or [string]$start.lane.id -ne 'native-analysis-jni' -or [string]$start.lane.type -ne 'native-analysis' -or [string]$start.lane.workspace -ne 'workspace/native/native-analysis-jni') {
@@ -101,20 +108,20 @@ try {
   }
 
   $candidate = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-Kind','candidate','-Lane','native-analysis-jni','-Subject','JNI bridge candidate','-Summary','candidate awaiting bounded Android native review','-Actor','android-agent','-Confidence','high','-Status','open','-Risk','medium','-TargetRef','libnative-alpha','-BatchId','batch-android-real-dryrun','-EvidenceRefs','workspace/native/native-analysis-jni/packet.md') | ConvertFrom-Json
-  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.rekit/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'native-analysis-jni') {
+  if ([string]$candidate.command -ne 'note' -or -not [bool]$candidate.applied -or [string]$candidate.path -ne '.steamai/facts/candidates.jsonl' -or [string]$candidate.event.kind -ne 'candidate' -or [string]$candidate.event.lane -ne 'native-analysis-jni') {
     throw "unexpected android-native candidate append: $($candidate | ConvertTo-Json -Depth 20)"
   }
 
-  $requestsPath = Join-Path $caseRoot '.rekit\facts\requests.jsonl'
+  $requestsPath = Join-Path $caseRoot '.steamai\facts\requests.jsonl'
   $beforeRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
-  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','inject','-Lane','native-analysis-jni','-Actor','runtime-test','-Subject','Frida hook gate','-Summary','needs user confirmation before Frida hook or injection sidecar','-TargetRef','libnative-alpha','-BatchId','batch-android-real-dryrun','-Scope','single JNI symbol sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static JNI triage','-StopConditions','timeout,no device connection,no hook execution') | ConvertFrom-Json
+  $gatePreview = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Action','inject','-Lane','native-analysis-jni','-Actor','runtime-test','-Subject','Frida hook gate','-Summary','needs user confirmation before Frida hook or injection sidecar','-TargetRef','libnative-alpha','-BatchId','batch-android-real-dryrun','-Scope','single JNI symbol sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static JNI triage','-StopConditions','timeout,no-device-connection,no-hook-execution') | ConvertFrom-Json
   if ([string]$gatePreview.command -ne 'gate' -or [bool]$gatePreview.isMutation -or -not [bool]$gatePreview.requiresConfirmation -or [string]$gatePreview.eventPreview.status -ne 'pending-gate' -or [string]$gatePreview.eventPreview.gate.action -ne 'inject') {
     throw "unexpected android-native gate preview: $($gatePreview | ConvertTo-Json -Depth 20)"
   }
   $afterPreviewRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
   if ($beforeRequests -ne $afterPreviewRequests) { throw 'android-native gate what-if changed requests ledger' }
 
-  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','inject','-Lane','native-analysis-jni','-Actor','runtime-test','-Risk','medium','-Subject','Frida hook gate','-Summary','needs user confirmation before Frida hook or injection sidecar','-TargetRef','libnative-alpha','-BatchId','batch-android-real-dryrun','-Scope','single JNI symbol sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static JNI triage','-StopConditions','timeout,no device connection,no hook execution') | ConvertFrom-Json
+  $gateApply = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Action','inject','-Lane','native-analysis-jni','-Actor','runtime-test','-Risk','medium','-Subject','Frida hook gate','-Summary','needs user confirmation before Frida hook or injection sidecar','-TargetRef','libnative-alpha','-BatchId','batch-android-real-dryrun','-Scope','single JNI symbol sidecar only','-Budget','30s','-TriedLightSteps','plan-subagents,static JNI triage','-StopConditions','timeout,no-device-connection,no-hook-execution') | ConvertFrom-Json
   if ([string]$gateApply.command -ne 'gate' -or -not [bool]$gateApply.isMutation -or -not [bool]$gateApply.applied -or [string]$gateApply.event.status -ne 'pending-gate' -or [string]$gateApply.event.gate.action -ne 'inject' -or [string]$gateApply.event.gate.scope -ne 'single JNI symbol sidecar only') {
     throw "unexpected android-native gate apply: $($gateApply | ConvertTo-Json -Depth 20)"
   }
@@ -148,14 +155,17 @@ try {
     Assert-ContainsText -Text $overview -Expected $expected -Label 'android-native overview text'
   }
 
-  $handoff = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','jni') | ConvertFrom-Json
+  $handoffPreview = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','-Format','json','jni') | ConvertFrom-Json
+  $handoffApplyArgs = @($handoffPreview.applyArgs | ForEach-Object { [string]$_ })
+  if ([string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationPlanSha256) -or [string]::IsNullOrWhiteSpace([string]$handoffPreview.publicationStamp) -or $handoffApplyArgs.Count -eq 0) { throw 'android-native handoff preview omitted exact Apply action' }
+  $handoff = Invoke-RekitSmoke -Arguments $handoffApplyArgs | ConvertFrom-Json
   if ([string]$handoff.command -ne 'handoff' -or -not [bool]$handoff.isMutation -or -not [bool]$handoff.applied -or [bool]$handoff.project -or [string]$handoff.lane.id -ne 'native-analysis-jni' -or [string]$handoff.lane.workspace -ne 'workspace/native/native-analysis-jni') {
     throw "unexpected android-native handoff result: $($handoff | ConvertTo-Json -Depth 20)"
   }
-  $handoffPath = Join-Path $caseRoot '.rekit\handovers\native-analysis-jni-latest.md'
+  $handoffPath = Join-Path $caseRoot '.steamai\handovers\native-analysis-jni-latest.md'
   if (-not (Test-Path -LiteralPath $handoffPath)) { throw "missing android-native handoff: $handoffPath" }
   $handoffText = [System.IO.File]::ReadAllText($handoffPath, [System.Text.Encoding]::UTF8)
-  foreach ($expected in @('native-analysis-jni','/rekit continue native-analysis-jni','workspace/native/native-analysis-jni/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=inject','scope=single JNI symbol sidecar only')) {
+  foreach ($expected in @('native-analysis-jni','/rekit continue -Lane native-analysis-jni','workspace/native/native-analysis-jni/packet.md','## verification','verifier=tool-review','## decision','decision=accept','## pending-gate','action=inject','scope=single JNI symbol sidecar only')) {
     Assert-ContainsText -Text $handoffText -Expected $expected -Label 'android-native handoff text'
   }
   foreach ($unexpected in @('web-security','workspace/features','endpoint-login','generic-binary-re','workspace/binary','binary-analysis-sample','malware-analysis','workspace/samples','sample-alpha','vuln-research','workspace/vulns','ctf','workspace/challenges','challenge-alpha','unpack-pe','workspace/unpack','packed-sample','ollvm','workspace/obfuscation','function-alpha','references/template','vmp-re')) {

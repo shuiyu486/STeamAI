@@ -9,10 +9,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
@@ -120,6 +122,15 @@ func ReopenPreview(repoRoot, caseRoot, pack string, opt ReopenOptions) (ReopenRe
 	if err != nil {
 		return ReopenResult{}, err
 	}
+	if _, err := plancontract.ValidatePhase(
+		commands.Reopen,
+		"-ExpectedReopenPlanSha256",
+		true,
+		false,
+		opt.ExpectedPreviewSHA256,
+	); err != nil {
+		return ReopenResult{}, err
+	}
 	stamp := strings.TrimSpace(opt.PublicationStamp)
 	if stamp == "" {
 		stamp = isoNow()
@@ -146,6 +157,14 @@ func ReopenApply(repoRoot, caseRoot, pack string, opt ReopenOptions) (result Reo
 			err = MarkZeroProgress(err)
 		}
 	}()
+	expected, err := plancontract.RequireApplyBinding(
+		commands.Reopen,
+		"-ExpectedReopenPlanSha256",
+		opt.ExpectedPreviewSHA256,
+	)
+	if err != nil {
+		return ReopenResult{}, err
+	}
 	ctx, err := newReopenContext(repoRoot, caseRoot, pack, opt, true)
 	if err != nil {
 		return ReopenResult{}, err
@@ -167,14 +186,15 @@ func ReopenApply(repoRoot, caseRoot, pack string, opt ReopenOptions) (result Reo
 	if err := lease.Validate(); err != nil {
 		return ReopenResult{}, err
 	}
-	expected := strings.ToLower(strings.TrimSpace(opt.ExpectedPreviewSHA256))
-	if expected == "" {
-		return ReopenResult{}, fmt.Errorf("reopen apply requires -ExpectedReopenPlanSha256 from the reviewed preview")
-	}
 	if ctx.replayCommit != nil {
 		commit := *ctx.replayCommit
-		if !strings.EqualFold(expected, commit.PreviewSHA256) {
-			return ReopenResult{}, fmt.Errorf("latest committed reopen operation conflicts with requested preview hash")
+		if _, err := plancontract.Match(
+			commands.Reopen,
+			"-ExpectedReopenPlanSha256",
+			expected,
+			commit.PreviewSHA256,
+		); err != nil {
+			return ReopenResult{}, err
 		}
 		result = ctx.result(true, true)
 		result.Replay, result.ReopenPlanSHA256, result.OperationCommit = true, commit.PreviewSHA256, &commit
@@ -190,8 +210,13 @@ func ReopenApply(repoRoot, caseRoot, pack string, opt ReopenOptions) (result Reo
 		if err := ctx.buildPublicationPlan(stamp); err != nil {
 			return ReopenResult{}, err
 		}
-		if !strings.EqualFold(expected, ctx.exactPublicationSHA256) {
-			return ReopenResult{}, fmt.Errorf("reopen preview sha256 mismatch: got %s want %s", expected, ctx.exactPublicationSHA256)
+		if _, err := plancontract.Match(
+			commands.Reopen,
+			"-ExpectedReopenPlanSha256",
+			expected,
+			ctx.exactPublicationSHA256,
+		); err != nil {
+			return ReopenResult{}, err
 		}
 		intent := ctx.newOperationIntent(expected, stamp)
 		mutationStarted = true
@@ -205,6 +230,14 @@ func ReopenApply(repoRoot, caseRoot, pack string, opt ReopenOptions) (result Reo
 			}
 		}
 	} else {
+		if _, err := plancontract.Match(
+			commands.Reopen,
+			"-ExpectedReopenPlanSha256",
+			expected,
+			ctx.intent.PreviewSHA256,
+		); err != nil {
+			return ReopenResult{}, err
+		}
 		if err := ctx.validateOperationIntent(expected); err != nil {
 			return ReopenResult{}, err
 		}

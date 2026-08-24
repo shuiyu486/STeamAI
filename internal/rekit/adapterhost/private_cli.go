@@ -12,14 +12,17 @@ import (
 )
 
 const (
-	privateAuthorizedVMPIDAFlag = "-run-authorized-vmp-ida-index-inspector"
-	privateChildVMPIDAFlag      = "-child-vmp-ida-index-inspector"
+	privateAuthorizedVMPIDAFlag      = "-run-authorized-vmp-ida-index-inspector"
+	privateChildVMPIDAFlag           = "-child-vmp-ida-index-inspector"
+	privateChildBinaryInventoryFlag  = "-child-binary-inventory"
+	privateChildOpenAPIInventoryFlag = "-child-openapi-inventory"
+	privateChildBoundedReplayFlag    = "-child-bounded-http-replay"
 )
 
 func IsEmbeddedPrivateInvocation(args []string) bool {
 	for _, arg := range args {
 		name, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(arg)), "=")
-		if name == privateAuthorizedVMPIDAFlag || name == privateChildVMPIDAFlag {
+		if name == privateAuthorizedVMPIDAFlag || name == privateChildVMPIDAFlag || name == privateChildBinaryInventoryFlag || name == privateChildOpenAPIInventoryFlag || name == privateChildBoundedReplayFlag {
 			return true
 		}
 	}
@@ -36,8 +39,12 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 	var common Options
 	var authorized AuthorizedRunOptions
 	var child VMPIDAIndexChildOptions
-	var authorizedMode, childMode bool
+	var binaryChild BinaryInventoryChildOptions
+	var openAPIChild OpenAPIInventoryChildOptions
+	var replayChild BoundedReplayChildOptions
+	var authorizedMode, childMode, binaryChildMode, openAPIChildMode, replayChildMode bool
 	var controlBindingJSON string
+	var instructionIdentityJSON string
 	flags.StringVar(&common.RepoRoot, "repo", "", "")
 	flags.StringVar(&common.CaseRoot, "target", "", "")
 	flags.StringVar(&common.Pack, "pack", "", "")
@@ -45,14 +52,20 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 	flags.StringVar(&common.ExpectedDispatchSHA256, "expected-dispatch-sha256", "", "")
 	flags.BoolVar(&authorizedMode, strings.TrimPrefix(privateAuthorizedVMPIDAFlag, "-"), false, "")
 	flags.StringVar(&authorized.ExecutionReportPath, "execution-report-path", "", "")
+	flags.StringVar(&authorized.AdapterID, "adapter-id", "", "")
 	flags.StringVar(&authorized.AdapterSession, "adapter-session", "", "")
 	flags.StringVar(&authorized.Actor, "actor", "", "")
 	flags.BoolVar(&authorized.DeferSuccessfulTaskBinding, "defer-successful-task-binding", false, "")
 	flags.StringVar(&controlBindingJSON, "execution-control-binding-json", "", "")
+	flags.StringVar(&instructionIdentityJSON, "instruction-identity-json", "", "")
 	flags.BoolVar(&childMode, strings.TrimPrefix(privateChildVMPIDAFlag, "-"), false, "")
+	flags.BoolVar(&binaryChildMode, strings.TrimPrefix(privateChildBinaryInventoryFlag, "-"), false, "")
+	flags.BoolVar(&openAPIChildMode, strings.TrimPrefix(privateChildOpenAPIInventoryFlag, "-"), false, "")
+	flags.BoolVar(&replayChildMode, strings.TrimPrefix(privateChildBoundedReplayFlag, "-"), false, "")
 	flags.StringVar(&child.Executor, "executor", "", "")
 	flags.IntVar(&child.ExpectedExecutorGeneration, "expected-executor-generation", 0, "")
 	flags.StringVar(&child.RequestPath, "child-request-path", "", "")
+	flags.StringVar(&binaryChild.SourcePath, "child-source-path", "", "")
 	if err := flags.Parse(args); err != nil {
 		return true, 2
 	}
@@ -60,16 +73,29 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		fmt.Fprintln(stderr, "private STeamAI adapter invocation does not accept positional arguments")
 		return true, 2
 	}
-	if authorizedMode == childMode {
+	modes := 0
+	for _, enabled := range []bool{authorizedMode, childMode, binaryChildMode, openAPIChildMode, replayChildMode} {
+		if enabled {
+			modes++
+		}
+	}
+	if modes != 1 {
 		fmt.Fprintln(stderr, "private STeamAI adapter invocation requires exactly one parent or child mode")
+		return true, 2
+	}
+	instructionIdentity, decodeErr := decodeAdapterInstructionIdentityJSON(instructionIdentityJSON)
+	if decodeErr != nil {
+		fmt.Fprintln(stderr, decodeErr)
 		return true, 2
 	}
 
 	var result any
 	var err error
-	if childMode {
+	switch {
+	case childMode:
 		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
-			authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" {
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(binaryChild.SourcePath) != "" {
 			fmt.Fprintln(stderr, "private VMP IDA child flags cannot be combined with parent-only flags")
 			return true, 2
 		}
@@ -79,9 +105,64 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		child.GateEventID = common.GateEventID
 		child.ExpectedDispatchSHA256 = common.ExpectedDispatchSHA256
 		child.AdapterSession = authorized.AdapterSession
+		child.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
 		result, err = RunVMPIDAIndexChild(child)
-	} else {
+	case binaryChildMode:
+		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(child.RequestPath) != "" {
+			fmt.Fprintln(stderr, "private binary inventory child flags cannot be combined with parent-only or VMP child flags")
+			return true, 2
+		}
+		binaryChild.RepoRoot = common.RepoRoot
+		binaryChild.CaseRoot = common.CaseRoot
+		binaryChild.Pack = common.Pack
+		binaryChild.GateEventID = common.GateEventID
+		binaryChild.ExpectedDispatchSHA256 = common.ExpectedDispatchSHA256
+		binaryChild.AdapterSession = authorized.AdapterSession
+		binaryChild.Executor = child.Executor
+		binaryChild.ExpectedExecutorGeneration = child.ExpectedExecutorGeneration
+		binaryChild.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
+		result, err = RunBinaryInventoryChild(binaryChild)
+	case openAPIChildMode:
+		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(child.RequestPath) != "" {
+			fmt.Fprintln(stderr, "private OpenAPI inventory child flags cannot be combined with parent-only or request-path child flags")
+			return true, 2
+		}
+		openAPIChild.RepoRoot = common.RepoRoot
+		openAPIChild.CaseRoot = common.CaseRoot
+		openAPIChild.Pack = common.Pack
+		openAPIChild.GateEventID = common.GateEventID
+		openAPIChild.ExpectedDispatchSHA256 = common.ExpectedDispatchSHA256
+		openAPIChild.AdapterSession = authorized.AdapterSession
+		openAPIChild.Executor = child.Executor
+		openAPIChild.ExpectedExecutorGeneration = child.ExpectedExecutorGeneration
+		openAPIChild.SourcePath = binaryChild.SourcePath
+		openAPIChild.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
+		result, err = RunOpenAPIInventoryChild(openAPIChild)
+	case replayChildMode:
+		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(binaryChild.SourcePath) != "" {
+			fmt.Fprintln(stderr, "private bounded replay child flags cannot be combined with parent-only or source-path child flags")
+			return true, 2
+		}
+		replayChild.RepoRoot = common.RepoRoot
+		replayChild.CaseRoot = common.CaseRoot
+		replayChild.Pack = common.Pack
+		replayChild.GateEventID = common.GateEventID
+		replayChild.ExpectedDispatchSHA256 = common.ExpectedDispatchSHA256
+		replayChild.AdapterSession = authorized.AdapterSession
+		replayChild.Executor = child.Executor
+		replayChild.ExpectedExecutorGeneration = child.ExpectedExecutorGeneration
+		replayChild.RequestPath = child.RequestPath
+		replayChild.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
+		result, err = RunBoundedReplayChild(replayChild)
+	default:
 		if strings.TrimSpace(common.ExpectedDispatchSHA256) != "" || strings.TrimSpace(child.RequestPath) != "" ||
+			strings.TrimSpace(binaryChild.SourcePath) != "" ||
 			strings.TrimSpace(child.Executor) != "" || child.ExpectedExecutorGeneration != 0 {
 			fmt.Fprintln(stderr, "authorized VMP IDA parent flags cannot be combined with immutable-dispatch child flags")
 			return true, 2
@@ -109,6 +190,7 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		authorized.CaseRoot = common.CaseRoot
 		authorized.Pack = common.Pack
 		authorized.GateEventID = common.GateEventID
+		authorized.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
 		result, err = RunAuthorizedGate(authorized)
 	}
 	if result != nil {

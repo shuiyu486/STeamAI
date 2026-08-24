@@ -10,13 +10,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/binaryinventory"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/websecurity"
 )
 
 const (
@@ -29,22 +33,50 @@ const (
 	authorizationPhasePostPublication = "post-publication-pre-success"
 )
 
+// CompiledInProductionAdapterIDs returns the production adapter IDs
+// implemented by this host's fixed dispatch branches. Callers use this as the
+// executable-owned source of truth; catalog metadata is never treated as code.
+func CompiledInProductionAdapterIDs() []string {
+	ids := []string{
+		VMPIDAIndexAdapterID,
+		binaryinventory.AdapterID,
+		websecurity.InventoryAdapterID,
+		websecurity.ReplayAdapterID,
+	}
+	slices.Sort(ids)
+	return ids
+}
+
 type hostTestHooks struct {
-	beforeReportWrite                   func() error
-	afterCleanupIdentityOpen            func(string) error
-	afterCleanupQuarantineIdentityCheck func(string, string) error
-	runVMPIDAChild                      func(VMPIDAIndexChildOptions) ([]byte, int, error)
-	afterVMPChildLaunch                 func(int) error
-	beforeVMPPublication                func() error
-	beforeVMPAuthorizationCurrentness   func(string) error
-	beforeVMPSuccessSeal                func() error
-	beforeVMPProfileRevoke              func() error
-	afterVMPStageCommit                 func() error
-	afterVMPOutputsPublished            func() error
-	afterVMPOutputCommit                func() error
-	afterVMPReceiptRecorded             func() error
-	afterVMPObservation                 func() error
-	beforeAuthorizationCurrentness      func(string) error
+	beforeReportWrite                             func() error
+	afterCleanupIdentityOpen                      func(string) error
+	afterCleanupQuarantineIdentityCheck           func(string, string) error
+	runVMPIDAChild                                func(VMPIDAIndexChildOptions) ([]byte, int, error)
+	runBinaryInventoryChild                       func(BinaryInventoryChildOptions) ([]byte, int, error)
+	runOpenAPIInventoryChild                      func(OpenAPIInventoryChildOptions) ([]byte, int, error)
+	runBoundedReplayChild                         func(BoundedReplayChildOptions) ([]byte, int, error)
+	afterWebSecurityChildLaunch                   func(int) error
+	afterWebSecurityOutputCommit                  func() error
+	beforeWebSecuritySuccessSeal                  func() error
+	beforeWebSecurityFailureClosureValidation     func() error
+	afterWebSecurityOutputsPublished              func() error
+	afterWebSecurityReceiptRecorded               func() error
+	afterWebSecurityObservation                   func() error
+	afterBinaryInventoryChildLaunch               func(int) error
+	afterBinaryInventoryOutputCommit              func() error
+	beforeBinaryInventorySuccessSeal              func() error
+	beforeBinaryInventoryFailureClosureValidation func() error
+	afterVMPChildLaunch                           func(int) error
+	beforeVMPPublication                          func() error
+	beforeVMPAuthorizationCurrentness             func(string) error
+	beforeVMPSuccessSeal                          func() error
+	beforeVMPProfileRevoke                        func() error
+	afterVMPStageCommit                           func() error
+	afterVMPOutputsPublished                      func() error
+	afterVMPOutputCommit                          func() error
+	afterVMPReceiptRecorded                       func() error
+	afterVMPObservation                           func() error
+	beforeAuthorizationCurrentness                func(string) error
 }
 
 type Options struct {
@@ -54,6 +86,7 @@ type Options struct {
 	GateEventID             string
 	ExpectedDispatchSHA256  string
 	ExecutionControlBinding *executioncontrol.Binding
+	InstructionIdentity     *instructionpacket.Identity
 	testHooks               *hostTestHooks
 }
 
@@ -127,6 +160,9 @@ func Run(opt Options) (_ Result, retErr error) {
 	if result.Pack == "" || result.GateEventID == "" {
 		return result, fmt.Errorf("adapter host requires -pack and -gate-event-id")
 	}
+	if err := validateAdapterInstructionBinding(opt.CaseRoot, result.Pack, opt.InstructionIdentity); err != nil {
+		return result, err
+	}
 	if !validSHA256(opt.ExpectedDispatchSHA256) {
 		return result, fmt.Errorf("adapter host requires a valid -expected-dispatch-sha256")
 	}
@@ -161,8 +197,16 @@ func Run(opt Options) (_ Result, retErr error) {
 	if !strings.EqualFold(dispatchSHA, opt.ExpectedDispatchSHA256) {
 		return result, fmt.Errorf("adapter execution dispatch sha256 changed before host launch: expected %s got %s", opt.ExpectedDispatchSHA256, dispatchSHA)
 	}
-	if dispatch.Adapter.AdapterID == VMPIDAIndexAdapterID {
+	if err := validateAuthorizedAdapterCapability(dispatch); err != nil {
+		return result, err
+	}
+	switch dispatch.Adapter.AdapterID {
+	case VMPIDAIndexAdapterID:
 		return runVMPIDAExistingDispatch(opt, result, dispatch, dispatchPath, dispatchSHA, started)
+	case binaryinventory.AdapterID:
+		return runBinaryInventoryExistingDispatch(opt, result, dispatch, dispatchPath, dispatchSHA, started)
+	case websecurity.InventoryAdapterID, websecurity.ReplayAdapterID:
+		return runWebSecurityExistingDispatch(opt, result, dispatch, dispatchPath, dispatchSHA, started)
 	}
 	if err := validateDispatch(dispatch); err != nil {
 		return result, err
@@ -501,12 +545,16 @@ func readStableExecutable(path string) ([]byte, error) {
 }
 
 func readStableFixture(root *os.Root, rel string) ([]byte, os.FileInfo, error) {
+	return readStableBoundedInput(root, rel, maxFixtureBytes, "adapter host input")
+}
+
+func readStableBoundedInput(root *os.Root, rel string, maxBytes int64, label string) ([]byte, os.FileInfo, error) {
 	info, err := root.Lstat(rel)
 	if err != nil {
 		return nil, nil, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > maxFixtureBytes {
-		return nil, nil, fmt.Errorf("adapter host input must be a bounded regular non-symlink file: %s", rel)
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > maxBytes {
+		return nil, nil, fmt.Errorf("%s must be a bounded regular non-symlink file: %s", label, rel)
 	}
 	file, err := root.Open(rel)
 	if err != nil {
@@ -515,15 +563,15 @@ func readStableFixture(root *os.Root, rel string) ([]byte, os.FileInfo, error) {
 	defer file.Close()
 	opened, err := file.Stat()
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
-		return nil, nil, fmt.Errorf("adapter host input changed while opening: %s", rel)
+		return nil, nil, fmt.Errorf("%s changed while opening: %s", label, rel)
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxFixtureBytes+1))
-	if err != nil || len(data) > maxFixtureBytes {
-		return nil, nil, fmt.Errorf("adapter host input exceeds read limit: %s", rel)
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil || int64(len(data)) > maxBytes {
+		return nil, nil, fmt.Errorf("%s exceeds read limit: %s", label, rel)
 	}
 	post, err := root.Lstat(rel)
 	if err != nil || !os.SameFile(opened, post) || post.Size() != int64(len(data)) {
-		return nil, nil, fmt.Errorf("adapter host input changed while reading: %s", rel)
+		return nil, nil, fmt.Errorf("%s changed while reading: %s", label, rel)
 	}
 	return data, opened, nil
 }

@@ -1,7 +1,6 @@
 package defaultdocs
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/skillcontract"
 )
 
 type Readiness struct {
@@ -140,7 +139,7 @@ var requiredPhrases = []requiredPhrase{
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "bounded-autonomous-v1"},
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "不要让用户记 SHA"},
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "typed `invocation` 是唯一通用命令桥"},
-	{path: ".claude/skills/steamai/SKILL.md", phrase: "[\"runtime\", \"-Command\", invocation.command]"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "机器命令附录是固定 front door、deterministic owner bridge、argv 与 Apply binding 的唯一 owner"},
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "`commandExecutable=false`"},
 	{path: ".claude/skills/steamai/SKILL.md", phrase: "`control` 始终 review-first"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "STeamAI 项目内 Mission Control 入口"},
@@ -149,7 +148,7 @@ var requiredPhrases = []requiredPhrase{
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "bounded-autonomous-v1"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "不要让用户记 SHA"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "typed `invocation` 是唯一通用命令桥"},
-	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "[\"runtime\", \"-Command\", invocation.command]"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "机器命令附录是固定 front door、deterministic owner bridge、argv 与 Apply binding 的唯一 owner"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "`commandExecutable=false`"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "`control` 始终 review-first"},
 	{path: "CLAUDE.md", phrase: "`/steamai` canonical skill"},
@@ -272,16 +271,12 @@ func Inspect(repoRoot string) Readiness {
 		}
 		readiness.Documents = append(readiness.Documents, doc)
 	}
-	canonicalSkill, canonicalPresent := texts[".claude/skills/steamai/SKILL.md"]
-	templateSkill, templatePresent := texts["rekit/templates/steamai-project/SKILL.md"]
-	if canonicalPresent && templatePresent && !bytes.Equal(
-		sourceartifact.SemanticText([]byte(canonicalSkill)),
-		sourceartifact.SemanticText([]byte(templateSkill)),
-	) {
-		readiness.Warnings = append(
-			readiness.Warnings,
-			"canonical /steamai skill differs semantically from its project-local delivery template",
-		)
+	canonicalSkill, canonicalPresent := texts[skillcontract.CanonicalSkillPath]
+	templateSkill, templatePresent := texts[skillcontract.ProjectTemplatePath]
+	if canonicalPresent && templatePresent {
+		if err := skillcontract.ValidatePair([]byte(canonicalSkill), []byte(templateSkill)); err != nil {
+			readiness.Warnings = append(readiness.Warnings, err.Error())
+		}
 	}
 	for _, required := range requiredPhrases {
 		check := PhraseCheck{Path: required.path, Phrase: required.phrase}

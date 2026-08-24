@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -90,6 +91,72 @@ func TestLaneExecutorActionBindsContinueCommandsToCurrentOwner(t *testing.T) {
 	}
 	if !slices.Equal(action.NextAgentActions, []string{want}) {
 		t.Fatalf("next actions did not use current owner: %+v", action.NextAgentActions)
+	}
+}
+
+func TestBindMissionCommanderNextActionAuthorityContinueCommandsKeepsTypedIdentity(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(
+		commands.Continue,
+		"login",
+		"-WhatIf",
+		"-Format", "json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := []mission.MissionCommanderNextActionItem{
+		{
+			Lane:       "feature-login",
+			Command:    "/rekit continue login -WhatIf -Format json",
+			Invocation: &invocation,
+		},
+		{
+			Lane:    "feature-login",
+			Command: "/rekit handoff login",
+		},
+	}
+	bound, err := BindMissionCommanderNextActionAuthorityContinueCommands(items, mission.BoardLane{
+		ID:                 "feature-login",
+		CurrentExecutor:    "session two",
+		ExecutorGeneration: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `/rekit continue login -Executor "session two" -ExpectedExecutorGeneration 2 -WhatIf -Format json`
+	if bound[0].Command != want || bound[0].Invocation == nil {
+		t.Fatalf("owner-bound action omitted typed identity: %+v", bound[0])
+	}
+	projected, err := commands.ParsePublicInvocation(bound[0].Command)
+	if err != nil || !bound[0].Invocation.Equivalent(projected) {
+		t.Fatalf("owner-bound command and invocation drifted: item=%+v err=%v", bound[0], err)
+	}
+	if items[0].Command == bound[0].Command || items[0].Invocation == nil || !items[0].Invocation.Equivalent(invocation) {
+		t.Fatalf("owner binding mutated its input: before=%+v after=%+v", items[0], bound[0])
+	}
+	if bound[1].Command != items[1].Command || bound[1].Invocation != nil {
+		t.Fatalf("non-continue action changed: before=%+v after=%+v", items[1], bound[1])
+	}
+}
+
+func TestBindMissionCommanderNextActionAuthorityContinueCommandsRejectsStaleTypedIdentity(t *testing.T) {
+	stale, err := commands.NewPublicInvocation(commands.Continue, "other", "-WhatIf", "-Format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = BindMissionCommanderNextActionAuthorityContinueCommands(
+		[]mission.MissionCommanderNextActionItem{{
+			Command:    "/rekit continue login -WhatIf -Format json",
+			Invocation: &stale,
+		}},
+		mission.BoardLane{
+			ID:                 "feature-login",
+			CurrentExecutor:    "executor-two",
+			ExecutorGeneration: 2,
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "typed invocation does not match") {
+		t.Fatalf("stale typed identity was accepted: %v", err)
 	}
 }
 
@@ -203,7 +270,11 @@ func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *tes
 	if preview.ExecutorAction == nil || preview.ExecutorAction.ResumeCommand != canonicalAfter {
 		t.Fatalf("live handoff did not switch to current owner: %+v", preview.ExecutorAction)
 	}
-	applied, err := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-two", ExpectedExecutorGeneration: 2})
+	continuePreview, err := ContinuePreview(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-two", ExpectedExecutorGeneration: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-two", ExpectedExecutorGeneration: 2, ExpectedContinuePlanSHA256: continuePreview.ContinuePlanSHA256})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,10 +303,11 @@ func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *tes
 		t.Fatalf("replacement executor takeover package JSON did not decode: %v\n%s", err, string(data))
 	}
 	canonicalBefore := "/rekit continue -Executor executor-one -ExpectedExecutorGeneration 1 -Lane devirt-main"
-	if before.ExecutorAction == nil || before.ExecutorAction.ResumeCommand != canonicalBefore || before.ExecutorAction.HandoffCommand != "/rekit handoff -Lane devirt-main" || before.LaneTakeoverPackage == nil || before.LaneTakeoverPackage.ContinueCommand != canonicalBefore || before.LaneTakeoverPackage.HandoffCommand != "/rekit handoff -Lane devirt-main" || before.LaneTakeoverPackage.CurrentCommand != canonicalBefore {
-		t.Fatalf("handoff result did not share one canonical current action: executor=%+v takeover=%+v", before.ExecutorAction, before.LaneTakeoverPackage)
+	previewBefore := canonicalBefore + " -WhatIf -Format json"
+	if before.ExecutorAction == nil || before.ExecutorAction.ResumeCommand != canonicalBefore || before.ExecutorAction.HandoffCommand != "/rekit handoff -Lane devirt-main" || before.LaneTakeoverPackage == nil || before.LaneTakeoverPackage.ContinueCommand != canonicalBefore || before.LaneTakeoverPackage.HandoffCommand != "/rekit handoff -Lane devirt-main" || before.LaneTakeoverPackage.CurrentCommand != previewBefore {
+		t.Fatalf("handoff result did not preserve executor command and typed preview action: executor=%+v takeover=%+v", before.ExecutorAction, before.LaneTakeoverPackage)
 	}
-	if !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "lane:devirt-main" || takeover.DriverKind != "execute-command" || !takeover.CommandExecutable || takeover.Command != canonicalBefore || takeover.CurrentDriverRequest.Command != takeover.Command || takeover.RefreshStatusCommand == "" || !slices.ContainsFunc(takeover.TargetDocuments, func(doc string) bool {
+	if !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "lane:devirt-main" || takeover.DriverKind != "preview-command" || !takeover.CommandExecutable || takeover.Command != previewBefore || takeover.CurrentDriverRequest.Command != takeover.Command || takeover.RefreshStatusCommand == "" || !slices.ContainsFunc(takeover.TargetDocuments, func(doc string) bool {
 		return doc == ".rekit/handovers/devirt-main-latest-replacement-executor-takeover.json"
 	}) || !slices.ContainsFunc(takeover.RunbookSteps, func(step string) bool {
 		return strings.Contains(step, "read .rekit/handovers/devirt-main-latest-replacement-executor-takeover.json before using any prior chat context")
@@ -296,7 +368,7 @@ func TestStartMissionCommanderNextActionsRequireReviewBeforeApply(t *testing.T) 
 	if !hasStartCommanderNextAction(items, "missionCommanderActions", "/rekit start login -Apply", false, true) {
 		t.Fatalf("start preview should expose review-owned apply action: %+v", items)
 	}
-	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit continue login", true, true) {
+	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit continue login -WhatIf -Format json", true, true) {
 		t.Fatalf("start preview follow-up should remain blocked until apply succeeds: %+v", items)
 	}
 	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login", true, true) {
@@ -369,7 +441,7 @@ func TestStartMissionCommanderNextActionsKeepReadyApplyConsumable(t *testing.T) 
 		},
 	}
 	items := startMissionCommanderNextActions(lane, action)
-	if !hasStartCommanderNextAction(items, "missionCommanderActions", "/rekit continue login", false, false) {
+	if !hasStartCommanderNextAction(items, "missionCommanderActions", "/rekit continue login -WhatIf -Format json", false, true) {
 		t.Fatalf("ready start apply should expose consumable continue action: %+v", items)
 	}
 	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {

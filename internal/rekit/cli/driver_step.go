@@ -13,7 +13,6 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -163,6 +162,11 @@ func buildDriverStepPlanFromStatus(ctx runtime.Context, status statusInventory) 
 	if err != nil {
 		return driverStepPlan{}, err
 	}
+	if continuePreview, ok := preview.(workstream.ContinueResult); ok {
+		if err := validateContinuePreviewApplyRequest(continuePreview); err != nil {
+			return driverStepPlan{}, err
+		}
+	}
 	applyRequest, err := driverStepApplyRequest(preview)
 	if err != nil {
 		return driverStepPlan{}, err
@@ -300,7 +304,14 @@ func qualifyDriverStepApplyRequest(ctx runtime.Context, request mission.MissionC
 		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("returned Apply request is outside the bounded driver command allowlist")
 	}
 	args := fields[2:]
-	if !driverCommandHasFlag(args, "-Apply", "--apply") && !driverCommandHasFlag(args, "-WhatIf", "--what-if") {
+	if fields[1] == commands.Continue {
+		if driverCommandHasFlag(args, "-WhatIf", "--what-if") || !driverCommandHasFlag(args, "-Apply", "--apply") {
+			return mission.MissionCommanderDriverRequest{}, fmt.Errorf("continue Apply request must come from the exact workstream preview")
+		}
+	} else if driverCommandHasFlag(args, "-WhatIf", "--what-if") {
+		fields = driverStepReplacePhase(fields, "-Apply")
+		args = fields[2:]
+	} else if !driverCommandHasFlag(args, "-Apply", "--apply") {
 		fields = append(fields, "-Apply")
 		args = fields[2:]
 	}
@@ -324,6 +335,18 @@ func qualifyDriverStepApplyRequest(ctx runtime.Context, request mission.MissionC
 		return mission.MissionCommanderDriverRequest{}, err
 	}
 	return request, nil
+}
+
+func driverStepReplacePhase(fields []string, phase string) []string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if strings.EqualFold(field, "-WhatIf") || strings.EqualFold(field, "--what-if") ||
+			strings.EqualFold(field, "-Apply") || strings.EqualFold(field, "--apply") {
+			continue
+		}
+		out = append(out, field)
+	}
+	return append(out, phase)
 }
 
 func parseBoundedDriverRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest, apply bool) (Options, error) {
@@ -388,6 +411,7 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		"-reason": true, "--reason": true,
 		"-summary": true, "--summary": true,
 		"-evidencerefs": true, "--evidence-refs": true,
+		"-expectedcontinueplansha256": true, "--expected-continue-plan-sha256": true,
 		"-expectedcompleteplansha256": true, "--expected-complete-plan-sha256": true,
 		"-expectedexecutorgeneration": true, "--expected-executor-generation": true,
 	}
@@ -420,6 +444,8 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 			return "-summary"
 		case "--evidence-refs":
 			return "-evidencerefs"
+		case "--expected-continue-plan-sha256":
+			return "-expectedcontinueplansha256"
 		case "--expected-complete-plan-sha256":
 			return "-expectedcompleteplansha256"
 		case "--expected-executor-generation":
@@ -481,8 +507,11 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		if selectorKinds != 1 {
 			return fmt.Errorf("continue driver request requires exactly one lane selector")
 		}
-		if seen["-name"] || seen["-interventionid"] || seen["-actor"] || seen["-reason"] || seen["-summary"] {
+		if seen["-name"] || seen["-interventionid"] || seen["-actor"] || seen["-reason"] || seen["-summary"] || seen["-expectedcompleteplansha256"] {
 			return fmt.Errorf("continue driver request contains unsupported flag(s) for its bounded contract")
+		}
+		if apply != seen["-expectedcontinueplansha256"] {
+			return fmt.Errorf("continue driver request plan hash does not match preview/apply mode")
 		}
 	case commands.Complete:
 		if selectorKinds != 1 {
@@ -596,6 +625,58 @@ func applyDriverStep(
 	default:
 		return nil, fmt.Errorf("unsupported bounded driver apply: %s", opt.Command)
 	}
+}
+
+func validateContinuePreviewApplyRequest(result workstream.ContinueResult) error {
+	if result.Blocked {
+		if result.ContinueOwnerGuardRecovery != nil {
+			recovery := result.ContinueOwnerGuardRecovery
+			return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: preview is blocked by the current executor owner guard: reason=%s received=%s/%d current=%s/%d request=%s", recovery.Reason, recovery.ReceivedExecutor, recovery.ReceivedExecutorGeneration, recovery.CurrentExecutor, recovery.CurrentExecutorGeneration, recovery.CurrentContinueCommand)
+		}
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: preview is blocked")
+	}
+	planSHA256 := strings.TrimSpace(result.ContinuePlanSHA256)
+	decodedPlanSHA256, err := hex.DecodeString(planSHA256)
+	if err != nil || len(decodedPlanSHA256) != sha256.Size {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: missing or invalid continue plan sha256")
+	}
+	request := result.MissionCommanderActionQueue.CurrentDriverRequest
+	if request == nil {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: typed driver request is missing")
+	}
+	if request.Blocked || !request.CommandExecutable || request.Invocation == nil {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: typed driver request is blocked or not executable")
+	}
+	if current := result.MissionCommanderActionQueue.CurrentAction; current == nil ||
+		current.Source != "missionCommanderActions" ||
+		current.State != "needs-continue-apply" ||
+		current.Blocked || current.Invocation == nil ||
+		current.Command != request.Command {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: action queue parity is invalid")
+	}
+	invocation := *request.Invocation
+	if invocation.Command != commands.Continue {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: returned command is %q", invocation.Command)
+	}
+	hasApply := invocation.HasFlag("-Apply") || invocation.HasFlag("--apply")
+	hasWhatIf := invocation.HasFlag("-WhatIf") || invocation.HasFlag("--what-if")
+	if !hasApply || hasWhatIf {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: returned invocation is not Apply-only")
+	}
+	boundPlanSHA256, present, valid := invocation.FlagValue(
+		"-ExpectedContinuePlanSha256",
+		"--expected-continue-plan-sha256",
+	)
+	if !present || !valid || !strings.EqualFold(strings.TrimSpace(boundPlanSHA256), planSHA256) {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: returned invocation plan hash does not match the preview")
+	}
+	if err := commands.ValidateExecutableContinueInvocation(invocation); err != nil {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: %w", err)
+	}
+	if err := mission.ValidateMissionCommanderDriverRequest(*request); err != nil {
+		return fmt.Errorf("continue preview did not return an exact hash-bound Apply request: %w", err)
+	}
+	return nil
 }
 
 func driverStepApplyRequest(result any) (mission.MissionCommanderDriverRequest, error) {
@@ -717,15 +798,8 @@ func driverStepRefreshCommandMatches(ctx runtime.Context, command string) bool {
 }
 
 func driverStepEntrypointMatches(ctx runtime.Context, entrypoint string) bool {
-	root, err := projectstate.Resolve(ctx.Target)
-	if err != nil {
-		return false
-	}
-	want := "/steamai"
-	if root.Legacy {
-		want = "/rekit"
-	}
-	return entrypoint == want
+	projection, err := resolveProjectPublicProjection(ctx.Target)
+	return err == nil && entrypoint == projection.entrypoint
 }
 
 func boundedDriverStepCommand(command string) bool {

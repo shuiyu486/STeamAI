@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
@@ -22,6 +23,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
@@ -248,6 +250,15 @@ func CompletePreview(repoRoot, caseRoot, pack string, opt CompleteOptions) (Comp
 	if err != nil {
 		return CompleteResult{}, err
 	}
+	if _, err := plancontract.ValidatePhase(
+		commands.Complete,
+		"-ExpectedCompletePlanSha256",
+		true,
+		false,
+		opt.ExpectedPreviewSHA256,
+	); err != nil {
+		return CompleteResult{}, err
+	}
 	result := ctx.result(false, false)
 	result.WouldWrites, err = ctx.plannedWrites()
 	if err != nil {
@@ -279,6 +290,14 @@ func CompleteApplyValidated(repoRoot, caseRoot, pack string, opt CompleteOptions
 			err = MarkZeroProgress(err)
 		}
 	}()
+	expected, err := plancontract.RequireApplyBinding(
+		commands.Complete,
+		"-ExpectedCompletePlanSha256",
+		opt.ExpectedPreviewSHA256,
+	)
+	if err != nil {
+		return CompleteResult{}, err
+	}
 	ctx, err := newCompleteContext(repoRoot, caseRoot, pack, opt, true)
 	if err != nil {
 		return CompleteResult{}, err
@@ -300,10 +319,6 @@ func CompleteApplyValidated(repoRoot, caseRoot, pack string, opt CompleteOptions
 	if err := lease.Validate(); err != nil {
 		return CompleteResult{}, err
 	}
-	expected := strings.ToLower(strings.TrimSpace(opt.ExpectedPreviewSHA256))
-	if expected == "" {
-		return CompleteResult{}, fmt.Errorf("complete apply requires -ExpectedCompletePlanSha256 from the reviewed preview")
-	}
 	if ctx.intent == nil {
 		if len(ctx.blockers) > 0 {
 			return CompleteResult{}, fmt.Errorf("complete is blocked: %s", completionBlockerSummary(ctx.blockers))
@@ -314,8 +329,16 @@ func CompleteApplyValidated(repoRoot, caseRoot, pack string, opt CompleteOptions
 		if err != nil {
 			return CompleteResult{}, err
 		}
-		if preview.Blocked || !strings.EqualFold(expected, preview.CompletionPlanSHA256) {
-			return CompleteResult{}, fmt.Errorf("complete preview sha256 mismatch: got %s want %s", expected, preview.CompletionPlanSHA256)
+		if preview.Blocked {
+			return CompleteResult{}, fmt.Errorf("complete is blocked: %s", completionBlockerSummary(preview.Blockers))
+		}
+		if _, err := plancontract.Match(
+			commands.Complete,
+			"-ExpectedCompletePlanSha256",
+			expected,
+			preview.CompletionPlanSHA256,
+		); err != nil {
+			return CompleteResult{}, err
 		}
 		if validateCurrent != nil {
 			if err := validateCurrent(lease); err != nil {
@@ -334,6 +357,14 @@ func CompleteApplyValidated(repoRoot, caseRoot, pack string, opt CompleteOptions
 			}
 		}
 	} else {
+		if _, err := plancontract.Match(
+			commands.Complete,
+			"-ExpectedCompletePlanSha256",
+			expected,
+			ctx.intent.PreviewSHA256,
+		); err != nil {
+			return CompleteResult{}, err
+		}
 		if validateCurrent != nil {
 			if err := validateCurrent(lease); err != nil {
 				return CompleteResult{}, err
@@ -365,7 +396,7 @@ func CompleteApplyValidated(repoRoot, caseRoot, pack string, opt CompleteOptions
 	result.Writes = writes
 	result.CompletionPlanSHA256 = receipt.PreviewSHA256
 	result.CompletionReceipt = &receipt
-	result.NextSteps = []string{"run /rekit status to select the next open lane or read the typed mission-complete handoff", "completion records operational closure only; no authority/confirmed conclusion was written or inferred"}
+	result.NextSteps = []string{"refresh project-local status to select the next open lane or read the typed mission-complete handoff", "completion records operational closure only; no authority/confirmed conclusion was written or inferred"}
 	return result, nil
 }
 

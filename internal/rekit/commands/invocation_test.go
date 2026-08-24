@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 )
 
 func TestPublicInvocationRoundTripAndCLIArgs(t *testing.T) {
@@ -32,6 +34,198 @@ func TestPublicInvocationRoundTripAndCLIArgs(t *testing.T) {
 	}
 	if !invocation.HasFlag("-whatif") || invocation.HasFlag("-Apply") {
 		t.Fatalf("unexpected typed flags: %+v", invocation)
+	}
+}
+
+func TestQualifyPublicNextActionDefaultsContinueToJSONPreview(t *testing.T) {
+	original, err := NewPublicInvocation(Continue, "feature-mission", "-Executor", "session-one", "-ExpectedExecutorGeneration", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, changed, err := QualifyPublicNextAction(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || !qualified.HasFlag("-WhatIf") || !slices.Equal(qualified.Arguments, []string{"feature-mission", "-Executor", "session-one", "-ExpectedExecutorGeneration", "2", "-WhatIf", "-Format", "json"}) {
+		t.Fatalf("qualified next action = %+v changed=%t", qualified, changed)
+	}
+	if original.HasFlag("-WhatIf") || len(original.Arguments) != 5 {
+		t.Fatalf("qualification mutated its input: %+v", original)
+	}
+
+	withFormat, err := NewPublicInvocation(Continue, "feature-mission", "-Format", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withFormat, changed, err = QualifyPublicNextAction(withFormat)
+	if err != nil || !changed || !withFormat.HasFlag("-WhatIf") || !slices.Equal(withFormat.Arguments, []string{"feature-mission", "-Format", "text", "-WhatIf"}) {
+		t.Fatalf("existing format was not preserved: %+v changed=%t err=%v", withFormat, changed, err)
+	}
+}
+
+func TestQualifyPublicNextActionPreservesExactPhase(t *testing.T) {
+	for _, fixture := range []struct {
+		name string
+		args []string
+	}{
+		{name: "preview", args: []string{"main", "-WhatIf", "-Format", "json"}},
+		{name: "apply", args: []string{"main", "-Apply", "-ExpectedContinuePlanSha256", strings.Repeat("a", 64)}},
+		{name: "other command", args: []string{"-Format", "json"}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			command := Continue
+			if fixture.name == "other command" {
+				command = Status
+			}
+			invocation, err := NewPublicInvocation(command, fixture.args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			qualified, changed, err := QualifyPublicNextAction(invocation)
+			if err != nil || changed || !qualified.Equivalent(invocation) {
+				t.Fatalf("exact phase changed: got=%+v want=%+v changed=%t err=%v", qualified, invocation, changed, err)
+			}
+		})
+	}
+}
+
+func TestQualifyPublicNextActionRejectsInvalidPhaseOrFormatBinding(t *testing.T) {
+	for _, args := range [][]string{
+		{"main", "-Format"},
+		{"main", "-Format", "json", "--format", "text"},
+		{"main", "-WhatIf", "-Apply"},
+	} {
+		invocation, err := NewPublicInvocation(Continue, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := QualifyPublicNextAction(invocation); err == nil {
+			t.Fatalf("invalid public next action error=%v args=%v", err, args)
+		}
+	}
+}
+
+func TestPromoteContinuePreviewToApplyPreservesTypedBindings(t *testing.T) {
+	preview, err := NewPublicInvocation(
+		Continue,
+		"-Lane", "feature-mission",
+		"-Executor", "session-one",
+		"-ExpectedExecutorGeneration", "2",
+		"-WhatIf",
+		"-Format", "json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planSHA256 := strings.Repeat("a", 64)
+	apply, err := PromoteContinuePreviewToApply(preview, planSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(apply.Arguments, []string{"-Lane", "feature-mission", "-Executor", "session-one", "-ExpectedExecutorGeneration", "2", "-Apply", "-Format", "json", "-ExpectedContinuePlanSha256", planSHA256}) {
+		t.Fatalf("promoted Apply invocation = %+v", apply)
+	}
+	if !preview.HasFlag("-WhatIf") || preview.HasFlag("-Apply") {
+		t.Fatalf("preview promotion mutated its input: %+v", preview)
+	}
+}
+
+func TestPromoteContinuePreviewToApplyRejectsNonPreviewPhases(t *testing.T) {
+	for _, fixture := range []struct {
+		command string
+		args    []string
+	}{
+		{command: Continue, args: []string{"main"}},
+		{command: Continue, args: []string{"main", "-Apply"}},
+		{command: Continue, args: []string{"main", "-WhatIf", "-Apply"}},
+		{command: Status, args: []string{"-WhatIf"}},
+	} {
+		invocation, err := NewPublicInvocation(fixture.command, fixture.args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := PromoteContinuePreviewToApply(invocation, strings.Repeat("a", 64)); err == nil {
+			t.Fatalf("invalid preview promotion succeeded: %+v", invocation)
+		}
+	}
+}
+
+func TestValidateExecutablePlanInvocationSupportsStableBindings(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	for _, fixture := range []struct {
+		command string
+		flag    string
+		alias   string
+	}{
+		{command: Continue, flag: "-ExpectedContinuePlanSha256", alias: "--expected-continue-plan-sha256"},
+		{command: Complete, flag: "-ExpectedCompletePlanSha256", alias: "--expected-complete-plan-sha256"},
+		{command: Control, flag: "-ExpectedControlPlanSha256", alias: "--expected-control-plan-sha256"},
+		{command: Handoff, flag: "-ExpectedHandoffPlanSha256", alias: "--expected-handoff-plan-sha256"},
+		{command: Init, flag: "-ExpectedInitPlanSha256", alias: "--expected-init-plan-sha256"},
+		{command: Bootstrap, flag: "-ExpectedInitPlanSha256", alias: "--expected-init-plan-sha256"},
+		{command: Onboard, flag: "-ExpectedOnboardingPlanSha256", alias: "--expected-onboarding-plan-sha256"},
+		{command: MigrateState, flag: "-ExpectedMigrationPlanSha256", alias: "--expected-migration-plan-sha256"},
+		{command: Reopen, flag: "-ExpectedReopenPlanSha256", alias: "--expected-reopen-plan-sha256"},
+	} {
+		t.Run(fixture.command, func(t *testing.T) {
+			preview, err := NewPublicInvocation(fixture.command, "-WhatIf", "-Format", "json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateExecutablePlanInvocation(preview); err != nil {
+				t.Fatalf("preview validation: %v", err)
+			}
+			apply, err := NewPublicInvocation(fixture.command, "-Apply", fixture.alias, strings.ToUpper(hash), "-Format", "json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateExecutablePlanInvocation(apply); err != nil {
+				t.Fatalf("Apply validation: %v", err)
+			}
+			canonical, aliases, ok := publicPlanBinding(fixture.command)
+			if !ok || canonical != fixture.flag || !slices.Equal(aliases, []string{fixture.flag, fixture.alias}) {
+				t.Fatalf("publicPlanBinding=%q %v %t", canonical, aliases, ok)
+			}
+		})
+	}
+}
+
+func TestValidateExecutablePlanInvocationReturnsTypedFailures(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	for _, fixture := range []struct {
+		name    string
+		command string
+		args    []string
+		code    string
+	}{
+		{name: "missing phase", command: Continue, code: plancontract.CodePhaseConflict},
+		{name: "both phases", command: Continue, args: []string{"-WhatIf", "-Apply", "-ExpectedContinuePlanSha256", hash}, code: plancontract.CodePhaseConflict},
+		{name: "preview binding", command: Continue, args: []string{"-WhatIf", "-ExpectedContinuePlanSha256", hash}, code: plancontract.CodePhaseConflict},
+		{name: "Apply binding missing", command: Continue, args: []string{"-Apply"}, code: plancontract.CodePlanMissing},
+		{name: "Apply binding invalid", command: Continue, args: []string{"-Apply", "-ExpectedContinuePlanSha256", "bad"}, code: plancontract.CodePlanInvalid},
+		{name: "duplicate binding", command: Continue, args: []string{"-Apply", "-ExpectedContinuePlanSha256", hash, "--expected-continue-plan-sha256", hash}, code: plancontract.CodePlanInvalid},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			invocation, err := NewPublicInvocation(fixture.command, fixture.args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ValidateExecutablePlanInvocation(invocation)
+			failure, ok := plancontract.FromError(err)
+			if !ok || failure.Code != fixture.code || failure.MutationApplied || failure.MutationBoundary != "none" || failure.NextAction == "" {
+				t.Fatalf("typed failure=%+v ok=%t err=%v", failure, ok, err)
+			}
+		})
+	}
+}
+
+func TestValidateExecutablePlanInvocationRejectsUnsupportedCommand(t *testing.T) {
+	invocation, err := NewPublicInvocation(Status, "-WhatIf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateExecutablePlanInvocation(invocation); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("unsupported plan validation error=%v", err)
 	}
 }
 

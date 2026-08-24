@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -504,10 +505,13 @@ func captureAttemptLaunchControl(job Job, lease *lanemutation.Lease) (*execution
 		}
 	}
 	var binding executioncontrol.Binding
+	if err := capabilitycontract.ValidateBinding(job.Capability); err != nil {
+		return nil, fmt.Errorf("external session attempt capability origin is invalid: %w", err)
+	}
 	if lease != nil {
-		binding, err = executioncontrol.CaptureBindingWithProjectLease(job.CaseRoot, lease, owner)
+		binding, err = executioncontrol.CaptureBindingWithProjectLease(job.CaseRoot, lease, owner, job.Capability)
 	} else {
-		binding, err = executioncontrol.CaptureBinding(job.CaseRoot, owner)
+		binding, err = executioncontrol.CaptureBinding(job.CaseRoot, owner, job.Capability)
 	}
 	if err != nil {
 		return nil, err
@@ -601,6 +605,9 @@ func validateAttempt(job Job, jobSHA string, attempt Attempt, generation int, su
 }
 
 func jobSHA256(job Job) (string, error) {
+	if err := validateJobCapability(job); err != nil {
+		return "", err
+	}
 	data, err := canonical(job)
 	if err != nil {
 		return "", err

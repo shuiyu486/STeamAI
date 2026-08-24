@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 )
 
 func testReceipt(t *testing.T) Receipt {
@@ -21,6 +22,10 @@ func testReceipt(t *testing.T) Receipt {
 		t.Fatal(err)
 	}
 	gate.SnapshotSHA256 = gateSHA
+	capability, err := capabilitycontract.Bind(capabilitycontract.AuthorizedHeavy())
+	if err != nil {
+		t.Fatal(err)
+	}
 	receipt := Receipt{
 		SchemaVersion: 1,
 		Kind:          "adapter-execution-receipt",
@@ -35,7 +40,7 @@ func testReceipt(t *testing.T) Receipt {
 		Execution: ExecutionBinding{Outcome: "succeeded", ExitStatus: "0", AuthorizedBudget: gate.AuthorizedBudget, ActualBudget: autonomy.Budget{RuntimeSeconds: 10}},
 		Report:    FileBinding{Path: "workspace/main/debug/adapter-report.json", SHA256: strings.Repeat("b", 64), Bytes: 100},
 		Artifacts: []ArtifactBinding{{Path: "workspace/main/debug/result.bin", Roles: []string{"output"}, SHA256: strings.Repeat("c", 64), Bytes: 3}},
-		Actor:     "recorder", RecordedAt: "2026-07-29T00:00:00Z", NoExecute: true, NoAuthority: true,
+		Actor:     "recorder", RecordedAt: "2026-07-29T00:00:00Z", Capability: capability, NoExecute: true, NoAuthority: true,
 	}
 	receipt.ReceiptID, err = BindingSHA256(receipt)
 	if err != nil {
@@ -56,6 +61,7 @@ func testDispatchReceipt(t *testing.T) DispatchReceipt {
 		ReportPath:    completion.Report.Path,
 		Actor:         completion.Actor,
 		RecordedAt:    "2026-07-29T00:00:00Z",
+		Capability:    completion.Capability,
 		NoExecute:     true,
 		NoObservation: true,
 		NoAuthority:   true,
@@ -99,6 +105,12 @@ func TestDispatchReceiptDecodeStrictAndCompletionLineage(t *testing.T) {
 	}
 	if err := ValidateCompletionDispatchLineage(completion, dispatch, completion.Dispatch.Path, completion.Dispatch.SHA256, completion.Dispatch.Bytes); err != nil {
 		t.Fatal(err)
+	}
+	capabilityDrift := completion
+	capabilityDrift.Capability, _ = capabilitycontract.Bind(capabilitycontract.Transport())
+	capabilityDrift.ReceiptID, _ = BindingSHA256(capabilityDrift)
+	if err := ValidateCompletionDispatchLineage(capabilityDrift, dispatch, completion.Dispatch.Path, completion.Dispatch.SHA256, completion.Dispatch.Bytes); err == nil || !strings.Contains(err.Error(), "capability") {
+		t.Fatalf("completion capability drift error = %v", err)
 	}
 	changed := completion
 	changed.Owner.AdapterSession = "session-b"

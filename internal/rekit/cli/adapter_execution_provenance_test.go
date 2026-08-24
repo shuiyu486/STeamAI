@@ -262,7 +262,7 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", authorized.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"gate adapter report validation driver receipt：state=refreshed outcome=adapter-report-validation-valid-result", "gate adapter report validation driver receipt refreshed driver request：kind=preview-command", "refreshStatusCommand=`/rekit status -Target", "gate adapter report validation driver receipt boundary：driver receipt does not prove /rekit executed an adapter"} {
+	for _, expected := range []string{"gate adapter report validation driver receipt：state=refreshed outcome=adapter-report-validation-valid-result", "gate adapter report validation driver receipt refreshed driver request：kind=preview-command", "refreshStatusCommand=`/rekit status -Target", "gate adapter report validation driver receipt boundary：driver receipt does not prove the Mission Control runtime executed an adapter"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("adapter validation text omitted receipt %q:\n%s", expected, out.String())
 		}
@@ -282,7 +282,7 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	}
 	recordReceipt := result.MissionCommanderDriverReceipt
 	recordDriver := result.MissionCommanderActionQueue.CurrentDriverRequest
-	if recordReceipt == nil || recordReceipt.SchemaVersion != 1 || recordReceipt.State != "refreshed" || recordReceipt.Outcome != "adapter-execution-record-apply-result" || recordReceipt.Lane != "main" || !strings.Contains(recordReceipt.Command, "-ExpectedExecutionReportSha256") || recordReceipt.RefreshedActionQueueSummary != result.MissionCommanderActionQueue.Summary || recordReceipt.RefreshedCurrentRunLoopStep != result.MissionCommanderActionQueue.CurrentRunLoopStepID || recordReceipt.RefreshedCurrentDriverRequest == nil || recordDriver == nil || recordReceipt.RefreshedCurrentDriverRequest.Command != recordDriver.Command || recordReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(recordReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand, caseRoot) || !containsSubstring(recordReceipt.Boundary, "does not prove /rekit executed an adapter") || !containsSubstring(recordReceipt.Boundary, "does not write authority/confirmed") {
+	if recordReceipt == nil || recordReceipt.SchemaVersion != 1 || recordReceipt.State != "refreshed" || recordReceipt.Outcome != "adapter-execution-record-apply-result" || recordReceipt.Lane != "main" || !strings.Contains(recordReceipt.Command, "-ExpectedExecutionReportSha256") || recordReceipt.RefreshedActionQueueSummary != result.MissionCommanderActionQueue.Summary || recordReceipt.RefreshedCurrentRunLoopStep != result.MissionCommanderActionQueue.CurrentRunLoopStepID || recordReceipt.RefreshedCurrentDriverRequest == nil || recordDriver == nil || recordReceipt.RefreshedCurrentDriverRequest.Command != recordDriver.Command || recordReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(recordReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand, caseRoot) || !containsSubstring(recordReceipt.Boundary, "does not prove the Mission Control runtime executed an adapter") || !containsSubstring(recordReceipt.Boundary, "does not write authority/confirmed") {
 		t.Fatalf("CLI record omitted adapter record run-loop receipt: receipt=%+v queue=%+v", recordReceipt, result.MissionCommanderActionQueue)
 	}
 	textRecordArgs := append(append([]string{}, recordArgs[:len(recordArgs)-2]...), "-Format", "text")
@@ -290,7 +290,7 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	if err := Run(textRecordArgs, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"gate execution evidence driver receipt：state=refreshed outcome=adapter-execution-record-duplicate-result", "gate execution evidence driver receipt refreshed driver request：kind=preview-command", "refreshStatusCommand=`/rekit status -Target", "gate execution evidence driver receipt boundary：driver receipt does not prove /rekit executed an adapter"} {
+	for _, expected := range []string{"gate execution evidence driver receipt：state=refreshed outcome=adapter-execution-record-duplicate-result", "gate execution evidence driver receipt refreshed driver request：kind=preview-command", "refreshStatusCommand=`/rekit status -Target", "gate execution evidence driver receipt boundary：driver receipt does not prove the Mission Control runtime executed an adapter"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("adapter record text omitted receipt %q:\n%s", expected, out.String())
 		}

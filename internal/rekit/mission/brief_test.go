@@ -35,6 +35,43 @@ func TestMissionCommanderActionQueueProjectsTypedInvocation(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderActionQueueQualifiesContinueAtTypedOwner(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Lane:    "feature-mission",
+		Command: `/rekit continue "feature-mission" -Executor session-one -ExpectedExecutorGeneration 2`,
+	}})
+	want := `/rekit continue feature-mission -Executor session-one -ExpectedExecutorGeneration 2 -WhatIf -Format json`
+	if queue.CurrentAction == nil || queue.CurrentAction.Invocation == nil || queue.CurrentAction.Command != want || !queue.CurrentAction.RequiresReview || !queue.CurrentAction.Invocation.HasFlag("-WhatIf") {
+		t.Fatalf("continue action was not qualified at the queue owner: %+v", queue.CurrentAction)
+	}
+	request := queue.CurrentDriverRequest
+	if request == nil || request.Invocation == nil || request.Kind != "preview-command" || request.RunLoopStepID != "preview-current" || !request.CommandExecutable || !request.RequiresReview || request.Command != want || request.ExpectedReceipt.Command != want {
+		t.Fatalf("qualified current request drifted: %+v", request)
+	}
+	if err := ValidateMissionCommanderDriverRequest(*request); err != nil {
+		t.Fatalf("qualified request is not executable as emitted: %v", err)
+	}
+	if len(queue.CurrentActionRunLoop) < 2 || queue.CurrentActionRunLoop[1].Command != want {
+		t.Fatalf("qualified run loop drifted: %+v", queue.CurrentActionRunLoop)
+	}
+}
+
+func TestMissionCommanderActionQueuePreservesExactContinuePhase(t *testing.T) {
+	for _, command := range []string{
+		"/rekit continue main -WhatIf -Format text",
+		"/rekit continue main -Apply -ExpectedContinuePlanSha256 " + strings.Repeat("a", 64),
+	} {
+		t.Run(command, func(t *testing.T) {
+			queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{State: "ready-to-continue", Source: "test", Lane: "main", Command: command}})
+			if queue.CurrentAction == nil || queue.CurrentAction.Command != command || queue.CurrentAction.Invocation == nil {
+				t.Fatalf("exact continue phase changed: %+v", queue.CurrentAction)
+			}
+		})
+	}
+}
+
 func TestMissionCommanderDriverRequestAcceptsCurrentEntrypointWithCanonicalIdentity(t *testing.T) {
 	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
 		State:   "ready-to-continue",
@@ -313,12 +350,12 @@ func TestMissionCommanderActionQueueKeepsSameLaneCurrentAction(t *testing.T) {
 	}
 }
 
-func TestMissionCommanderActionQueueBlocksInvalidReKitText(t *testing.T) {
-	for _, command := range []string{"rekit-host -daily", "rekitfoo status", "/rekit unknown", "/rekit continue -Command status"} {
+func TestMissionCommanderActionQueueBlocksInvalidPublicCommandText(t *testing.T) {
+	for _, command := range []string{"rekit-host -daily", "rekitfoo status", "/rekit unknown", "/rekit continue -Command status", "/steamai unknown", "/steamai continue -Command status"} {
 		t.Run(command, func(t *testing.T) {
 			queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{State: "ready", Source: "test", Command: command}})
 			if queue.CurrentAction == nil || !queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview || queue.CurrentAction.Invocation != nil {
-				t.Fatalf("invalid ReKit text was not blocked: %+v", queue.CurrentAction)
+				t.Fatalf("invalid public command text was not blocked: %+v", queue.CurrentAction)
 			}
 			if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.CommandExecutable || queue.CurrentDriverRequest.Invocation != nil || queue.CurrentDriverRequest.Kind != "blocked-review" {
 				t.Fatalf("invalid ReKit text produced executable request: %+v", queue.CurrentDriverRequest)
@@ -538,7 +575,7 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 		},
 	}, nil, false)
 
-	if len(items) != 6 || items[0].Source != "missionCommanderActions" || items[0].Command != "/rekit continue main" || items[1].Source != "missionCommanderActions" || items[1].Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || items[1].Blocked || !items[1].RequiresReview {
+	if len(items) != 6 || items[0].Source != "missionCommanderActions" || items[0].Command != "/rekit continue main -WhatIf -Format json" || !items[0].RequiresReview || items[1].Source != "missionCommanderActions" || items[1].Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || items[1].Blocked || !items[1].RequiresReview {
 		t.Fatalf("unexpected primary action ordering: %+v", items)
 	}
 	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
@@ -557,7 +594,7 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 		t.Fatalf("blocked lane continue follow-up should remain blocked with reason/boundary: %+v", items)
 	}
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.Summary != "total=6 unblocked=3 blocked=3 requiresReview=4 followUp=4 current=/rekit reconcile login -InterventionId evt-open -WhatIf" || queue.Counts.Total != 6 || queue.Counts.Unblocked != 3 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 4 || queue.Counts.FollowUp != 4 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || len(queue.UnblockedActions) != 3 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 4 || len(queue.FollowUpActions) != 4 {
+	if queue.Summary != "total=6 unblocked=3 blocked=3 requiresReview=5 followUp=4 current=/rekit reconcile login -InterventionId evt-open -WhatIf" || queue.Counts.Total != 6 || queue.Counts.Unblocked != 3 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 5 || queue.Counts.FollowUp != 4 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || len(queue.UnblockedActions) != 3 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 5 || len(queue.FollowUpActions) != 4 {
 		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
 	}
 }
@@ -581,7 +618,7 @@ func TestMissionCommanderActionQueuePromotesActiveProjectWorkOverLaneContinue(t 
 	}
 
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.CurrentAction == nil || queue.CurrentAction.ActionID != "pack-memory-verification-provision-required" || queue.CurrentAction.Source != "packMemoryCandidates._template" || queue.Summary != "total=2 unblocked=2 blocked=0 requiresReview=1 followUp=0 current=/rekit promote -ProvisionCandidateVerificationCases -WhatIf -Format json" {
+	if queue.CurrentAction == nil || queue.CurrentAction.ActionID != "pack-memory-verification-provision-required" || queue.CurrentAction.Source != "packMemoryCandidates._template" || queue.Summary != "total=2 unblocked=2 blocked=0 requiresReview=2 followUp=0 current=/rekit promote -ProvisionCandidateVerificationCases -WhatIf -Format json" {
 		t.Fatalf("Mission Commander action queue should promote active project work over lane continue: %+v", queue)
 	}
 }
@@ -664,11 +701,11 @@ func TestMissionCommanderActionQueueAddsCurrentActionRunLoop(t *testing.T) {
 
 	queue := MissionCommanderActionQueueFor(items)
 
-	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit continue main" || queue.CurrentRunLoopStepID != "apply-or-run-current" {
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit continue main -WhatIf -Format json" || queue.CurrentRunLoopStepID != "preview-current" {
 		t.Fatalf("ready current action run loop drifted: %+v", queue)
 	}
-	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "apply-or-run-current", "refresh-state", "follow-up-after-refresh"})
-	if queue.CurrentActionRunLoop[1].Command != "/rekit continue main" || queue.CurrentActionRunLoop[3].Command != "/rekit handoff main" {
+	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "preview-current", "refresh-state", "follow-up-after-refresh"})
+	if queue.CurrentActionRunLoop[1].Command != "/rekit continue main -WhatIf -Format json" || queue.CurrentActionRunLoop[3].Command != "/rekit handoff main" {
 		t.Fatalf("run loop did not bind current command and matching follow-up: %+v", queue.CurrentActionRunLoop)
 	}
 	if !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "Go runtime does not auto-run queued actions") || !containsSubstring(queue.CurrentActionRunLoop[3].Boundary, "remain candidates until refreshed state") {
@@ -704,14 +741,32 @@ func TestMissionCommanderActionQueueBuildsReadOnlyDriverRequestForExecutableComm
 
 	queue := MissionCommanderActionQueueFor(items)
 
-	if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Kind != "execute-command" || queue.CurrentDriverRequest.Command != "/rekit continue main" || queue.CurrentDriverRequest.Guidance != "" || !queue.CurrentDriverRequest.CommandExecutable {
+	if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Kind != "preview-command" || queue.CurrentDriverRequest.Command != "/rekit continue main -WhatIf -Format json" || queue.CurrentDriverRequest.Guidance != "" || !queue.CurrentDriverRequest.CommandExecutable || !queue.CurrentDriverRequest.RequiresReview {
 		t.Fatalf("executable command driver request drifted: %+v", queue.CurrentDriverRequest)
 	}
-	if queue.CurrentDriverRequest.ExpectedReceipt.State != "refresh-required" || queue.CurrentDriverRequest.ExpectedReceipt.Command != "/rekit continue main" {
+	if queue.CurrentDriverRequest.ExpectedReceipt.State != "refresh-required" || queue.CurrentDriverRequest.ExpectedReceipt.Command != "/rekit continue main -WhatIf -Format json" {
 		t.Fatalf("driver request should require refresh receipt after executable command: %+v", queue.CurrentDriverRequest.ExpectedReceipt)
 	}
 	if !containsSubstring(queue.CurrentDriverRequest.Boundary, "does not spawn, poll, stop, or run external sessions") || !containsSubstring(queue.CurrentDriverRequest.ExpectedReceipt.Boundary, "do not write authority/confirmed") {
 		t.Fatalf("driver request lost no-spawn/no-authority boundaries: %+v", queue.CurrentDriverRequest)
+	}
+}
+
+func TestMissionCommanderDriverRequestRejectsUnphasedExecutableContinue(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(commands.Continue, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := MissionCommanderDriverRequest{
+		Kind:              "execute-command",
+		RunLoopStepID:     "apply-or-run-current",
+		Invocation:        &invocation,
+		Command:           "/rekit continue main",
+		CommandExecutable: true,
+		ExpectedReceipt:   MissionCommanderDriverReceiptExpectation{Command: "/rekit continue main"},
+	}
+	if err := ValidateMissionCommanderDriverRequest(request); err == nil || !strings.Contains(err.Error(), "requires exactly one of preview or Apply") {
+		t.Fatalf("unphased executable continue error=%v", err)
 	}
 }
 
@@ -942,7 +997,7 @@ func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 		"outputPaths=workspace/main/debug/session-1",
 		"stopConditions=timeout,budget-exhausted",
 		"eventId=evt-authorized-main",
-		"reportContract=/rekit gate -ExecutionReportContract -GateEventId evt-authorized-main -Format json",
+		"reportContract=available",
 		"auth=preauthorized",
 		"profile=profile-main",
 	} {
@@ -978,7 +1033,7 @@ func TestLaneGateLineIncludesAuthorizedExecutionBoundaries(t *testing.T) {
 		"outputPaths=workspace/features/feature-login/debug/session-1",
 		"stopConditions=timeout,new-risk",
 		"eventId=evt-authorized-login",
-		"reportContract=/rekit gate -ExecutionReportContract -GateEventId evt-authorized-login -Format json",
+		"reportContract=available",
 		"auth=preauthorized",
 		"profile=profile-login",
 		"risk=high",

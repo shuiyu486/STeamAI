@@ -17,7 +17,6 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
@@ -859,7 +858,7 @@ func currentStepReviewerRequestsMatch(caseRoot string, routed, nested mission.Mi
 		strings.TrimSpace(nested.Source) != "reviewerDispatchOperatorPackage" {
 		return false
 	}
-	root, err := projectstate.Resolve(caseRoot)
+	projection, err := resolveProjectPublicProjection(caseRoot)
 	if err != nil || mission.ValidateMissionCommanderDriverRequest(nested) != nil {
 		return false
 	}
@@ -872,10 +871,7 @@ func currentStepReviewerRequestsMatch(caseRoot string, routed, nested mission.Mi
 	) {
 		return false
 	}
-	entrypoint := "/steamai"
-	if root.Legacy {
-		entrypoint = "/rekit"
-	}
+	entrypoint := projection.entrypoint
 	if !strings.HasPrefix(routedRefresh, entrypoint+" ") {
 		return false
 	}

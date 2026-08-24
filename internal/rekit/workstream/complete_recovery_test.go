@@ -9,7 +9,40 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 )
+
+func TestCompleteApplyRejectsMissingAndStalePlanWithoutMutation(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	lane, err := readLaneByID(caseRoot, "binary-analysis-bootstrap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(lane.Workspace), "typed-plan-evidence.md")
+	if err := os.WriteFile(evidencePath, []byte("reviewed completion evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := CompleteOptions{Selector: "bootstrap", Actor: "main-agent", Reason: "typed plan contract", EvidenceRefs: relativePath(caseRoot, evidencePath)}
+	before := snapshotWorkstreamTree(t, caseRoot)
+	_, err = CompleteApply(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMissing || failure.MutationApplied || !IsZeroProgress(err) {
+		t.Fatalf("missing plan failure=%+v typed=%t err=%v", failure, typed, err)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatalf("missing plan mutated case\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+
+	opt.ExpectedPreviewSHA256 = strings.Repeat("0", 64)
+	_, err = CompleteApply(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	failure, typed = plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || !IsZeroProgress(err) {
+		t.Fatalf("stale plan failure=%+v typed=%t err=%v", failure, typed, err)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatalf("stale plan mutated case\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
 
 func TestCompleteApplyPendingIntentRevalidatesMainLastBlockers(t *testing.T) {
 	repoRoot, caseRoot := setupContinueCase(t, "")

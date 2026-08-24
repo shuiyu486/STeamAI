@@ -26,6 +26,7 @@ type AdapterExecutionTerminalClosureOptions struct {
 	RecoveryProofPath             string
 	ExpectedRecoveryProofSHA256   string
 	Actor                         string
+	ValidateExactArtifacts        func() error
 }
 
 type AdapterExecutionTerminalClosureResult struct {
@@ -76,6 +77,14 @@ func RecordAdapterExecutionTerminalClosure(
 	gateEvent = lockedEvent
 	if err := lease.Validate(); err != nil {
 		return AdapterExecutionTerminalClosureResult{}, err
+	}
+	if opt.ValidateExactArtifacts != nil {
+		if err := opt.ValidateExactArtifacts(); err != nil {
+			return AdapterExecutionTerminalClosureResult{}, fmt.Errorf("adapter terminal closure exact artifact validation: %w", err)
+		}
+		if err := lease.Validate(); err != nil {
+			return AdapterExecutionTerminalClosureResult{}, err
+		}
 	}
 
 	dispatchRel, dispatchFull, err := adapterExecutionDispatchPath(inst.CaseRoot, gateEvent.Lane, gateEvent.EventID)
@@ -182,6 +191,7 @@ func RecordAdapterExecutionTerminalClosure(
 		Report:      reportBinding,
 		Artifacts:   []adapterexecution.ArtifactBinding{},
 		Actor:       strings.TrimSpace(opt.Actor),
+		Capability:  dispatch.Capability,
 		NoExecute:   true,
 		NoAuthority: true,
 	}

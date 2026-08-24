@@ -34,6 +34,19 @@ func selectLegacySubagentTestStateRoot(t *testing.T, caseRoot, repoRoot, pack st
 	}
 }
 
+func applyInitForSubagentTest(t *testing.T, repoRoot, caseRoot, projectName string) {
+	t.Helper()
+	opt := syncreview.ApplyOptions{ProjectName: projectName, CreateLocalFiles: true, Command: "init"}
+	preview, err := syncreview.InitPreview(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.ExpectedPlanSHA256 = preview.ExpectedPlanSHA256
+	if _, err := syncreview.Apply(repoRoot, caseRoot, defaults.DefaultPack, opt); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWritePlanUsesSTeamAIProjectRuntimeAndStateRoot(t *testing.T) {
 	sourceRepo := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
@@ -238,9 +251,7 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
-	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-owner-binding-test", CreateLocalFiles: true, Command: "init"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForSubagentTest(t, root, caseRoot, "plan-owner-binding-test")
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-plan", Actor: "mission-commander", TakeoverReason: "plan owner binding fixture"}); err != nil {
 		t.Fatal(err)
 	}
@@ -311,9 +322,7 @@ func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.
 		t.Fatal(err)
 	}
 	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
-	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "prompt-repair-test", CreateLocalFiles: true, Command: "init"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForSubagentTest(t, root, caseRoot, "prompt-repair-test")
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-plan", Actor: "mission-commander", TakeoverReason: "prompt repair fixture"}); err != nil {
 		t.Fatal(err)
 	}
@@ -395,9 +404,7 @@ func TestWritePlanGatesCollectionForCustomArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
-	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-collection-gating-test", CreateLocalFiles: true, Command: "init"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForSubagentTest(t, root, caseRoot, "plan-collection-gating-test")
 	for _, test := range []struct {
 		name           string
 		reviewRoot     string
@@ -444,9 +451,7 @@ func TestWritePlanRejectsCanonicalReviewSymlinkBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
-	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-symlink-test", CreateLocalFiles: true, Command: "init"}); err != nil {
-		t.Fatal(err)
-	}
+	applyInitForSubagentTest(t, root, caseRoot, "plan-symlink-test")
 	outside := filepath.Join(t.TempDir(), "outside-review")
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatal(err)

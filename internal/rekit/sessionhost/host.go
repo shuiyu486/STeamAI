@@ -390,7 +390,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			}
 			if reviewerSessionPending(preview) {
 				handoff := *preview.ReviewerStep.ExternalHandoff
-				pkg, receipt, err := reviewerClaudePackage(opt.Target, handoff)
+				pkg, receipt, err := reviewerClaudePackage(opt.Target, opt.Pack, handoff)
 				if err != nil {
 					return result, err
 				}

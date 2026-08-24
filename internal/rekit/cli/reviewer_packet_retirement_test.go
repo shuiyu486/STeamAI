@@ -366,7 +366,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "continue text after retirement", out.String())
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runReviewedContinueRequest(t, &out, []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-Apply", "-Format", "json"}); err != nil {
 		t.Fatal(err)
 	}
 	var retiredContinueApply struct {
@@ -586,7 +586,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "continue text after regeneration", out.String())
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runReviewedContinueRequest(t, &out, []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-Apply", "-Format", "json"}); err != nil {
 		t.Fatal(err)
 	}
 	var regeneratedContinueApply struct {

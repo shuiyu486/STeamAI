@@ -393,7 +393,7 @@ func assertInstalledSTeamAISkillBridge(t *testing.T, repoRoot, projectRoot strin
 	text := string(installed)
 	for _, phrase := range []string{
 		"typed `invocation` 是唯一通用命令桥",
-		`["runtime", "-Command", invocation.command] + invocation.arguments`,
+		"机器命令附录是固定 front door、deterministic owner bridge、argv 与 Apply binding 的唯一 owner",
 		"`commandExecutable=false`",
 		"不得拼接 shell command",
 		"不自行追加 `-Apply`",
@@ -559,9 +559,40 @@ func assertSelfContainedOutputOmits(t *testing.T, name string, data []byte, path
 	haystack := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(string(data), `\\`, `\`), "/", `\`))
 	for _, path := range paths {
 		needle := strings.ToLower(strings.ReplaceAll(filepath.Clean(path), "/", `\`))
-		if strings.Contains(haystack, needle) {
-			t.Fatalf("%s output references removed central dependency %s", name, path)
+		if index := strings.Index(haystack, needle); index >= 0 {
+			start := max(0, index-160)
+			end := min(len(haystack), index+len(needle)+200)
+			t.Fatalf("%s output references removed central dependency %s near %q", name, path, haystack[start:end])
 		}
+	}
+}
+
+func assertSelfContainedOutputOmitsLegacyEntrypoint(t *testing.T, name string, data []byte) {
+	t.Helper()
+	text := strings.ToLower(string(data))
+	needle := strings.ToLower(commands.LegacyPublicEntrypoint)
+	for offset := 0; offset < len(text); {
+		relative := strings.Index(text[offset:], needle)
+		if relative < 0 {
+			return
+		}
+		index := offset + relative
+		end := index + len(needle)
+		if end == len(text) || isLegacyEntrypointCommandBoundary(text[end]) {
+			start := max(0, index-160)
+			stop := min(len(text), end+200)
+			t.Fatalf("%s output exposes legacy public entrypoint %s near %q", name, commands.LegacyPublicEntrypoint, text[start:stop])
+		}
+		offset = end
+	}
+}
+
+func isLegacyEntrypointCommandBoundary(value byte) bool {
+	switch value {
+	case ' ', '\t', '\r', '\n', '-', '`':
+		return true
+	default:
+		return false
 	}
 }
 

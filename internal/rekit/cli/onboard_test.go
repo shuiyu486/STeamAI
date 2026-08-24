@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
@@ -363,6 +365,57 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 	}
 }
 
+func TestRunStatusPublishesReadOnlyOnboardingPackChoices(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh-project")
+	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotFiles(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "compact-json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Mode       string `json:"mode"`
+		Onboarding struct {
+			State        string `json:"state"`
+			SelectedPack string `json:"selectedPack"`
+			PackChoices  []struct {
+				ID         string `json:"id"`
+				Maturity   string `json:"maturity"`
+				Selected   bool   `json:"selected"`
+				Selectable bool   `json:"selectable"`
+			} `json:"packChoices"`
+		} `json:"onboarding"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Mode != "case-onboarding-required" || status.Onboarding.State != "absent" || status.Onboarding.SelectedPack != "binary-re" || status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest != nil {
+		t.Fatalf("fresh project status omitted the non-executable onboarding choice state: %+v\n%s", status, out.String())
+	}
+	byID := map[string]struct {
+		Maturity   string
+		Selected   bool
+		Selectable bool
+	}{}
+	for _, choice := range status.Onboarding.PackChoices {
+		byID[choice.ID] = struct {
+			Maturity   string
+			Selected   bool
+			Selectable bool
+		}{choice.Maturity, choice.Selected, choice.Selectable}
+	}
+	if binary, ok := byID["binary-re"]; !ok || binary.Maturity != "mature" || !binary.Selected || !binary.Selectable {
+		t.Fatalf("fresh project pack choices omitted selected production pack: %+v", byID)
+	}
+	if _, ok := byID["_template"]; ok {
+		t.Fatalf("fresh project pack choices exposed authoring template: %+v", byID)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
 func TestRunStatusRecoversIntentFirstPendingWithoutInstanceMetadata(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "pending-status")
 	args := []string{"-Command", "onboard", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "demo", "-Goal", "opaque goal", "-Actor", "operator", "-Executor", "executor-a", "-InitialLane", "feature-analysis"}
@@ -402,15 +455,71 @@ func TestRunStatusRecoversIntentFirstPendingWithoutInstanceMetadata(t *testing.T
 	var status struct {
 		Mode       string `json:"mode"`
 		Onboarding struct {
-			State     string   `json:"state"`
-			ApplyArgs []string `json:"applyArgs"`
+			State        string   `json:"state"`
+			SelectedPack string   `json:"selectedPack"`
+			PackChoices  []any    `json:"packChoices"`
+			ApplyArgs    []string `json:"applyArgs"`
 		} `json:"onboarding"`
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
-	if status.Mode != "case-onboarding-pending" || status.Onboarding.State != "pending" || len(status.Onboarding.ApplyArgs) == 0 {
-		t.Fatalf("fresh pending status omitted exact recovery: %+v\n%s", status, out.String())
+	request := status.MissionControlRunbook.CurrentDriverRequest
+	if status.Mode != "case-onboarding-pending" || status.Onboarding.State != "pending" || status.Onboarding.SelectedPack != "_template" || len(status.Onboarding.PackChoices) != 0 || len(status.Onboarding.ApplyArgs) == 0 || request == nil || !request.CommandExecutable || !request.RequiresReview || request.State != "onboarding-apply-ready" || request.Source != "onboarding.pendingPublication" || status.CaseMission.MissionCommanderActionQueue.Counts.Total != 1 || status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest == nil || !publicCommandsEquivalent(request.Command, status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest.Command) {
+		t.Fatalf("fresh pending status omitted its single exact recovery request: %+v\n%s", status, out.String())
+	}
+	exact, err := commands.ExactActionFromCLIArgs(status.Onboarding.ApplyArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := commands.ParsePublicInvocation(request.Command)
+	if err != nil || !exact.Invocation.Equivalent(projected) {
+		t.Fatalf("pending status request drifted from durable applyArgs: request=%+v args=%+v err=%v", request, status.Onboarding.ApplyArgs, err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "compact-json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var compactRaw map[string]any
+	if err := json.Unmarshal(out.Bytes(), &compactRaw); err != nil {
+		t.Fatal(err)
+	}
+	onboardingRaw, ok := compactRaw["onboarding"].(map[string]any)
+	if !ok {
+		t.Fatalf("compact onboarding is not an object: %s", out.String())
+	}
+	for _, forbidden := range []string{"onboardingPlanSha256", "publicationStamp", "applyArgs", "identity", "projectBinding"} {
+		if _, present := onboardingRaw[forbidden]; present {
+			t.Fatalf("compact onboarding duplicated diagnostic field %q: %s", forbidden, out.String())
+		}
+	}
+	var compact statusCompactInventory
+	if err := json.Unmarshal(out.Bytes(), &compact); err != nil {
+		t.Fatal(err)
+	}
+	if compact.MissionControlRunbook == nil || compact.MissionControlRunbook.CurrentDriverRequest == nil || !publicCommandsEquivalent(compact.MissionControlRunbook.CurrentDriverRequest.Command, request.Command) || compact.Onboarding == nil || compact.Onboarding.SelectedPack != "_template" || len(compact.Onboarding.PackChoices) != 0 {
+		t.Fatalf("compact pending status omitted canonical request or leaked choices: %+v", compact)
+	}
+
+	applyArgs := rekitCommandCLIArgs(t, request.Command)
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("pending status exact recovery request failed: args=%+v err=%v\n%s", applyArgs, err, out.String())
+	}
+	var applied struct {
+		Applied    bool                     `json:"applied"`
+		Inspection missionintent.Inspection `json:"inspection"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || !applied.Inspection.Committed || applied.Inspection.State != "committed" {
+		t.Fatalf("pending status exact recovery request did not commit onboarding: %+v", applied)
 	}
 }
 
@@ -462,15 +571,8 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 	if !ok {
 		t.Fatal("onboard journey continue apply route is not executable")
 	}
-	modeReplaced := false
-	for index, argument := range continueApplyArgs {
-		if strings.EqualFold(argument, "-WhatIf") {
-			continueApplyArgs[index] = "-Apply"
-			modeReplaced = true
-		}
-	}
-	if !modeReplaced {
-		t.Fatalf("onboard journey continue preview request omitted -WhatIf: %+v", continueApplyArgs)
+	if !slices.Contains(continueApplyArgs, "-Apply") || slices.Contains(continueApplyArgs, "-WhatIf") {
+		t.Fatalf("onboard journey continue preview did not return Apply-only request: %+v", continueApplyArgs)
 	}
 	continueApplyArgs = append(continueApplyArgs, "-Pack", "_template")
 	runCompletionJSON(t, &out, continueApplyArgs, nil)
@@ -727,8 +829,10 @@ func TestRunOnboardRejectsHashAndInputDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	badHash := strings.Repeat("0", 64)
-	if err := Run(append(append([]string{}, base...), "-ProjectId", plan.ProjectID, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", badHash, "-Apply"), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
-		t.Fatalf("hash drift error = %v", err)
+	err := Run(append(append([]string{}, base...), "-ProjectId", plan.ProjectID, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", badHash, "-Apply"), &bytes.Buffer{})
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("hash drift error = %v failure=%+v typed=%t", err, failure, typed)
 	}
 	drift := append([]string{}, base...)
 	for i := range drift {
@@ -736,8 +840,10 @@ func TestRunOnboardRejectsHashAndInputDrift(t *testing.T) {
 			drift[i] = "changed goal"
 		}
 	}
-	if err := Run(append(drift, "-ProjectId", plan.ProjectID, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", plan.OnboardingPlanSHA256, "-Apply"), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
-		t.Fatalf("input drift error = %v", err)
+	err = Run(append(drift, "-ProjectId", plan.ProjectID, "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", plan.OnboardingPlanSHA256, "-Apply"), &bytes.Buffer{})
+	failure, typed = plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("input drift error = %v failure=%+v typed=%t", err, failure, typed)
 	}
 	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
 		t.Fatalf("drift rejection wrote target: %v", err)

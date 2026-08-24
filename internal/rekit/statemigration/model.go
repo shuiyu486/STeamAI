@@ -64,6 +64,7 @@ type Plan struct {
 	BundleManifest       FileBinding  `json:"bundleManifest,omitempty"`
 	Writes               []Write      `json:"writes,omitempty"`
 	ExpectedPlanSHA256   string       `json:"expectedPlanSha256,omitempty"`
+	ApplyCommand         string       `json:"applyCommand,omitempty"`
 	ApplyArgs            []string     `json:"applyArgs,omitempty"`
 	IsMutation           bool         `json:"isMutation"`
 	Applied              bool         `json:"applied"`

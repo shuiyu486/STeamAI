@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 type cliFixtureOptions struct {
@@ -77,14 +79,14 @@ func (f *cliFixture) fullAttachedCase(t *testing.T) string {
 
 func (f *cliFixture) attachedCaseWithPack(t *testing.T, pack string, full bool) string {
 	t.Helper()
-	caseRoot := filepath.Join(t.TempDir(), "kit")
-	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	metadata := "templateRoot: " + f.repoRoot + "\ntemplatePack: " + pack + "\nprojectName: demo\nprojectRoot: " + caseRoot + "\n"
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "instance.yml"), []byte(metadata), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:      testfixture.LegacyCase,
+		SourceRepo:  f.repoRoot,
+		CaseRoot:    filepath.Join(t.TempDir(), "kit"),
+		Pack:        pack,
+		ProjectName: "demo",
+	})
+	caseRoot := project.CaseRoot
 	if full {
 		copyRepoFile(t, f.repoRoot, "rekit/templates/case-shim/SKILL.md", caseRoot, ".claude/skills/rekit/SKILL.md")
 		for _, rel := range []string{

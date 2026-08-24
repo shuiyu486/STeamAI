@@ -22,6 +22,8 @@ func TestRemoteControlReturnPublishesResultReceiptSubmissionThenRelays(t *testin
 		t.Fatal(err)
 	}
 	if plan.ResultPath == "" || plan.ReturnReceiptPath == "" || plan.SubmissionPath == "" ||
+		plan.ReturnReceipt.Capability != fixture.job.Capability ||
+		plan.Submission.Capability != fixture.job.Capability ||
 		plan.Submission.TransportReturnReceiptPath != plan.ReturnReceiptPath ||
 		plan.Submission.ReviewerHarness != RemoteControlHarness ||
 		plan.Submission.ReviewerSession != remoteControlTestSession ||
@@ -254,7 +256,7 @@ func TestNonRemoteSubmissionCannotClaimTransportReturnReceipt(t *testing.T) {
 	}
 	writeTestJSON(t, job.CaseRoot, attempt.Current.SubmissionPath, Submission{
 		SchemaVersion: SchemaVersion, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256,
-		Outcome: "failed", Actor: "executor", ObservedAt: "2026-08-12T09:03:00Z", Reason: "bounded failure",
+		Capability: job.Capability, Outcome: "failed", Actor: "executor", ObservedAt: "2026-08-12T09:03:00Z", Reason: "bounded failure",
 		AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
 		DispatchClaimSHA256: dispatch.ClaimSHA256, LaunchReceiptSHA256: dispatch.LaunchSHA256,
 		TransportReturnReceiptPath: ".rekit/fake-return.json", TransportReturnReceiptSHA256: strings.Repeat("f", 64),

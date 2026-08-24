@@ -307,9 +307,15 @@ func claudeRecoveryIdentityPackage(recovery claudeRecovery) (mission.CurrentLoop
 	if err := validateClaudeLaunchControlBinding(*recovery.LaunchControl); err != nil {
 		return mission.CurrentLoopExternalSessionHarnessPackage{}, err
 	}
+	if err := validateProductionInstructionBirth(recovery.Pack, recovery.InstructionIdentity); err != nil {
+		return mission.CurrentLoopExternalSessionHarnessPackage{}, err
+	}
 	return mission.CurrentLoopExternalSessionHarnessPackage{
+		Pack:        recovery.Pack,
 		SessionKind: recovery.SessionKind,
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
+			Capability:          recovery.Capability,
+			InstructionIdentity: cloneProductionInstructionIdentityPointer(recovery.InstructionIdentity),
 			Attempt: mission.CurrentLoopExternalSessionAttempt{
 				AttemptID:     recovery.AttemptID,
 				AttemptSHA256: recovery.AttemptSHA256,
@@ -353,8 +359,8 @@ func bindSupervisionRecoveryCandidate(
 		Model:                             spec.Model,
 		Timeout:                           time.Duration(spec.TimeoutNanos),
 		MaxAttempts:                       opt.MaxAttempts,
-		launchControlBinding:               cloneClaudeLaunchControlBinding(spec.LaunchControl),
-		projectExecutionLease:              opt.projectExecutionLease,
+		launchControlBinding:              cloneClaudeLaunchControlBinding(spec.LaunchControl),
+		projectExecutionLease:             opt.projectExecutionLease,
 	}
 	if !trustedRecoveryProvenance(candidateOpt) {
 		return Options{}, mission.CurrentLoopExternalSessionHarnessPackage{}, supervisionPaths{}, "", false, nil

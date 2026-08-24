@@ -10,6 +10,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
@@ -243,6 +244,26 @@ func TestBoundedDriverRequestRequiresCanonicalProjectEntrypoint(t *testing.T) {
 	}
 }
 
+func TestQualifyDriverStepApplyRequestRequiresContinuePreviewOwnedApply(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	ctx := runtime.Context{Target: caseRoot, Pack: "_template"}
+	preview := missionDriverRequestForTest(`/rekit continue -Lane main -WhatIf -Format json`)
+	if _, err := qualifyDriverStepApplyRequest(ctx, preview); err == nil || !strings.Contains(err.Error(), "must come from the exact workstream preview") {
+		t.Fatalf("runner synthesized continue Apply without workstream plan binding: %v", err)
+	}
+	apply := missionDriverRequestForTest(`/rekit continue -Lane main -Apply -Format json -ExpectedContinuePlanSha256 ` + strings.Repeat("a", 64))
+	qualified, err := qualifyDriverStepApplyRequest(ctx, apply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qualified.Invocation == nil || !qualified.Invocation.HasFlag("-Apply") || qualified.Invocation.HasFlag("-WhatIf") || qualified.Invocation.HasFlag("--what-if") || qualified.ExpectedReceipt.Command != qualified.Command {
+		t.Fatalf("preview-owned Apply request drifted: %+v", qualified)
+	}
+	if _, err := parseBoundedDriverRequest(ctx, qualified, true); err != nil {
+		t.Fatalf("preview-owned Apply request is not executable as emitted: %v", err)
+	}
+}
+
 func TestRunDriverStepContinueProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -338,8 +359,9 @@ func TestRunDriverStepRevalidatesPreviewInsideMutationLease(t *testing.T) {
 	t.Cleanup(func() { driverStepApplyBeforeMutationHook = nil })
 	out.Reset()
 	err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
-	if err == nil || !strings.Contains(err.Error(), "continue preview sha256 mismatch") {
-		t.Fatalf("in-lock preview drift should fail closed: err=%v output=%s", err, out.String())
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch || failure.MutationApplied || failure.MutationBoundary != "none" {
+		t.Fatalf("in-lock preview drift should fail closed: err=%v failure=%+v typed=%t output=%s", err, failure, typed, out.String())
 	}
 	observations, readErr := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if readErr != nil {

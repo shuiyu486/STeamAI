@@ -15,6 +15,8 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/websecurity"
 )
 
 func TestParseGateProfileFlags(t *testing.T) {
@@ -380,6 +382,223 @@ func TestRunGateProfileProvisionAndRevoke(t *testing.T) {
 	profile, _, exists, err = autonomy.Read(caseRoot, "main")
 	if err != nil || !exists || profile.Mode != autonomy.ModeManualGate || profile.ProfileID != "manual-main" {
 		t.Fatalf("unexpected revoked profile: exists=%t profile=%+v err=%v", exists, profile, err)
+	}
+}
+
+func TestRunGateProfileProvisionAndAuthorizeWebSecurityOpenAPI(t *testing.T) {
+	const (
+		pack       = "web-security"
+		lane       = "feature-api"
+		inputPath  = "inputs/openapi.json"
+		outputPath = "workspace/features/feature-api/openapi/session-1"
+	)
+	caseRoot := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout: testfixture.CurrentProject, SourceRepo: repoRoot(t), Pack: pack, ProjectName: "web-profile",
+	}).CaseRoot
+	writeCaseFile(t, caseRoot, ".steamai/board.json", `{"lanes":[{"id":"feature-api","status":"open","workspace":"workspace/features/feature-api","currentExecutor":"executor-web","executorGeneration":1}]}`+"\n")
+	writeCaseFile(t, caseRoot, ".steamai/lanes/feature-api/lane.json", `{
+  "schemaVersion": 1,
+  "id": "feature-api",
+  "type": "feature",
+  "name": "feature-api",
+  "title": "Feature API",
+  "status": "open",
+  "authority": false,
+  "workspace": "workspace/features/feature-api",
+  "canWrite": ["own-workspace"],
+  "readOnly": [".steamai/facts/**"],
+  "outputs": ["observation", "request", "candidate", "summary"],
+  "counters": {},
+  "currentExecutor": "executor-web",
+  "executorGeneration": 1,
+  "createdAt": "2026-08-20T00:00:00Z",
+  "updatedAt": "2026-08-20T00:00:00Z"
+}`+"\n")
+	if _, _, err := autonomy.EnsureManualProfile(caseRoot, lane); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, inputPath, `{"openapi":"3.0.3","servers":[{"url":"http://127.0.0.1:18080/api"}],"paths":{"/health":{"get":{"operationId":"health","responses":{"200":{"description":"ok"}}}}},"components":{"securitySchemes":{}}}`)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	base := []string{
+		"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-Format", "json",
+		"-ProvisionProfile", "-Lane", lane, "-Action", "inspect", "-TargetRef", inputPath,
+		"-ProfileId", "web-feature-api-openapi", "-ProfileGrantedBy", "user",
+		"-ProfileGrantedAt", now.Add(-time.Minute).Format(time.RFC3339),
+		"-ProfileExpiresAt", now.Add(9 * time.Minute).Format(time.RFC3339),
+		"-RuntimeSeconds", "10", "-DiskMB", "4", "-Requests", "1",
+		"-StopConditions", "scope-drift,source-drift,output-exceeds-bounded-evidence-packet",
+		"-OutputPaths", outputPath,
+	}
+	var out bytes.Buffer
+	if err := Run(base, &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview autonomy.ProfileMutationPlan
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.ExpectedPlanSHA256 == "" || preview.PlannedProfile.Mode != autonomy.ModePreauthorized ||
+		!reflect.DeepEqual(preview.PlannedProfile.AllowedActions, []string{"inspect"}) ||
+		!reflect.DeepEqual(preview.PlannedProfile.TargetScope, []autonomy.Target{{Match: "exact", Value: inputPath}}) {
+		t.Fatalf("unexpected web-security profile preview: %+v", preview)
+	}
+	out.Reset()
+	if err := Run(append(append([]string{}, base...), "-Apply", "-ExpectedProfilePlanSha256", preview.ExpectedPlanSHA256), &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied autonomy.ProfileMutationResult
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil || !applied.Applied {
+		t.Fatalf("web-security profile apply = %+v err=%v", applied, err)
+	}
+
+	out.Reset()
+	if err := Run([]string{
+		"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-Format", "json", "-Apply",
+		"-Action", "inspect", "-Lane", lane, "-Actor", "web-profile-test",
+		"-Subject", "bounded OpenAPI inventory", "-Summary", "typed compiled-in adapter evidence",
+		"-TargetRef", inputPath, "-RuntimeSeconds", "10", "-DiskMB", "4", "-Requests", "1",
+		"-StopConditions", "scope-drift,source-drift,output-exceeds-bounded-evidence-packet",
+		"-OutputPaths", outputPath,
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var authorized gate.ApplyResult
+	if err := json.Unmarshal(out.Bytes(), &authorized); err != nil {
+		t.Fatal(err)
+	}
+	if !authorized.Applied || authorized.Event == nil || authorized.Event.Status != "authorized-gate" ||
+		authorized.Event.Gate.Authorization.Decision != autonomy.DecisionPreauthorized {
+		t.Fatalf("web-security exact gate was not preauthorized: %+v", authorized)
+	}
+}
+
+func TestGateProvisionProfileRejectsInvalidWebSecurityContracts(t *testing.T) {
+	const (
+		pack       = "web-security"
+		lane       = "feature-api"
+		inputPath  = "inputs/openapi.json"
+		outputPath = "workspace/features/feature-api/openapi/session-1"
+	)
+	caseRoot := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout: testfixture.CurrentProject, SourceRepo: repoRoot(t), Pack: pack, ProjectName: "web-profile-reject",
+	}).CaseRoot
+	writeCaseFile(t, caseRoot, ".steamai/board.json", `{"lanes":[{"id":"feature-api","status":"open","workspace":"workspace/features/feature-api"}]}`+"\n")
+	writeCaseFile(t, caseRoot, inputPath, `{"openapi":"3.0.3","servers":[{"url":"http://127.0.0.1:18080/api"}],"paths":{},"components":{"securitySchemes":{}}}`)
+	now := time.Now().UTC().Truncate(time.Second)
+	valid := Options{Gate: gate.Options{
+		ProvisionProfile: true, Lane: lane, Action: "inspect", TargetRef: inputPath,
+		ProfileID: "web-feature-api-openapi", ProfileGrantedBy: "user",
+		ProfileGrantedAt: now.Add(-time.Minute).Format(time.RFC3339), ProfileExpiresAt: now.Add(9 * time.Minute).Format(time.RFC3339),
+		RuntimeSeconds: 10, DiskMB: 4, Requests: 1,
+		StopConditions: "scope-drift,source-drift,output-exceeds-bounded-evidence-packet", OutputPaths: outputPath,
+	}}
+	ctx := runtime.Context{RepoRoot: repoRoot(t), Target: caseRoot, Pack: pack}
+	for name, mutate := range map[string]func(*Options, *runtime.Context){
+		"unknown action": func(opt *Options, _ *runtime.Context) { opt.Gate.Action = "debug" },
+		"wrong stops":    func(opt *Options, _ *runtime.Context) { opt.Gate.StopConditions = "scope-drift" },
+		"foreign output": func(opt *Options, _ *runtime.Context) { opt.Gate.OutputPaths = "workspace/other/openapi/session-1" },
+		"wrong output kind": func(opt *Options, _ *runtime.Context) {
+			opt.Gate.OutputPaths = "workspace/features/feature-api/replay/session-1"
+		},
+		"oversized runtime":   func(opt *Options, _ *runtime.Context) { opt.Gate.RuntimeSeconds = 31 },
+		"multiple requests":   func(opt *Options, _ *runtime.Context) { opt.Gate.Requests = 2 },
+		"missing target":      func(opt *Options, _ *runtime.Context) { opt.Gate.TargetRef = "inputs/missing.json" },
+		"non-production pack": func(_ *Options, ctx *runtime.Context) { ctx.Pack = "_template" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			opt := valid
+			localCtx := ctx
+			mutate(&opt, &localCtx)
+			if _, err := gateProvisionProfile(localCtx, opt); err == nil {
+				t.Fatal("accepted invalid web-security profile contract")
+			}
+		})
+	}
+	t.Run("non-OpenAPI input", func(t *testing.T) {
+		invalidPath := "inputs/not-openapi.json"
+		writeCaseFile(t, caseRoot, invalidPath, `{"not":"openapi"}`)
+		opt := valid
+		opt.Gate.TargetRef = invalidPath
+		if _, err := gateProvisionProfile(ctx, opt); err == nil {
+			t.Fatal("accepted invalid OpenAPI profile target")
+		}
+	})
+}
+
+func TestGateProvisionProfileAcceptsCanonicalBoundedReplayRequest(t *testing.T) {
+	const (
+		pack          = "web-security"
+		lane          = "feature-api"
+		inventoryPath = "inputs/openapi-inventory.json"
+		outputPath    = "workspace/features/feature-api/replay/session-1"
+	)
+	caseRoot := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout: testfixture.CurrentProject, SourceRepo: repoRoot(t), Pack: pack, ProjectName: "web-replay-profile",
+	}).CaseRoot
+	writeCaseFile(t, caseRoot, ".steamai/board.json", `{"lanes":[{"id":"feature-api","status":"open","workspace":"workspace/features/feature-api"}]}`+"\n")
+	sourceData := []byte(`{"openapi":"3.0.3","servers":[{"url":"http://127.0.0.1:18080/api"}],"paths":{"/health":{"get":{"operationId":"health","responses":{"200":{"description":"ok"}}}}},"components":{"securitySchemes":{}}}`)
+	source, err := websecurity.BindFile("inputs/openapi.json", sourceData, websecurity.MaxOpenAPIBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := websecurity.ImportOpenAPI(source, sourceData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventoryData, err := websecurity.CanonicalInventoryBytes(inventory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventoryBinding, err := websecurity.BindFile(inventoryPath, inventoryData, websecurity.MaxInventoryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := websecurity.NewReplayRequest(
+		inventory, inventoryBinding, "get /health",
+		websecurity.ReplayTarget{Scheme: "http", Host: "127.0.0.1", Port: 18080, BasePath: "/api"},
+		"/health", nil,
+		websecurity.ExpectedResponse{StatusCode: 200, Body: websecurity.DigestExpectation{SHA256: websecurity.SHA256(nil)}, Headers: []websecurity.HeaderExpectation{}},
+		websecurity.DefaultReplayLimits(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestData, err := websecurity.CanonicalReplayRequestBytes(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestBinding, err := websecurity.BindReplayRequest(requestData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestPath := requestBinding.Path
+	writeCaseFile(t, caseRoot, requestPath, string(requestData))
+	now := time.Now().UTC().Truncate(time.Second)
+	profile, err := gateProvisionProfile(runtime.Context{RepoRoot: repoRoot(t), Target: caseRoot, Pack: pack}, Options{Gate: gate.Options{
+		ProvisionProfile: true, Lane: lane, Action: "network", TargetRef: requestPath,
+		ProfileID: "web-feature-api-replay", ProfileGrantedBy: "user",
+		ProfileGrantedAt: now.Add(-time.Minute).Format(time.RFC3339), ProfileExpiresAt: now.Add(9 * time.Minute).Format(time.RFC3339),
+		RuntimeSeconds: 10, DiskMB: 4, Requests: 1,
+		StopConditions: "live-target-ambiguity,unexpected-outbound-request,scope-drift,delivery-uncertain,response-body-limit,response-read",
+		OutputPaths:    outputPath,
+	}})
+	if err != nil || !reflect.DeepEqual(profile.AllowedActions, []string{"network"}) || profile.TargetScope[0].Value != requestPath {
+		t.Fatalf("bounded replay profile = %+v err=%v", profile, err)
+	}
+
+	legacyPath := "inputs/bounded-replay-request.json"
+	writeCaseFile(t, caseRoot, legacyPath, string(requestData))
+	legacyOptions := Options{Gate: gate.Options{
+		ProvisionProfile: true, Lane: lane, Action: "network", TargetRef: legacyPath,
+		ProfileID: "web-feature-api-replay-legacy-path", ProfileGrantedBy: "user",
+		ProfileGrantedAt: now.Add(-time.Minute).Format(time.RFC3339), ProfileExpiresAt: now.Add(9 * time.Minute).Format(time.RFC3339),
+		RuntimeSeconds: 10, DiskMB: 4, Requests: 1,
+		StopConditions: "live-target-ambiguity,unexpected-outbound-request,scope-drift,delivery-uncertain,response-body-limit,response-read",
+		OutputPaths:    outputPath,
+	}}
+	if _, err := gateProvisionProfile(runtime.Context{RepoRoot: repoRoot(t), Target: caseRoot, Pack: pack}, legacyOptions); err == nil || !strings.Contains(err.Error(), "content-addressed bounded replay request") {
+		t.Fatalf("accepted canonical replay bytes at a non-content-addressed path: %v", err)
 	}
 }
 

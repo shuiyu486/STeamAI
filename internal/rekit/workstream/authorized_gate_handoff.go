@@ -84,6 +84,7 @@ type AuthorizedGateLiveValidationHandoff struct {
 	CaseRelativeDraftCommand         string                                `json:"caseRelativeDraftCommand,omitempty"`
 	CaseRelativeDraftApplyCommand    string                                `json:"caseRelativeDraftApplyCommand,omitempty"`
 	AdapterCandidateCount            int                                   `json:"adapterCandidateCount"`
+	AdapterCandidates                []gate.AdapterToolCandidate           `json:"adapterCandidates,omitempty"`
 	SelectedAdapterID                string                                `json:"selectedAdapterId,omitempty"`
 	SelectedAdapter                  *gate.AdapterToolCandidate            `json:"selectedAdapter,omitempty"`
 	SidecarTemplateAdapterID         string                                `json:"sidecarTemplateAdapterId,omitempty"`
@@ -450,12 +451,21 @@ func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidatio
 		CaseRelativeDraftCommand:         live.CaseRelativeDraftCommand,
 		CaseRelativeDraftApplyCommand:    live.CaseRelativeDraftApplyCommand,
 		AdapterCandidateCount:            len(live.AdapterCandidates),
+		AdapterCandidates:                cloneAdapterToolCandidates(live.AdapterCandidates),
 		SelectedAdapterID:                selectedAdapterID,
 		SelectedAdapter:                  selectedAdapter,
 		SidecarTemplateAdapterID:         live.SidecarTemplate.AdapterID,
 		ReplayBehavior:                   live.ReplayBehavior,
 		RunbookSteps:                     append([]string{}, live.RunbookSteps...),
 	}
+}
+
+func cloneAdapterToolCandidates(candidates []gate.AdapterToolCandidate) []gate.AdapterToolCandidate {
+	out := make([]gate.AdapterToolCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, cloneAdapterToolCandidate(candidate))
+	}
+	return out
 }
 
 func cloneAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.AdapterToolCandidate {

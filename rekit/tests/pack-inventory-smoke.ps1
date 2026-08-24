@@ -138,7 +138,7 @@ function Assert-StatusJson {
     throw "status JSON roots are incomplete: $($Status | ConvertTo-Json -Depth 20)"
   }
   if ($Mode -eq 'kit') {
-    if ($null -ne $Status.case -or $null -eq $Status.manifest -or [string]$Status.pack -ne 'binary-re' -or [int]$Status.manifest.managedFiles -ne 11 -or [int]$Status.manifest.promoteFiles -ne 11 -or [int]$Status.manifest.toolingFiles -ne 14) {
+    if ($null -ne $Status.case -or $null -eq $Status.manifest -or [string]$Status.pack -ne 'binary-re' -or [int]$Status.manifest.managedFiles -ne 11 -or [int]$Status.manifest.promoteFiles -ne 11 -or [int]$Status.manifest.toolingFiles -ne 15) {
       throw "unexpected kit status JSON: $($Status | ConvertTo-Json -Depth 20)"
     }
   }
@@ -277,8 +277,9 @@ function New-TransientInvalidHeavyToolGateManifest {
 $goStatusJson = Invoke-GoRekitSmoke -Arguments @('-Command','status','-Format','json') | ConvertFrom-Json
 $psStatusJson = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') | ConvertFrom-Json
 $facadeStatusJson = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
-foreach ($json in @($goStatusJson,$psStatusJson,$facadeStatusJson)) {
-  Assert-StatusJson -Status $json -Mode 'kit'
+Assert-StatusJson -Status $goStatusJson -Mode 'kit'
+foreach ($json in @($psStatusJson,$facadeStatusJson)) {
+  Assert-StatusJson -Status $json -Mode 'case-onboarding-required'
 }
 
 $goDoctorJson = Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Format','json') | ConvertFrom-Json
@@ -302,8 +303,8 @@ $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO
 foreach ($out in @($goOut,$psOut,$facadeOut)) {
   if ($out -notlike "pack`t*") { throw "packs output missing header:`n$out" }
   Assert-PackRow -Text $out -Pack '_template' -Maturity 'template' -Authority 'main' -Managed '4' -Tooling '2'
-  Assert-PackRow -Text $out -Pack 'binary-re' -Maturity 'mature' -Authority 'devirt-main' -Managed '11' -Tooling '14' -Routes '3'
-  Assert-PackRow -Text $out -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+  Assert-PackRow -Text $out -Pack 'binary-re' -Maturity 'mature' -Authority 'devirt-main' -Managed '11' -Tooling '15' -Routes '3'
+  Assert-PackRow -Text $out -Pack 'web-security' -Maturity 'mature' -Authority 'main' -Managed '4' -Tooling '7'
   Assert-PackRow -Text $out -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'ctf' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
@@ -319,8 +320,8 @@ $psJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') | 
 $facadeJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
 foreach ($json in @($goJson,$psJson,$facadeJson)) {
   Assert-PackJson -Inventory $json -Pack '_template' -Maturity 'template' -Authority 'main' -Managed 4 -Tooling 2 -HeavyToolGates 8 -GateActions 'debug,dump,full-trace,inject,inspect,network,patch,symex'
-  Assert-PackJson -Inventory $json -Pack 'binary-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 11 -Tooling 14 -HeavyToolGates 8 -GateActions 'debug,dump,full-trace,inject,inspect,network,patch,symex'
-  Assert-PackJson -Inventory $json -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
+  Assert-PackJson -Inventory $json -Pack 'binary-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 11 -Tooling 15 -HeavyToolGates 8 -GateActions 'debug,dump,full-trace,inject,inspect,network,patch,symex'
+  Assert-PackJson -Inventory $json -Pack 'web-security' -Maturity 'mature' -Authority 'main' -Managed 4 -Tooling 7 -HeavyToolGates 8 -GateActions 'debug,dump,full-trace,inject,inspect,network,patch,symex'
   Assert-PackJson -Inventory $json -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'ctf' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4

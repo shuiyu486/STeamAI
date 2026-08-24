@@ -1,22 +1,31 @@
 package executioncontrol
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 )
 
-const BindingSchemaVersion = 1
+const (
+	LegacyBindingSchemaVersion = 1
+	BindingSchemaVersion       = 2
+	ResultBirthSchemaVersion   = 2
+)
 
 type Binding struct {
-	SchemaVersion        int                `json:"schemaVersion"`
-	Lane                 string             `json:"lane"`
-	ControlGeneration    int                `json:"controlGeneration"`
-	ControlReceiptSHA256 string             `json:"controlReceiptSha256,omitempty"`
-	Owner                laneowner.Snapshot `json:"owner"`
+	SchemaVersion        int                        `json:"schemaVersion"`
+	Lane                 string                     `json:"lane"`
+	ControlGeneration    int                        `json:"controlGeneration"`
+	ControlReceiptSHA256 string                     `json:"controlReceiptSha256,omitempty"`
+	Owner                laneowner.Snapshot         `json:"owner"`
+	Capability           capabilitycontract.Binding `json:"capability"`
 }
 
 type BindingCurrentness struct {
@@ -60,6 +69,9 @@ func ValidateBinding(binding Binding) error {
 		binding.Owner.ExecutorGeneration <= 0 {
 		return fmt.Errorf("execution control binding is invalid")
 	}
+	if err := capabilitycontract.ValidateBinding(binding.Capability); err != nil {
+		return fmt.Errorf("execution control binding capability is invalid: %w", err)
+	}
 	if binding.ControlGeneration == 0 {
 		if strings.TrimSpace(binding.ControlReceiptSHA256) != "" {
 			return fmt.Errorf("initial execution control binding must not name a receipt")
@@ -72,17 +84,111 @@ func ValidateBinding(binding Binding) error {
 	return nil
 }
 
+// LegacyBinding is retained only for strict status/history and exact replay
+// readers. It must never be converted into a current Binding implicitly.
+type LegacyBinding struct {
+	SchemaVersion        int                `json:"schemaVersion"`
+	Lane                 string             `json:"lane"`
+	ControlGeneration    int                `json:"controlGeneration"`
+	ControlReceiptSHA256 string             `json:"controlReceiptSha256,omitempty"`
+	Owner                laneowner.Snapshot `json:"owner"`
+}
+
+type VersionedBinding struct {
+	Version     int
+	Current     *Binding
+	Legacy      *LegacyBinding
+	Raw         []byte
+	WholeSHA256 string
+}
+
+func DecodeVersionedBinding(data []byte) (VersionedBinding, error) {
+	var envelope map[string]json.RawMessage
+	if err := decodeExactBinding(data, &envelope); err != nil {
+		return VersionedBinding{}, err
+	}
+	rawVersion, ok := envelope["schemaVersion"]
+	if !ok {
+		return VersionedBinding{}, fmt.Errorf("execution control binding schemaVersion is required")
+	}
+	var version int
+	if err := json.Unmarshal(rawVersion, &version); err != nil {
+		return VersionedBinding{}, fmt.Errorf("execution control binding schemaVersion is invalid: %w", err)
+	}
+	result := VersionedBinding{
+		Version: version, Raw: append([]byte(nil), data...), WholeSHA256: hash(data),
+	}
+	switch version {
+	case BindingSchemaVersion:
+		var current Binding
+		if err := decodeExactBinding(data, &current); err != nil {
+			return VersionedBinding{}, err
+		}
+		if err := ValidateBinding(current); err != nil {
+			return VersionedBinding{}, err
+		}
+		result.Current = &current
+	case LegacyBindingSchemaVersion:
+		var legacy LegacyBinding
+		if err := decodeExactBinding(data, &legacy); err != nil {
+			return VersionedBinding{}, err
+		}
+		if err := validateLegacyBinding(legacy); err != nil {
+			return VersionedBinding{}, err
+		}
+		result.Legacy = &legacy
+	default:
+		return VersionedBinding{}, fmt.Errorf("execution control binding schema version is unsupported: %d", version)
+	}
+	return result, nil
+}
+
+func validateLegacyBinding(binding LegacyBinding) error {
+	if binding.SchemaVersion != LegacyBindingSchemaVersion ||
+		strings.TrimSpace(binding.Lane) == "" || binding.Owner.Lane != binding.Lane ||
+		strings.TrimSpace(binding.Owner.CurrentExecutor) == "" || binding.Owner.ExecutorGeneration <= 0 ||
+		binding.ControlGeneration < 0 {
+		return fmt.Errorf("legacy execution control binding is invalid")
+	}
+	if binding.ControlGeneration == 0 {
+		if strings.TrimSpace(binding.ControlReceiptSHA256) != "" {
+			return fmt.Errorf("legacy initial execution control binding must not name a receipt")
+		}
+	} else if !validSHA256(binding.ControlReceiptSHA256) {
+		return fmt.Errorf("legacy execution control binding receipt sha256 is invalid")
+	}
+	return nil
+}
+
+func decodeExactBinding(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("decode execution control binding: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("execution control binding must contain exactly one JSON object")
+	}
+	return nil
+}
+
 func (binding Binding) Birth() ResultBirth {
 	return ResultBirth{
+		SchemaVersion:        ResultBirthSchemaVersion,
 		ControlGeneration:    binding.ControlGeneration,
 		ControlReceiptSHA256: binding.ControlReceiptSHA256,
 		Owner:                binding.Owner,
+		Capability:           binding.Capability,
 	}
 }
 
-func CaptureBinding(caseRoot string, owner laneowner.Snapshot) (binding Binding, retErr error) {
+func CaptureBinding(caseRoot string, owner laneowner.Snapshot, capability capabilitycontract.Binding) (binding Binding, retErr error) {
 	if err := validateBindingOwner(owner); err != nil {
 		return Binding{}, err
+	}
+	if err := capabilitycontract.ValidateBinding(capability); err != nil {
+		return Binding{}, fmt.Errorf("execution control binding capture capability is invalid: %w", err)
 	}
 	lease, err := lanemutation.AcquireLane(caseRoot, owner.Lane)
 	if err != nil {
@@ -92,23 +198,43 @@ func CaptureBinding(caseRoot string, owner laneowner.Snapshot) (binding Binding,
 	if err := lease.ValidateLaneFor(caseRoot, owner.Lane); err != nil {
 		return Binding{}, err
 	}
-	return captureBindingWithValidation(caseRoot, owner, func() error {
+	return captureBindingWithValidation(caseRoot, owner, capability, func() error {
 		return lease.ValidateLaneFor(caseRoot, owner.Lane)
 	})
 }
 
-func CaptureBindingWithProjectLease(caseRoot string, lease *lanemutation.Lease, owner laneowner.Snapshot) (Binding, error) {
+func CaptureBindingWithLease(caseRoot string, lease *lanemutation.Lease, owner laneowner.Snapshot, capability capabilitycontract.Binding) (Binding, error) {
+	if lease == nil {
+		return Binding{}, fmt.Errorf("execution control binding capture requires an existing lane mutation lease")
+	}
+	if err := validateBindingOwner(owner); err != nil {
+		return Binding{}, err
+	}
+	if err := capabilitycontract.ValidateBinding(capability); err != nil {
+		return Binding{}, fmt.Errorf("execution control binding capture capability is invalid: %w", err)
+	}
+	validate := func() error { return lease.ValidateLaneFor(caseRoot, owner.Lane) }
+	if err := validate(); err != nil {
+		return Binding{}, err
+	}
+	return captureBindingWithValidation(caseRoot, owner, capability, validate)
+}
+
+func CaptureBindingWithProjectLease(caseRoot string, lease *lanemutation.Lease, owner laneowner.Snapshot, capability capabilitycontract.Binding) (Binding, error) {
 	if lease == nil {
 		return Binding{}, fmt.Errorf("execution control binding capture requires an existing project mutation lease")
 	}
 	if err := validateBindingOwner(owner); err != nil {
 		return Binding{}, err
 	}
+	if err := capabilitycontract.ValidateBinding(capability); err != nil {
+		return Binding{}, fmt.Errorf("execution control binding capture capability is invalid: %w", err)
+	}
 	validate := func() error { return lease.ValidateProjectFor(caseRoot) }
 	if err := validate(); err != nil {
 		return Binding{}, err
 	}
-	return captureBindingWithValidation(caseRoot, owner, validate)
+	return captureBindingWithValidation(caseRoot, owner, capability, validate)
 }
 
 func InspectBindingWithLease(caseRoot string, lease *lanemutation.Lease, binding Binding) (BindingCurrentness, error) {
@@ -178,9 +304,12 @@ func requireCurrentBinding(currentness BindingCurrentness, err error) error {
 	return nil
 }
 
-func captureBindingWithValidation(caseRoot string, owner laneowner.Snapshot, validate func() error) (Binding, error) {
+func captureBindingWithValidation(caseRoot string, owner laneowner.Snapshot, capability capabilitycontract.Binding, validate func() error) (Binding, error) {
 	if validate == nil {
 		return Binding{}, fmt.Errorf("execution control binding capture requires a mutation owner validator")
+	}
+	if err := capabilitycontract.ValidateBinding(capability); err != nil {
+		return Binding{}, fmt.Errorf("execution control binding capture capability is invalid: %w", err)
 	}
 	if err := validate(); err != nil {
 		return Binding{}, err
@@ -211,6 +340,7 @@ func captureBindingWithValidation(caseRoot string, owner laneowner.Snapshot, val
 		ControlGeneration:    inspection.CurrentGeneration,
 		ControlReceiptSHA256: inspection.CurrentReceiptSHA256,
 		Owner:                owner,
+		Capability:           capability,
 	}
 	if err := ValidateBinding(binding); err != nil {
 		return Binding{}, err

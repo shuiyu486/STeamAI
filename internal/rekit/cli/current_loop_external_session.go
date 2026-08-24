@@ -14,6 +14,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -21,6 +22,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimeinstruction"
 )
 
 func runCurrentLoopExternalSessionRelay(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -417,6 +419,14 @@ func sameExternalSessionPath(left, right string) bool {
 	)
 }
 
+func cloneInstructionIdentity(identity *instructionpacket.Identity) *instructionpacket.Identity {
+	if identity == nil {
+		return nil
+	}
+	clone := instructionpacket.CloneIdentity(*identity)
+	return &clone
+}
+
 func externalReviewerLaunchIdentity(
 	caseRoot string,
 	handoff *mission.CurrentLoopExternalReviewerHandoff,
@@ -457,6 +467,7 @@ func externalReviewerLaunchIdentity(
 		receipt.ReviewerSession != handoff.Attempt.Receipt.Session ||
 		!strings.EqualFold(receipt.PromptSHA256, launch.Input.SHA256) ||
 		!sameExternalSessionPath(receipt.PromptPath, launch.Input.Path) ||
+		receipt.Capability != launch.Capability ||
 		!receipt.ReadOnly || !receipt.NoHeavyTool || !receipt.NoAuthority {
 		return nil, fmt.Errorf("external reviewer dispatch receipt does not match current attempt and launch")
 	}
@@ -468,6 +479,7 @@ func externalReviewerLaunchIdentity(
 		DispatchSHA256: handoff.Attempt.Receipt.DispatchSHA256,
 		DispatchID:     receipt.DispatchID, ReviewerSession: receipt.ReviewerSession,
 		PromptPath: receipt.PromptPath, PromptSHA256: receipt.PromptSHA256,
+		Capability:  receipt.Capability,
 		NoHeavyTool: receipt.NoHeavyTool, NoAuthority: receipt.NoAuthority,
 	}, nil
 }
@@ -486,7 +498,7 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 		}
 	}
 	pkg := &mission.CurrentLoopExternalSessionHarnessPackage{
-		SchemaVersion: 1, State: "attempt-review-required", CaseRoot: job.CaseRoot,
+		SchemaVersion: 1, State: "attempt-review-required", CaseRoot: job.CaseRoot, Pack: job.Pack,
 		JobID: job.JobID, JobSHA256: inspection.JobSHA256, CheckpointSHA256: job.CheckpointSHA256, SessionKind: job.SessionKind,
 		AttemptReviewRequest: typed.AttemptRequest, RefreshStatusCommand: refresh,
 		Boundary: []string{
@@ -498,12 +510,31 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 	if attempt.Current == nil {
 		return pkg
 	}
+	instruction, production, instructionErr := runtimeinstruction.Build(job.CaseRoot, job.Pack)
+	if instructionErr != nil {
+		pkg.Warnings = append(pkg.Warnings, "production instruction packet cannot be built from the resolved project-local runtime; refresh status and do not launch")
+	}
 	input := mission.CurrentLoopExternalSessionHarnessInput{Role: "durable-member-handoff"}
 	launch := &mission.CurrentLoopExternalSessionHarnessLaunch{
 		Ready: true, Tool: "Claude Code session", AgentType: "durable-member-executor", ReadOnly: false,
+		Capability:     job.Capability,
 		ExpectedOutput: "bounded member outputs and one strict external session submission JSON object",
 		Attempt:        *typed.CurrentAttempt,
 		Boundary:       []string{"start or reconnect idempotently by the exact harness/session identity; never create a second session for the same attempt", "execute only for the exact current attempt and owner generation", "do not reuse this launch after replacement or checkpoint drift"},
+	}
+	if production {
+		if instructionErr != nil {
+			launch.Ready = false
+		} else {
+			identity := instruction.Identity()
+			launch.InstructionIdentity = &identity
+			launch.Boundary = append(launch.Boundary, "consume only the exact project-local production instruction identity bound to this launch")
+			if typed.Dispatcher != nil && typed.Dispatcher.Ticket != nil && typed.Dispatcher.Ticket.InstructionIdentity != nil &&
+				!instructionpacket.EqualIdentity(*typed.Dispatcher.Ticket.InstructionIdentity, identity) {
+				launch.Ready = false
+				pkg.Warnings = append(pkg.Warnings, "current project-local production instruction identity differs from the immutable dispatch ticket; create a fresh attempt and do not launch")
+			}
+		}
 	}
 	switch job.SessionKind {
 	case "member":
@@ -534,6 +565,7 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 		launch.Tool = "Claude Code Agent"
 		launch.AgentType = "read-only-reviewer"
 		launch.ReadOnly = true
+		launch.Capability = reviewersession.ReadOnlyCapability()
 		launch.ExpectedOutput = "exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose"
 		input.Role = "reviewer-dispatch-prompt"
 		if operator.ExternalReviewerHandoff == nil {
@@ -625,7 +657,8 @@ func externalSessionReturnContract(job externalsession.Job, inspection externals
 func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, attempt externalsession.AttemptInspection, dispatcher *mission.CurrentLoopExternalSessionDispatcher, outcome string) (string, []string) {
 	value := externalsession.Submission{
 		SchemaVersion: externalsession.SchemaVersion, Kind: externalsession.KindSubmission, JobID: job.JobID, JobSHA256: jobSHA,
-		Outcome: outcome, Actor: "<actor>", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
+		Capability: job.Capability,
+		Outcome:    outcome, Actor: "<actor>", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
 		LaunchControl: executioncontrol.CloneBinding(attempt.Current.LaunchControl),
 		Harness:       attempt.Current.Harness, Session: attempt.Current.Session, NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	}
@@ -711,7 +744,7 @@ func missionExternalSessionJob(inspection externalsession.Inspection) mission.Cu
 		State: inspection.State, SessionKind: job.SessionKind, CheckpointSHA256: job.CheckpointSHA256,
 		AllowedOutcomes: append([]string{}, job.AllowedOutcomes...), SubmissionPath: job.SubmissionPath,
 		SubmissionOutputs: job.SubmissionOutputs, SubmissionResult: job.SubmissionResult, MemberAttemptID: job.MemberAttemptID,
-		MemberManifestPath: job.MemberManifestPath, MemberOutputsRoot: job.MemberOutputsRoot, RelayResultPath: job.RelayResultPath,
+		MemberManifestPath: job.MemberManifestPath, MemberOutputsRoot: job.MemberOutputsRoot, Capability: job.Capability, RelayResultPath: job.RelayResultPath,
 		PublicationPath: job.PublicationPath, ObservationPath: job.ObservationPath,
 		SubmissionSHA256: inspection.SubmissionSHA256, Warnings: append([]string{}, inspection.Warnings...), SubmissionLast: job.SubmissionLast,
 		NoSessionManagement: job.NoSessionManagement, NoHeavyTool: job.NoHeavyTool, NoAuthority: job.NoAuthority, NoConfirmed: job.NoConfirmed,

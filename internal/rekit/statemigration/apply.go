@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
@@ -40,11 +42,15 @@ func SetBeforeReceiptPublicationHookForTest(hook func() error) func() {
 }
 
 func Apply(repoRoot, caseRoot, pack, expectedPlanSHA256 string) (Result, error) {
-	expectedPlanSHA256 = strings.ToLower(strings.TrimSpace(expectedPlanSHA256))
-	if !validSHA256(expectedPlanSHA256) {
-		return Result{}, fmt.Errorf("state migration Apply requires an exact 64-hex expected plan SHA-256")
+	expectedPlanSHA256, err := plancontract.RequireApplyBinding(
+		commands.MigrateState,
+		"-ExpectedMigrationPlanSha256",
+		expectedPlanSHA256,
+	)
+	if err != nil {
+		return Result{}, err
 	}
-	caseRoot, err := filepath.Abs(strings.TrimSpace(caseRoot))
+	caseRoot, err = filepath.Abs(strings.TrimSpace(caseRoot))
 	if err != nil {
 		return Result{}, err
 	}
@@ -65,8 +71,16 @@ func Apply(repoRoot, caseRoot, pack, expectedPlanSHA256 string) (Result, error) 
 	if plan.AlreadyCurrent {
 		return applyAlreadyCurrent(plan, expectedPlanSHA256)
 	}
-	if plan.prepared == nil || !strings.EqualFold(plan.ExpectedPlanSHA256, expectedPlanSHA256) {
-		return Result{}, fmt.Errorf("state migration plan SHA-256 mismatch: expected=%s current=%s", expectedPlanSHA256, plan.ExpectedPlanSHA256)
+	if plan.prepared == nil {
+		return Result{}, fmt.Errorf("state migration plan is not prepared for Apply")
+	}
+	if _, err := plancontract.Match(
+		commands.MigrateState,
+		"-ExpectedMigrationPlanSha256",
+		expectedPlanSHA256,
+		plan.ExpectedPlanSHA256,
+	); err != nil {
+		return Result{}, err
 	}
 	if err := applyPrepared(plan); err != nil {
 		return Result{}, err
@@ -83,8 +97,16 @@ func applyAlreadyCurrent(plan Plan, expectedPlanSHA256 string) (Result, error) {
 	if !plan.Replay {
 		return Result{}, fmt.Errorf("state migration project is already current; preview is the no-op result and no Apply plan SHA-256 exists")
 	}
-	if plan.prepared == nil || !strings.EqualFold(plan.ExpectedPlanSHA256, expectedPlanSHA256) {
-		return Result{}, fmt.Errorf("state migration replay plan SHA-256 differs from durable receipt")
+	if plan.prepared == nil {
+		return Result{}, fmt.Errorf("state migration replay plan is not bound to a durable receipt")
+	}
+	if _, err := plancontract.Match(
+		commands.MigrateState,
+		"-ExpectedMigrationPlanSha256",
+		expectedPlanSHA256,
+		plan.ExpectedPlanSHA256,
+	); err != nil {
+		return Result{}, err
 	}
 	return replayResult(plan), nil
 }

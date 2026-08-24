@@ -758,7 +758,7 @@ func overviewNextSteps(brief MissionBrief, evidenceReview []workstream.Execution
 			steps = append(steps, action)
 		}
 	}
-	steps = append(steps, "/rekit start <name>", "/rekit handoff", "/rekit handoff main 或 /rekit handoff <name>")
+	steps = append(steps, "/rekit start <name>", "/rekit handoff", "choose one project-local handoff selector: main or an exact lane name")
 	return uniqueStrings(steps)
 }
 

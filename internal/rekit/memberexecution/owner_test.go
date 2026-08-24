@@ -11,14 +11,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 func TestDispatchUsesSTeamAIStateRoot(t *testing.T) {
@@ -34,11 +35,42 @@ func TestDispatchUsesSTeamAIStateRoot(t *testing.T) {
 	if plan.Inspection.TaskContext == nil || !strings.HasPrefix(plan.Inspection.TaskContext.Resume.Path, projectstate.CurrentDir+"/") || !strings.HasPrefix(plan.Inspection.TaskContext.Checkpoint.Path, projectstate.CurrentDir+"/") {
 		t.Fatalf("STeamAI persisted task refs do not match physical root: %+v", plan.Inspection.TaskContext)
 	}
+	if strings.Contains(plan.Inspection.TaskContext.LaneWorkspace, projectstate.LegacyDir) || strings.Contains(plan.Inspection.TaskContext.LaneWorkspace, projectstate.CurrentDir) {
+		t.Fatalf("STeamAI task context workspace is state-root coupled: %+v", plan.Inspection.TaskContext)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(board.FactsRoot, projectstate.LegacyDir) {
+		t.Fatalf("STeamAI board retained a legacy facts root: %+v", board)
+	}
 	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(caseRoot, projectstate.LegacyDir)); !os.IsNotExist(err) {
 		t.Fatalf("STeamAI dispatch unexpectedly created legacy root: %v", err)
+	}
+}
+
+func TestDispatchUsesLegacyStateRootWithoutCurrentReferences(t *testing.T) {
+	caseRoot := memberCaseWithStateDir(t, projectstate.LegacyDir, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("a", 64), CreatedAt: "2026-08-13T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Inspection.TaskContext == nil || !strings.HasPrefix(plan.Inspection.TaskContext.Resume.Path, projectstate.LegacyDir+"/") || !strings.HasPrefix(plan.Inspection.TaskContext.Checkpoint.Path, projectstate.LegacyDir+"/") {
+		t.Fatalf("legacy persisted task refs do not match physical root: %+v", plan.Inspection.TaskContext)
+	}
+	if strings.Contains(plan.Inspection.TaskContext.LaneWorkspace, projectstate.CurrentDir) || strings.Contains(plan.Inspection.TaskContext.LaneWorkspace, projectstate.LegacyDir) {
+		t.Fatalf("legacy task context workspace is state-root coupled: %+v", plan.Inspection.TaskContext)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(board.FactsRoot, projectstate.LegacyDir+"/") || strings.Contains(board.FactsRoot, projectstate.CurrentDir) {
+		t.Fatalf("legacy board facts root does not match selected root: %+v", board)
 	}
 }
 
@@ -407,7 +439,11 @@ func TestWriteTaskBindingForOwnerWithControlRejectsStaleHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := executioncontrol.CaptureBinding(caseRoot, owner)
+	capability, err := capabilitycontract.Bind(capabilitycontract.Transport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1177,25 +1213,27 @@ func memberCaseForPack(t *testing.T, pack, executor string, generation int) stri
 
 func memberCaseForPackAndStateDir(t *testing.T, pack, stateDir, executor string, generation int) string {
 	t.Helper()
-	root := t.TempDir()
-	templateRoot := kitRoot(t)
-	instanceText := "schemaVersion: 1\ntemplateRoot: " + templateRoot + "\ntemplatePack: " + pack + "\nprojectRoot: " + root + "\n"
+	layout := testfixture.LegacyCase
 	if stateDir == projectstate.CurrentDir {
-		bundle := writeSTeamAIRuntimePackFixture(t, root, pack)
-		instanceText = casebind.STeamAIInstanceText(root, pack, "member-execution-test", runtimebundle.ManifestRel, bundle.ManifestSHA256)
+		layout = testfixture.CurrentProject
+	} else if stateDir != projectstate.LegacyDir {
+		t.Fatalf("unsupported member fixture state root: %s", stateDir)
 	}
-	if err := os.MkdirAll(filepath.Join(root, stateDir, "lanes", "feature-analysis"), 0o755); err != nil {
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:      layout,
+		Pack:        pack,
+		ProjectName: "member-execution-test",
+	})
+	laneRoot := filepath.Join(project.StateRoot, "lanes", "feature-analysis")
+	if err := os.MkdirAll(laneRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, stateDir, "instance.yml"), []byte(instanceText), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, stateDir, "lanes", "feature-analysis", "lane.json"), []byte("{\"id\":\"feature-analysis\",\"status\":\"active\"}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(laneRoot, "lane.json"), []byte("{\"id\":\"feature-analysis\",\"status\":\"active\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for path, data := range map[string][]byte{
-		filepath.Join(root, stateDir, "lanes", "feature-analysis", "prompts", "RESUME.md"):       []byte("# feature-analysis\n\nContinue the durable lane task.\n"),
-		filepath.Join(root, stateDir, "lanes", "feature-analysis", "checkpoints", "latest.json"): []byte("{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n"),
+		filepath.Join(laneRoot, "prompts", "RESUME.md"):       []byte("# feature-analysis\n\nContinue the durable lane task.\n"),
+		filepath.Join(laneRoot, "checkpoints", "latest.json"): []byte("{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n"),
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -1204,11 +1242,8 @@ func memberCaseForPackAndStateDir(t *testing.T, pack, stateDir, executor string,
 			t.Fatal(err)
 		}
 	}
-	if stateDir == projectstate.CurrentDir {
-		writeSTeamAIRuntimePackFixture(t, root, pack)
-	}
-	writeBoardForPack(t, root, pack, executor, generation)
-	return root
+	writeBoardForPack(t, project.CaseRoot, pack, executor, generation)
+	return project.CaseRoot
 }
 
 func kitRoot(t *testing.T) string {
@@ -1237,7 +1272,13 @@ func writeCommittedMissionIntent(t *testing.T, root, goal string) {
 	if err := os.WriteFile(filepath.Join(root, ".re-template.yml"), []byte(legacyMetadata), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := syncreview.Apply(repoRoot, root, "_template", syncreview.ApplyOptions{ProjectName: "demo", CreateLocalFiles: true, Command: "init"}); err != nil {
+	initOpt := syncreview.ApplyOptions{ProjectName: "demo", CreateLocalFiles: true, Command: "init"}
+	initPlan, err := syncreview.InitPreview(repoRoot, root, "_template", initOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initOpt.ExpectedPlanSHA256 = initPlan.ExpectedPlanSHA256
+	if _, err := syncreview.Apply(repoRoot, root, "_template", initOpt); err != nil {
 		t.Fatal(err)
 	}
 	opt := onboarding.Options{Target: root, Pack: "_template", ProjectName: "demo", Goal: goal, Actor: "operator", Executor: "executor-a", InitialLane: "feature-analysis"}
@@ -1253,19 +1294,6 @@ func writeCommittedMissionIntent(t *testing.T, root, goal string) {
 	}
 }
 
-func writeSTeamAIRuntimePackFixture(t *testing.T, caseRoot, pack string) runtimebundle.Plan {
-	t.Helper()
-	executable := filepath.Join(t.TempDir(), "steamai-test.exe")
-	if err := os.WriteFile(executable, []byte("test executable"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	bundle, err := runtimebundle.PublishForTest(caseRoot, kitRoot(t), pack, executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return bundle
-}
-
 func writeBoard(t *testing.T, root, executor string, generation int) {
 	t.Helper()
 	writeBoardForPack(t, root, "_template", executor, generation)
@@ -1273,14 +1301,14 @@ func writeBoard(t *testing.T, root, executor string, generation int) {
 
 func writeBoardForPack(t *testing.T, root, pack, executor string, generation int) {
 	t.Helper()
-	board := missionBoardFixture(root, executor, generation)
+	board := missionBoardFixture(t, root, executor, generation)
 	board["pack"] = pack
 	writeBoardValue(t, root, board)
 }
 
 func writeBoardWithCorrection(t *testing.T, root, executor string, generation int, interventionID string) {
 	t.Helper()
-	board := missionBoardFixture(root, executor, generation)
+	board := missionBoardFixture(t, root, executor, generation)
 	lanes := board["lanes"].([]map[string]any)
 	lanes[0]["lastReconciledIntervention"] = interventionID
 	lanes[0]["lastReconcileAt"] = "2026-08-03T01:01:00Z"
@@ -1305,6 +1333,11 @@ func writeBoardValue(t *testing.T, root string, board map[string]any) {
 	}
 }
 
-func missionBoardFixture(root, executor string, generation int) map[string]any {
-	return map[string]any{"schemaVersion": 1, "caseRoot": root, "repoRoot": filepath.Dir(root), "pack": "_template", "automationMode": "review-first", "defaultAuthorityLane": "main", "lanes": []map[string]any{{"id": "feature-analysis", "type": "feature", "title": "analysis", "status": "active", "authority": false, "workspace": ".rekit/lanes/feature-analysis/workspace", "currentExecutor": executor, "executorGeneration": generation, "updatedAt": "2026-08-03T01:00:00Z"}}, "factsRoot": ".rekit/facts", "updatedAt": "2026-08-03T01:00:00Z"}
+func missionBoardFixture(t *testing.T, root, executor string, generation int) map[string]any {
+	t.Helper()
+	factsRoot, err := projectstate.Rel(root, "facts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]any{"schemaVersion": 1, "caseRoot": root, "repoRoot": filepath.Dir(root), "pack": "_template", "automationMode": "review-first", "defaultAuthorityLane": "main", "lanes": []map[string]any{{"id": "feature-analysis", "type": "feature", "title": "analysis", "status": "active", "authority": false, "workspace": "workspace/features/feature-analysis", "currentExecutor": executor, "executorGeneration": generation, "updatedAt": "2026-08-03T01:00:00Z"}}, "factsRoot": factsRoot, "updatedAt": "2026-08-03T01:00:00Z"}
 }

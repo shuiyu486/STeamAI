@@ -190,23 +190,21 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 			return result, fmt.Errorf("prepare corrected daily member run: %w", err)
 		}
 	}
-	adapterReady, err := prepareBinaryREAdapterBeforeMember(parent, dailyOpt, &result)
+	adapterReady, err := prepareProductionAdapterBeforeMember(parent, dailyOpt, &result)
 	if err != nil {
 		return result, err
 	}
 	if !adapterReady {
 		return result, nil
 	}
-	if _, err := bindHostCurrentDriverRequest(&hostOpt); err != nil {
-		return result, fmt.Errorf("bind corrected daily current driver request: %w", err)
-	}
-	hostResult, err := Run(parent, hostOpt)
-	addDailyHostRun(&result, hostResult)
+	owner, err := newDailySessionTransitionOwner(result.CaseRoot, result.Pack, lane)
 	if err != nil {
 		return result, err
 	}
-	result.FinalState = hostResult.FinalMode
-	if err := finishDailyCompletion(result.CaseRoot, result.Pack, &result); err != nil {
+	if err := owner.runHostSegment(parent, hostOpt, &result); err != nil {
+		return result, err
+	}
+	if err := owner.finish(&result); err != nil {
 		return result, err
 	}
 	return result, nil

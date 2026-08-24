@@ -129,15 +129,15 @@ foreach ($scriptLeaf in $catalogScriptSet.Keys) {
 $discovery = Invoke-DiscoveryJson
 Assert-True -Condition ([bool]$discovery.ok) -Message "pack smoke discovery is not ok: $($discovery | ConvertTo-Json -Depth 20)"
 $expectedPackSet = @{}
-foreach ($pack in @($discovery.expectedSkeletonPacks)) { $expectedPackSet[[string]$pack] = $true }
+foreach ($pack in @($discovery.expectedSmokePacks)) { $expectedPackSet[[string]$pack] = $true }
 $catalogPackSet = @{}
 foreach ($entry in @($tests | Where-Object { [string]$_.category -eq 'pack-smoke' })) { $catalogPackSet[[string]$entry.pack] = $true }
 
 foreach ($pack in $expectedPackSet.Keys) {
-  Assert-True -Condition $catalogPackSet.ContainsKey($pack) -Message "catalog missing pack smoke entry for skeleton pack: $pack"
+  Assert-True -Condition $catalogPackSet.ContainsKey($pack) -Message "catalog missing pack smoke entry for expected pack: $pack"
 }
 foreach ($pack in $catalogPackSet.Keys) {
-  Assert-True -Condition $expectedPackSet.ContainsKey($pack) -Message "catalog has pack smoke entry not in skeleton discovery: $pack"
+  Assert-True -Condition $expectedPackSet.ContainsKey($pack) -Message "catalog has pack smoke entry not in expected discovery: $pack"
 }
 
 'catalog smoke ok'
