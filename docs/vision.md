@@ -5,13 +5,13 @@
 - 如果你要使用 STeamAI，在真实项目目录启动已有 Claude Code 并使用 `/steamai` 或自然语言；先读 `README.md` 第一屏，不要从本文件的历史 Phase 自行拼接接入流程。
 - 如果你要维护或迭代本仓库，先读 `docs/context-routing.md`，再由 router 选择 active source；只有需要长期方向或历史阶段背景时才读本文件。
 - 本文件描述长期愿景和历史演进，不代表目标能力都已完成，也不拥有当前选题权。当前路线、完成状态与门槛只以 `docs/real-usage-hardening-roadmap.md` 的 active card 和真实测试为准。
-- Go-owned deterministic runtime、durable lanes、handoff/recovery、Reviewer strict intake、review-first sync/promote、authorized execution evidence、首个成熟 `vmp-re` pack，以及 `/steamai`、`.steamai`、project-local verified bundle、compact/recovery/autonomy 与 legacy migration 的自包含产品闭环均已形成；GitHub repository identity implementation 已完成，不扩大为 Go module/internal rename，最终发布完成态由 machine receipt 判定。
+- Go-owned deterministic runtime、durable lanes、handoff/recovery、Reviewer strict intake、review-first sync/promote、authorized execution evidence，以及 `/steamai`、`.steamai`、project-local verified bundle、compact/recovery/autonomy 与 legacy migration 的自包含产品闭环均已形成；历史上首个 mature `vmp-re` 已收敛为唯一 active 二进制逆向 identity `binary-re`，`web-security` 也已成为 mature Web/API production vertical slice；GitHub repository identity implementation 已完成，不扩大为 Go module/internal rename，最终发布完成态由 machine receipt 判定。
 
 ## 实施摘要
 
 STeamAI repository 实现的长期产品是：**面向网络安全研究与安全工程任务的 STeamAI Claude Code Agent Team Mission Control**。一个真实项目目录就是一个自包含 STeamAI 项目。
 
-它不是单个脱壳工具、IDA 插件、漏洞扫描器或自动化脚本集合，而是把主 Agent 统筹、durable member lanes、可替换 Claude Code session executors、短命 tactical subagents、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。`vmp-re` 是当前首个成熟 pack 和验证场，不是最终边界；长期目标是逐步支持逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。最终产品方向详见 `docs/mission-control-product-direction.md`。
+它不是单个脱壳工具、IDA 插件、漏洞扫描器或自动化脚本集合，而是把主 Agent 统筹、durable member lanes、可替换 Claude Code session executors、短命 tactical subagents、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。历史上首个 mature `vmp-re` 已与通用二进制能力收敛为 `binary-re`；当前 mature production 参考是 `binary-re` 与 `web-security`，但它们都不是产品最终边界。长期目标仍可按明确批准的路线逐步支持恶意样本分析、漏洞研究、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。最终产品方向详见 `docs/mission-control-product-direction.md`。
 
 当前项目的合理边界是：
 
@@ -74,7 +74,7 @@ STeamAI 是安全研究 / 安全工程 Agent Team 的上下文、流程和工具
 
 它服务的对象有两类：
 
-1. **STeamAI 项目使用者**：在真实安全研究或安全工程项目目录中，通过 `/steamai` 或自然语言指挥主 Agent 组织长期分析；当前最成熟示例是 `vmp-re` RE 项目。
+1. **STeamAI 项目使用者**：在真实安全研究或安全工程项目目录中，通过 `/steamai` 或自然语言指挥主 Agent 组织长期分析；当前 mature production 示例是 `binary-re` 逆向工程项目与 `web-security` Web/API 项目。
 2. **框架维护者**：在本仓库中迭代 runtime、pack、policy、tooling recipe、agent workflow 和文档；内部 `/rekit` API 用于确定性实现、兼容与排障。
 
 最终形态不是一个“大而全脚本”，而是一个模块化 team system：每个 agent、工具、证据、候选结论和验证动作都有边界、输入输出和留痕。
@@ -98,7 +98,7 @@ STeamAI 是安全研究 / 安全工程 Agent Team 的上下文、流程和工具
 | Skill UI 层 | 给 Claude Code 暴露 `/steamai` 和自然语言 Mission Control | current 项目的 `.claude/skills/steamai/SKILL.md`；legacy `/rekit` shim 仅兼容 |
 | Project runtime 层 | 管理项目绑定、工作线、状态、handoff、sync/promote | `.steamai/runtime` verified bundle；source owner 为 `cmd/rekit/**`、`internal/rekit/**` |
 | Agent Team 层 | 定义主 agent、功能支线、Reviewer、工具 agent 的职责和 packet | project-local common/pack prompts 与 manifest routes；实际 session spawn 仍由 Claude Code host / 主 Agent 负责 |
-| Pack 领域层 | 保存某类安全任务的领域知识、流程、验证标准 | repository `packs/<pack>/**` 发布源与项目内 `.steamai/packs/<pack>/**`；`vmp-re` 为当前成熟示例 |
+| Pack 领域层 | 保存某类安全任务的领域知识、流程、验证标准 | repository `packs/<pack>/**` 发布源与项目内 `.steamai/packs/<pack>/**`；当前 mature production 参考为 `binary-re` 与 `web-security` |
 | Tooling / adapter 层 | 描述外部工具能力、用法、止损条件和 adapter contract | selected pack tooling 与 compiled-in adapter owners |
 | Evidence ledger 层 | 保存 observation、request、candidate、publication、decision、intervention | `<active-state-root>/facts/*.jsonl`、`<active-state-root>/lanes/**` |
 | Verification gate 层 | 决定什么能进入 confirmed / authority，什么必须人工确认 | project-local common policies、pack overlays、runtime policy gate |
@@ -121,11 +121,15 @@ STeamAI/
   rekit/rekit.ps1              # retained compatibility façade，无业务 runtime/fallback
   rekit/templates/steamai-project/ # project-local skill template
   common/                      # 跨 pack 的 policy 与 prompt
-  packs/vmp-re/                # 当前首个成熟领域 pack / RE 验证场
-    references/vmp-re/         # 下发到 case 的 managed docs
+  packs/binary-re/             # 当前 active 二进制逆向 mature production pack
+    references/binary-re/      # 下发到 case 的 managed docs
     policies/                  # pack-specific policy overlay
     prompts/                   # pack-specific agent prompt
     tooling/                   # 工具 catalog、recipe、patch、candidate
+    manifest.yml               # pack 单一事实源
+  packs/web-security/          # 当前 Web/API mature production vertical slice
+    references/web-security/   # 下发到 case 的 managed docs
+    tooling/                   # OpenAPI inventory 与 bounded replay adapter contract
     manifest.yml               # pack 单一事实源
   docs/                        # 设计、路线、迁移、sync/promote 说明
 ```
@@ -133,8 +137,8 @@ STeamAI/
 短期不要打破这个结构。新增能力优先放在最贴近职责的位置：
 
 - 通用 agent/team 规则：`common/policies` 或 `common/prompts`。
-- `vmp-re` 领域流程：`packs/vmp-re/references/vmp-re` 或 `packs/vmp-re/policies`；新增领域应放入对应 `packs/<pack>/`。
-- 外部工具经验：`packs/<pack>/tooling`；当前成熟内容主要在 `packs/vmp-re/tooling`。
+- `binary-re` 领域流程：`packs/binary-re/references/binary-re` 或 `packs/binary-re/policies`；`web-security` 领域流程位于 `packs/web-security/references/web-security`；新增领域应放入对应 `packs/<pack>/`。
+- 外部工具经验：`packs/<pack>/tooling`；当前 mature production adapter 内容位于 `packs/binary-re/tooling` 与 `packs/web-security/tooling`。
 - runtime 自动化：`internal/rekit/**`，按 case lifecycle、mission、workstream、ledger/gate、sync/promote、subagents 与 releasecheck 职责分层；不要重新引入已删除的 `rekit/lib/*.ps1`。
 - 长期路线与架构说明：`docs`。
 

@@ -4,6 +4,8 @@
 
 ### Changed
 
+- 修复路线收口的 machine completion truth：Windows checkout 现在为 `binaryinventory` canonical golden 强制 LF，避免 `core.autocrlf=true` 让 fresh full suite 因纯换行物化失败；当 active route 已完成但 current HEAD 的 Git-local validation receipt 未 ready 时，`status` 优先发布现有 `release-run` validation repair，同时继续禁止 next-batch。`release-run` 的 Mission Commander 队列现在还会把 tracked latest-batch 的成功 validation evidence 与 post-commit receipt readiness 分开判断：pre-commit receipt 仍保持 machine not-ready，但文档已记录 7/7 时不再错误要求重复补录。同步校正全量 public callback owner与当前 shared capability sinks 的 Known gaps，并记录 `web-security` 越界落地后由用户明确选择保留为 baseline；本修复不创建 Batch 834、不新增 adapter/pack，也不把 Markdown completion 提升为 machine validation。
+
 - 新增统一 mature-pack production admission 与真实 runtime consumption identity：`release-check` 现在 exact 对齐 mature manifest、production contract registry 和 compiled-in adapter 集合，解析 harmless/synthetic 或 loopback fixture及 semantic verifier Go symbol，并为 `binary-re` / `web-security` 构建不含 instruction 全文的 project-local packet identity。完整 prompt/policy bytes 只在 Claude 启动前从 verified bundle reload并注入stdin；同一 identity原样进入external dispatch、adapter execution/evidence-review intent/result、direct Reviewer、detached supervisor spec和structured-output recovery。任何source、symbol、receipt kind、pack或aggregate SHA drift均fail-closed，`policy-only`不能静默忽略prompt；catalog、manifest schema、smoke或E2E单项仍不能替代四要素门禁。该合同不授予heavy-tool、authority/confirmed或更广文件系统/网络权限。
 
 - 补齐 mature `web-security` pack 文档升级后的 append-only onboarding recovery trust generations：保留既有 pending intent 可接受的 managed block/reference hashes，同时登记当前 canonical CRLF publication bytes，避免 fresh preview 因 trusted generation 漂移而拒绝；验证仍严格绑定 exact managed writes，不接受任意内容，也不修改已发布 intent、authority/confirmed 或 heavy-tool 边界。

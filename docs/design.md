@@ -40,7 +40,7 @@
 
 ### Go public command owner
 
-Go public command policy 保持三层单向组合，而不是在总 dispatch `switch` 重复维护：`commands.PublicProfile` 拥有 command-level public/mutation 边界，`commands.MutationContract` 拥有 exact `(command, mode)` currentness 与 carrier，`commands.ScopedCommandDescriptor` 组合二者；当前 `ScopedCommandDescriptor` 仍是 policy catalog 的 composed view，binder、shape validator、handler 和 mode resolver 由 CLI scoped runtime registry 绑定，尚未成为 descriptor 自身字段。当前 scoped runtime owner 已覆盖 `release-check/default`、`migrate-state/default`、`next-batch/default`、`control/default`、`continue/default` 与 `gate` 的 exact modes；其余 public commands 继续由既有 Go route/handler 负责，不能把这一步迁移写成全量 descriptor ownership。release inventory 同时检查 legacy switch 与 scoped owner route 的 handler coverage；注释、字符串或缺 callback 的 route 不计入覆盖。
+Go public command policy 保持三层单向组合，而不是在总 dispatch `switch` 重复维护：`commands.PublicProfile` 拥有 command-level public/mutation 边界，`commands.MutationContract` 拥有 exact `(command, mode)` currentness 与 carrier，`commands.ScopedCommandDescriptor` 组合二者。CLI scoped runtime registry 现在为全部 public commands 提供唯一 callback owner，并对 descriptor mode coverage fail-closed；这已关闭“只有六个 callback owner”的旧缺口。`ScopedCommandDescriptor` 仍只是 policy catalog 的 composed view，callback 尚未成为 descriptor 自身字段；部分 fixed/default owner 仍复用通用 binder、前置 shape validation 与既有 handler，不能把全量 callback inventory 写成所有命令都已完成专属 binder/validator/handler 内聚。release inventory检查 exact owner route、publication owner 与 public coverage；注释、字符串或缺 callback 的 route 不计入覆盖。
 
 ### Durable、diagnostics 与交互边界
 

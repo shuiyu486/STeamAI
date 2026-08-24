@@ -29,7 +29,7 @@ Batch 359 后，Go-owned public surface、durable lane state、显式 `reconcile
 - [ ] **Tactical subagents**：主 Agent可按需启动短命 subagent 做只读搜索、复核、反驳、小修、文档一致性检查或 bounded implementation；Batch 353 已由主 Agent在本机真实 spawn read-only reviewer，并通过显式 reviewer intake WhatIf/Apply 完成 verification-before-decision 写回与 post-validation，但 runtime / `plan-subagents` 仍不自动 spawn 或管理 reviewer session。
 - [ ] **Pre-authorized lane autonomy**：lane 文档/packet 可提出 heavy-tool、动态调试、patch、dump、hook、网络、exploit replay 等授权意图；只有 strict validated durable `autonomy.json` 加 `authorized-gate` decision 才构成 executor 的确定性预授权依据。
 - [ ] **Pack-based team memory**：把 case 中复用价值高的 recipe、checklist、prompt、policy、tool adapter 与 workflow 经 review/promote 沉淀回 pack/common。
-- [ ] **Go-first deterministic substrate**：Go backend 已承载 public command 的 no-fallback deterministic paths；当前 scoped runtime owner 只先覆盖六个 command owner，descriptor 全量 binder/validator/handler ownership、PowerShell-free default/product path 的剩余收口和跨平台 product-path E2E 仍需独立验证，禁止新增 PowerShell runtime logic。
+- [ ] **Go-first deterministic substrate**：Go backend 已承载全部 public command 的 no-fallback deterministic paths，CLI scoped registry也已为全部 public commands建立唯一callback owner；`ScopedCommandDescriptor`仍未全量持有专属binder/validator/handler，部分fixed/default owner复用通用binding与既有handler。完整DTO/reducer data-flow、PowerShell-free default/product path的剩余收口和跨平台product-path E2E仍需独立验证，禁止新增PowerShell runtime logic。
 
 ## 验证标准
 

@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1`，且已完成：四个实现阶段 Batch 830～833 严格串行落地，并通过路线级真实验收收口。当前没有已批准的新路线；source-clone-first、Go + Claude Code 预期依赖和无 installer 是稳定边界。
+当前路线是 `steamai-product-optimization-v1`，四个实现阶段 Batch 830～833 与产品实现已完成，当前没有已批准的新路线；source-clone-first、Go + Claude Code 预期依赖和无 installer 是稳定边界。`3ab553c` 在路线已完成后越界加入 `web-security` production vertical slice；2026-08-24 审核后用户明确选择保留为 baseline，并只授权同路线 validation repair。route selection 继续保持 `completed / 无下一批`，但 current HEAD 的 machine validation 为 `implementation-pending`，不得把 tracked completion 提升为本地验收完成。
 
 ## 执行清单
 
@@ -30,15 +30,17 @@
 
 目标：以 `Batch 833` 作为 latest numbered implementation identity，供 Git-local machine receipt 绑定随后同批路线收口修复；`路线收口` 继续由 active route 独立表达，不冒充新产品批次。
 
-验证结果：Batch 833 focused fresh lifecycle tests 已实际启动 embedded authorized parent/fixed child，并覆盖 strict gate、independent evidence review、accepted-only binding、terminal recovery 与 stale control fail-closed；路线级 frozen-tree release minimum、真实 Claude acceptance 和最终 Git-local receipt 仍由当前收口工作完成，本段不宣称它们已通过。
+验证结果：Batch 833 focused fresh lifecycle tests 已实际启动 embedded authorized parent/fixed child，并覆盖 strict gate、independent evidence review、accepted-only binding、terminal recovery 与 stale control fail-closed；随后同路线 validation repair 的最终 `release-run -Format json` 以 7/7 通过。结果为 `passed=7` / `failed=0` / `skipped=0`，并生成绑定 baseline `3ab553c` 的 pre-commit v2 receipt；唯一 direct implementation commit 与 tracking-ref inspection 尚未形成，本段不宣称 local completion ready。
 
 ### 路线收口：full validation and cleanup
 
-状态：已完成；当前无已批准下一批。
+状态：产品实现已完成；current HEAD validation repair 为 `implementation-pending`；当前无已批准下一批。
 
-完成结果：默认 `binary-re` 真实 Claude gate 从 fresh 与 attached 自包含项目走通 member→独立 Reviewer rejection→zero-launch replay→人工纠偏→actual embedded adapter parent/fixed child→independent evidence review→replacement member→独立 Reviewer acceptance→completion→terminal/attached recovery；3 个 member 与 3 个 Reviewer 全部来自真实 Claude Code envelope，`manualPlaceholders=0`、`manualResultWrites=0`，fresh/attached case cleanup 均为 `removed`。README、CLAUDE、reference、config/example 与测试漂移已同步收敛；复制/移动 E2E 由 canonical full suite 覆盖。
+完成结果：默认 `binary-re` 真实 Claude gate 从 fresh 与 attached 自包含项目走通 member→独立 Reviewer rejection→zero-launch replay→人工纠偏→actual embedded adapter parent/fixed child→independent evidence review→replacement member→独立 Reviewer acceptance→completion→terminal/attached recovery；3 个 member 与 3 个 Reviewer 全部来自真实 Claude Code envelope，`manualPlaceholders=0`、`manualResultWrites=0`，fresh/attached case cleanup 均为 `removed`。`3ab553c` 另将 `web-security` 从 skeleton 提升为 mature production vertical slice；该扩张当时没有 active route 授权，2026-08-24 审核后由用户明确选择保留，不能据此继续新增 adapter、pack 或路线。
 
-完成证据：本段保存真实 gate 边界；frozen 7-step local minimum、exact changed artifacts、唯一 direct implementation commit 与 Git-local tracking ref 只由 v2 machine receipt/post-push inspection 判定，不由 Markdown 预写。未读取 remote CI，因此不声称 remote CI green、跨平台 runtime E2E 或 formal release。
+当前 validation repair：审核时 Windows fresh full suite 发现 `binaryinventory` canonical golden 因 checkout CRLF 失败，旧 v2 receipt 仍绑定 `3273deb`，而 status 错误优先发布 `completed-no-next-batch`。现已修复 LF contract、完整 implementation-pending action priority、组合回归测试和 Known gaps 事实；最终 `release-run -Format json` 以 7/7 通过。结果为 `passed=7` / `failed=0` / `skipped=0`，并生成绑定 baseline `3ab553c` 的 pre-commit v2 receipt。
+
+完成证据：本段只保存产品与修复边界；pre-commit receipt已存在，但唯一 direct implementation commit 与 Git-local tracking ref 尚未形成，因此local completion仍为`non-direct-implementation-commit`，不能由Markdown预写为ready。未读取remote CI，因此不声称remote CI green、跨平台runtime E2E或formal release。
 
 ### Locked sequence
 

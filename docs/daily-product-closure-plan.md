@@ -9,7 +9,7 @@
 - 首选入口：先由 `docs/context-routing.md` 的“日常产品收口实施方案”场景路由到本文件。
 - 只想判断方案是否符合目标：读“实施摘要”“验证标准”和“四个闭环总览”。
 - 准备实施某一批：只读“共同架构边界”、对应 `DPC-*` 卡和“每批共同完成门槛”，不要默认加载其它批次细节。
-- 本文件解决的是 **Windows + Claude Code + `vmp-re` 的日常产品收口**；不把 installer、GUI、跨平台对等或八个 skeleton pack 同步成熟塞进这四批。
+- 本文件记录当时 **Windows + Claude Code + 历史 `vmp-re` identity** 的日常产品收口；实现后来已收敛到 active `binary-re`，`web-security` mature production vertical slice 则是在该四批路线之后作为 baseline 保留，不应倒写进 DPC 批次。本文不把 installer、GUI、跨平台对等或其余 skeleton pack 的成熟度当作 DPC 交付。
 - 本文件不是新的默认 read-first。实施时只消费 active route 指向的当前卡；不得从本文件自行提升下一批。
 
 ## 实施摘要
@@ -48,7 +48,7 @@
 - [x] `DPC-03` 通过后提升 `DPC-04`。
 - [x] 完成 `vmp-re` IDA index adapter 的授权、contained process、证据登记、member 消费和 Reviewer 复核验收。
 - [x] 四批完成后重新进行真实可用性复评；当前快照见 `docs/current-usability-assessment-2026-08-11.md`。
-- [x] 在最终工作树上完成四旅程整体验收、最终源码真实 acceptance 与只读终审；Windows 本机 release minimum、commit/push 和 post-push 验证作为本次收尾门禁顺序执行。安装交付、第二个成熟 pack 和跨平台专项另行立项。
+- [x] 在最终工作树上完成四旅程整体验收、最终源码真实 acceptance 与只读终审；Windows 本机 release minimum、commit/push 和 post-push 验证作为本次收尾门禁顺序执行。安装交付与跨平台专项仍另行立项；后续 `web-security` baseline 的保留与 validation repair 由 active route 单独记录，不属于本方案历史批次。
 
 ## 验证标准
 

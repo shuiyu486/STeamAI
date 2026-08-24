@@ -30,7 +30,7 @@
 
 定义未来 `/rekit` 半自动 Agent Team runtime 的实施计划。当前文件是设计计划，不表示 runtime 已实现自动分派。
 
-目标是在保持 review-first、可解释、可暂停、可回放的前提下，让 `/rekit` 能为不同安全领域 pack 生成 packet、分派只读复核、收敛结论、完成 deterministic authorization preflight、在必要时提示人工确认并更新 handoff。`vmp-re` 是当前首个成熟验证场，不是最终边界。
+目标是在保持 review-first、可解释、可暂停、可回放的前提下，让 `/rekit` 能为不同安全领域 pack 生成 packet、分派只读复核、收敛结论、完成 deterministic authorization preflight、在必要时提示人工确认并更新 handoff。历史上首个 mature `vmp-re` 已收敛为唯一 active 二进制逆向 identity `binary-re`；当前另有 mature `web-security` production vertical slice，两者都不是最终边界。
 
 ## 非目标
 

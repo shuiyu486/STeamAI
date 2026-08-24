@@ -487,6 +487,15 @@ func latestBatchReleaseCheckReady(text string) bool {
 		latestBatchHasReleaseRunSuccess(lower)
 }
 
+// LatestBatchDocumentsRecordLocalValidation reports whether the tracked latest-batch prose records a successful local release minimum independently of post-commit receipt readiness.
+func LatestBatchDocumentsRecordLocalValidation(latest ReleaseHandoffLatestBatch) bool {
+	if slices.Contains(latest.Handoff.Evidence, "release-run local release minimum passed") {
+		return true
+	}
+	evidenceSection := latestBatchEvidenceSection(latest.BatchID, strings.Join([]string{latest.Status, latest.ValidationResult}, "\n"))
+	return latestBatchHasLocalValidation(evidenceSection)
+}
+
 func latestBatchHasLocalValidation(text string) bool {
 	lower := strings.ToLower(text)
 	for _, pending := range []string{"完整本地 release minimum 待", "本地 release minimum 待", "完整本机 release minimum 待", "本机 release minimum 待", "local release minimum pending", "full local release minimum pending"} {
@@ -1186,6 +1195,7 @@ func latestBatchEvidence(text string) []string {
 		{match: "go vet ./...", label: "go vet ./... recorded"},
 		{match: "git diff --check", label: "git diff --check recorded"},
 		{match: "release-run", label: "release-run local release minimum recorded"},
+		{match: "release-run-success", label: "release-run local release minimum passed"},
 		{match: "release-run-retry", label: "release-run transient retry recorded"},
 		{match: "release-check ready=true", label: "release-check ready=true recorded"},
 		{match: "release-run-ready", label: "release-check ready=true recorded"},
@@ -1203,7 +1213,7 @@ func latestBatchEvidenceMatched(match, text, lower, remoteText, remoteLower stri
 	switch match {
 	case "steps: []":
 		return latestBatchRemoteReleaseGate(text) != "not-recorded" && latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
-	case "release-run-ready":
+	case "release-run-ready", "release-run-success":
 		return latestBatchHasReleaseRunSuccess(lower)
 	case "releasecheck-ready":
 		return latestBatchReleaseCheckReady(text)

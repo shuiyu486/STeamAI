@@ -1069,7 +1069,7 @@ func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
 	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") || !strings.Contains(handoff.NextAction, "without waiting for remote CI") {
 		t.Fatalf("completed release-run batch should point to non-blocking next-batch selection, got %q", handoff.NextAction)
 	}
-	for _, evidence := range []string{"release-run local release minimum recorded", "release-check ready=true recorded", "go test ./... recorded", "git diff --check recorded"} {
+	for _, evidence := range []string{"release-run local release minimum recorded", "release-run local release minimum passed", "release-check ready=true recorded", "go test ./... recorded", "git diff --check recorded"} {
 		if !slices.Contains(handoff.Evidence, evidence) {
 			t.Fatalf("release-run handoff evidence missing %q: %+v", evidence, handoff.Evidence)
 		}
@@ -1081,15 +1081,31 @@ func TestLatestBatchHandoffAcceptsReleaseRunSevenOfSevenLocalMinimum(t *testing.
 
 验证结果：完成态写回后统一 ` + "`" + `release-run -Format json` + "`" + ` 以 7/7 通过（419.598 秒，其中完整 Go tests 416.905 秒）。`
 
-	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	latest := ReleaseHandoffLatestBatch{BatchID: "Batch 833", Status: "已完成 fixture", ValidationResult: section}
+	handoff := latestBatchHandoff(latest, section)
 	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady {
 		t.Fatalf("release-run 7/7 success should satisfy local release minimum: %+v", handoff)
+	}
+	latest.Handoff = handoff
+	if !LatestBatchDocumentsRecordLocalValidation(latest) {
+		t.Fatalf("release-run 7/7 latest-batch docs should record local validation: %+v", latest)
 	}
 	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady {
 		t.Fatalf("release-run 7/7 completed batch should have complete cadence: %+v", cadence)
 	}
 	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") || !strings.Contains(handoff.NextAction, "without waiting for remote CI") {
 		t.Fatalf("release-run 7/7 completed batch should point to non-blocking next-batch selection, got %q", handoff.NextAction)
+	}
+}
+
+func TestLatestBatchDocumentsRecordLocalValidationRejectsPendingNarrative(t *testing.T) {
+	latest := ReleaseHandoffLatestBatch{
+		BatchID:          "Batch 833",
+		Status:           "已完成 fixture",
+		ValidationResult: "release-run 7/7 待执行。",
+	}
+	if LatestBatchDocumentsRecordLocalValidation(latest) {
+		t.Fatalf("pending release-run narrative should not count as recorded local validation: %+v", latest)
 	}
 }
 

@@ -2399,7 +2399,7 @@ func releaseRunInspectionMissionCommanderActionQueue(git releaseRunInspectionGit
 	if !localReady {
 		add("/rekit release-run -Format json", "release-run-local-validation-retry", "local-release-run-not-ready", true, []string{"local release-run did not pass", "inspect failed step output before retrying"}, append(baseBoundary, "fix the failed local release minimum step before release inspection"))
 	}
-	if localReady && (!latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady) {
+	if localReady && !releasecheck.LatestBatchDocumentsRecordLocalValidation(latest) {
 		add("record this release-run result in docs/batch-plan.md before final release handoff", "release-run-local-validation-record", "local-release-run-record-required", true, []string{"local release-run passed", "latest batch docs have not recorded local release validation yet"}, append(baseBoundary, "update CHANGELOG.md alongside docs/batch-plan.md when the user-visible batch result changes"))
 	}
 	if strings.TrimSpace(git.Branch) != "main" {
@@ -2557,7 +2557,7 @@ func releaseRunInspectionNextActions(git releaseRunInspectionGitState, latest re
 	}
 	if !localReady {
 		actions = append(actions, "run go run ./cmd/rekit -- -Command release-run -Format text and record the local release minimum result before handoff")
-	} else if !latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady {
+	} else if !releasecheck.LatestBatchDocumentsRecordLocalValidation(latest) {
 		actions = append(actions, "record this release-run result in docs/batch-plan.md before final release handoff")
 	}
 	cadence := latest.Handoff.ReleaseInspectionCadence
@@ -7476,8 +7476,10 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		return &current
 	}
 	if action := projectHandoff.ActiveRoute.CurrentAction; action != nil && projectHandoff.ActiveRoute.Present && !projectHandoff.ActiveRoute.NextBatchUnlocked {
-		current := *action
-		return &current
+		if action.ActionID != "active-route-completed" || !statusProjectHandoffNeedsImplementationRepair(projectHandoff) {
+			current := *action
+			return &current
+		}
 	}
 	command := strings.TrimSpace(projectHandoff.LatestNextAction)
 	if command == "" {
@@ -7538,6 +7540,15 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		Reasons:        mission.UniqueStrings(reasons),
 		Boundary:       boundary,
 	}
+}
+
+func statusProjectHandoffNeedsImplementationRepair(projectHandoff *statusProjectHandoff) bool {
+	if projectHandoff == nil ||
+		!strings.EqualFold(strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.State), "implementation-pending") {
+		return false
+	}
+	return strings.TrimSpace(projectHandoff.LatestNextAction) != "" ||
+		strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.NextAction) != ""
 }
 
 func writeStatusMissionCommanderLaneChoicesText(out io.Writer, queues ...mission.MissionCommanderActionQueue) error {

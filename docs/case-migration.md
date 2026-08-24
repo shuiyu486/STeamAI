@@ -50,7 +50,7 @@
 
 ## 旧安全 case 接入 Agent Team 架构
 
-旧 case 不需要一次性重建。推荐分两步接入；当前成熟 pack 示例仍使用 `vmp-re`：
+旧 case 不需要一次性重建。以下 `vmp-re` 命令只示范旧 identity 的 legacy-only 接入；current 项目使用唯一 active 二进制逆向 pack `binary-re`，旧 identity 不作 alias 或自动迁移：
 
 1. **绑定 metadata 和 thin shim**：
 

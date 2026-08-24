@@ -1146,6 +1146,76 @@ func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSel
 	}
 }
 
+func TestStatusProjectHandoffCompletedRouteStillRepairsStaleLocalValidation(t *testing.T) {
+	project := &statusProjectHandoff{
+		Ready:                      true,
+		LatestBatch:                "Batch 833",
+		LatestLocalValidationReady: false,
+		LatestNextAction:           "run the full local release minimum and update docs/batch-plan.md",
+		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+			State:      "implementation-pending",
+			NextAction: "rerun the full Windows local release minimum and publish a machine validation receipt before next-batch selection",
+		},
+		ActiveRoute: releasecheck.ReleaseHandoffActiveRoute{
+			Present:              true,
+			Ready:                true,
+			State:                "completed",
+			ProjectionConsistent: true,
+			NextBatchUnlocked:    false,
+			CurrentAction: &mission.MissionCommanderNextActionItem{
+				Label:    "路线收口",
+				ActionID: "active-route-completed",
+				State:    "completed-no-next-batch",
+				Command:  "the approved route is complete; wait for an explicit user route change before selecting further work",
+				Source:   "releaseHandoffActiveRoute",
+			},
+		},
+	}
+
+	current := statusProjectHandoffCurrentAction(project)
+	if current == nil || current.ActionID != "latest-batch-next-action" || current.Source != "releaseHandoffLatestBatch" || current.State != "implementation-pending" || current.Command != "/rekit release-run -Format json" || !current.RequiresReview {
+		t.Fatalf("completed route hid stale local validation repair: %+v", current)
+	}
+	if project.ActiveRoute.NextBatchUnlocked || project.NextBatchSelectionPackage != nil {
+		t.Fatalf("validation repair must not unlock next-batch selection: %+v", project)
+	}
+}
+
+func TestStatusProjectHandoffCompletedRouteStillFinishesImplementationPublication(t *testing.T) {
+	project := &statusProjectHandoff{
+		Ready:                      true,
+		LatestBatch:                "Batch 833",
+		LatestLocalValidationReady: true,
+		LatestNextAction:           "publish the direct implementation commit and refresh the Git-local tracking ref",
+		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+			State:      "implementation-pending",
+			NextAction: "publish the direct implementation commit and refresh the Git-local tracking ref",
+		},
+		ActiveRoute: releasecheck.ReleaseHandoffActiveRoute{
+			Present:              true,
+			Ready:                true,
+			State:                "completed",
+			ProjectionConsistent: true,
+			NextBatchUnlocked:    false,
+			CurrentAction: &mission.MissionCommanderNextActionItem{
+				Label:    "路线收口",
+				ActionID: "active-route-completed",
+				State:    "completed-no-next-batch",
+				Command:  "the approved route is complete; wait for an explicit user route change before selecting further work",
+				Source:   "releaseHandoffActiveRoute",
+			},
+		},
+	}
+
+	current := statusProjectHandoffCurrentAction(project)
+	if current == nil || current.ActionID != "latest-batch-next-action" || current.Source != "releaseHandoffLatestBatch" || current.State != "implementation-pending" || !strings.Contains(current.Command, "direct implementation commit") || !current.RequiresReview {
+		t.Fatalf("completed route hid implementation publication repair: %+v", current)
+	}
+	if project.ActiveRoute.NextBatchUnlocked || project.NextBatchSelectionPackage != nil {
+		t.Fatalf("implementation publication must not unlock next-batch selection: %+v", project)
+	}
+}
+
 func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t *testing.T) {
 	project := &statusProjectHandoff{
 		Ready:                       true,
@@ -2356,7 +2426,14 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("project handoff omitted latest batch remote gate detail: %+v", status.ProjectHandoff)
 	}
 	projectCurrent := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
-	if projectCurrent == nil || projectCurrent.ActionID != "active-route-completed" || projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.State != "completed-no-next-batch" || projectCurrent.Label != "路线收口" {
+	if projectCurrent == nil {
+		t.Fatalf("status omitted project current action: route=%+v", activeRoute)
+	}
+	if status.ProjectHandoff.ReleaseInspectionCadence.State == "implementation-pending" {
+		if projectCurrent.ActionID != "latest-batch-next-action" || projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.State != "implementation-pending" || projectCurrent.Command == "" || !projectCurrent.RequiresReview {
+			t.Fatalf("implementation repair should own current action while route completion remains locked: route=%+v current=%+v", activeRoute, projectCurrent)
+		}
+	} else if projectCurrent.ActionID != "active-route-completed" || projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.State != "completed-no-next-batch" || projectCurrent.Label != "路线收口" {
 		t.Fatalf("completed route did not expose terminal no-selection guidance: route=%+v current=%+v", activeRoute, projectCurrent)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
@@ -5657,6 +5734,42 @@ func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("release-run release inspection text missing %q:\n%s", expected, out.String())
 		}
+	}
+}
+
+func TestReleaseRunInspectionQueueDoesNotConfusePreCommitReadinessWithMissingDocs(t *testing.T) {
+	latest := releasecheck.ReleaseHandoffLatestBatch{
+		BatchID: "Batch 833",
+		Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+			LocalValidationReady: false,
+			ReleaseCheckReady:    false,
+			Evidence:             []string{"release-run local release minimum passed"},
+			ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+				State:      "implementation-pending",
+				NextAction: "create/push the implementation commit after Windows local validation",
+			},
+		},
+	}
+	git := releaseRunInspectionGitState{Branch: "main", WorkingTreeClean: false, Synchronized: true}
+	queue := releaseRunInspectionMissionCommanderActionQueue(git, latest, true, false)
+	for _, action := range queue.UnblockedActions {
+		if action.ActionID == "release-run-local-validation-record" {
+			t.Fatalf("pre-commit machine readiness should not be confused with missing tracked validation evidence: %+v", queue)
+		}
+	}
+	for _, action := range releaseRunInspectionNextActions(git, latest, true) {
+		if action == "record this release-run result in docs/batch-plan.md before final release handoff" {
+			t.Fatalf("pre-commit next actions should not repeat tracked validation guidance: %+v", action)
+		}
+	}
+	if queue.CurrentAction == nil || queue.CurrentAction.ActionID != "release-run-git-clean-required" {
+		t.Fatalf("documented pre-commit validation should advance to the real git blocker: %+v", queue)
+	}
+
+	latest.Handoff.Evidence = nil
+	queue = releaseRunInspectionMissionCommanderActionQueue(git, latest, true, false)
+	if queue.CurrentAction == nil || queue.CurrentAction.ActionID != "release-run-local-validation-record" {
+		t.Fatalf("missing tracked validation evidence should retain the document-record action: %+v", queue)
 	}
 }
 
@@ -25848,6 +25961,8 @@ func readyReleaseHandoffFixture(base releasecheck.ReleaseHandoff) releasecheck.R
 			CommitRefs:               []string{"dd15e1b"},
 			Evidence: []string{
 				"release-check -Format json recorded",
+				"release-run local release minimum recorded",
+				"release-run local release minimum passed",
 				"status handoff recorded",
 				"packs inventory recorded",
 				"doctor validation recorded",

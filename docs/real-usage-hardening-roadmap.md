@@ -6,7 +6,9 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1`，且已完成。四个有序实施阶段 Batch 830～833 与路线级真实验收均已收口：core product closure、唯一 `binary-re`、durable pause/resume/stop、ordinary `binary-re` actual adapter lifecycle，以及组合行为的真实 Claude/actual adapter/recovery 验证。当前没有已批准的下一路线。
+当前路线是 `steamai-product-optimization-v1`，四个有序实施阶段 Batch 830～833 与路线级产品实现均已收口：core product closure、唯一 `binary-re`、durable pause/resume/stop、ordinary `binary-re` actual adapter lifecycle，以及组合行为的真实 Claude/actual adapter/recovery 验证。当前没有已批准的下一路线。
+
+`3ab553c` 在路线已标记完成后越过原收口边界，将 `web-security` 从 skeleton 提升为第二条 mature production vertical slice。2026-08-24 审核后，用户明确选择**保留并补验收**：它从此作为当前 baseline 保留，但不追溯改写为 Batch 834 或一条曾获批准的新路线。当前只允许同路线 validation repair，修复 Windows fresh gate、machine completion truth 与文档事实；不得继续扩展 adapter、pack 或长期架构任务。tracked `completed` 只表示候选终态，本地完成仍以 current HEAD 的 fresh Git-local v2 receipt 与 post-push inspection 为准。
 
 产品获取方式保持 `source-clone-first`：canonical repository 是 `https://github.com/shuiyu486/STeamAI`，Go module `github.com/shuiyu486/re-context-kits` 暂作 compatibility identity。Go 与 Claude Code 是预期依赖；不实现 installer、portable ZIP、MSI、winget、下载站或自动更新。current 项目继续拒绝 PATH/外部 kit fallback，默认 quickstart 只保留 `cd <project> → claude → /steamai`。
 
@@ -29,15 +31,16 @@
 - [x] **Batch 831 — binary-re convergence（completed）**：发布唯一 active `packs/binary-re`；不保留 alias、双写或自动迁移，旧 pack identity 只返回 typed `pack-migration-required`。
 - [x] **Batch 832 — durable execution control（completed）**：实现独立 control generation、append-only pause/resume/stop receipt、result birth/currentness binding、held/late ledger、consumer progression guard，以及 durable-first exact local supervisor stop actuation。
 - [x] **Batch 833 — binary-re actual analysis（completed）**：VMP/IDA actual adapter 接入 ordinary daily、独立 evidence review 和 accepted-review 后 task binding；terminal durable tail 可恢复且不重启 child、Reviewer 或重复 acknowledgement。
-- [x] **路线收口（completed）**：默认 `binary-re` 真实 Claude acceptance、actual adapter、terminal/attached recovery、README/CLAUDE/reference/config/example 核查与临时计划清理均已闭合；frozen 7-step local minimum、exact implementation commit 与 tracking ref 由 Git-local v2 receipt/post-push inspection 动态验证。
+- [x] **路线收口产品验收（completed）**：默认 `binary-re` 真实 Claude acceptance、actual adapter、terminal/attached recovery、README/CLAUDE/reference/config/example 核查与临时计划清理均已闭合。
+- [ ] **同路线 validation repair（implementation-pending）**：Windows fresh gate、status completion truth与Known gaps已修复；frozen 7-step local minimum已通过并生成绑定`3ab553c` baseline的pre-commit v2 receipt，仍需唯一direct implementation commit与本地tracking-ref inspection才能关闭。
 
 ## 当前批次卡
 
 ### 路线收口：full validation and cleanup
 
-**状态**：completed；当前没有已批准下一批，不创建 Batch 834。
+**状态**：implementation-pending validation repair；当前没有已批准下一批，不创建 Batch 834。
 
-**目标**：以 frozen-tree fresh tests、本机 release receipt、自包含复制/移动 E2E、一次默认 `binary-re` 真实 Claude acceptance、actual adapter、文档/示例核查和 Git-local post-push inspection 验证 Batch 830～833 的组合行为；不能用 focused hook、typed contract、Markdown claim、cross-compile 或远程 workflow 定义代替真实完成证据。
+**目标**：保留审核后明确接受的 `web-security` production baseline，修复 Windows fresh full-suite、machine validation completion truth 与过时 Known gaps；随后以 frozen-tree fresh tests、本机 release receipt、自包含复制/移动 E2E、默认 `binary-re` / `web-security` 产品证据、文档/示例核查和 Git-local post-push inspection验证当前 HEAD。不能用 focused hook、typed contract、Markdown claim、cross-compile 或远程 workflow 定义代替真实完成证据。
 
 **完成结果**：
 
