@@ -15962,6 +15962,11 @@ func executeGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err := validateAdapterExecutionReceiptModeFlags(opt); err != nil {
 		return err
 	}
+	if strings.TrimSpace(opt.Gate.ExpectedExecutionReportSHA256) != "" &&
+		!opt.Gate.ScaffoldExecutionReport && !opt.Gate.DraftExecutionReport &&
+		strings.TrimSpace(opt.Gate.ExecutionReportPath) == "" {
+		return fmt.Errorf("gate -ExpectedExecutionReportSha256 requires an execution report mode or execution evidence selector")
+	}
 	if opt.Gate.RecordAdapterExecutionDispatch {
 		if opt.WhatIf {
 			return fmt.Errorf("gate -RecordAdapterExecutionDispatch uses read-only preview by default; omit -WhatIf")

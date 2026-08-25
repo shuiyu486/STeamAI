@@ -18,9 +18,9 @@
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
 | 当前批次 | `P0P3-C4 runtime ownership` |
-| 状态 | `in_progress` |
-| 唯一允许领取 | `P0P3-C4` |
-| 上一批 | `P0P3-C3 DTO/receipt/session/skill` 已完成并通过 focused/product validation |
+| 状态 | `completed` |
+| 唯一允许领取 | retired pack identity migration |
+| 上一批 | `P0P3-C4 runtime ownership` 已完成并通过 focused/package/product validation |
 | 下一批 | retired pack identity migration |
 | canonical repository | `https://github.com/shuiyu486/STeamAI` |
 | 暂保留兼容身份 | Go module `github.com/shuiyu486/re-context-kits`、内部 `rekit` names、legacy `/rekit` / `.rekit` |
@@ -29,7 +29,7 @@
 
 - [x] **Batch 830～833 + validation baseline**：已完成，细节见 `CHANGELOG.md` 与 `docs/batch-history.md`；不代表 residual route完成。
 - [x] **P0P3-C1～C3**：capability sinks、orchestration non-authorization、DTO/receipt/session/skill 已闭合；C3 exact skill provenance、immutable stamped publication与审计结论见 `CHANGELOG.md`。
-- [ ] **P0P3-C4 — runtime ownership（current）**：完成原 #38；descriptor-owned binder/validator/handler/profile/policy，消除 continue/control/gate 平行 dispatch 与共享可变投影。
+- [x] **P0P3-C4 — runtime ownership**：完成原 #38；69 个 exact runtime owners 通过机器 inventory，continue 锁后 lane identity 与 gate 孤立 report binding 的窄复现已 fail-closed；未发现 control/session/provider 的可复现平行 owner。
 - [ ] **retired pack identity migration closure**：为 `vmp-re` / `generic-binary-re` 到 canonical `binary-re` 提供 review-first、exact-plan、single-write migration，不 alias、双写或自动择优。
 - [ ] **binary-re 专项验收校准**：区分 synthetic、real Claude 与真实目标/工具证据，收窄或实证 VMP producer 能力，并投影 established-case enabled specialties。
 - [ ] **完整获批方案验收**：逐项复核 P0～P3，运行产品/focused/full gates；未完成项、synthetic-only evidence 或待专项边界不得写成总体完成。
@@ -38,17 +38,19 @@
 
 ### P0P3-C4：runtime ownership
 
-**状态**：in_progress；唯一允许领取 `P0P3-C4`。
+**状态**：completed；已解锁下一卡 retired pack identity migration。
 
-**来源**：原 task #38。前置 C3 已收口 skill provenance、canonical stamped publication identity 和 public DTO/session 证据边界；本卡不重写 durable state、gate、receipt 或权限模型。
+**来源**：原 task #38。前置 C3 已收口 skill provenance、canonical stamped publication identity 和 public DTO/session 证据边界；本卡未重写 durable state、gate、receipt 或权限模型。
 
 **目标**：让 scoped descriptor 与 typed reducer 真正拥有 continue/control/gate 目标 runtime 的 binder、validator、handler、profile、policy 和 publication owner，消除平行 dispatch 与共享可变投影。
 
-**验收**：
+**完成证据**：
 
-1. 每个目标 command/mode 只有一个可追踪 owner，descriptor、reducer、publication 与 policy 不再分叉改写同一请求或 receipt。
-2. 发现具体 shared mutable projection 或平行 dispatch 时，以窄复现测试闭合；没有证据的 session/provider 不扩张实现。
-3. focused/product/full local validation通过后，才解锁 retired pack identity migration；不跳到 binary-re专项或总体完成声明。
+1. scoped runtime inventory 覆盖 69 个 exact owners；descriptor、binder、validator、handler 与 publication owner 通过 fail-closed catalog validation。
+2. `ContinueApplyValidated` 在 lane mutation lease 后重新解析 selector，并对 canonical case/lane identity 做 exact 比较；board selector rebind 的 focused regression 保证 zero-write 拒绝。
+3. gate execution-report hash 若脱离 report mode/evidence selector，不再被 decision handler 静默忽略；合法 dispatch/receipt/report paths focused regression 通过。
+4. control 的单一 default owner 及 session/provider 候选未形成可复现平行 dispatch，因此未扩张实现。
+5. focused、package、定向 `go vet` 与 `git diff --check` 通过；下一步执行 retired identity migration，不跳到 binary-re 专项或总体完成声明。
 
 ## 验证标准
 
@@ -76,6 +78,7 @@ git diff --check
 
 ## 路线变更记录
 
+- 2026-08-25：`P0P3-C4` 完成；scoped owner inventory、continue lock-after-reparse identity guard、gate orphaned report-binding rejection 与未复现候选边界见 `CHANGELOG.md`。
 - 2026-08-25：`P0P3-C3` 完成并切换到 C4；exact skill provenance、immutable stamped publication与审计结论见 `CHANGELOG.md`。
 - 2026-08-25：`P0P3-C1/C2` 完成；capability/control lineage 与 orchestration non-authorization 细节见 `CHANGELOG.md`。
 - 2026-08-24：原始 P0～P3批准与 task tool ledger 复核发现 #37/#38/#50/#52 明确 pending 且无取消记录；撤销 `completed / no-next` 假收口，保持同一路线并恢复 `P0P3-C1`～`C4` residual sequence。

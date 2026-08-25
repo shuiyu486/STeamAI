@@ -129,6 +129,43 @@ func TestRunGateAdapterExecutionReceiptRejectsModeConflicts(t *testing.T) {
 	}
 }
 
+func TestRunGateRejectsOrphanedExecutionReportBindingWithoutWrites(t *testing.T) {
+	_, caseRoot, pack := cliAdapterExecutionFixture(t)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{
+  "schemaVersion": 1,
+  "id": "main",
+  "type": "main",
+  "name": "main",
+  "title": "Main",
+  "status": "active",
+  "authority": true,
+  "workspace": "workspace/main",
+  "laneRoot": ".rekit/lanes/main",
+  "canWrite": [],
+  "readOnly": [],
+  "outputs": [],
+  "counters": {},
+  "currentExecutor": "executor-a",
+  "executorGeneration": 1,
+  "createdAt": "2026-07-29T00:00:00Z",
+  "updatedAt": "2026-07-29T00:00:00Z"
+}`)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	err := Run([]string{
+		"-Command", "gate", "-Target", caseRoot, "-Pack", pack,
+		"-Action", "debug", "-Lane", "main", "-TargetRef", "target-alpha",
+		"-RuntimeSeconds", "30", "-DiskMB", "64", "-Requests", "1",
+		"-OutputPaths", "workspace/main/debug/session-1", "-StopConditions", "timeout",
+		"-Actor", "gate-test", "-ExpectedExecutionReportSha256", strings.Repeat("a", 64),
+		"-Apply", "-Format", "json",
+	}, &out)
+	if err == nil || !strings.Contains(err.Error(), "requires an execution report mode or execution evidence selector") {
+		t.Fatalf("orphaned execution report binding error = %v", err)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+}
+
 func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	_, caseRoot, pack := cliAdapterExecutionFixture(t)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{

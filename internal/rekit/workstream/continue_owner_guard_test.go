@@ -434,6 +434,66 @@ func TestStartApplyRejectsNamespaceRebindBeforeBusinessMutation(t *testing.T) {
 	}
 }
 
+func TestContinueApplyRejectsLaneRebindBeforeBusinessMutation(t *testing.T) {
+	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	created, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "analysis-sample"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	originalBoard, err := os.ReadFile(boardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var board map[string]any
+	if err := json.Unmarshal(originalBoard, &board); err != nil {
+		t.Fatal(err)
+	}
+	board["defaultAuthorityLane"] = created.Lane.ID
+	reboundBoard, err := json.Marshal(board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reboundBoard = append(reboundBoard, '\n')
+	before := snapshotWorkstreamTree(t, caseRoot)
+	preview, err := ContinuePreview(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{
+		Selector:                   "main",
+		Executor:                   "executor-one",
+		ExpectedExecutorGeneration: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.ContinuePlanSHA256 == "" {
+		t.Fatal("continue preview did not produce a plan hash")
+	}
+	workstreamMutationAfterLockHook = func(*workstreamMutationLease) {
+		workstreamMutationAfterLockHook = nil
+		if err := os.WriteFile(boardPath, reboundBoard, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		workstreamMutationAfterLockHook = nil
+		_ = os.WriteFile(boardPath, originalBoard, 0o644)
+	})
+	_, err = ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{
+		Selector:                   "main",
+		Executor:                   "executor-one",
+		ExpectedExecutorGeneration: 1,
+		ExpectedContinuePlanSHA256: preview.ContinuePlanSHA256,
+	})
+	if restoreErr := os.WriteFile(boardPath, originalBoard, 0o644); restoreErr != nil {
+		t.Fatal(restoreErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "continue target changed while acquiring lane mutation lease") || !IsZeroProgress(err) {
+		t.Fatalf("ContinueApply lane rebind error = %v", err)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatalf("lane rebind received business mutation\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
 func copyWorkstreamTree(source, target string) error {
 	return filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

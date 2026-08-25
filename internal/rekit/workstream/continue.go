@@ -438,6 +438,8 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	initialCaseRoot := filepath.Clean(ctx.inst.CaseRoot)
+	initialLaneID := ctx.lane.ID
 	lease, err := acquireLaneMutationLock(ctx.inst.CaseRoot, ctx.lane.ID)
 	if err != nil {
 		return ContinueResult{}, err
@@ -448,10 +450,14 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 			result = ContinueResult{}
 		}
 	}()
-	ctx, err = newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
+	lockedCtx, err := newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	if !strings.EqualFold(filepath.Clean(lockedCtx.inst.CaseRoot), initialCaseRoot) || lockedCtx.lane.ID != initialLaneID {
+		return ContinueResult{}, fmt.Errorf("continue target changed while acquiring lane mutation lease: got case=%s lane=%s, want case=%s lane=%s", lockedCtx.inst.CaseRoot, lockedCtx.lane.ID, initialCaseRoot, initialLaneID)
+	}
+	ctx = lockedCtx
 	if ctx.ownerGuardRecoveryReason != "" {
 		return ContinueResult{}, fmt.Errorf("continue Apply is blocked by the current executor owner guard: %s", ctx.ownerGuardRecoveryReason)
 	}
