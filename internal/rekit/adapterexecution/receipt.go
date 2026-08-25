@@ -13,6 +13,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 )
 
 type GateBinding struct {
@@ -78,6 +79,7 @@ type DispatchReceipt struct {
 	Actor         string                     `json:"actor"`
 	RecordedAt    string                     `json:"recordedAt"`
 	Capability    capabilitycontract.Binding `json:"capability"`
+	LaunchControl *executioncontrol.Binding  `json:"launchControl,omitempty"`
 	NoExecute     bool                       `json:"noAdapterOrHeavyToolExecution"`
 	NoObservation bool                       `json:"noObservationWrite"`
 	NoAuthority   bool                       `json:"noAuthorityOrConfirmed"`
@@ -92,6 +94,7 @@ type DispatchSemanticBinding struct {
 	ReportPath    string                     `json:"reportPath"`
 	Actor         string                     `json:"actor"`
 	Capability    capabilitycontract.Binding `json:"capability"`
+	LaunchControl *executioncontrol.Binding  `json:"launchControl,omitempty"`
 	NoExecute     bool                       `json:"noAdapterOrHeavyToolExecution"`
 	NoObservation bool                       `json:"noObservationWrite"`
 	NoAuthority   bool                       `json:"noAuthorityOrConfirmed"`
@@ -199,6 +202,7 @@ func DispatchBindingFor(receipt DispatchReceipt) DispatchSemanticBinding {
 		ReportPath:    receipt.ReportPath,
 		Actor:         receipt.Actor,
 		Capability:    receipt.Capability,
+		LaunchControl: executioncontrol.CloneBinding(receipt.LaunchControl),
 		NoExecute:     receipt.NoExecute,
 		NoObservation: receipt.NoObservation,
 		NoAuthority:   receipt.NoAuthority,
@@ -301,6 +305,18 @@ func ValidateDispatch(receipt DispatchReceipt) error {
 	}
 	if err := capabilitycontract.RequireBindingPolicy(receipt.Capability, capabilitycontract.PolicyClassAuthorizedHeavy); err != nil {
 		return fmt.Errorf("adapter execution dispatch capability contract is invalid: %w", err)
+	}
+	if receipt.LaunchControl != nil {
+		if err := executioncontrol.ValidateBinding(*receipt.LaunchControl); err != nil {
+			return fmt.Errorf("adapter execution dispatch launch control is invalid: %w", err)
+		}
+		if receipt.LaunchControl.Lane != receipt.Owner.Lane ||
+			receipt.LaunchControl.Owner.Lane != receipt.Owner.Lane ||
+			receipt.LaunchControl.Owner.CurrentExecutor != receipt.Owner.CurrentExecutor ||
+			receipt.LaunchControl.Owner.ExecutorGeneration != receipt.Owner.ExecutorGeneration ||
+			receipt.LaunchControl.Capability != receipt.Capability {
+			return fmt.Errorf("adapter execution dispatch launch control does not match owner and capability lineage")
+		}
 	}
 	bindingSHA, err := DispatchBindingSHA256(receipt)
 	if err != nil || !strings.EqualFold(bindingSHA, receipt.DispatchID) {

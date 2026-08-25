@@ -272,8 +272,15 @@ func TestStatusProjectsCaseCommandsToSelectedEntrypoint(t *testing.T) {
 				t.Fatalf("real status request SHA mismatch: computed=%s returned=%s", requestSHA, typed.MissionControlRunbook.CurrentDriverRequestSHA256)
 			}
 			operator := typed.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage
-			if operator == nil || operator.Wave == nil || operator.Wave.SnapshotSHA256 == "" || len(operator.Wave.Shards) != 2 {
+			if operator == nil || operator.Wave == nil || len(operator.Wave.Shards) != 2 {
 				t.Fatalf("real reviewer wave omitted source identity or shards: %+v", operator)
+			}
+			if fixture.name == "current" {
+				if operator.Ready || !operator.Paused || operator.Wave.Ready || len(operator.Wave.SpawnWave) != 0 || operator.Wave.SnapshotSHA256 != "" {
+					t.Fatalf("unassigned current lane exposed executable reviewer wave: %+v", operator)
+				}
+			} else if operator.Wave.SnapshotSHA256 == "" {
+				t.Fatalf("legacy reviewer wave omitted snapshot identity: %+v", operator.Wave)
 			}
 			packetPath := filepath.ToSlash(operator.Wave.PacketPath)
 			if !strings.Contains(packetPath, "/"+fixture.stateDir+"/") && !strings.HasPrefix(packetPath, fixture.stateDir+"/") {

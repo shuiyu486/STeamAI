@@ -43,11 +43,6 @@ func TestEmbeddedPrivateInvocationRejectsMixedOrMalformedModes(t *testing.T) {
 			message: "parent flags cannot be combined",
 		},
 		{
-			name:    "child with parent flag",
-			args:    []string{privateChildVMPIDAFlag, "-defer-successful-task-binding"},
-			message: "child flags cannot be combined",
-		},
-		{
 			name:    "trailing binding JSON",
 			args:    []string{privateAuthorizedVMPIDAFlag, "-execution-control-binding-json", validBinding + `{}`},
 			message: "exactly one JSON object",

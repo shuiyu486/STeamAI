@@ -22,11 +22,36 @@ const (
 func IsEmbeddedPrivateInvocation(args []string) bool {
 	for _, arg := range args {
 		name, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(arg)), "=")
-		if name == privateAuthorizedVMPIDAFlag || name == privateChildVMPIDAFlag || name == privateChildBinaryInventoryFlag || name == privateChildOpenAPIInventoryFlag || name == privateChildBoundedReplayFlag {
+		switch name {
+		case privateAuthorizedVMPIDAFlag,
+			privateChildVMPIDAFlag,
+			privateChildBinaryInventoryFlag,
+			privateChildOpenAPIInventoryFlag,
+			privateChildBoundedReplayFlag:
 			return true
 		}
 	}
 	return false
+}
+
+func decodePrivateExecutionControlBinding(value string) (*executioncontrol.Binding, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	var binding executioncontrol.Binding
+	decoder := json.NewDecoder(bytes.NewBufferString(value))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&binding); err != nil {
+		return nil, fmt.Errorf("decode execution control binding: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, fmt.Errorf("execution control binding must contain exactly one JSON object")
+	}
+	if err := executioncontrol.ValidateBinding(binding); err != nil {
+		return nil, err
+	}
+	return &binding, nil
 }
 
 func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
@@ -44,6 +69,7 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 	var replayChild BoundedReplayChildOptions
 	var authorizedMode, childMode, binaryChildMode, openAPIChildMode, replayChildMode bool
 	var controlBindingJSON string
+	var parentLaneLeaseHandle uint64
 	var instructionIdentityJSON string
 	flags.StringVar(&common.RepoRoot, "repo", "", "")
 	flags.StringVar(&common.CaseRoot, "target", "", "")
@@ -57,6 +83,7 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 	flags.StringVar(&authorized.Actor, "actor", "", "")
 	flags.BoolVar(&authorized.DeferSuccessfulTaskBinding, "defer-successful-task-binding", false, "")
 	flags.StringVar(&controlBindingJSON, "execution-control-binding-json", "", "")
+	flags.Uint64Var(&parentLaneLeaseHandle, "parent-lane-lease-handle", 0, "")
 	flags.StringVar(&instructionIdentityJSON, "instruction-identity-json", "", "")
 	flags.BoolVar(&childMode, strings.TrimPrefix(privateChildVMPIDAFlag, "-"), false, "")
 	flags.BoolVar(&binaryChildMode, strings.TrimPrefix(privateChildBinaryInventoryFlag, "-"), false, "")
@@ -73,6 +100,11 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		fmt.Fprintln(stderr, "private STeamAI adapter invocation does not accept positional arguments")
 		return true, 2
 	}
+	parentHandle := uintptr(parentLaneLeaseHandle)
+	if uint64(parentHandle) != parentLaneLeaseHandle {
+		fmt.Fprintln(stderr, "private child inherited lane mutation lease handle overflows uintptr")
+		return true, 2
+	}
 	modes := 0
 	for _, enabled := range []bool{authorizedMode, childMode, binaryChildMode, openAPIChildMode, replayChildMode} {
 		if enabled {
@@ -83,7 +115,16 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		fmt.Fprintln(stderr, "private STeamAI adapter invocation requires exactly one parent or child mode")
 		return true, 2
 	}
+	if (childMode || binaryChildMode || openAPIChildMode || replayChildMode) && parentHandle == 0 {
+		fmt.Fprintln(stderr, "private STeamAI adapter child requires an inherited parent lane mutation lease handle")
+		return true, 2
+	}
 	instructionIdentity, decodeErr := decodeAdapterInstructionIdentityJSON(instructionIdentityJSON)
+	if decodeErr != nil {
+		fmt.Fprintln(stderr, decodeErr)
+		return true, 2
+	}
+	controlBinding, decodeErr := decodePrivateExecutionControlBinding(controlBindingJSON)
 	if decodeErr != nil {
 		fmt.Fprintln(stderr, decodeErr)
 		return true, 2
@@ -94,7 +135,7 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 	switch {
 	case childMode:
 		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
-			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding ||
 			strings.TrimSpace(binaryChild.SourcePath) != "" {
 			fmt.Fprintln(stderr, "private VMP IDA child flags cannot be combined with parent-only flags")
 			return true, 2
@@ -105,11 +146,13 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		child.GateEventID = common.GateEventID
 		child.ExpectedDispatchSHA256 = common.ExpectedDispatchSHA256
 		child.AdapterSession = authorized.AdapterSession
+		child.ExecutionControlBinding = executioncontrol.CloneBinding(controlBinding)
+		child.ParentLaneLeaseHandle = parentHandle
 		child.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
 		result, err = RunVMPIDAIndexChild(child)
 	case binaryChildMode:
 		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
-			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding ||
 			strings.TrimSpace(child.RequestPath) != "" {
 			fmt.Fprintln(stderr, "private binary inventory child flags cannot be combined with parent-only or VMP child flags")
 			return true, 2
@@ -122,11 +165,13 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		binaryChild.AdapterSession = authorized.AdapterSession
 		binaryChild.Executor = child.Executor
 		binaryChild.ExpectedExecutorGeneration = child.ExpectedExecutorGeneration
+		binaryChild.ExecutionControlBinding = executioncontrol.CloneBinding(controlBinding)
+		binaryChild.ParentLaneLeaseHandle = parentHandle
 		binaryChild.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
 		result, err = RunBinaryInventoryChild(binaryChild)
 	case openAPIChildMode:
 		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
-			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding ||
 			strings.TrimSpace(child.RequestPath) != "" {
 			fmt.Fprintln(stderr, "private OpenAPI inventory child flags cannot be combined with parent-only or request-path child flags")
 			return true, 2
@@ -140,11 +185,13 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		openAPIChild.Executor = child.Executor
 		openAPIChild.ExpectedExecutorGeneration = child.ExpectedExecutorGeneration
 		openAPIChild.SourcePath = binaryChild.SourcePath
+		openAPIChild.ExecutionControlBinding = executioncontrol.CloneBinding(controlBinding)
+		openAPIChild.ParentLaneLeaseHandle = parentHandle
 		openAPIChild.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
 		result, err = RunOpenAPIInventoryChild(openAPIChild)
 	case replayChildMode:
 		if strings.TrimSpace(authorized.Actor) != "" || strings.TrimSpace(authorized.ExecutionReportPath) != "" ||
-			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding || strings.TrimSpace(controlBindingJSON) != "" ||
+			strings.TrimSpace(authorized.AdapterID) != "" || authorized.DeferSuccessfulTaskBinding ||
 			strings.TrimSpace(binaryChild.SourcePath) != "" {
 			fmt.Fprintln(stderr, "private bounded replay child flags cannot be combined with parent-only or source-path child flags")
 			return true, 2
@@ -158,34 +205,22 @@ func RunEmbeddedPrivate(args []string, stdout, stderr io.Writer) (bool, int) {
 		replayChild.Executor = child.Executor
 		replayChild.ExpectedExecutorGeneration = child.ExpectedExecutorGeneration
 		replayChild.RequestPath = child.RequestPath
+		replayChild.ExecutionControlBinding = executioncontrol.CloneBinding(controlBinding)
+		replayChild.ParentLaneLeaseHandle = parentHandle
 		replayChild.InstructionIdentity = cloneAdapterInstructionIdentity(instructionIdentity)
 		result, err = RunBoundedReplayChild(replayChild)
 	default:
+		if parentHandle != 0 {
+			fmt.Fprintln(stderr, "parent lane lease handle is valid only for a private child")
+			return true, 2
+		}
 		if strings.TrimSpace(common.ExpectedDispatchSHA256) != "" || strings.TrimSpace(child.RequestPath) != "" ||
 			strings.TrimSpace(binaryChild.SourcePath) != "" ||
 			strings.TrimSpace(child.Executor) != "" || child.ExpectedExecutorGeneration != 0 {
 			fmt.Fprintln(stderr, "authorized VMP IDA parent flags cannot be combined with immutable-dispatch child flags")
 			return true, 2
 		}
-		if strings.TrimSpace(controlBindingJSON) != "" {
-			var binding executioncontrol.Binding
-			decoder := json.NewDecoder(bytes.NewBufferString(controlBindingJSON))
-			decoder.DisallowUnknownFields()
-			if decodeErr := decoder.Decode(&binding); decodeErr != nil {
-				fmt.Fprintln(stderr, "decode execution control binding:", decodeErr)
-				return true, 2
-			}
-			var trailing any
-			if decodeErr := decoder.Decode(&trailing); decodeErr != io.EOF {
-				fmt.Fprintln(stderr, "execution control binding must contain exactly one JSON object")
-				return true, 2
-			}
-			if validateErr := executioncontrol.ValidateBinding(binding); validateErr != nil {
-				fmt.Fprintln(stderr, validateErr)
-				return true, 2
-			}
-			authorized.ExecutionControlBinding = &binding
-		}
+		authorized.ExecutionControlBinding = executioncontrol.CloneBinding(controlBinding)
 		authorized.RepoRoot = common.RepoRoot
 		authorized.CaseRoot = common.CaseRoot
 		authorized.Pack = common.Pack

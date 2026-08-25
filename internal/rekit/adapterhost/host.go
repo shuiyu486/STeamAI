@@ -200,6 +200,9 @@ func Run(opt Options) (_ Result, retErr error) {
 	if err := validateAuthorizedAdapterCapability(dispatch); err != nil {
 		return result, err
 	}
+	if opt.ExecutionControlBinding == nil {
+		opt.ExecutionControlBinding = executioncontrol.CloneBinding(dispatch.LaunchControl)
+	}
 	switch dispatch.Adapter.AdapterID {
 	case VMPIDAIndexAdapterID:
 		return runVMPIDAExistingDispatch(opt, result, dispatch, dispatchPath, dispatchSHA, started)
@@ -247,6 +250,9 @@ func Run(opt Options) (_ Result, retErr error) {
 	}
 	if err := lease.Validate(); err != nil {
 		return result, err
+	}
+	if err := requireAuthorizedAdapterControlWithLease(caseRoot, lease, opt.ExecutionControlBinding, dispatch); err != nil {
+		return result, fmt.Errorf("adapter host execution control is stale: %w", err)
 	}
 	if err := validateAdapterAuthorizationPhase(
 		opt,

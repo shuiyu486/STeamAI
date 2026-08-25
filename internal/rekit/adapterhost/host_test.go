@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 type hostFixture struct {
@@ -159,6 +160,127 @@ tools:
 		repoRoot: repoRoot, caseRoot: caseRoot, authorized: authorized, dispatch: dispatch,
 		options: Options{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "_template", GateEventID: authorized.EventID, ExpectedDispatchSHA256: dispatch.DispatchSHA256},
 	}
+}
+
+func newCurrentHostFixture(t *testing.T, target string, runtimeSeconds, diskMB, requests int) hostFixture {
+	t.Helper()
+	root := t.TempDir()
+	sourceRepo := filepath.Join(root, "repo")
+	caseRoot := filepath.Join(root, "case")
+	copyProductionFixtureInputs(t, sourceRepo, "_template")
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout: testfixture.CurrentProject, SourceRepo: sourceRepo, CaseRoot: caseRoot,
+		Pack: "_template", ProjectName: "current-adapter-host-fixture",
+		Components: testfixture.Components{InitialState: true},
+	})
+	repoRoot := project.RuntimeRepoRoot
+	writeHostFile(t, filepath.Join(caseRoot, ".steamai", "board.json"), `{"lanes":[{"id":"main","status":"open","workspace":"workspace/main","currentExecutor":"executor-a","executorGeneration":1}]}`)
+	writeHostFile(t, filepath.Join(caseRoot, ".steamai", "lanes", "main", "lane.json"), `{
+  "schemaVersion": 1,
+  "id": "main",
+  "type": "main",
+  "name": "main",
+  "title": "Main",
+  "status": "open",
+  "authority": false,
+  "workspace": "workspace/main",
+  "laneRoot": ".steamai/lanes/main",
+  "canWrite": ["own-workspace"],
+  "readOnly": [".steamai/facts/**"],
+  "outputs": ["observation"],
+  "counters": {},
+  "currentExecutor": "executor-a",
+  "executorGeneration": 1,
+  "createdAt": "2026-08-25T00:00:00Z",
+  "updatedAt": "2026-08-25T00:00:00Z"
+}`)
+	writeHostFile(t, filepath.Join(caseRoot, ".steamai", "lanes", "main", "autonomy.json"), `{
+  "schemaVersion": 1,
+  "profileId": "prof-main-inspect",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["inspect"],
+  "deniedActions": [],
+  "targetScope": [{"match":"exact","value":"`+target+`"}],
+  "budget": {"runtimeSeconds": 10,"diskMB": 4,"requests": 1},
+  "stopConditions": ["timeout","scope-drift","budget-exhausted"],
+  "outputPaths": ["workspace/main/inspect"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit","new-risk"],
+  "grantedBy": "user",
+  "grantedAt": "2026-08-25T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+	writeHostFile(t, filepath.Join(caseRoot, "fixture", "input.txt"), "alpha\nbeta\n")
+	authorized, err := gate.Apply(repoRoot, caseRoot, "_template", gate.Options{
+		Action: "inspect", Lane: "main", Actor: "host-test", Subject: "inspect fixture",
+		TargetRef: target, RuntimeSeconds: runtimeSeconds, DiskMB: diskMB, Requests: requests,
+		OutputPaths: "workspace/main/inspect/session-1", StopConditions: "timeout,scope-drift,budget-exhausted",
+	})
+	if err != nil || !authorized.Applied || authorized.Event == nil {
+		t.Fatalf("authorize current inspect: %+v err=%v", authorized, err)
+	}
+	control := captureAuthorizedAdapterControl(t, caseRoot, "main")
+	dispatchOpt := gate.Options{
+		GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/inspect/session-1/adapter-report.json",
+		AdapterID: readonlyInspectorID, Executor: "executor-a", ExpectedExecutorGeneration: 1,
+		AdapterHarness: adapterHarness, AdapterSession: "adapter-session-a", Actor: "mission-commander",
+		ExecutionControlBinding: control,
+	}
+	preview, err := gate.RecordAdapterExecutionDispatch(repoRoot, caseRoot, "_template", dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt.ExpectedAdapterExecutionDispatchBindingSHA256 = preview.BindingSHA256
+	dispatch, err := gate.RecordAdapterExecutionDispatch(repoRoot, caseRoot, "_template", dispatchOpt)
+	if err != nil || !dispatch.Applied || dispatch.DispatchSHA256 == "" {
+		t.Fatalf("record current dispatch: %+v err=%v", dispatch, err)
+	}
+	return hostFixture{
+		repoRoot: repoRoot, caseRoot: caseRoot, authorized: authorized, dispatch: dispatch,
+		options: Options{
+			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "_template", GateEventID: authorized.EventID,
+			ExpectedDispatchSHA256: dispatch.DispatchSHA256, ExecutionControlBinding: control,
+		},
+	}
+}
+
+func TestRunCurrentReadonlyUsesImmutableDispatchControlWhenCallerOmitsBinding(t *testing.T) {
+	fixture := newCurrentHostFixture(t, "fixture/input.txt", 10, 4, 1)
+	fixture.options.ExecutionControlBinding = nil
+	result, err := Run(fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DispatchSHA256 != fixture.dispatch.DispatchSHA256 || result.ArtifactSHA256 == "" || result.ReportSHA256 == "" {
+		t.Fatalf("current readonly result omitted immutable dispatch output: %+v", result)
+	}
+}
+
+func TestRunCurrentReadonlyRejectsExplicitControlDifferentFromImmutableDispatch(t *testing.T) {
+	fixture := newCurrentHostFixture(t, "fixture/input.txt", 10, 4, 1)
+	binding := *fixture.options.ExecutionControlBinding
+	binding.Owner.CurrentExecutor = "executor-b"
+	fixture.options.ExecutionControlBinding = &binding
+	result, err := Run(fixture.options)
+	if err == nil || !strings.Contains(err.Error(), "does not match immutable dispatch launch lineage") {
+		t.Fatalf("mismatched explicit control result=%+v err=%v", result, err)
+	}
+	outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inspect", "session-1")
+	assertHostFileMissing(t, filepath.Join(outputRoot, "inspection.json"))
+	assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
+}
+
+func TestRunCurrentReadonlyRejectsStaleControlBeforeOutput(t *testing.T) {
+	fixture := newCurrentHostFixture(t, "fixture/input.txt", 10, 4, 1)
+	advanceAdapterExecutionControl(t, fixture.caseRoot)
+	result, err := Run(fixture.options)
+	if err == nil || !strings.Contains(err.Error(), "stale-control") {
+		t.Fatalf("stale current readonly result=%+v err=%v", result, err)
+	}
+	outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inspect", "session-1")
+	assertHostFileMissing(t, filepath.Join(outputRoot, "inspection.json"))
+	assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
 }
 
 func TestRunPublishesProcessGeneratedReadOnlyReport(t *testing.T) {

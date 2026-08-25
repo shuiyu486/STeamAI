@@ -251,6 +251,15 @@ func RequireCurrentBindingWithLease(caseRoot string, lease *lanemutation.Lease, 
 	return requireCurrentBinding(currentness, err)
 }
 
+// RequireCurrentBindingWithValidator lets an existing mutation owner linearize
+// a control check without acquiring a second lane lease. The validator must
+// prove that owner still holds the exact mutation boundary before and after the
+// durable control and owner reads.
+func RequireCurrentBindingWithValidator(caseRoot string, binding Binding, validate func() error) error {
+	currentness, err := inspectBindingWithValidation(caseRoot, binding, validate)
+	return requireCurrentBinding(currentness, err)
+}
+
 func InspectBindingWithProjectLease(caseRoot string, lease *lanemutation.Lease, binding Binding) (BindingCurrentness, error) {
 	if lease == nil {
 		return BindingCurrentness{}, fmt.Errorf("execution control binding inspection requires an existing project mutation lease")

@@ -141,6 +141,11 @@ func RecordReviewerSessionDispatchWithLease(repoRoot, caseRoot, pack string, opt
 	if err != nil {
 		return ReviewerSessionReceiptResult{}, err
 	}
+	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(inst.CaseRoot, opt.Lane, lease); err != nil {
+			return ReviewerSessionReceiptResult{}, err
+		}
+	}
 	prepared, err := prepareReviewerSessionDispatch(repoRoot, inst.CaseRoot, pack, opt, lease)
 	if err != nil {
 		return ReviewerSessionReceiptResult{}, err
@@ -168,6 +173,9 @@ func RecordReviewerSessionDispatchWithLease(repoRoot, caseRoot, pack string, opt
 		return ReviewerSessionReceiptResult{}, fmt.Errorf("reviewer session dispatch changed after preview")
 	}
 	receipt := reviewerSessionDispatchReceipt(prepared)
+	if err := requireReviewerDispatchControlCurrent(inst.CaseRoot, lease, receipt); err != nil {
+		return ReviewerSessionReceiptResult{}, err
+	}
 	already, err := writeOrReplayReviewerSessionDispatch(inst.CaseRoot, prepared.receiptPath, receipt)
 	if err != nil {
 		return ReviewerSessionReceiptResult{}, err
@@ -187,9 +195,18 @@ func RecordReviewerSessionDispatchWithLease(repoRoot, caseRoot, pack string, opt
 }
 
 func RecordReviewerSessionCompletion(repoRoot, caseRoot, pack string, opt ReviewerSessionCompletionOptions) (ReviewerSessionReceiptResult, error) {
+	return RecordReviewerSessionCompletionWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func RecordReviewerSessionCompletionWithLease(repoRoot, caseRoot, pack string, opt ReviewerSessionCompletionOptions, lease *lanemutation.Lease) (ReviewerSessionReceiptResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerSessionReceiptResult{}, err
+	}
+	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(inst.CaseRoot, opt.Lane, lease); err != nil {
+			return ReviewerSessionReceiptResult{}, err
+		}
 	}
 	prepared, err := prepareReviewerSessionCompletion(repoRoot, inst.CaseRoot, pack, opt)
 	if err != nil {
@@ -220,6 +237,9 @@ func RecordReviewerSessionCompletion(repoRoot, caseRoot, pack string, opt Review
 	if !strings.EqualFold(strings.TrimSpace(opt.ExpectedDispatchReceiptSHA256), sha256Hex(prepared.dispatchBytes)) ||
 		(prepared.outcome == "succeeded" && !strings.EqualFold(strings.TrimSpace(opt.ExpectedReviewerResultSHA256), sha256Hex(prepared.input))) {
 		return ReviewerSessionReceiptResult{}, fmt.Errorf("reviewer session completion changed after preview")
+	}
+	if err := requireReviewerDispatchControlCurrent(inst.CaseRoot, lease, prepared.dispatch); err != nil {
+		return ReviewerSessionReceiptResult{}, err
 	}
 	receipt := reviewerSessionCompletionReceipt(prepared)
 	already, err := writeOrReplayReviewerSessionCompletion(inst.CaseRoot, prepared.completionPath, receipt)
@@ -275,7 +295,7 @@ func prepareReviewerSessionDispatch(repoRoot, caseRoot, pack string, opt Reviewe
 		return preparedReviewerSessionDispatch{}, err
 	}
 	adoptionPath, adoptionSHA := reviewerSessionAdoptionProvenance(caseRoot, packet.PacketID, adoption)
-	launchControl, err := captureReviewerSessionLaunchControl(caseRoot, effective, lease)
+	launchControl, err := reviewerSessionLaunchControlFromHandoff(caseRoot, effective, handoff, lease)
 	if err != nil {
 		return preparedReviewerSessionDispatch{}, err
 	}
@@ -392,6 +412,41 @@ func loadReviewerSessionPacket(repoRoot, caseRoot, pack, path string) (string, P
 
 func reviewerSessionDispatchReceipt(p preparedReviewerSessionDispatch) ReviewerSessionDispatchReceipt {
 	return ReviewerSessionDispatchReceipt{SchemaVersion: 1, Kind: "reviewer-session-dispatch", DispatchID: p.dispatchID, PacketID: p.packet.PacketID, PacketPath: p.packetPath, PacketSHA256: sha256Hex(p.packetBytes), RouteID: p.packet.Route.ID, ShardID: p.handoff.ShardID, Items: append([]string{}, p.handoff.Items...), PromptPath: p.handoff.DispatchPromptPath, PromptSHA256: p.handoff.DispatchPromptSHA256, AgentType: p.handoff.AgentToolRequest.AgentType, ReadOnly: p.handoff.AgentToolRequest.ReadOnly, TargetLane: p.packet.TargetLane, PacketOwner: reviewerSessionOwner(p.packet.OwnerBinding), EffectiveOwner: reviewerSessionOwner(p.effectiveOwner), OwnerAdoptionPath: p.adoptionPath, OwnerAdoptionSHA256: p.adoptionSHA256, ReviewerHarness: p.harness, ReviewerSession: p.session, Actor: p.actor, RecordedAt: time.Now().UTC().Format(time.RFC3339Nano), Capability: reviewersession.ReadOnlyCapability(), LaunchControl: executioncontrol.CloneBinding(p.launchControl), NoSpawn: true, NoHeavyTool: true, NoAuthority: true}
+}
+
+func reviewerSessionLaunchControlFromHandoff(caseRoot string, owner OwnerBinding, handoff ShardHandoff, lease *lanemutation.Lease) (*executioncontrol.Binding, error) {
+	state, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !state.Existing || state.Legacy {
+		return nil, nil
+	}
+	if handoff.AgentToolRequest == nil || handoff.AgentToolRequest.LaunchControl == nil {
+		return nil, fmt.Errorf("current reviewer launch handoff lacks frozen execution control lineage")
+	}
+	binding := executioncontrol.CloneBinding(handoff.AgentToolRequest.LaunchControl)
+	if binding.Capability != reviewersession.ReadOnlyCapability() ||
+		binding.Lane != owner.TargetLane ||
+		binding.Owner != (laneowner.Snapshot{
+			Lane:               owner.TargetLane,
+			CurrentExecutor:    owner.CurrentExecutor,
+			ExecutorGeneration: owner.ExecutorGeneration,
+		}) {
+		return nil, fmt.Errorf("current reviewer launch handoff execution control does not match its read-only lane owner lineage")
+	}
+	if lease == nil {
+		ownedLease, err := lanemutation.AcquireOpenLane(caseRoot, owner.TargetLane, "reviewer session dispatch preview")
+		if err != nil {
+			return nil, err
+		}
+		defer ownedLease.Unlock()
+		lease = ownedLease
+	}
+	if err := executioncontrol.RequireCurrentBindingWithLease(caseRoot, lease, *binding); err != nil {
+		return nil, fmt.Errorf("reviewer launch handoff execution control is not current: %w", err)
+	}
+	return binding, nil
 }
 
 func captureReviewerSessionLaunchControl(caseRoot string, owner OwnerBinding, lease *lanemutation.Lease) (*executioncontrol.Binding, error) {

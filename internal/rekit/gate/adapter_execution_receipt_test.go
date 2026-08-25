@@ -3,12 +3,15 @@ package gate
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 func managedAdapterExecutionFixture(t *testing.T) (string, string, string, ApplyResult, Options) {
@@ -18,9 +21,14 @@ func managedAdapterExecutionFixture(t *testing.T) (string, string, string, Apply
 
 func managedAdapterExecutionFixtureWithReportPath(t *testing.T, reportPath string) (string, string, string, ApplyResult, Options) {
 	t.Helper()
-	repoRoot, caseRoot, pack := gateToolingFixture(t)
+	return managedAdapterExecutionFixtureWithStateRoot(t, reportPath, projectstate.LegacyDir)
+}
+
+func managedAdapterExecutionFixtureWithStateRoot(t *testing.T, reportPath, stateDir string) (string, string, string, ApplyResult, Options) {
+	t.Helper()
+	repoRoot, caseRoot, pack := gateToolingFixtureWithStateRoot(t, stateDir)
 	writePreauthorizedProfile(t, caseRoot)
-	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "lane.json"), `{
+	writeGateText(t, filepath.Join(caseRoot, stateDir, "lanes", "main", "lane.json"), `{
   "schemaVersion": 1,
   "id": "main",
   "type": "main",
@@ -29,7 +37,7 @@ func managedAdapterExecutionFixtureWithReportPath(t *testing.T, reportPath strin
   "status": "active",
   "authority": true,
   "workspace": "workspace/main",
-  "laneRoot": ".rekit/lanes/main",
+  "laneRoot": "`+stateDir+`/lanes/main",
   "canWrite": [],
   "readOnly": [],
   "outputs": [],
@@ -740,4 +748,118 @@ func TestAdapterExecutionReceiptRejectsOwnerAndArtifactDrift(t *testing.T) {
 		}
 		assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	})
+}
+
+func TestCurrentAdapterExecutionLaunchControlRejectsStaleCanonicalSinks(t *testing.T) {
+	t.Run("dispatch", func(t *testing.T) {
+		repoRoot, caseRoot, pack, authorized, opt := managedAdapterExecutionFixtureWithStateRoot(
+			t,
+			"workspace/main/debug/session-1/adapter-report.json",
+			projectstate.CurrentDir,
+		)
+		dispatchPath := filepath.Join(
+			caseRoot,
+			projectstate.CurrentDir,
+			"lanes", "main", "adapter-executions", authorized.EventID, "dispatch.json",
+		)
+		if err := os.Remove(filepath.Join(caseRoot, filepath.FromSlash(opt.ExecutionReportPath))); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(dispatchPath); err != nil {
+			t.Fatal(err)
+		}
+		preview, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		advanceCurrentGateControl(t, caseRoot)
+		opt.ExpectedAdapterExecutionDispatchBindingSHA256 = preview.BindingSHA256
+		if _, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, opt); err == nil || !strings.Contains(err.Error(), "binding changed after preview") {
+			t.Fatalf("stale current dispatch Apply error = %v", err)
+		}
+		assertGateNotExists(t, dispatchPath)
+	})
+
+	t.Run("receipt", func(t *testing.T) {
+		repoRoot, caseRoot, pack, authorized, opt := managedAdapterExecutionFixtureWithStateRoot(
+			t,
+			"workspace/main/debug/session-1/adapter-report.json",
+			projectstate.CurrentDir,
+		)
+		dispatch, _, _, _, err := ReadCurrentAdapterExecutionDispatch(repoRoot, caseRoot, pack, authorized.EventID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dispatch.LaunchControl == nil || dispatch.LaunchControl.ControlGeneration != 0 || opt.ExecutionControlBinding != nil {
+			t.Fatalf("current public dispatch omitted automatic launch control: %+v", dispatch)
+		}
+		preview, err := RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		advanceCurrentGateControl(t, caseRoot)
+		opt.ExpectedAdapterExecutionBindingSHA256 = preview.BindingSHA256
+		if _, err := RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack, opt); err == nil || !strings.Contains(err.Error(), "stale-control") {
+			t.Fatalf("stale current receipt Apply error = %v", err)
+		}
+		assertGateNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(preview.ReceiptPath)))
+	})
+
+	t.Run("observation", func(t *testing.T) {
+		repoRoot, caseRoot, pack, authorized, opt := managedAdapterExecutionFixtureWithStateRoot(
+			t,
+			"workspace/main/debug/session-1/adapter-report.json",
+			projectstate.CurrentDir,
+		)
+		preview, err := RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opt.ExpectedAdapterExecutionBindingSHA256 = preview.BindingSHA256
+		applied, err := RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{
+			GateEventID: authorized.EventID, ExecutionReportPath: opt.ExecutionReportPath,
+		})
+		if err != nil || !validation.Valid {
+			t.Fatalf("validate current adapter receipt: %+v err=%v", validation, err)
+		}
+		advanceCurrentGateControl(t, caseRoot)
+		_, err = RecordExecution(repoRoot, caseRoot, pack, Options{
+			GateEventID: authorized.EventID, Actor: "mission-commander", ExecutionReportPath: opt.ExecutionReportPath,
+			ExpectedExecutionReportSHA256:         validation.RecordExpectedReportSHA256,
+			AdapterExecutionReceiptPath:           applied.ReceiptPath,
+			ExpectedAdapterExecutionReceiptSHA256: applied.ReceiptSHA256,
+			Executor:                              "executor-a",
+			ExpectedExecutorGeneration:            1,
+		})
+		if err == nil || !strings.Contains(err.Error(), "stale-control") {
+			t.Fatalf("stale current observation Apply error = %v", err)
+		}
+		assertGateNotExists(t, filepath.Join(caseRoot, projectstate.CurrentDir, "facts", "observations.jsonl"))
+	})
+}
+
+func advanceCurrentGateControl(t *testing.T, caseRoot string) {
+	t.Helper()
+	for index, action := range []string{executioncontrol.ActionPause, executioncontrol.ActionResume} {
+		preview, err := executioncontrol.Preview(caseRoot, executioncontrol.Options{
+			Lane:             "main",
+			Action:           action,
+			Actor:            "gate-control-test",
+			Reason:           "advance current gate control lineage",
+			PublicationStamp: fmt.Sprintf("2026-08-24T00:0%d:00Z", index),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := executioncontrol.Apply(caseRoot, executioncontrol.Options{
+			Lane: preview.Lane, Action: preview.Action, Actor: preview.Actor, Reason: preview.Reason,
+			PublicationStamp: preview.PublicationStamp, ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

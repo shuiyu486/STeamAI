@@ -149,12 +149,13 @@ type packetPromptBinding struct {
 }
 
 type packetPromptAgentRequest struct {
-	Tool         string `json:"tool"`
-	AgentType    string `json:"agentType"`
-	ReadOnly     bool   `json:"readOnly"`
-	Prompt       string `json:"prompt"`
-	PromptPath   string `json:"promptPath"`
-	PromptSHA256 string `json:"promptSha256"`
+	Tool          string                    `json:"tool"`
+	AgentType     string                    `json:"agentType"`
+	ReadOnly      bool                      `json:"readOnly"`
+	Prompt        string                    `json:"prompt"`
+	PromptPath    string                    `json:"promptPath"`
+	PromptSHA256  string                    `json:"promptSha256"`
+	LaunchControl *executioncontrol.Binding `json:"launchControl,omitempty"`
 }
 
 func ReadDispatch(caseRoot, path, expectedSHA256 string) (DispatchReceipt, error) {
@@ -292,7 +293,8 @@ func packetPromptBindingMatchesReceipt(caseRoot string, binding packetPromptBind
 		request.AgentType == "read-only-reviewer" && request.ReadOnly &&
 		request.Prompt == binding.DispatchPrompt &&
 		samePacketPromptPath(caseRoot, request.PromptPath, receipt.PromptPath) &&
-		strings.EqualFold(request.PromptSHA256, receipt.PromptSHA256)
+		strings.EqualFold(request.PromptSHA256, receipt.PromptSHA256) &&
+		executioncontrol.SameBinding(request.LaunchControl, receipt.LaunchControl)
 }
 
 func packetPromptBindingsEqual(caseRoot string, left, right packetPromptBinding) bool {
@@ -306,7 +308,8 @@ func packetPromptBindingsEqual(caseRoot string, left, right packetPromptBinding)
 		left.AgentToolRequest.ReadOnly == right.AgentToolRequest.ReadOnly &&
 		left.AgentToolRequest.Prompt == right.AgentToolRequest.Prompt &&
 		samePacketPromptPath(caseRoot, left.AgentToolRequest.PromptPath, right.AgentToolRequest.PromptPath) &&
-		strings.EqualFold(left.AgentToolRequest.PromptSHA256, right.AgentToolRequest.PromptSHA256)
+		strings.EqualFold(left.AgentToolRequest.PromptSHA256, right.AgentToolRequest.PromptSHA256) &&
+		executioncontrol.SameBinding(left.AgentToolRequest.LaunchControl, right.AgentToolRequest.LaunchControl)
 }
 
 func samePacketPromptPath(caseRoot, left, right string) bool {

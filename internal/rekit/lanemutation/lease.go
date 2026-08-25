@@ -19,6 +19,11 @@ import (
 
 var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
 
+func externalLaneLockName(caseIdentity, laneID string) string {
+	key := sha256.Sum256([]byte(caseIdentity + "\x00" + laneID))
+	return "lane-" + hex.EncodeToString(key[:]) + ".lease"
+}
+
 type Lease struct {
 	metadataRoot        *os.Root
 	laneID              string
@@ -279,13 +284,12 @@ func acquire(caseRoot, laneID string, pinInstance bool) (*Lease, error) {
 		return closeLockRoot(err)
 	}
 	if laneExists {
-		laneKey := sha256.Sum256([]byte(caseIdentity + "\x00" + laneID))
-		laneName := "lane-" + hex.EncodeToString(laneKey[:]) + ".lease"
-		lease.externalLaneFile, err = lockRoot.OpenFile(laneName, os.O_CREATE|os.O_RDWR, 0o600)
+		laneName := externalLaneLockName(caseIdentity, laneID)
+		lease.externalLanePath = filepath.Join(lockRootPath, laneName)
+		lease.externalLaneFile, err = openExclusiveLaneLockFile(lease.externalLanePath)
 		if err != nil {
 			return closeLockRoot(err)
 		}
-		lease.externalLanePath = filepath.Join(lockRootPath, laneName)
 		lease.externalLaneInfo, err = lease.externalLaneFile.Stat()
 		if err != nil {
 			return closeLockRoot(err)

@@ -692,6 +692,7 @@ func TestInvocationModeRoutesUnifiedExecutable(t *testing.T) {
 		{name: "public continue", args: []string{"continue", "--lane", "main"}, wantMode: "public", wantArgs: []string{"continue", "--lane", "main"}},
 		{name: "host", args: []string{"host", "-daily", "-target", "project"}, wantMode: "host", wantArgs: []string{"-daily", "-target", "project"}},
 		{name: "internal child", args: []string{"-internal-supervisor", "spec.json", "-internal-supervisor-sha256", strings.Repeat("a", 64)}, wantMode: "host", wantArgs: []string{"-internal-supervisor", "spec.json", "-internal-supervisor-sha256", strings.Repeat("a", 64)}},
+		{name: "private adapter child", args: []string{"-child-vmp-ida-index-inspector"}, wantMode: "adapter", wantArgs: []string{"-child-vmp-ida-index-inspector"}},
 		{name: "unknown", args: []string{"future"}, wantErr: "unknown steamai mode"},
 	}
 	for _, test := range tests {

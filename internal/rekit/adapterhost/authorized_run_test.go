@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 type vmpAuthorizedFixture struct {
@@ -40,6 +42,23 @@ type binaryInventoryAuthorizedFixture struct {
 	sourcePath  string
 	gateEventID string
 	options     AuthorizedRunOptions
+}
+
+func captureAuthorizedAdapterControl(t *testing.T, caseRoot, lane string) *executioncontrol.Binding {
+	t.Helper()
+	owner, err := laneowner.Read(caseRoot, lane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capability, err := capabilitycontract.Bind(capabilitycontract.AuthorizedHeavy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &binding
 }
 
 func newBinaryInventoryAuthorizedFixture(t *testing.T) binaryInventoryAuthorizedFixture {
@@ -189,6 +208,7 @@ tools:
 	if err != nil || !authorized.Applied || authorized.Event == nil {
 		t.Fatalf("authorize binary inventory: %+v err=%v", authorized, err)
 	}
+	control := captureAuthorizedAdapterControl(t, caseRoot, "main")
 	return binaryInventoryAuthorizedFixture{
 		repoRoot:    repoRoot,
 		caseRoot:    caseRoot,
@@ -198,7 +218,7 @@ tools:
 			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "binary-re", GateEventID: authorized.EventID,
 			ExecutionReportPath: outputRoot + "/adapter-report.json", AdapterID: binaryinventory.AdapterID,
 			AdapterSession: "binary-session-1", Actor: "mission-commander", DeferSuccessfulTaskBinding: true,
-			InstructionIdentity: instructionIdentity,
+			ExecutionControlBinding: control, InstructionIdentity: instructionIdentity,
 		},
 	}
 }
@@ -447,6 +467,65 @@ func TestRunAuthorizedBinaryInventoryRecoversCommittedUnsealedOutputsWithoutChil
 	}
 	if _, err := os.Stat(filepath.Join(outputRoot, binaryInventorySuccessSealFileName)); err != nil {
 		t.Fatalf("success seal missing after committed output recovery: %v", err)
+	}
+}
+
+func TestRunAuthorizedBinaryInventoryRejectsStaleCommittedRecoveryBeforePublication(t *testing.T) {
+	fixture := newBinaryInventoryAuthorizedFixture(t)
+	childCalls := 0
+	fixture.options.testHooks = &hostTestHooks{
+		runBinaryInventoryChild: func(opt BinaryInventoryChildOptions) ([]byte, int, error) {
+			childCalls++
+			result, err := RunBinaryInventoryChild(opt)
+			if err != nil {
+				return nil, 0, err
+			}
+			data, err := json.Marshal(result)
+			return data, 6466, err
+		},
+		afterBinaryInventoryOutputCommit: func() error {
+			return errors.New("stop after durable output commit before stale recovery")
+		},
+	}
+	if _, err := RunAuthorizedGate(fixture.options); err == nil || !strings.Contains(err.Error(), "durable output commit") {
+		t.Fatalf("stale recovery setup error = %v", err)
+	}
+	advanceAdapterExecutionControl(t, fixture.caseRoot)
+	fixture.options.testHooks.afterBinaryInventoryOutputCommit = nil
+	fixture.options.testHooks.runBinaryInventoryChild = func(BinaryInventoryChildOptions) ([]byte, int, error) {
+		childCalls++
+		return nil, 0, errors.New("stale recovery reran child")
+	}
+	result, err := RunAuthorizedGate(fixture.options)
+	if err == nil || !strings.Contains(err.Error(), "stale-control") {
+		t.Fatalf("stale committed recovery result=%+v err=%v", result, err)
+	}
+	if childCalls != 1 {
+		t.Fatalf("stale committed recovery child calls=%d, want 1", childCalls)
+	}
+	outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inventory", "session-1")
+	assertHostFileMissing(t, filepath.Join(outputRoot, binaryInventoryFileName))
+	assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
+	assertHostFileMissing(t, filepath.Join(outputRoot, binaryInventorySuccessSealFileName))
+}
+
+func advanceAdapterExecutionControl(t *testing.T, caseRoot string) {
+	t.Helper()
+	for index, action := range []string{executioncontrol.ActionPause, executioncontrol.ActionResume} {
+		preview, err := executioncontrol.Preview(caseRoot, executioncontrol.Options{
+			Lane: "main", Action: action, Actor: "adapter-control-test",
+			Reason:           "advance adapter recovery control generation",
+			PublicationStamp: fmt.Sprintf("2026-08-25T00:00:0%dZ", index),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := executioncontrol.Apply(caseRoot, executioncontrol.Options{
+			Lane: preview.Lane, Action: preview.Action, Actor: preview.Actor, Reason: preview.Reason,
+			PublicationStamp: preview.PublicationStamp, ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -822,6 +901,10 @@ tools:
 		t.Fatalf("authorize VMP IDA request: %+v err=%v", authorized, err)
 	}
 	fixture := vmpAuthorizedFixture{repoRoot: repoRoot, caseRoot: caseRoot, requestPath: preview.RequestPath, gateEventID: authorized.EventID, instructionIdentity: instructionIdentity}
+	if stateDir == projectstate.CurrentDir {
+		control := captureAuthorizedAdapterControl(t, caseRoot, "main")
+		fixture.options.ExecutionControlBinding = control
+	}
 	if recordDispatch {
 		dispatchOpt := gate.Options{
 			GateEventID: authorized.EventID, ExecutionReportPath: outputRoot + "/adapter-report.json",
@@ -837,7 +920,7 @@ tools:
 		if err != nil || !fixture.dispatch.Applied {
 			t.Fatalf("record VMP dispatch: %+v err=%v", fixture.dispatch, err)
 		}
-		fixture.options = Options{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "binary-re", GateEventID: authorized.EventID, ExpectedDispatchSHA256: fixture.dispatch.DispatchSHA256, InstructionIdentity: cloneAdapterInstructionIdentity(instructionIdentity)}
+		fixture.options = Options{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: "binary-re", GateEventID: authorized.EventID, ExpectedDispatchSHA256: fixture.dispatch.DispatchSHA256, ExecutionControlBinding: executioncontrol.CloneBinding(fixture.options.ExecutionControlBinding), InstructionIdentity: cloneAdapterInstructionIdentity(instructionIdentity)}
 	}
 	return fixture
 }
@@ -970,6 +1053,7 @@ func binaryChildOptionsForFixture(t *testing.T, fixture binaryInventoryAuthorize
 		Executor:                   dispatch.Owner.CurrentExecutor,
 		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		SourcePath:                 fixture.sourcePath,
+		ExecutionControlBinding:    executioncontrol.CloneBinding(fixture.options.ExecutionControlBinding),
 		InstructionIdentity:        cloneAdapterInstructionIdentity(fixture.options.InstructionIdentity),
 	}
 }
@@ -1224,6 +1308,33 @@ func TestRunAuthorizedGateDefersSuccessfulTaskBindingUntilReview(t *testing.T) {
 	}
 }
 
+func TestRunAuthorizedGateRequiresExecutionControlBindingForCurrentProject(t *testing.T) {
+	fixture := newVMPAuthorizedFixtureWithStateRoot(t, false, ".steamai")
+	launches := 0
+	opt := authorizedRunOptionsForFixture(fixture, &hostTestHooks{
+		runVMPIDAChild: func(VMPIDAIndexChildOptions) ([]byte, int, error) {
+			launches++
+			return nil, 0, errors.New("missing execution control launched child")
+		},
+	})
+	opt.ExecutionControlBinding = nil
+	result, err := RunAuthorizedGate(opt)
+	if err == nil || !strings.Contains(err.Error(), "execution control binding") {
+		t.Fatalf("missing adapter control result=%+v err=%v", result, err)
+	}
+	if launches != 0 || result.DispatchSHA256 != "" || result.ReceiptSHA256 != "" || result.ObservationEventID != "" {
+		t.Fatalf("missing adapter control crossed dispatch or execution boundary: result=%+v launches=%d", result, launches)
+	}
+	dispatchPath := filepath.Join(
+		fixture.caseRoot,
+		projectstate.CurrentDir,
+		"lanes", "main", "adapter-executions", fixture.gateEventID, "dispatch.json",
+	)
+	if _, statErr := os.Lstat(dispatchPath); !os.IsNotExist(statErr) {
+		t.Fatalf("missing adapter control published dispatch: %v", statErr)
+	}
+}
+
 func TestRunAuthorizedGateRefusesStaleExecutionControlBeforeChild(t *testing.T) {
 	fixture := newVMPAuthorizedFixtureWithStateRoot(t, false, ".steamai")
 	owner, err := laneowner.Read(fixture.caseRoot, "main")
@@ -1279,8 +1390,9 @@ func authorizedRunOptionsForFixture(
 		Pack: "binary-re", GateEventID: fixture.gateEventID,
 		ExecutionReportPath: "workspace/main/ida/session-1/adapter-report.json",
 		AdapterSession:      "vmp-parent-session", Actor: "mission-commander",
-		InstructionIdentity: cloneAdapterInstructionIdentity(fixture.instructionIdentity),
-		testHooks:           hooks,
+		ExecutionControlBinding: executioncontrol.CloneBinding(fixture.options.ExecutionControlBinding),
+		InstructionIdentity:     cloneAdapterInstructionIdentity(fixture.instructionIdentity),
+		testHooks:               hooks,
 	}
 }
 

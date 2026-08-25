@@ -17,6 +17,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -77,6 +78,7 @@ type AdapterExecutionReceiptResult struct {
 }
 
 type adapterExecutionSnapshot struct {
+	dispatch    adapterexecution.DispatchReceipt
 	receipt     adapterexecution.Receipt
 	bindingSHA  string
 	receiptRel  string
@@ -97,6 +99,10 @@ func RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack string, opt Options
 		return AdapterExecutionDispatchResult{}, err
 	}
 	apply := strings.TrimSpace(opt.ExpectedAdapterExecutionDispatchBindingSHA256) != ""
+	lockedOpt := opt
+	if lockedOpt.ExecutionControlBinding == nil {
+		lockedOpt.ExecutionControlBinding = executioncontrol.CloneBinding(snapshot.dispatch.LaunchControl)
+	}
 	var lease gateLaneMutationLease
 	if apply {
 		lease, err = acquireGateLaneMutationLease(inst.CaseRoot, gateEvent.Lane)
@@ -104,7 +110,7 @@ func RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack string, opt Options
 			return AdapterExecutionDispatchResult{}, err
 		}
 		defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
-		lockedInst, lockedGateEvent, lockedErr := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+		lockedInst, lockedGateEvent, lockedErr := authorizedGateEvent(repoRoot, caseRoot, pack, lockedOpt)
 		if lockedErr != nil {
 			return AdapterExecutionDispatchResult{}, lockedErr
 		}
@@ -115,12 +121,15 @@ func RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack string, opt Options
 		if lockedErr != nil {
 			return AdapterExecutionDispatchResult{}, lockedErr
 		}
-		snapshot, lockedErr = prepareAdapterExecutionDispatchSnapshot(lockedInst.CaseRoot, pack, lockedGateEvent, opt, lockedManifest)
+		snapshot, lockedErr = prepareAdapterExecutionDispatchSnapshot(lockedInst.CaseRoot, pack, lockedGateEvent, lockedOpt, lockedManifest)
 		if lockedErr != nil {
 			return AdapterExecutionDispatchResult{}, lockedErr
 		}
 		if lockedErr = lease.Validate(); lockedErr != nil {
 			return AdapterExecutionDispatchResult{}, lockedErr
+		}
+		if lockedErr = requireDispatchExecutionControlWithGateLease(inst.CaseRoot, lease, snapshot.dispatch, lockedOpt.ExecutionControlBinding); lockedErr != nil {
+			return AdapterExecutionDispatchResult{}, fmt.Errorf("adapter execution dispatch control is stale: %w", lockedErr)
 		}
 	}
 	result := AdapterExecutionDispatchResult{
@@ -199,6 +208,35 @@ func RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack string, opt Options
 	return result, nil
 }
 
+func adapterExecutionLaunchControl(
+	caseRoot string,
+	owner laneowner.Snapshot,
+	capability capabilitycontract.Binding,
+	provided *executioncontrol.Binding,
+) (*executioncontrol.Binding, error) {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	if stateRoot.Legacy && provided == nil {
+		return nil, nil
+	}
+	if provided != nil {
+		if err := executioncontrol.ValidateBinding(*provided); err != nil {
+			return nil, err
+		}
+		if provided.Lane != owner.Lane || provided.Owner != owner || provided.Capability != capability {
+			return nil, fmt.Errorf("adapter execution control does not match current lane owner and capability")
+		}
+		return executioncontrol.CloneBinding(provided), nil
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, owner, capability)
+	if err != nil {
+		return nil, fmt.Errorf("capture adapter execution launch control: %w", err)
+	}
+	return &binding, nil
+}
+
 func prepareAdapterExecutionDispatchSnapshot(caseRoot, pack string, gateEvent EventPreview, opt Options, m *manifest.Manifest) (adapterExecutionDispatchSnapshot, error) {
 	owner, err := laneowner.Read(caseRoot, gateEvent.Lane)
 	if err != nil {
@@ -272,6 +310,10 @@ func prepareAdapterExecutionDispatchSnapshot(caseRoot, pack string, gateEvent Ev
 	if err != nil {
 		return adapterExecutionDispatchSnapshot{}, err
 	}
+	launchControl, err := adapterExecutionLaunchControl(caseRoot, owner, capability, opt.ExecutionControlBinding)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
 	dispatch := adapterexecution.DispatchReceipt{
 		SchemaVersion: 1, Kind: "adapter-execution-dispatch-receipt", Gate: gateBinding,
 		Adapter:       adapterexecution.AdapterBinding{Pack: pack, AdapterID: candidate.ID, ToolingCatalogPath: candidate.ToolingCatalogPath, ToolingCatalogSHA256: catalogSHA, ToolingCatalogBytes: catalogBytes, Candidate: candidateBinding, CandidateSnapshotSHA256: candidateSHA},
@@ -279,6 +321,7 @@ func prepareAdapterExecutionDispatchSnapshot(caseRoot, pack string, gateEvent Ev
 		ReportPath:    reportRel,
 		Actor:         strings.TrimSpace(opt.Actor),
 		Capability:    capability,
+		LaunchControl: launchControl,
 		NoExecute:     true,
 		NoObservation: true,
 		NoAuthority:   true,
@@ -343,6 +386,9 @@ func RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack string, opt Options)
 		}
 		if lockedErr = lease.Validate(); lockedErr != nil {
 			return AdapterExecutionReceiptResult{}, lockedErr
+		}
+		if lockedErr = requireDispatchExecutionControlWithGateLease(inst.CaseRoot, lease, snapshot.dispatch, opt.ExecutionControlBinding); lockedErr != nil {
+			return AdapterExecutionReceiptResult{}, fmt.Errorf("adapter execution receipt control is stale: %w", lockedErr)
 		}
 	}
 	result := AdapterExecutionReceiptResult{
@@ -770,6 +816,7 @@ func readCurrentAdapterExecutionDispatch(caseRoot, pack string, gateEvent EventP
 		GateEventID: gateEvent.EventID, ExecutionReportPath: dispatch.ReportPath, AdapterID: dispatch.Adapter.AdapterID,
 		Executor: dispatch.Owner.CurrentExecutor, ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		AdapterHarness: dispatch.Owner.AdapterHarness, AdapterSession: dispatch.Owner.AdapterSession, Actor: dispatch.Actor,
+		ExecutionControlBinding: executioncontrol.CloneBinding(dispatch.LaunchControl),
 	}, m)
 	if err != nil {
 		return dispatch, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), err
@@ -861,7 +908,7 @@ func prepareAdapterExecutionSnapshot(caseRoot, pack string, gateEvent EventPrevi
 	if err != nil {
 		return adapterExecutionSnapshot{}, err
 	}
-	return adapterExecutionSnapshot{receipt: receipt, bindingSHA: bindingSHA, receiptRel: rel, receiptFull: full}, nil
+	return adapterExecutionSnapshot{dispatch: dispatch, receipt: receipt, bindingSHA: bindingSHA, receiptRel: rel, receiptFull: full}, nil
 }
 
 func adapterExecutionCandidate(candidate AdapterToolCandidate) adapterexecution.Candidate {

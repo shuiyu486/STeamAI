@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1`，现处于获批 P0～P3 residual closure。Batch 830～833 与 validation repair 已完成各自局部闭环，但原始 P0～P3 task ledger 明确保留 #50、#37、#52、#38 为 pending，且没有用户取消记录；此前 `completed / 无下一批` 是假收口。现保持同一路线、不创建 Batch 834，按 `P0P3-C1`～`C4` 依赖顺序完成剩余架构闭环。
+当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1` 已完成，当前只推进 `P0P3-C2`；随后按 `C3`、`C4`、retired pack identity migration、binary-re 专项验收校准和完整 P0～P3 验证收口。Batch 830～833 与 validation repair 仍只是各自局部证据；不创建 Batch 834、不自选新功能。
 
 ## 执行清单
 
@@ -16,21 +16,21 @@
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `P0P3-C1 capability control sinks` |
+| 当前批次 | `P0P3-C2 orchestration non-authorization` |
 | 状态 | `in_progress` |
-| 唯一允许领取 | `P0P3-C1` |
-| 上一批 | `Batch 833` binary-re actual analysis 与随后 validation repair 已完成 |
-| 下一批 | `P0P3-C2 orchestration non-authorization` |
+| 唯一允许领取 | `P0P3-C2` |
+| 上一批 | `P0P3-C1 capability control sinks` 已完成并通过 fresh local validation |
+| 下一批 | `P0P3-C3 DTO/receipt/session/skill` |
 
 ### Current batch state
 
-### P0P3-C1：capability control sinks
+### P0P3-C2：orchestration non-authorization
 
-状态：in_progress；完成旧 task #50，不创建新 numbered batch。
+状态：in_progress；完成旧 task #37，不创建新 numbered batch。
 
-目标：在 adapter parent/private child、Reviewer lifecycle、Remote transport/current model-tool effect sink 前消费 exact capability/control lineage；paused/stopped/stale 在副作用前 fail-closed，late result只保留 held truth。完成后只解锁 `P0P3-C2`。
+目标：统一 custom tools、MCP、tactical subagents、Reviewer 与 current model-tool handoff 的 durable typed command、owner/generation/currentness/capability/gate约束；transport、endpoint、delivery/provider acknowledgement、hooks、SessionStore、Agent Teams或tool presence不得构造 authority、confirmed、`authorized-gate` 或 heavy-tool grant。
 
-验证结果：待当前代码审计、复现测试与 focused/product/full validation；不得用既有 shared capability DTO、`release-check.ready=true` 或 `870d908` validation receipt预写为完成。
+验证结果：待当前代码审计、直接越权复现、focused/product/full validation；不得把 C1 的 sink currentness、字段存在、`release-check.ready=true` 或 synthetic transport fixture预写为 C2 完成。
 
 ### Batch 833：binary-re actual analysis
 
@@ -38,24 +38,26 @@
 
 目标：以 `Batch 833` 作为 latest numbered receipt identity；P0P3 residual milestones由 active route 独立表达，不冒充 Batch 834。
 
-验证结果：focused fresh lifecycle tests实际启动 embedded authorized parent/fixed child，并覆盖strict gate、independent evidence review、accepted-only binding、terminal recovery与stale control fail-closed；随后validation repair的最终`release-run -Format json`以7/7通过，direct commit `870d908`与tracking ref/post-push receipt已闭合。这些证据只证明相应实现和validation，不关闭 #50/#37/#52/#38。
+验证结果：focused fresh lifecycle tests实际启动 embedded authorized parent/fixed child，并覆盖strict gate、independent evidence review、accepted-only binding、terminal recovery与stale control fail-closed；随后validation repair的最终`release-run -Format json`以7/7通过，direct commit `870d908`与tracking ref/post-push receipt已闭合。这些证据只证明相应实现和validation，不关闭后续 residual work。
 
 ### Locked sequence
 
 | 工作 | 解锁条件 |
 |---|---|
-| `P0P3-C1` capability control sinks | 当前唯一允许领取 |
-| `P0P3-C2` orchestration non-authorization | C1完成并验证 |
+| `P0P3-C1` capability control sinks | 已完成并解锁 C2 |
+| `P0P3-C2` orchestration non-authorization | 当前唯一允许领取 |
 | `P0P3-C3` DTO/receipt/session/skill | C2完成并验证 |
 | `P0P3-C4` runtime ownership | C3完成并验证 |
-| 路线总体完成 | C1～C4及原P0～P3逐项验收全部通过 |
+| retired pack identity migration | C4完成并验证 |
+| binary-re 专项验收校准 | retired pack identity migration完成并验证 |
+| 路线总体完成 | 上述闭环及原P0～P3逐项验收全部通过 |
 
 ## 验证标准
 
 - 本文件与路线图的 route/current/state/claim/next 必须一致；冲突时 fail-closed。
 - active plan只保留一个 current residual milestone和一个latest numbered batch handoff；更早批次只在`docs/batch-history.md`。
 - route completion不能由Git-local validation receipt替代；machine validation也不能由Markdown claim替代。
-- `Batch 833`不自动解锁下一 numbered batch；P0P3-C1～C4不创建Batch 834。
+- `Batch 833`不自动解锁下一 numbered batch；当前路线不创建Batch 834。
 - 不声称未读取的remote CI green，不用cross-compile代替非Windows runtime E2E。
 
 ## 风险与注意事项

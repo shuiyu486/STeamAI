@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
@@ -220,12 +221,19 @@ type preparedReviewerResultInputSave struct {
 }
 
 func SaveReviewerResultInput(repoRoot, caseRoot, pack string, opt ReviewerResultInputSaveOptions) (ReviewerResultInputSaveResult, error) {
+	return SaveReviewerResultInputWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func SaveReviewerResultInputWithLease(repoRoot, caseRoot, pack string, opt ReviewerResultInputSaveOptions, lease *lanemutation.Lease) (ReviewerResultInputSaveResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerResultInputSaveResult{}, err
 	}
 	caseRoot = inst.CaseRoot
 	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(caseRoot, opt.Lane, lease); err != nil {
+			return ReviewerResultInputSaveResult{}, err
+		}
 		decoded, decodeErr := hex.DecodeString(strings.TrimSpace(opt.ExpectedReviewerResultSHA256))
 		if decodeErr != nil || len(decoded) != sha256.Size {
 			return ReviewerResultInputSaveResult{}, fmt.Errorf("reviewer result input save Apply requires a valid -ExpectedReviewerResultInputSha256 from WhatIf")
@@ -272,6 +280,9 @@ func SaveReviewerResultInput(repoRoot, caseRoot, pack string, opt ReviewerResult
 	if !reviewerPacketSnapshotCurrent(caseRoot, prepared.packetPath, prepared.packetSnapshot) {
 		return ReviewerResultInputSaveResult{}, fmt.Errorf("review packet changed after reviewer result input save validation")
 	}
+	if err := requireReviewerDispatchControlCurrent(caseRoot, lease, prepared.dispatch); err != nil {
+		return ReviewerResultInputSaveResult{}, err
+	}
 	if reviewerResultInputBeforePublicationHook != nil {
 		if err := reviewerResultInputBeforePublicationHook(); err != nil {
 			return ReviewerResultInputSaveResult{}, err
@@ -309,12 +320,19 @@ func SaveReviewerResultInput(repoRoot, caseRoot, pack string, opt ReviewerResult
 }
 
 func CaptureReviewerResultSource(repoRoot, caseRoot, pack string, opt ReviewerResultSourceCaptureOptions) (ReviewerResultSourceCaptureResult, error) {
+	return CaptureReviewerResultSourceWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func CaptureReviewerResultSourceWithLease(repoRoot, caseRoot, pack string, opt ReviewerResultSourceCaptureOptions, lease *lanemutation.Lease) (ReviewerResultSourceCaptureResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerResultSourceCaptureResult{}, err
 	}
 	caseRoot = inst.CaseRoot
 	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(caseRoot, opt.Lane, lease); err != nil {
+			return ReviewerResultSourceCaptureResult{}, err
+		}
 		decoded, decodeErr := hex.DecodeString(strings.TrimSpace(opt.ExpectedReviewerResultSHA256))
 		if decodeErr != nil || len(decoded) != sha256.Size {
 			return ReviewerResultSourceCaptureResult{}, fmt.Errorf("reviewer result source capture Apply requires a valid -ExpectedReviewerResultInputSha256 from WhatIf")
@@ -361,6 +379,9 @@ func CaptureReviewerResultSource(repoRoot, caseRoot, pack string, opt ReviewerRe
 	if !reviewerPacketSnapshotCurrent(caseRoot, prepared.packetPath, prepared.packetSnapshot) {
 		return ReviewerResultSourceCaptureResult{}, fmt.Errorf("review packet changed after reviewer result source capture validation")
 	}
+	if err := requireReviewerResultControlCurrent(caseRoot, lease, prepared.packetPath, prepared.packet, prepared.packetSnapshot.packet, prepared.handoff, prepared.result); err != nil {
+		return ReviewerResultSourceCaptureResult{}, err
+	}
 	already, err := publishReviewerResultSourceAnchoredExpected(caseRoot, prepared.packet, prepared.handoff, prepared.input, prepared.packetSnapshot, prepared.resultRootID)
 	if err != nil {
 		return ReviewerResultSourceCaptureResult{}, err
@@ -383,12 +404,19 @@ func CaptureReviewerResultSource(repoRoot, caseRoot, pack string, opt ReviewerRe
 }
 
 func StageReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultStagingOptions) (ReviewerResultStagingResult, error) {
+	return StageReviewerResultWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func StageReviewerResultWithLease(repoRoot, caseRoot, pack string, opt ReviewerResultStagingOptions, lease *lanemutation.Lease) (ReviewerResultStagingResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerResultStagingResult{}, err
 	}
 	caseRoot = inst.CaseRoot
 	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(caseRoot, opt.Lane, lease); err != nil {
+			return ReviewerResultStagingResult{}, err
+		}
 		decoded, decodeErr := hex.DecodeString(strings.TrimSpace(opt.ExpectedSourceSHA256))
 		if decodeErr != nil || len(decoded) != sha256.Size {
 			return ReviewerResultStagingResult{}, fmt.Errorf("reviewer result staging Apply requires a valid -ExpectedSourceSha256 from WhatIf")
@@ -434,6 +462,9 @@ func StageReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultStag
 	}
 	if !reviewerPacketSnapshotCurrent(caseRoot, prepared.packetPath, prepared.packetSnapshot) {
 		return ReviewerResultStagingResult{}, fmt.Errorf("review packet changed after staging validation")
+	}
+	if err := requireReviewerResultControlCurrent(caseRoot, lease, prepared.packetPath, prepared.packet, prepared.packetSnapshot.packet, prepared.handoff, prepared.result); err != nil {
+		return ReviewerResultStagingResult{}, err
 	}
 	already, err := publishReviewerResultCandidateAnchoredExpected(caseRoot, prepared.packet, prepared.handoff, prepared.source, prepared.packetSnapshot, prepared.resultRootID, nil)
 	if err != nil {

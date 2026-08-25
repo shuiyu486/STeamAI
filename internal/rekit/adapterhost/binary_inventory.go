@@ -26,6 +26,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -43,7 +44,10 @@ type BinaryInventoryChildOptions struct {
 	Executor                   string
 	ExpectedExecutorGeneration int
 	SourcePath                 string
+	ExecutionControlBinding    *executioncontrol.Binding
+	ParentLaneLeaseHandle      uintptr
 	InstructionIdentity        *instructionpacket.Identity
+	parentLeaseValidator       func() error
 }
 
 type BinaryInventoryChildResult struct {
@@ -83,6 +87,18 @@ func RunBinaryInventoryChild(opt BinaryInventoryChildOptions) (BinaryInventoryCh
 	if err != nil {
 		return BinaryInventoryChildResult{}, err
 	}
+	guard, err := acquireAuthorizedChildControlLease(
+		binding.caseRoot,
+		binding.dispatch,
+		opt.ExecutionControlBinding,
+		opt.ParentLaneLeaseHandle,
+		opt.parentLeaseValidator,
+		"binary inventory private child",
+	)
+	if err != nil {
+		return BinaryInventoryChildResult{}, err
+	}
+	defer guard.Close()
 	root, err := os.OpenRoot(binding.caseRoot)
 	if err != nil {
 		return BinaryInventoryChildResult{}, err
@@ -101,11 +117,18 @@ func RunBinaryInventoryChild(opt BinaryInventoryChildOptions) (BinaryInventoryCh
 	if err != nil {
 		return BinaryInventoryChildResult{}, err
 	}
-	if err := validateAdapterInstructionBinding(opt.CaseRoot, opt.Pack, opt.InstructionIdentity); err != nil {
+	if err := requireAuthorizedChildControlAtSink(
+		binding.caseRoot, guard, opt.ExecutionControlBinding, binding.dispatch,
+	); err != nil {
 		return BinaryInventoryChildResult{}, err
 	}
 	inventory, err := binaryinventory.Inspect(source, data)
 	if err != nil {
+		return BinaryInventoryChildResult{}, err
+	}
+	if err := requireAuthorizedChildControlAtSink(
+		binding.caseRoot, guard, opt.ExecutionControlBinding, binding.dispatch,
+	); err != nil {
 		return BinaryInventoryChildResult{}, err
 	}
 	inventoryData, err := binaryinventory.CanonicalBytes(inventory)
@@ -268,6 +291,7 @@ func runBinaryInventoryChild(
 	sourcePath string,
 	timeout time.Duration,
 	executableSHA string,
+	lease *lanemutation.Lease,
 	afterLaunch func(int) error,
 ) ([]byte, int, error) {
 	childOpt := BinaryInventoryChildOptions{
@@ -277,9 +301,19 @@ func runBinaryInventoryChild(
 		Executor:                   dispatch.Owner.CurrentExecutor,
 		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		SourcePath:                 sourcePath,
+		ExecutionControlBinding:    executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 		InstructionIdentity:        cloneAdapterInstructionIdentity(opt.InstructionIdentity),
 	}
+	if lease == nil {
+		return nil, 0, fmt.Errorf("binary inventory child launch requires the parent lane mutation lease")
+	}
+	if err := lease.ValidateLaneFor(childOpt.CaseRoot, dispatch.Owner.Lane); err != nil {
+		return nil, 0, err
+	}
 	if opt.testHooks != nil && opt.testHooks.runBinaryInventoryChild != nil {
+		childOpt.parentLeaseValidator = func() error {
+			return lease.ValidateLaneFor(childOpt.CaseRoot, dispatch.Owner.Lane)
+		}
 		stdout, childPID, err := opt.testHooks.runBinaryInventoryChild(childOpt)
 		if childPID > 0 && afterLaunch != nil {
 			if launchErr := afterLaunch(childPID); launchErr != nil {
@@ -300,6 +334,12 @@ func runBinaryInventoryChild(
 	if !strings.EqualFold(binding.SHA256(), executableSHA) {
 		return nil, 0, fmt.Errorf("adapter executable identity changed before binary inventory child launch")
 	}
+	parentLaneLeaseFile, err := lease.DuplicateLaneLockForChild()
+	if err != nil {
+		return nil, 0, err
+	}
+	defer parentLaneLeaseFile.Close()
+	childOpt.ParentLaneLeaseHandle = parentLaneLeaseFile.Fd()
 	args := []string{
 		privateChildBinaryInventoryFlag,
 		"-repo", childOpt.RepoRoot,
@@ -316,11 +356,18 @@ func runBinaryInventoryChild(
 	if err != nil {
 		return nil, 0, err
 	}
-	stdout, _, childPID, err := runContainedProcessObserved(
+	args, err = appendAuthorizedChildControlArgs(
+		args, childOpt.ExecutionControlBinding, childOpt.ParentLaneLeaseHandle,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	stdout, _, childPID, err := runContainedProcessObservedWithInheritedFiles(
 		binding,
 		args,
 		fixedChildEnvironment(),
 		timeout,
+		[]*os.File{parentLaneLeaseFile},
 		afterLaunch,
 	)
 	return stdout, childPID, err
@@ -394,6 +441,25 @@ func runBinaryInventoryExistingDispatch(
 		return result, err
 	}
 	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+	stateRoot, err := projectstate.Resolve(result.CaseRoot)
+	if err != nil {
+		return result, err
+	}
+	if stateRoot.Existing && !stateRoot.Legacy {
+		current, currentPath, currentSHA, _, currentErr := gate.ReadCurrentAdapterExecutionDispatch(
+			opt.RepoRoot,
+			result.CaseRoot,
+			result.Pack,
+			result.GateEventID,
+		)
+		if currentErr != nil || currentPath != dispatchPath || !strings.EqualFold(currentSHA, dispatchSHA) ||
+			!adapterexecution.DispatchSemanticEqual(current, dispatch) {
+			return result, fmt.Errorf("binary inventory dispatch changed before recovery: %w", currentErr)
+		}
+		if err := requireAuthorizedAdapterControlWithLease(result.CaseRoot, lease, opt.ExecutionControlBinding, dispatch); err != nil {
+			return result, fmt.Errorf("binary inventory recovery execution control is stale: %w", err)
+		}
+	}
 	root, err := os.OpenRoot(result.CaseRoot)
 	if err != nil {
 		return result, err
@@ -607,10 +673,8 @@ func runBinaryInventoryExistingDispatch(
 		!adapterexecution.DispatchSemanticEqual(current, dispatch) {
 		return result, fmt.Errorf("binary inventory dispatch changed while acquiring lane lease: %w", err)
 	}
-	if opt.ExecutionControlBinding != nil {
-		if err := executioncontrol.RequireCurrentBindingWithLease(result.CaseRoot, lease, *opt.ExecutionControlBinding); err != nil {
-			return result, fmt.Errorf("binary inventory execution control is stale: %w", err)
-		}
+	if err := requireAuthorizedAdapterControlWithLease(result.CaseRoot, lease, opt.ExecutionControlBinding, dispatch); err != nil {
+		return result, fmt.Errorf("binary inventory execution control is stale: %w", err)
 	}
 	if err := validateAdapterAuthorizationPhase(
 		opt,
@@ -694,6 +758,7 @@ func runBinaryInventoryExistingDispatch(
 		result.InputPath,
 		remaining,
 		result.ExecutableSHA256,
+		lease,
 		afterLaunch,
 	)
 	result.ProcessID = childPID
@@ -1128,6 +1193,7 @@ func completeBinaryInventoryEvidenceLifecycle(
 				RecoveryProofPath:             binaryInventoryChildLaunchPath(result.ReportPath),
 				ExpectedRecoveryProofSHA256:   launchSHA,
 				Actor:                         strings.TrimSpace(opt.Actor),
+				ExecutionControlBinding:       executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 				ValidateExactArtifacts: func() error {
 					if opt.testHooks != nil && opt.testHooks.beforeBinaryInventoryFailureClosureValidation != nil {
 						if err := opt.testHooks.beforeBinaryInventoryFailureClosureValidation(); err != nil {
@@ -1180,6 +1246,7 @@ func completeBinaryInventoryEvidenceLifecycle(
 			ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 			AdapterHarness:             adapterHarness, AdapterSession: dispatch.Owner.AdapterSession,
 			ExecutionExitStatus: "completed", Actor: strings.TrimSpace(opt.Actor),
+			ExecutionControlBinding: executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 		}
 		preview, previewErr := gate.RecordAdapterExecutionReceipt(opt.RepoRoot, result.CaseRoot, result.Pack, receiptOpt)
 		if previewErr != nil {
@@ -1228,6 +1295,7 @@ func completeBinaryInventoryEvidenceLifecycle(
 				ExpectedAdapterExecutionReceiptSHA256: validation.AdapterExecutionReceiptSHA256,
 				Executor:                              dispatch.Owner.CurrentExecutor,
 				ExpectedExecutorGeneration:            dispatch.Owner.ExecutorGeneration,
+				ExecutionControlBinding:               executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 			},
 		)
 		if recordErr != nil || (!observation.Applied && observation.Reason != "duplicate eventId") {
@@ -1260,11 +1328,12 @@ func completeBinaryInventoryEvidenceLifecycle(
 			"observation-event-id": result.ObservationEventID,
 		},
 	}
-	result.TaskBindingPath, result.TaskBindingSHA256, err = memberexecution.WriteTaskBindingForOwner(
+	result.TaskBindingPath, result.TaskBindingSHA256, err = writeAuthorizedTaskBindingForOwner(
 		result.CaseRoot,
 		lane,
 		dispatch.Owner.CurrentExecutor,
 		dispatch.Owner.ExecutorGeneration,
+		executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 		binding,
 	)
 	return result, err

@@ -465,7 +465,7 @@ func applyReviewerWaveObservationWithLease(ctx runtime.Context, opt Options, obs
 		_, err := subagents.RecordReviewerSessionDispatchWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: observation.ReviewerHarness, ReviewerSession: observation.ReviewerSession, ExpectedBindingSHA256: preview.ExpectedBindingSHA256}, lease)
 		return reviewerWaveObservationApplyResult{Mutated: err == nil}, err
 	case "returned":
-		save, err := subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, SourcePath: observation.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: preview.DispatchID, ExpectedReviewerResultSHA256: preview.ExpectedInputSaveSHA256})
+		save, err := subagents.SaveReviewerResultInputWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, SourcePath: observation.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: preview.DispatchID, ExpectedReviewerResultSHA256: preview.ExpectedInputSaveSHA256}, lease)
 		if err != nil {
 			return reviewerWaveObservationApplyResult{}, err
 		}
@@ -474,10 +474,10 @@ func applyReviewerWaveObservationWithLease(ctx runtime.Context, opt Options, obs
 				return reviewerWaveObservationApplyResult{Mutated: true}, err
 			}
 		}
-		_, err = subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: save.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: "succeeded", ExitStatus: firstReviewerWaveText(observation.ReviewerExitStatus, "completed"), ReviewerResultInputPath: save.InputPath, ExpectedDispatchReceiptSHA256: preview.ExpectedDispatchSHA256, ExpectedReviewerResultSHA256: preview.ExpectedReviewerResultSHA256})
+		_, err = subagents.RecordReviewerSessionCompletionWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: save.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: "succeeded", ExitStatus: firstReviewerWaveText(observation.ReviewerExitStatus, "completed"), ReviewerResultInputPath: save.InputPath, ExpectedDispatchReceiptSHA256: preview.ExpectedDispatchSHA256, ExpectedReviewerResultSHA256: preview.ExpectedReviewerResultSHA256}, lease)
 		return reviewerWaveObservationApplyResult{Mutated: true}, err
 	case "failed":
-		_, err := subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: observation.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: "failed", ExitStatus: observation.ReviewerExitStatus, ExpectedDispatchReceiptSHA256: preview.ExpectedDispatchSHA256})
+		_, err := subagents.RecordReviewerSessionCompletionWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: observation.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: "failed", ExitStatus: observation.ReviewerExitStatus, ExpectedDispatchReceiptSHA256: preview.ExpectedDispatchSHA256}, lease)
 		return reviewerWaveObservationApplyResult{Mutated: err == nil}, err
 	}
 	return reviewerWaveObservationApplyResult{}, fmt.Errorf("unsupported reviewer wave observation kind %q", preview.Kind)

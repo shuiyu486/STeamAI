@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -59,11 +60,31 @@ func runContainedProcessObserved(
 	timeout time.Duration,
 	afterLaunch func(int) error,
 ) ([]byte, []byte, int, error) {
+	return runContainedProcessObservedWithInheritedFiles(
+		binding,
+		args,
+		env,
+		timeout,
+		nil,
+		afterLaunch,
+	)
+}
+
+func runContainedProcessObservedWithInheritedFiles(
+	binding *processguard.ExecutableBinding,
+	args, env []string,
+	timeout time.Duration,
+	inheritedFiles []*os.File,
+	afterLaunch func(int) error,
+) ([]byte, []byte, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binding.Path(), args...)
 	if env != nil {
 		cmd.Env = env
+	}
+	if err := processguard.ConfigureInheritedFiles(cmd, inheritedFiles); err != nil {
+		return nil, nil, 0, err
 	}
 	if err := processguard.ConfigureSuspended(cmd, binding); err != nil {
 		return nil, nil, 0, err

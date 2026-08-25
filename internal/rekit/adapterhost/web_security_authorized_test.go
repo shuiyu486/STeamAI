@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/websecurity"
@@ -162,6 +163,7 @@ func newWebSecurityAuthorizedFixture(t *testing.T, adapterID string, deferBindin
 	if err != nil || !authorized.Applied || authorized.Event == nil {
 		t.Fatalf("authorize web-security fixture: %+v err=%v", authorized, err)
 	}
+	control := captureAuthorizedAdapterControl(t, caseRoot, lane)
 	return webSecurityAuthorizedFixture{
 		repoRoot: repoRoot, caseRoot: caseRoot, inputPath: inputPath, outputRoot: outputRoot,
 		gateEventID: authorized.EventID,
@@ -169,7 +171,7 @@ func newWebSecurityAuthorizedFixture(t *testing.T, adapterID string, deferBindin
 			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: webSecurityPack, GateEventID: authorized.EventID,
 			ExecutionReportPath: outputRoot + "/adapter-report.json", AdapterID: adapterID,
 			AdapterSession: "web-session-1", Actor: "mission-commander", DeferSuccessfulTaskBinding: deferBinding,
-			InstructionIdentity: instructionIdentity,
+			ExecutionControlBinding: control, InstructionIdentity: instructionIdentity,
 		},
 	}
 }
@@ -228,6 +230,7 @@ func TestDecodeOpenAPIInventoryChildResultRejectsMismatchedInstructionIdentity(t
 		Executor:                   dispatch.Owner.CurrentExecutor,
 		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		SourcePath:                 fixture.inputPath,
+		ExecutionControlBinding:    executioncontrol.CloneBinding(fixture.options.ExecutionControlBinding),
 		InstructionIdentity:        cloneAdapterInstructionIdentity(fixture.options.InstructionIdentity),
 	}
 	result, err := RunOpenAPIInventoryChild(childOpt)
@@ -265,6 +268,7 @@ func boundedReplayChildOptionsForFixture(t *testing.T, fixture webSecurityAuthor
 		Executor:                   dispatch.Owner.CurrentExecutor,
 		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		RequestPath:                fixture.inputPath,
+		ExecutionControlBinding:    executioncontrol.CloneBinding(fixture.options.ExecutionControlBinding),
 		InstructionIdentity:        cloneAdapterInstructionIdentity(fixture.options.InstructionIdentity),
 	}
 }

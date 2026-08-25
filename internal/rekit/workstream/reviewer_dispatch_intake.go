@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
@@ -27,13 +29,14 @@ import (
 )
 
 type ReviewerAgentToolRequest struct {
-	Tool           string `json:"tool"`
-	AgentType      string `json:"agentType"`
-	ReadOnly       bool   `json:"readOnly"`
-	Prompt         string `json:"prompt"`
-	PromptPath     string `json:"promptPath,omitempty"`
-	PromptSHA256   string `json:"promptSha256,omitempty"`
-	ExpectedOutput string `json:"expectedOutput"`
+	Tool           string                    `json:"tool"`
+	AgentType      string                    `json:"agentType"`
+	ReadOnly       bool                      `json:"readOnly"`
+	Prompt         string                    `json:"prompt"`
+	PromptPath     string                    `json:"promptPath,omitempty"`
+	PromptSHA256   string                    `json:"promptSha256,omitempty"`
+	ExpectedOutput string                    `json:"expectedOutput"`
+	LaunchControl  *executioncontrol.Binding `json:"launchControl,omitempty"`
 }
 
 type ReviewerResultStagingCommands struct {
@@ -703,8 +706,63 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPath, packetTargetLane)...)
 	}
 	items = limitReviewerDispatchIntakeHandoffs(items, maxHandoffRows)
+	PauseReviewerDispatchesForStaleLaunchControl(caseRoot, items)
 	PauseReviewerDispatchesForOpenInterventions(items, facts.Facts)
 	return items, nil
+}
+
+func PauseReviewerDispatchesForStaleLaunchControl(caseRoot string, items []ReviewerDispatchIntakeHandoff) {
+	stateRoot, stateErr := projectstate.Resolve(caseRoot)
+	for idx := range items {
+		if items[idx].VerificationRecorded && items[idx].DecisionRecorded {
+			continue
+		}
+		binding := reviewerDispatchHandoffLaunchControl(items[idx])
+		if binding == nil && (stateErr != nil || !stateRoot.Existing || stateRoot.Legacy) {
+			continue
+		}
+		if binding == nil {
+			reason := "current reviewer packet lacks frozen execution control lineage; regenerate a canonical reviewer packet after binding an exact lane executor"
+			pauseReviewerDispatchHandoff(&items[idx], "", reason, "current reviewer launch requires immutable read-only execution control lineage")
+			continue
+		}
+		current := false
+		validationErr := executioncontrol.ValidateBinding(*binding)
+		if validationErr == nil && (binding.Capability != reviewersession.ReadOnlyCapability() ||
+			binding.Lane != strings.TrimSpace(items[idx].TargetLane)) {
+			validationErr = fmt.Errorf("reviewer launch binding does not match its read-only target lane")
+		}
+		inspection, err := executioncontrol.Inspect(caseRoot, binding.Lane)
+		owner, ownerErr := laneowner.Read(caseRoot, binding.Lane)
+		if validationErr == nil && err == nil && ownerErr == nil {
+			current = inspection.State == executioncontrol.StateRunning && !inspection.Pending &&
+				inspection.CurrentGeneration == binding.ControlGeneration &&
+				strings.EqualFold(inspection.CurrentReceiptSHA256, binding.ControlReceiptSHA256) &&
+				owner == binding.Owner
+		}
+		if current {
+			continue
+		}
+		reason := "reviewer launch handoff execution control is no longer current; regenerate a new canonical reviewer packet before future dispatch"
+		if validationErr != nil {
+			reason += ": " + validationErr.Error()
+		} else if err != nil {
+			reason += ": " + err.Error()
+		} else if ownerErr != nil {
+			reason += ": " + ownerErr.Error()
+		}
+		pauseReviewerDispatchHandoff(&items[idx], "", reason, "stale reviewer launch lineage makes this handoff diagnostic only; resume never adopts prior launch requests")
+	}
+}
+
+func reviewerDispatchHandoffLaunchControl(item ReviewerDispatchIntakeHandoff) *executioncontrol.Binding {
+	if item.AgentToolRequest != nil && item.AgentToolRequest.LaunchControl != nil {
+		return executioncontrol.CloneBinding(item.AgentToolRequest.LaunchControl)
+	}
+	if item.ManagedDispatch != nil && item.ManagedDispatch.AgentToolRequest != nil {
+		return executioncontrol.CloneBinding(item.ManagedDispatch.AgentToolRequest.LaunchControl)
+	}
+	return nil
 }
 
 func PauseReviewerDispatchesForOpenInterventions(items []ReviewerDispatchIntakeHandoff, facts mission.Facts) {
@@ -3344,6 +3402,7 @@ func reviewerDispatchOperatorAgentToolRequest(item ReviewerDispatchIntakeHandoff
 		return nil
 	}
 	copy := *request
+	copy.LaunchControl = executioncontrol.CloneBinding(request.LaunchControl)
 	if managed != nil {
 		if strings.TrimSpace(copy.PromptPath) == "" {
 			copy.PromptPath = firstText(item.DispatchPromptPath, managed.PromptPath)

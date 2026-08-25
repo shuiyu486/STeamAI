@@ -801,10 +801,10 @@ func executeReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 			}
 			return subagents.RecordReviewerSessionDispatchWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf}, lease)
 		case "record-completion":
-			return subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+			return subagents.RecordReviewerSessionCompletionWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf}, lease)
 		case "save-result-input":
 			save := func() (any, error) {
-				return subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: opt.ReviewerDispatchID, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf, ResultSnapshot: opt.currentLoopReviewerResultSnapshot})
+				return subagents.SaveReviewerResultInputWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: opt.ReviewerDispatchID, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf, ResultSnapshot: opt.currentLoopReviewerResultSnapshot}, lease)
 			}
 			if opt.WhatIf || opt.currentLoopReviewerResultPublication == nil {
 				return save()
@@ -835,13 +835,13 @@ func executeReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 			*opt.currentLoopReviewerResultPublished = true
 			return saved, nil
 		case "source-capture":
-			return subagents.CaptureReviewerResultSource(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+			return subagents.CaptureReviewerResultSourceWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf}, lease)
 		case "stage-candidate":
-			return subagents.StageReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultStagingOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedSourceSHA256: opt.ExpectedSourceSHA256, WhatIf: opt.WhatIf})
+			return subagents.StageReviewerResultWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultStagingOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedSourceSHA256: opt.ExpectedSourceSHA256, WhatIf: opt.WhatIf}, lease)
 		case "collect-result":
-			return subagents.CollectReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, WhatIf: opt.WhatIf})
+			return subagents.CollectReviewerResultWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, WhatIf: opt.WhatIf}, lease)
 		case "intake-results":
-			return subagents.IntakeReadyReviewerResults(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerBatchIntakeOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+			return subagents.IntakeReadyReviewerResultsWithLease(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerBatchIntakeOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf}, lease)
 		default:
 			return nil, fmt.Errorf("unsupported bounded reviewer step")
 		}

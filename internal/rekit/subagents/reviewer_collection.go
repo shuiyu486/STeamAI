@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
@@ -75,11 +76,20 @@ type preparedReviewerResultCollection struct {
 }
 
 func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions) (ReviewerResultCollectionResult, error) {
+	return CollectReviewerResultWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func CollectReviewerResultWithLease(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions, lease *lanemutation.Lease) (ReviewerResultCollectionResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerResultCollectionResult{}, err
 	}
 	caseRoot = inst.CaseRoot
+	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(caseRoot, opt.Lane, lease); err != nil {
+			return ReviewerResultCollectionResult{}, err
+		}
+	}
 	prepared, err := prepareReviewerResultCollection(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		if opt.WhatIf && reviewerResultCollectionRecoveryHandoffCandidate(err) {
@@ -137,6 +147,9 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 	}
 	if !strings.EqualFold(expectedCandidateSHA256, result.CandidateSHA256) {
 		return ReviewerResultCollectionResult{}, fmt.Errorf("reviewer result collection expected candidate sha256 mismatch: got %s want %s", expectedCandidateSHA256, result.CandidateSHA256)
+	}
+	if err := requireReviewerResultControlCurrent(caseRoot, lease, prepared.packetPath, prepared.packet, prepared.packetData, prepared.handoff, prepared.result); err != nil {
+		return ReviewerResultCollectionResult{}, err
 	}
 	already, err := publishReviewerResult(prepared.packet.ReviewerOrchestration.ResultRoot, prepared.handoff.ReviewerResultPath, prepared.candidate)
 	if err != nil {

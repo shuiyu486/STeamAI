@@ -93,7 +93,7 @@ func TestPrivateVMPIDAChildRejectsUnboundInvocation(t *testing.T) {
 		"-target", caseRoot,
 		"-child-request-path", preview.RequestPath,
 	})
-	if code != 1 || !strings.Contains(stdout, `"schemaVersion": 0`) || !strings.Contains(stderr, "requires exact") {
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "inherited parent lane mutation lease handle") {
 		t.Fatalf("unbound child code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -104,7 +104,7 @@ func TestPrivateAdapterModesAreMutuallyExclusive(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 	code, _, stderr = captureRun(t, []string{"-child-vmp-ida-index-inspector", "-target", t.TempDir(), "-actor", "unexpected", "-child-request-path", "request.json"})
-	if code != 2 || !strings.Contains(stderr, "cannot be combined") {
+	if code != 2 || !strings.Contains(stderr, "inherited parent lane mutation lease handle") {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 }

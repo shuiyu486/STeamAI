@@ -295,13 +295,14 @@ type MissionCommanderDriverReceipt struct {
 }
 
 type CurrentLoopReviewerAgentToolRequest struct {
-	Tool           string `json:"tool"`
-	AgentType      string `json:"agentType"`
-	ReadOnly       bool   `json:"readOnly"`
-	Prompt         string `json:"prompt"`
-	PromptPath     string `json:"promptPath,omitempty"`
-	PromptSHA256   string `json:"promptSha256,omitempty"`
-	ExpectedOutput string `json:"expectedOutput"`
+	Tool           string                    `json:"tool"`
+	AgentType      string                    `json:"agentType"`
+	ReadOnly       bool                      `json:"readOnly"`
+	Prompt         string                    `json:"prompt"`
+	PromptPath     string                    `json:"promptPath,omitempty"`
+	PromptSHA256   string                    `json:"promptSha256,omitempty"`
+	ExpectedOutput string                    `json:"expectedOutput"`
+	LaunchControl  *executioncontrol.Binding `json:"launchControl,omitempty"`
 }
 
 type CurrentLoopObservationAlternative struct {
@@ -352,18 +353,19 @@ type CurrentLoopObservationInbox struct {
 }
 
 type CurrentLoopReviewerAttemptIdentity struct {
-	PacketID          string `json:"packetId"`
-	PacketPath        string `json:"packetPath"`
-	RouteID           string `json:"routeId"`
-	ShardID           string `json:"shardId"`
-	Lane              string `json:"lane"`
-	PromptPath        string `json:"promptPath"`
-	PromptSHA256      string `json:"promptSha256"`
-	OwnerExecutor     string `json:"ownerExecutor"`
-	OwnerGeneration   int    `json:"ownerGeneration"`
-	OwnerBindingMode  string `json:"ownerBindingMode"`
-	CurrentExecutor   string `json:"currentExecutor"`
-	CurrentGeneration int    `json:"currentGeneration"`
+	PacketID          string                    `json:"packetId"`
+	PacketPath        string                    `json:"packetPath"`
+	RouteID           string                    `json:"routeId"`
+	ShardID           string                    `json:"shardId"`
+	Lane              string                    `json:"lane"`
+	PromptPath        string                    `json:"promptPath"`
+	PromptSHA256      string                    `json:"promptSha256"`
+	OwnerExecutor     string                    `json:"ownerExecutor"`
+	OwnerGeneration   int                       `json:"ownerGeneration"`
+	OwnerBindingMode  string                    `json:"ownerBindingMode"`
+	CurrentExecutor   string                    `json:"currentExecutor"`
+	CurrentGeneration int                       `json:"currentGeneration"`
+	LaunchControl     *executioncontrol.Binding `json:"launchControl,omitempty"`
 }
 
 type CurrentLoopReviewerAttemptReceipt struct {

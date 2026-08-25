@@ -74,6 +74,50 @@ func testDispatchReceipt(t *testing.T) DispatchReceipt {
 	return dispatch
 }
 
+func TestLegacyV1DispatchHashRemainsStableWithoutLaunchControl(t *testing.T) {
+	dispatch := testDispatchReceipt(t)
+	legacy := struct {
+		SchemaVersion int                        `json:"schemaVersion"`
+		Kind          string                     `json:"kind"`
+		Gate          GateBinding                `json:"gate"`
+		Adapter       AdapterBinding             `json:"adapter"`
+		Owner         OwnerBinding               `json:"owner"`
+		ReportPath    string                     `json:"reportPath"`
+		Actor         string                     `json:"actor"`
+		Capability    capabilitycontract.Binding `json:"capability"`
+		NoExecute     bool                       `json:"noAdapterOrHeavyToolExecution"`
+		NoObservation bool                       `json:"noObservationWrite"`
+		NoAuthority   bool                       `json:"noAuthorityOrConfirmed"`
+	}{
+		SchemaVersion: dispatch.SchemaVersion,
+		Kind:          dispatch.Kind,
+		Gate:          dispatch.Gate,
+		Adapter:       dispatch.Adapter,
+		Owner:         dispatch.Owner,
+		ReportPath:    dispatch.ReportPath,
+		Actor:         dispatch.Actor,
+		Capability:    dispatch.Capability,
+		NoExecute:     dispatch.NoExecute,
+		NoObservation: dispatch.NoObservation,
+		NoAuthority:   dispatch.NoAuthority,
+	}
+	legacyData, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := SHA256(legacyData); got != dispatch.DispatchID {
+		t.Fatalf("legacy v1 dispatch hash changed: got=%s want=%s", got, dispatch.DispatchID)
+	}
+	data, err := DispatchReceiptBytes(dispatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeDispatch(data)
+	if err != nil || decoded.LaunchControl != nil || !DispatchSemanticEqual(decoded, dispatch) {
+		t.Fatalf("legacy v1 dispatch no longer decodes exactly: decoded=%+v err=%v", decoded, err)
+	}
+}
+
 func TestDispatchReceiptDecodeStrictAndCompletionLineage(t *testing.T) {
 	dispatch := testDispatchReceipt(t)
 	data, err := DispatchReceiptBytes(dispatch)

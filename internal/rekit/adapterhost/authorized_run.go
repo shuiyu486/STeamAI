@@ -78,8 +78,43 @@ func RunVMPIDAIndexChild(opt VMPIDAIndexChildOptions) (VMPIDAIndexChildResult, e
 	if err != nil {
 		return VMPIDAIndexChildResult{}, err
 	}
+	repoRoot, err := filepath.Abs(strings.TrimSpace(opt.RepoRoot))
+	if err != nil {
+		return VMPIDAIndexChildResult{}, err
+	}
+	dispatch, _, _, _, err := gate.ReadCurrentAdapterExecutionDispatch(
+		repoRoot,
+		caseRoot,
+		strings.TrimSpace(opt.Pack),
+		strings.TrimSpace(opt.GateEventID),
+	)
+	if err != nil {
+		return VMPIDAIndexChildResult{}, err
+	}
+	guard, err := acquireAuthorizedChildControlLease(
+		caseRoot,
+		dispatch,
+		opt.ExecutionControlBinding,
+		opt.ParentLaneLeaseHandle,
+		opt.parentLeaseValidator,
+		"VMP IDA private child",
+	)
+	if err != nil {
+		return VMPIDAIndexChildResult{}, err
+	}
+	defer guard.Close()
+	if err := requireAuthorizedChildControlAtSink(
+		caseRoot, guard, opt.ExecutionControlBinding, dispatch,
+	); err != nil {
+		return VMPIDAIndexChildResult{}, err
+	}
 	inspection, err := InspectVMPIDAIndex(caseRoot, requestPath)
 	if err != nil {
+		return VMPIDAIndexChildResult{}, err
+	}
+	if err := requireAuthorizedChildControlAtSink(
+		caseRoot, guard, opt.ExecutionControlBinding, dispatch,
+	); err != nil {
 		return VMPIDAIndexChildResult{}, err
 	}
 	return VMPIDAIndexChildResult{
@@ -221,6 +256,210 @@ func validateAuthorizedAdapterCapability(dispatch adapterexecution.DispatchRecei
 	return nil
 }
 
+func requireAuthorizedAdapterControl(
+	caseRoot string,
+	binding *executioncontrol.Binding,
+	dispatch *adapterexecution.DispatchReceipt,
+) error {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return err
+	}
+	if binding == nil {
+		if stateRoot.Legacy {
+			return nil
+		}
+		return fmt.Errorf("current STeamAI authorized adapter requires an execution control binding")
+	}
+	if err := executioncontrol.ValidateBinding(*binding); err != nil {
+		return err
+	}
+	if err := capabilitycontract.RequireBindingPolicy(binding.Capability, capabilitycontract.PolicyClassAuthorizedHeavy); err != nil {
+		return fmt.Errorf("authorized adapter execution control capability is invalid: %w", err)
+	}
+	if dispatch == nil {
+		return nil
+	}
+	if dispatch.LaunchControl == nil {
+		if !stateRoot.Legacy {
+			return fmt.Errorf("current STeamAI authorized adapter dispatch is missing launch control lineage")
+		}
+	} else if !executioncontrol.SameBinding(binding, dispatch.LaunchControl) {
+		return fmt.Errorf("authorized adapter execution control does not match immutable dispatch launch lineage")
+	}
+	owner := dispatch.Owner
+	if binding.Lane != owner.Lane || binding.Owner != (laneowner.Snapshot{
+		Lane: owner.Lane, CurrentExecutor: owner.CurrentExecutor, ExecutorGeneration: owner.ExecutorGeneration,
+	}) || binding.Capability != dispatch.Capability {
+		return fmt.Errorf("authorized adapter execution control does not match the immutable dispatch lane, owner, and capability")
+	}
+	return nil
+}
+
+func requireAuthorizedAdapterControlWithLease(
+	caseRoot string,
+	lease *lanemutation.Lease,
+	binding *executioncontrol.Binding,
+	dispatch adapterexecution.DispatchReceipt,
+) error {
+	if err := requireAuthorizedAdapterControl(caseRoot, binding, &dispatch); err != nil {
+		return err
+	}
+	if binding == nil {
+		return nil
+	}
+	return executioncontrol.RequireCurrentBindingWithLease(caseRoot, lease, *binding)
+}
+
+type authorizedChildControlGuard struct {
+	lease           *lanemutation.Lease
+	inherited       *lanemutation.InheritedLaneLease
+	parentValidator func() error
+}
+
+func (guard *authorizedChildControlGuard) Validate() error {
+	switch {
+	case guard == nil:
+		return fmt.Errorf("private child mutation guard is missing")
+	case guard.lease != nil:
+		return guard.lease.Validate()
+	case guard.inherited != nil:
+		return guard.inherited.Validate()
+	case guard.parentValidator != nil:
+		return guard.parentValidator()
+	default:
+		return fmt.Errorf("private child mutation guard has no owner proof")
+	}
+}
+
+func (guard *authorizedChildControlGuard) Close() error {
+	if guard == nil {
+		return nil
+	}
+	var errs []error
+	if guard.lease != nil {
+		errs = append(errs, guard.lease.Unlock())
+		guard.lease = nil
+	}
+	if guard.inherited != nil {
+		errs = append(errs, guard.inherited.Close())
+		guard.inherited = nil
+	}
+	return errors.Join(errs...)
+}
+
+// acquireAuthorizedChildControlLease gives a directly invoked private child its
+// own mutation boundary. A hosted child instead receives an inherited handle to
+// the exact lane lock while its parent keeps the full lease across launch,
+// execution, and result publication. A plain argv assertion cannot skip the
+// current execution-control check.
+func acquireAuthorizedChildControlLease(
+	caseRoot string,
+	dispatch adapterexecution.DispatchReceipt,
+	binding *executioncontrol.Binding,
+	parentLaneLeaseHandle uintptr,
+	parentLeaseValidator func() error,
+	command string,
+) (*authorizedChildControlGuard, error) {
+	if err := requireAuthorizedAdapterControl(caseRoot, binding, &dispatch); err != nil {
+		return nil, err
+	}
+	guard := &authorizedChildControlGuard{}
+	switch {
+	case parentLaneLeaseHandle != 0 && parentLeaseValidator != nil:
+		return nil, fmt.Errorf("private child cannot combine inherited and in-process parent lease proofs")
+	case parentLaneLeaseHandle != 0:
+		inherited, err := lanemutation.OpenInheritedLaneLease(
+			caseRoot,
+			dispatch.Owner.Lane,
+			parentLaneLeaseHandle,
+		)
+		if err != nil {
+			return nil, err
+		}
+		guard.inherited = inherited
+	case parentLeaseValidator != nil:
+		guard.parentValidator = parentLeaseValidator
+	default:
+		lease, err := lanemutation.AcquireOpenLane(caseRoot, dispatch.Owner.Lane, command)
+		if err != nil {
+			return nil, err
+		}
+		guard.lease = lease
+	}
+	if err := requireAuthorizedChildControlAtSink(caseRoot, guard, binding, dispatch); err != nil {
+		return nil, errors.Join(err, guard.Close())
+	}
+	return guard, nil
+}
+
+func requireAuthorizedChildControlAtSink(
+	caseRoot string,
+	guard *authorizedChildControlGuard,
+	binding *executioncontrol.Binding,
+	dispatch adapterexecution.DispatchReceipt,
+) error {
+	if err := requireAuthorizedAdapterControl(caseRoot, binding, &dispatch); err != nil {
+		return err
+	}
+	if binding == nil {
+		return nil
+	}
+	return executioncontrol.RequireCurrentBindingWithValidator(
+		caseRoot,
+		*binding,
+		guard.Validate,
+	)
+}
+
+func appendAuthorizedChildControlArgs(
+	args []string,
+	binding *executioncontrol.Binding,
+	parentLaneLeaseHandle uintptr,
+) ([]string, error) {
+	if binding != nil {
+		if err := executioncontrol.ValidateBinding(*binding); err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(binding)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "-execution-control-binding-json", string(data))
+	}
+	if parentLaneLeaseHandle != 0 {
+		args = append(
+			args,
+			"-parent-lane-lease-handle",
+			strconv.FormatUint(uint64(parentLaneLeaseHandle), 10),
+		)
+	}
+	return args, nil
+}
+
+func writeAuthorizedTaskBindingForOwner(
+	caseRoot,
+	lane,
+	executor string,
+	generation int,
+	controlBinding *executioncontrol.Binding,
+	binding memberexecution.TaskBinding,
+) (string, string, error) {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", "", err
+	}
+	if controlBinding != nil {
+		return memberexecution.WriteTaskBindingForOwnerWithControlBinding(
+			caseRoot, lane, executor, generation, *controlBinding, binding,
+		)
+	}
+	if !stateRoot.Legacy {
+		return "", "", fmt.Errorf("current STeamAI authorized adapter requires an execution control binding for member task binding")
+	}
+	return memberexecution.WriteTaskBindingForOwner(caseRoot, lane, executor, generation, binding)
+}
+
 // RunAuthorizedGateProcess launches the exact adapter-host executable in its
 // private authorized parent mode. The adapter parent remains the sole owner of
 // child containment, execution evidence, member binding, and profile revoke.
@@ -229,6 +468,9 @@ func RunAuthorizedGateProcess(adapterPath string, opt AuthorizedRunOptions, time
 		return AuthorizedRunResult{}, 0, err
 	}
 	if err := validateAdapterInstructionBinding(opt.CaseRoot, opt.Pack, opt.InstructionIdentity); err != nil {
+		return AuthorizedRunResult{}, 0, err
+	}
+	if err := requireAuthorizedAdapterControl(opt.CaseRoot, opt.ExecutionControlBinding, nil); err != nil {
 		return AuthorizedRunResult{}, 0, err
 	}
 	adapterID := strings.TrimSpace(opt.AdapterID)
@@ -487,7 +729,7 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		return result, err
 	}
 	result.CaseRoot = caseRoot
-	if _, err := projectstate.Resolve(caseRoot); err != nil {
+	if err := requireAuthorizedAdapterControl(caseRoot, opt.ExecutionControlBinding, nil); err != nil {
 		return result, err
 	}
 	lane := authorizedGateLane(repoRoot, caseRoot, result.Pack, result.GateEventID)
@@ -510,6 +752,9 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		result.DispatchPath, result.DispatchSHA256 = dispatchPath, dispatchSHA
 		result.ReportPath = dispatch.ReportPath
 		result.PacketPath = authorizedAdapterArtifactPath(dispatch)
+		if err := requireAuthorizedAdapterControl(caseRoot, opt.ExecutionControlBinding, &dispatch); err != nil {
+			return result, err
+		}
 		if result.AdapterID == websecurity.InventoryAdapterID || result.AdapterID == websecurity.ReplayAdapterID {
 			report, reportData, artifactData, terminal, terminalErr := readTerminalWebSecurityReport(caseRoot, dispatch, dispatchPath, dispatchSHA, result.PacketPath)
 			if terminalErr != nil {
@@ -564,11 +809,15 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		if ownerErr != nil {
 			return result, ownerErr
 		}
+		if opt.ExecutionControlBinding != nil && opt.ExecutionControlBinding.Owner != owner {
+			return result, fmt.Errorf("authorized adapter execution control does not match the current durable lane owner")
+		}
 		dispatchOpt := gate.Options{
 			GateEventID: result.GateEventID, ExecutionReportPath: reportPath,
 			AdapterID: result.AdapterID, Executor: owner.CurrentExecutor,
 			ExpectedExecutorGeneration: owner.ExecutorGeneration, AdapterHarness: adapterHarness,
 			AdapterSession: result.AdapterSession, Actor: strings.TrimSpace(opt.Actor),
+			ExecutionControlBinding: executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 		}
 		preview, previewErr := gate.RecordAdapterExecutionDispatch(repoRoot, caseRoot, result.Pack, dispatchOpt)
 		if previewErr != nil {
@@ -585,6 +834,9 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		result.DispatchPath, result.DispatchSHA256 = dispatchPath, dispatchSHA
 		result.ReportPath = dispatch.ReportPath
 		result.PacketPath = authorizedAdapterArtifactPath(dispatch)
+		if err := requireAuthorizedAdapterControl(caseRoot, opt.ExecutionControlBinding, &dispatch); err != nil {
+			return result, err
+		}
 	}
 
 	hostResult := Result{}
@@ -592,6 +844,7 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 	switch result.AdapterID {
 	case VMPIDAIndexAdapterID:
 		hostResult, recovered, err = recoverVMPIDAInterruptedAttempt(
+			opt,
 			caseRoot,
 			result.Pack,
 			dispatch,
@@ -780,6 +1033,7 @@ func completeVMPIDAEvidenceLifecycle(
 				RecoveryProofPath:             vmpIDAChildLaunchPath(result.ReportPath),
 				ExpectedRecoveryProofSHA256:   launchSHA,
 				Actor:                         strings.TrimSpace(opt.Actor),
+				ExecutionControlBinding:       executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 			},
 		)
 		if err != nil {
@@ -825,6 +1079,7 @@ func completeVMPIDAEvidenceLifecycle(
 				RecoveryProofPath:             vmpIDAChildLaunchPath(result.ReportPath),
 				ExpectedRecoveryProofSHA256:   launchSHA,
 				Actor:                         strings.TrimSpace(opt.Actor),
+				ExecutionControlBinding:       executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 			},
 		)
 		if closureErr != nil {
@@ -870,6 +1125,7 @@ func completeVMPIDAEvidenceLifecycle(
 			AdapterSession:             dispatch.Owner.AdapterSession,
 			ExecutionExitStatus:        result.ExecutionExitStatus,
 			Actor:                      strings.TrimSpace(opt.Actor),
+			ExecutionControlBinding:    executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 		}
 		preview, previewErr := gate.RecordAdapterExecutionReceipt(
 			repoRoot,
@@ -954,6 +1210,7 @@ func completeVMPIDAEvidenceLifecycle(
 				ExpectedAdapterExecutionReceiptSHA256: validation.AdapterExecutionReceiptSHA256,
 				Executor:                              dispatch.Owner.CurrentExecutor,
 				ExpectedExecutorGeneration:            dispatch.Owner.ExecutorGeneration,
+				ExecutionControlBinding:               executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 			},
 		)
 		if recordErr != nil ||
@@ -993,6 +1250,7 @@ func completeVMPIDAEvidenceLifecycle(
 				dispatchSHA,
 				result,
 				*validation.AdapterExecution,
+				executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 			)
 		return result, err
 	}
@@ -1147,6 +1405,7 @@ func bindVMPIDAEvidence(
 	dispatchSHA string,
 	result AuthorizedRunResult,
 	receipt adapterexecution.Receipt,
+	controlBinding *executioncontrol.Binding,
 ) (string, string, error) {
 	if err := validateVMPIDAReceiptArtifacts(
 		caseRoot,
@@ -1177,11 +1436,12 @@ func bindVMPIDAEvidence(
 			"observation-event-id": result.ObservationEventID,
 		},
 	}
-	return memberexecution.WriteTaskBindingForOwner(
+	return writeAuthorizedTaskBindingForOwner(
 		caseRoot,
 		lane,
 		dispatch.Owner.CurrentExecutor,
 		dispatch.Owner.ExecutorGeneration,
+		controlBinding,
 		binding,
 	)
 }
@@ -1279,6 +1539,7 @@ func recoverBinaryInventoryInterruptedAttempt(
 }
 
 func recoverVMPIDAInterruptedAttempt(
+	opt AuthorizedRunOptions,
 	caseRoot,
 	pack string,
 	dispatch adapterexecution.DispatchReceipt,
@@ -1305,6 +1566,30 @@ func recoverVMPIDAInterruptedAttempt(
 		NoNetwork:         true,
 		NoNetworkBoundary: fixedChildNoNetworkCodepath,
 		NoAuthority:       true,
+	}
+	stateRoot, err := projectstate.Resolve(result.CaseRoot)
+	if err != nil {
+		return result, false, err
+	}
+	if stateRoot.Existing && !stateRoot.Legacy {
+		lease, err := lanemutation.AcquireOpenLane(result.CaseRoot, result.Lane, "VMP IDA interrupted recovery")
+		if err != nil {
+			return result, false, err
+		}
+		defer lease.Unlock()
+		current, currentPath, currentSHA, _, err := gate.ReadCurrentAdapterExecutionDispatch(
+			opt.RepoRoot,
+			result.CaseRoot,
+			result.Pack,
+			result.GateEventID,
+		)
+		if err != nil || currentPath != dispatchPath || !strings.EqualFold(currentSHA, dispatchSHA) ||
+			!adapterexecution.DispatchSemanticEqual(current, dispatch) {
+			return result, false, fmt.Errorf("VMP IDA adapter dispatch changed before interrupted recovery: %w", err)
+		}
+		if err := requireAuthorizedAdapterControlWithLease(result.CaseRoot, lease, opt.ExecutionControlBinding, dispatch); err != nil {
+			return result, false, fmt.Errorf("VMP IDA interrupted recovery execution control is stale: %w", err)
+		}
 	}
 	request, err := readVMPIDAIndexRequestArtifact(caseRoot, result.InputPath)
 	if err != nil {
@@ -1399,10 +1684,8 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 	if err != nil || currentPath != dispatchPath || !strings.EqualFold(currentSHA, dispatchSHA) || !adapterexecution.DispatchSemanticEqual(current, dispatch) {
 		return result, fmt.Errorf("VMP IDA adapter dispatch changed while acquiring lane lease: %w", err)
 	}
-	if opt.ExecutionControlBinding != nil {
-		if err := executioncontrol.RequireCurrentBindingWithLease(result.CaseRoot, lease, *opt.ExecutionControlBinding); err != nil {
-			return result, fmt.Errorf("VMP IDA adapter launch execution control is stale: %w", err)
-		}
+	if err := requireAuthorizedAdapterControlWithLease(result.CaseRoot, lease, opt.ExecutionControlBinding, dispatch); err != nil {
+		return result, fmt.Errorf("VMP IDA adapter launch execution control is stale: %w", err)
 	}
 	requestArtifact, err := readVMPIDAIndexRequestArtifact(result.CaseRoot, result.InputPath)
 	if err != nil {
@@ -1802,6 +2085,7 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 		result.InputPath,
 		remaining,
 		result.ExecutableSHA256,
+		lease,
 		afterLaunch,
 	)
 	result.ProcessID = childPID
@@ -2266,6 +2550,7 @@ func runVMPIDAChild(
 	requestPath string,
 	timeout time.Duration,
 	executableSHA string,
+	lease *lanemutation.Lease,
 	afterLaunch func(int) error,
 ) ([]byte, int, error) {
 	childOpt := VMPIDAIndexChildOptions{
@@ -2278,9 +2563,19 @@ func runVMPIDAChild(
 		Executor:                   dispatch.Owner.CurrentExecutor,
 		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 		RequestPath:                requestPath,
+		ExecutionControlBinding:    executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 		InstructionIdentity:        cloneAdapterInstructionIdentity(opt.InstructionIdentity),
 	}
+	if lease == nil {
+		return nil, 0, fmt.Errorf("VMP IDA child launch requires the parent lane mutation lease")
+	}
+	if err := lease.ValidateLaneFor(childOpt.CaseRoot, dispatch.Owner.Lane); err != nil {
+		return nil, 0, err
+	}
 	if opt.testHooks != nil && opt.testHooks.runVMPIDAChild != nil {
+		childOpt.parentLeaseValidator = func() error {
+			return lease.ValidateLaneFor(childOpt.CaseRoot, dispatch.Owner.Lane)
+		}
 		stdout, childPID, err := opt.testHooks.runVMPIDAChild(childOpt)
 		if childPID > 0 && afterLaunch != nil {
 			if launchErr := afterLaunch(childPID); launchErr != nil {
@@ -2301,6 +2596,12 @@ func runVMPIDAChild(
 	if !strings.EqualFold(binding.SHA256(), executableSHA) {
 		return nil, 0, fmt.Errorf("adapter executable identity changed before child launch")
 	}
+	parentLaneLeaseFile, err := lease.DuplicateLaneLockForChild()
+	if err != nil {
+		return nil, 0, err
+	}
+	defer parentLaneLeaseFile.Close()
+	childOpt.ParentLaneLeaseHandle = parentLaneLeaseFile.Fd()
 	args := []string{
 		"-child-vmp-ida-index-inspector",
 		"-repo", childOpt.RepoRoot,
@@ -2320,11 +2621,18 @@ func runVMPIDAChild(
 	if err != nil {
 		return nil, 0, err
 	}
-	stdout, _, childPID, err := runContainedProcessObserved(
+	args, err = appendAuthorizedChildControlArgs(
+		args, childOpt.ExecutionControlBinding, childOpt.ParentLaneLeaseHandle,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	stdout, _, childPID, err := runContainedProcessObservedWithInheritedFiles(
 		binding,
 		args,
 		fixedChildEnvironment(),
 		timeout,
+		[]*os.File{parentLaneLeaseFile},
 		afterLaunch,
 	)
 	return stdout, childPID, err

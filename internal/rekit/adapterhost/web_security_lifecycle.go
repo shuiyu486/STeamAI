@@ -234,6 +234,7 @@ func completeWebSecurityEvidenceLifecycle(
 				RecoveryProofPath:             webSecurityChildLaunchPath(result.ReportPath),
 				ExpectedRecoveryProofSHA256:   launchSHA,
 				Actor:                         strings.TrimSpace(opt.Actor),
+				ExecutionControlBinding:       executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 				ValidateExactArtifacts: func() error {
 					if opt.testHooks != nil && opt.testHooks.beforeWebSecurityFailureClosureValidation != nil {
 						if err := opt.testHooks.beforeWebSecurityFailureClosureValidation(); err != nil {
@@ -288,6 +289,7 @@ func completeWebSecurityEvidenceLifecycle(
 			ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
 			AdapterHarness:             adapterHarness, AdapterSession: dispatch.Owner.AdapterSession,
 			ExecutionExitStatus: exitStatus, Actor: strings.TrimSpace(opt.Actor),
+			ExecutionControlBinding: executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 		}
 		preview, previewErr := gate.RecordAdapterExecutionReceipt(opt.RepoRoot, result.CaseRoot, result.Pack, receiptOpt)
 		if previewErr != nil {
@@ -334,6 +336,7 @@ func completeWebSecurityEvidenceLifecycle(
 				ExpectedAdapterExecutionReceiptSHA256: validation.AdapterExecutionReceiptSHA256,
 				Executor:                              dispatch.Owner.CurrentExecutor,
 				ExpectedExecutorGeneration:            dispatch.Owner.ExecutorGeneration,
+				ExecutionControlBinding:               executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 			},
 		)
 		if recordErr != nil || (!observation.Applied && observation.Reason != "duplicate eventId") {
@@ -359,6 +362,7 @@ func completeWebSecurityEvidenceLifecycle(
 	}
 	result.TaskBindingPath, result.TaskBindingSHA256, err = bindWebSecurityEvidence(
 		result.CaseRoot, lane, dispatch, result, *validation.AdapterExecution,
+		executioncontrol.CloneBinding(opt.ExecutionControlBinding),
 	)
 	return result, err
 }
@@ -398,6 +402,7 @@ func bindWebSecurityEvidence(
 	dispatch adapterexecution.DispatchReceipt,
 	result AuthorizedRunResult,
 	receipt adapterexecution.Receipt,
+	controlBinding *executioncontrol.Binding,
 ) (string, string, error) {
 	artifact := receipt.Artifacts[0]
 	kind := "web-security-openapi-inventory-evidence"
@@ -421,8 +426,13 @@ func bindWebSecurityEvidence(
 			"observation-event-id": result.ObservationEventID,
 		},
 	}
-	return memberexecution.WriteTaskBindingForOwner(
-		caseRoot, lane, dispatch.Owner.CurrentExecutor, dispatch.Owner.ExecutorGeneration, binding,
+	return writeAuthorizedTaskBindingForOwner(
+		caseRoot,
+		lane,
+		dispatch.Owner.CurrentExecutor,
+		dispatch.Owner.ExecutorGeneration,
+		controlBinding,
+		binding,
 	)
 }
 

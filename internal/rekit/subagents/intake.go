@@ -21,6 +21,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
@@ -484,11 +485,20 @@ func AdoptReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPacketAdop
 }
 
 func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBatchIntakeOptions) (ReviewerBatchIntakeResult, error) {
+	return IntakeReadyReviewerResultsWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func IntakeReadyReviewerResultsWithLease(repoRoot, caseRoot, pack string, opt ReviewerBatchIntakeOptions, lease *lanemutation.Lease) (ReviewerBatchIntakeResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerBatchIntakeResult{}, err
 	}
 	caseRoot = inst.CaseRoot
+	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(caseRoot, opt.Lane, lease); err != nil {
+			return ReviewerBatchIntakeResult{}, err
+		}
+	}
 	packetPath, err := requiredAbsolutePath(opt.PacketPath, "review packet")
 	if err != nil {
 		return ReviewerBatchIntakeResult{}, err
@@ -567,14 +577,14 @@ shardLoop:
 			return finalizeReviewerBatchIntakeResult(result), err
 		}
 		result.Ready++
-		intake, intakeErr := IntakeReviewerResult(repoRoot, caseRoot, pack, ReviewerIntakeOptions{
+		intake, intakeErr := IntakeReviewerResultWithLease(repoRoot, caseRoot, pack, ReviewerIntakeOptions{
 			PacketPath:         packetPath,
 			ReviewerResultPath: resultPath,
 			ExpectedShardID:    handoff.ShardID,
 			Lane:               lane,
 			Actor:              actor,
 			WhatIf:             opt.WhatIf,
-		})
+		}, lease)
 		writebackStatus := strings.TrimSpace(intake.WritebackStatus)
 		switch writebackStatus {
 		case "":
@@ -1035,11 +1045,20 @@ func ensureReviewerResultCollectedForIntake(caseRoot string, packet Packet, pack
 }
 
 func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOptions) (ReviewerIntakeResult, error) {
+	return IntakeReviewerResultWithLease(repoRoot, caseRoot, pack, opt, nil)
+}
+
+func IntakeReviewerResultWithLease(repoRoot, caseRoot, pack string, opt ReviewerIntakeOptions, lease *lanemutation.Lease) (ReviewerIntakeResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return ReviewerIntakeResult{}, err
 	}
 	caseRoot = inst.CaseRoot
+	if !opt.WhatIf {
+		if err := requireReviewerMutationLease(caseRoot, opt.Lane, lease); err != nil {
+			return ReviewerIntakeResult{}, err
+		}
+	}
 	packetPath, err := requiredAbsolutePath(opt.PacketPath, "review packet")
 	if err != nil {
 		return ReviewerIntakeResult{}, err
@@ -1268,6 +1287,9 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	}
 	if err := validateAdoptedOwnerStillCurrent(caseRoot, effectiveOwner); err != nil {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake owner changed before writeback: %w", err)
+	}
+	if err := requireReviewerResultControlCurrent(caseRoot, lease, packetPath, packet, packetBytes, latestHandoff, reviewerResult); err != nil {
+		return ReviewerIntakeResult{}, err
 	}
 	priorBlocked, err = existingReviewerWritebackBlockers(caseRoot, packet, reviewerResult, lane, intakeID)
 	if err != nil {

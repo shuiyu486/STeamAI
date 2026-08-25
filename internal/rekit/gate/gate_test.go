@@ -334,7 +334,11 @@ heavyToolGates:
 }
 
 func gateToolingFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
-	repoRoot, caseRoot, pack = gateFixture(t)
+	return gateToolingFixtureWithStateRoot(t, projectstate.LegacyDir)
+}
+
+func gateToolingFixtureWithStateRoot(t *testing.T, stateDir string) (repoRoot, caseRoot, pack string) {
+	repoRoot, caseRoot, pack = gateFixtureWithStateRoot(t, stateDir)
 	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: binary-re
 managedFiles:
   - references/binary-re/README.md
@@ -2118,7 +2122,11 @@ func TestRecordExecutionRequiresBoundaryMarkerWhenBudgetExceeded(t *testing.T) {
 
 func writePreauthorizedProfile(t *testing.T, caseRoot string) {
 	t.Helper()
-	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "autonomy.json"), `{
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGateText(t, filepath.Join(stateRoot.Path, "lanes", "main", "autonomy.json"), `{
   "schemaVersion": 1,
   "profileId": "prof-main-debug",
   "lane": "main",

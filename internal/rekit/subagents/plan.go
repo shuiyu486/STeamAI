@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -255,40 +256,41 @@ type ReviewerManagedDispatchPacket struct {
 }
 
 type ReviewerManagedDispatch struct {
-	ShardID                     string                          `json:"shardId"`
-	ReviewerRole                string                          `json:"reviewerRole"`
-	Status                      string                          `json:"status"`
-	Items                       []string                        `json:"items"`
-	PromptPath                  string                          `json:"promptPath,omitempty"`
-	PromptSHA256                string                          `json:"promptSha256,omitempty"`
-	AgentToolRequest            ReviewerManagedAgentToolRequest `json:"agentToolRequest"`
-	ReviewerResultPath          string                          `json:"reviewerResultPath"`
-	ReviewerResultCandidatePath string                          `json:"reviewerResultCandidatePath,omitempty"`
-	ReviewerResultInputPath     string                          `json:"reviewerResultInputPath,omitempty"`
-	ReviewerResultSourcePath    string                          `json:"reviewerResultSourcePath,omitempty"`
-	InputSavePreviewCommand     string                          `json:"inputSavePreviewCommand,omitempty"`
-	InputSaveApplyCommand       string                          `json:"inputSaveApplyCommand,omitempty"`
-	SourceCapturePreviewCommand string                          `json:"sourceCapturePreviewCommand,omitempty"`
-	SourceCaptureApplyCommand   string                          `json:"sourceCaptureApplyCommand,omitempty"`
-	StagingPreviewCommand       string                          `json:"stagingPreviewCommand,omitempty"`
-	CollectionPreviewCommand    string                          `json:"collectionPreviewCommand,omitempty"`
-	CollectionApplyCommand      string                          `json:"collectionApplyCommand,omitempty"`
-	IntakePreviewCommand        string                          `json:"intakePreviewCommand"`
-	IntakeApplyCommand          string                          `json:"intakeApplyCommand"`
-	DispatchCommand             string                          `json:"dispatchCommand"`
-	ReviewerResultSkeleton      string                          `json:"reviewerResultSkeleton"`
-	ExpectedOutput              string                          `json:"expectedOutput"`
-	NextAction                  string                          `json:"nextAction"`
-	Boundary                    []string                        `json:"boundary"`
+	ShardID                     string                           `json:"shardId"`
+	ReviewerRole                string                           `json:"reviewerRole"`
+	Status                      string                           `json:"status"`
+	Items                       []string                         `json:"items"`
+	PromptPath                  string                           `json:"promptPath,omitempty"`
+	PromptSHA256                string                           `json:"promptSha256,omitempty"`
+	AgentToolRequest            *ReviewerManagedAgentToolRequest `json:"agentToolRequest,omitempty"`
+	ReviewerResultPath          string                           `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string                           `json:"reviewerResultCandidatePath,omitempty"`
+	ReviewerResultInputPath     string                           `json:"reviewerResultInputPath,omitempty"`
+	ReviewerResultSourcePath    string                           `json:"reviewerResultSourcePath,omitempty"`
+	InputSavePreviewCommand     string                           `json:"inputSavePreviewCommand,omitempty"`
+	InputSaveApplyCommand       string                           `json:"inputSaveApplyCommand,omitempty"`
+	SourceCapturePreviewCommand string                           `json:"sourceCapturePreviewCommand,omitempty"`
+	SourceCaptureApplyCommand   string                           `json:"sourceCaptureApplyCommand,omitempty"`
+	StagingPreviewCommand       string                           `json:"stagingPreviewCommand,omitempty"`
+	CollectionPreviewCommand    string                           `json:"collectionPreviewCommand,omitempty"`
+	CollectionApplyCommand      string                           `json:"collectionApplyCommand,omitempty"`
+	IntakePreviewCommand        string                           `json:"intakePreviewCommand"`
+	IntakeApplyCommand          string                           `json:"intakeApplyCommand"`
+	DispatchCommand             string                           `json:"dispatchCommand"`
+	ReviewerResultSkeleton      string                           `json:"reviewerResultSkeleton"`
+	ExpectedOutput              string                           `json:"expectedOutput"`
+	NextAction                  string                           `json:"nextAction"`
+	Boundary                    []string                         `json:"boundary"`
 }
 
 type ReviewerManagedAgentToolRequest struct {
-	Tool           string `json:"tool"`
-	AgentType      string `json:"agentType"`
-	ReadOnly       bool   `json:"readOnly"`
-	PromptPath     string `json:"promptPath,omitempty"`
-	PromptSHA256   string `json:"promptSha256,omitempty"`
-	ExpectedOutput string `json:"expectedOutput"`
+	Tool           string                    `json:"tool"`
+	AgentType      string                    `json:"agentType"`
+	ReadOnly       bool                      `json:"readOnly"`
+	PromptPath     string                    `json:"promptPath,omitempty"`
+	PromptSHA256   string                    `json:"promptSha256,omitempty"`
+	ExpectedOutput string                    `json:"expectedOutput"`
+	LaunchControl  *executioncontrol.Binding `json:"launchControl,omitempty"`
 }
 
 type ReviewerManagedDispatchSummary struct {
@@ -318,13 +320,14 @@ type ReviewerManagedDispatchItemSummary struct {
 }
 
 type ReviewerAgentToolRequest struct {
-	Tool           string `json:"tool"`
-	AgentType      string `json:"agentType"`
-	ReadOnly       bool   `json:"readOnly"`
-	Prompt         string `json:"prompt"`
-	PromptPath     string `json:"promptPath,omitempty"`
-	PromptSHA256   string `json:"promptSha256,omitempty"`
-	ExpectedOutput string `json:"expectedOutput"`
+	Tool           string                    `json:"tool"`
+	AgentType      string                    `json:"agentType"`
+	ReadOnly       bool                      `json:"readOnly"`
+	Prompt         string                    `json:"prompt"`
+	PromptPath     string                    `json:"promptPath,omitempty"`
+	PromptSHA256   string                    `json:"promptSha256,omitempty"`
+	ExpectedOutput string                    `json:"expectedOutput"`
+	LaunchControl  *executioncontrol.Binding `json:"launchControl,omitempty"`
 }
 
 type ReviewerResultStagingCommands struct {
@@ -493,7 +496,8 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := projectstate.Resolve(planRoot); err != nil {
+	stateRoot, err := projectstate.Resolve(planRoot)
+	if err != nil {
 		return Result{}, err
 	}
 	caseTarget := instance.LooksLikeCase(planRoot)
@@ -587,8 +591,16 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	var launchControl *executioncontrol.Binding
+	if !stateRoot.Existing || stateRoot.Legacy ||
+		(strings.TrimSpace(ownerBinding.CurrentExecutor) != "" && ownerBinding.ExecutorGeneration > 0) {
+		launchControl, err = captureReviewerSessionLaunchControl(planRoot, ownerBinding, planningLease)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	targetLane := ownerBinding.TargetLane
-	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, caseTarget, collectionAvailable)
+	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, launchControl, stateRoot.Existing && !stateRoot.Legacy, caseTarget, collectionAvailable)
 	if err := writeReviewerPromptArtifacts(paths.PromptRoot, shardHandoffs); err != nil {
 		return Result{}, err
 	}
@@ -876,7 +888,7 @@ func shardPrompt(items []string) string {
 	return "Review only these items: " + strings.Join(items, ", ") + ". Return one reviewer result JSON object using the shard handoff dispatchPrompt; do not return routeOutput alone, write files, or paste long logs."
 }
 
-func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack string, ownerBinding OwnerBinding, intakeAvailable, collectionAvailable bool) []ShardHandoff {
+func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack string, ownerBinding OwnerBinding, launchControl *executioncontrol.Binding, launchControlRequired, intakeAvailable, collectionAvailable bool) []ShardHandoff {
 	handoffs := make([]ShardHandoff, 0, len(shards))
 	readOnlyBoundary := append([]string{}, observability.BlockedActions...)
 	targetLane := ownerBinding.TargetLane
@@ -906,6 +918,17 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			nextAction = "launch a read-only reviewer with agentToolRequest.promptPath, verify promptSha256, inspect its JSON against reviewerResultContract, and retain the single JSON object; attach or init the target as a rekit case and regenerate a canonical case-local packet before reviewerCollectionCommands or reviewerIntakeCommands become runnable"
 		}
 		dispatchPrompt := shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath, inputPath, collectionAvailable, intakeAvailable)
+		var agentRequest *ReviewerAgentToolRequest
+		if !launchControlRequired || launchControl != nil {
+			agentRequest = &ReviewerAgentToolRequest{
+				Tool:           "Claude Code Agent",
+				AgentType:      "read-only-reviewer",
+				ReadOnly:       true,
+				Prompt:         dispatchPrompt,
+				ExpectedOutput: "exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
+				LaunchControl:  executioncontrol.CloneBinding(launchControl),
+			}
+		}
 		handoffs = append(handoffs, ShardHandoff{
 			ShardID:                     shard.ID,
 			Status:                      "planned",
@@ -913,29 +936,23 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			ReviewerResultCandidatePath: reviewerResultCandidatePath,
 			OwnerBinding:                ownerBinding,
 			DispatchPrompt:              dispatchPrompt,
-			AgentToolRequest: &ReviewerAgentToolRequest{
-				Tool:           "Claude Code Agent",
-				AgentType:      "read-only-reviewer",
-				ReadOnly:       true,
-				Prompt:         dispatchPrompt,
-				ExpectedOutput: "exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
-			},
-			ReviewerStagingCommands:    stagingCommands,
-			ReviewerCollectionCommands: collectionCommands,
-			Items:                      append([]string{}, shard.Items...),
-			ReadOnlyBoundary:           append([]string{}, readOnlyBoundary...),
-			ExpectedOutput:             route.OutputContract,
-			ReviewerWriteback:          reviewLoop.VerdictWriteback,
-			ReviewerResultContract:     contract,
-			ReviewerIntakeCommands:     commands,
-			MainAgentNextAction:        nextAction,
-			IntakeChecklist:            intake,
-			ReviewerDecisionMappings:   mappings,
-			ConflictHandling:           conflicts,
-			WritebackSequence:          writebackSequenceSteps(commands),
-			PostReviewMerge:            postReviewMergeSteps(),
-			CompletionCriteria:         append([]string{}, reviewLoop.CompletionCriteria...),
-			FailureHandling:            reviewLoop.FailureHandling,
+			AgentToolRequest:            agentRequest,
+			ReviewerStagingCommands:     stagingCommands,
+			ReviewerCollectionCommands:  collectionCommands,
+			Items:                       append([]string{}, shard.Items...),
+			ReadOnlyBoundary:            append([]string{}, readOnlyBoundary...),
+			ExpectedOutput:              route.OutputContract,
+			ReviewerWriteback:           reviewLoop.VerdictWriteback,
+			ReviewerResultContract:      contract,
+			ReviewerIntakeCommands:      commands,
+			MainAgentNextAction:         nextAction,
+			IntakeChecklist:             intake,
+			ReviewerDecisionMappings:    mappings,
+			ConflictHandling:            conflicts,
+			WritebackSequence:           writebackSequenceSteps(commands),
+			PostReviewMerge:             postReviewMergeSteps(),
+			CompletionCriteria:          append([]string{}, reviewLoop.CompletionCriteria...),
+			FailureHandling:             reviewLoop.FailureHandling,
 		})
 	}
 	return handoffs
@@ -1377,7 +1394,10 @@ func newReviewerManagedDispatchPacket(mode, scope string, route Route, observabi
 	return packet
 }
 
-func reviewerManagedAgentToolRequest(dispatch ReviewerDispatch) ReviewerManagedAgentToolRequest {
+func reviewerManagedAgentToolRequest(dispatch ReviewerDispatch) *ReviewerManagedAgentToolRequest {
+	if dispatch.AgentToolRequest == nil {
+		return nil
+	}
 	request := ReviewerManagedAgentToolRequest{
 		Tool:           "Claude Code Agent",
 		AgentType:      "read-only-reviewer",
@@ -1393,8 +1413,9 @@ func reviewerManagedAgentToolRequest(dispatch ReviewerDispatch) ReviewerManagedA
 		request.PromptPath = textOr(dispatch.AgentToolRequest.PromptPath, request.PromptPath)
 		request.PromptSHA256 = textOr(dispatch.AgentToolRequest.PromptSHA256, request.PromptSHA256)
 		request.ExpectedOutput = textOr(dispatch.AgentToolRequest.ExpectedOutput, request.ExpectedOutput)
+		request.LaunchControl = executioncontrol.CloneBinding(dispatch.AgentToolRequest.LaunchControl)
 	}
-	return request
+	return &request
 }
 
 func reviewerPlanMissionCommanderAction(planRoot, pack string, orchestration ReviewerOrchestrationPlan, intakeAvailable bool) mission.MissionCommanderAction {

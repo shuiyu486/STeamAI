@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -44,7 +45,10 @@ type OpenAPIInventoryChildOptions struct {
 	Executor                   string
 	ExpectedExecutorGeneration int
 	SourcePath                 string
+	ExecutionControlBinding    *executioncontrol.Binding
+	ParentLaneLeaseHandle      uintptr
 	InstructionIdentity        *instructionpacket.Identity
+	parentLeaseValidator       func() error
 }
 
 type OpenAPIInventoryChildResult struct {
@@ -73,7 +77,10 @@ type BoundedReplayChildOptions struct {
 	Executor                   string
 	ExpectedExecutorGeneration int
 	RequestPath                string
+	ExecutionControlBinding    *executioncontrol.Binding
+	ParentLaneLeaseHandle      uintptr
 	InstructionIdentity        *instructionpacket.Identity
+	parentLeaseValidator       func() error
 	beforeExecute              func() error
 }
 
@@ -119,6 +126,18 @@ func RunOpenAPIInventoryChild(opt OpenAPIInventoryChildOptions) (OpenAPIInventor
 	if err != nil {
 		return OpenAPIInventoryChildResult{}, err
 	}
+	guard, err := acquireAuthorizedChildControlLease(
+		binding.caseRoot,
+		binding.dispatch,
+		opt.ExecutionControlBinding,
+		opt.ParentLaneLeaseHandle,
+		opt.parentLeaseValidator,
+		"OpenAPI inventory private child",
+	)
+	if err != nil {
+		return OpenAPIInventoryChildResult{}, err
+	}
+	defer guard.Close()
 	root, err := os.OpenRoot(binding.caseRoot)
 	if err != nil {
 		return OpenAPIInventoryChildResult{}, err
@@ -150,6 +169,11 @@ func RunOpenAPIInventoryChild(opt OpenAPIInventoryChildOptions) (OpenAPIInventor
 	if err := validateWebSecurityChildCurrent(binding); err != nil {
 		return OpenAPIInventoryChildResult{}, err
 	}
+	if err := requireAuthorizedChildControlAtSink(
+		binding.caseRoot, guard, opt.ExecutionControlBinding, binding.dispatch,
+	); err != nil {
+		return OpenAPIInventoryChildResult{}, err
+	}
 	return OpenAPIInventoryChildResult{
 		SchemaVersion:       1,
 		Kind:                openAPIInventoryChildResultKind,
@@ -175,6 +199,18 @@ func RunBoundedReplayChild(opt BoundedReplayChildOptions) (BoundedReplayChildRes
 	if err != nil {
 		return BoundedReplayChildResult{}, err
 	}
+	guard, err := acquireAuthorizedChildControlLease(
+		binding.caseRoot,
+		binding.dispatch,
+		opt.ExecutionControlBinding,
+		opt.ParentLaneLeaseHandle,
+		opt.parentLeaseValidator,
+		"bounded replay private child",
+	)
+	if err != nil {
+		return BoundedReplayChildResult{}, err
+	}
+	defer guard.Close()
 	requestData, err := readVMPIDAFile(binding.caseRoot, binding.inputPath, "bounded replay request", websecurity.MaxReplayRequestBytes)
 	if err != nil {
 		return BoundedReplayChildResult{}, err
@@ -204,6 +240,11 @@ func RunBoundedReplayChild(opt BoundedReplayChildOptions) (BoundedReplayChildRes
 		}
 	}
 	if err := validateWebSecurityChildCurrent(binding); err != nil {
+		return BoundedReplayChildResult{}, err
+	}
+	if err := requireAuthorizedChildControlAtSink(
+		binding.caseRoot, guard, opt.ExecutionControlBinding, binding.dispatch,
+	); err != nil {
 		return BoundedReplayChildResult{}, err
 	}
 	if err := validateAdapterInstructionBinding(opt.CaseRoot, opt.Pack, opt.InstructionIdentity); err != nil {
@@ -327,6 +368,9 @@ func runWebSecurityExistingDispatch(
 		return result, err
 	}
 	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+	if err := requireAuthorizedAdapterControlWithLease(result.CaseRoot, lease, opt.ExecutionControlBinding, dispatch); err != nil {
+		return result, fmt.Errorf("web-security execution control is stale: %w", err)
+	}
 	root, err := os.OpenRoot(result.CaseRoot)
 	if err != nil {
 		return result, err
@@ -409,9 +453,9 @@ func runWebSecurityExistingDispatch(
 	var stdout []byte
 	var childPID int
 	if dispatch.Adapter.AdapterID == websecurity.InventoryAdapterID {
-		stdout, childPID, err = runOpenAPIInventoryChildProcess(opt, dispatch, dispatchSHA, result.InputPath, timeout, result.ExecutableSHA256, afterLaunch)
+		stdout, childPID, err = runOpenAPIInventoryChildProcess(opt, dispatch, dispatchSHA, result.InputPath, timeout, result.ExecutableSHA256, lease, afterLaunch)
 	} else {
-		stdout, childPID, err = runBoundedReplayChildProcess(opt, dispatch, dispatchSHA, result.InputPath, replayAuthRef, timeout, result.ExecutableSHA256, afterLaunch)
+		stdout, childPID, err = runBoundedReplayChildProcess(opt, dispatch, dispatchSHA, result.InputPath, replayAuthRef, timeout, result.ExecutableSHA256, lease, afterLaunch)
 	}
 	result.ProcessID = childPID
 	if err != nil {
@@ -526,9 +570,39 @@ func runWebSecurityExistingDispatch(
 	return webSecurityResultFromCommit(result, commit)
 }
 
-func runOpenAPIInventoryChildProcess(opt Options, dispatch adapterexecution.DispatchReceipt, dispatchSHA, sourcePath string, timeout time.Duration, executableSHA string, afterLaunch func(int) error) ([]byte, int, error) {
-	child := OpenAPIInventoryChildOptions{RepoRoot: opt.RepoRoot, CaseRoot: opt.CaseRoot, Pack: opt.Pack, GateEventID: opt.GateEventID, ExpectedDispatchSHA256: dispatchSHA, AdapterSession: dispatch.Owner.AdapterSession, Executor: dispatch.Owner.CurrentExecutor, ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration, SourcePath: sourcePath, InstructionIdentity: cloneAdapterInstructionIdentity(opt.InstructionIdentity)}
+func runOpenAPIInventoryChildProcess(
+	opt Options,
+	dispatch adapterexecution.DispatchReceipt,
+	dispatchSHA,
+	sourcePath string,
+	timeout time.Duration,
+	executableSHA string,
+	lease *lanemutation.Lease,
+	afterLaunch func(int) error,
+) ([]byte, int, error) {
+	child := OpenAPIInventoryChildOptions{
+		RepoRoot:                   opt.RepoRoot,
+		CaseRoot:                   opt.CaseRoot,
+		Pack:                       opt.Pack,
+		GateEventID:                opt.GateEventID,
+		ExpectedDispatchSHA256:     dispatchSHA,
+		AdapterSession:             dispatch.Owner.AdapterSession,
+		Executor:                   dispatch.Owner.CurrentExecutor,
+		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
+		SourcePath:                 sourcePath,
+		ExecutionControlBinding:    executioncontrol.CloneBinding(opt.ExecutionControlBinding),
+		InstructionIdentity:        cloneAdapterInstructionIdentity(opt.InstructionIdentity),
+	}
+	if lease == nil {
+		return nil, 0, fmt.Errorf("OpenAPI inventory child launch requires the parent lane mutation lease")
+	}
+	if err := lease.ValidateLaneFor(child.CaseRoot, dispatch.Owner.Lane); err != nil {
+		return nil, 0, err
+	}
 	if opt.testHooks != nil && opt.testHooks.runOpenAPIInventoryChild != nil {
+		child.parentLeaseValidator = func() error {
+			return lease.ValidateLaneFor(child.CaseRoot, dispatch.Owner.Lane)
+		}
 		data, pid, err := opt.testHooks.runOpenAPIInventoryChild(child)
 		if pid > 0 && afterLaunch != nil {
 			err = errors.Join(err, afterLaunch(pid))
@@ -536,17 +610,47 @@ func runOpenAPIInventoryChildProcess(opt Options, dispatch adapterexecution.Disp
 		return data, pid, err
 	}
 	args := []string{privateChildOpenAPIInventoryFlag, "-repo", child.RepoRoot, "-target", child.CaseRoot, "-pack", child.Pack, "-gate-event-id", child.GateEventID, "-expected-dispatch-sha256", child.ExpectedDispatchSHA256, "-adapter-session", child.AdapterSession, "-executor", child.Executor, "-expected-executor-generation", fmt.Sprintf("%d", child.ExpectedExecutorGeneration), "-child-source-path", child.SourcePath}
-	var err error
-	args, err = appendAdapterInstructionIdentityArg(args, child.InstructionIdentity)
+	args, err := appendAdapterInstructionIdentityArg(args, child.InstructionIdentity)
 	if err != nil {
 		return nil, 0, err
 	}
-	return runWebSecurityPrivateChild(args, timeout, executableSHA, nil, afterLaunch)
+	return runWebSecurityPrivateChild(args, child.ExecutionControlBinding, lease, timeout, executableSHA, nil, afterLaunch)
 }
 
-func runBoundedReplayChildProcess(opt Options, dispatch adapterexecution.DispatchReceipt, dispatchSHA, requestPath, authRef string, timeout time.Duration, executableSHA string, afterLaunch func(int) error) ([]byte, int, error) {
-	child := BoundedReplayChildOptions{RepoRoot: opt.RepoRoot, CaseRoot: opt.CaseRoot, Pack: opt.Pack, GateEventID: opt.GateEventID, ExpectedDispatchSHA256: dispatchSHA, AdapterSession: dispatch.Owner.AdapterSession, Executor: dispatch.Owner.CurrentExecutor, ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration, RequestPath: requestPath, InstructionIdentity: cloneAdapterInstructionIdentity(opt.InstructionIdentity)}
+func runBoundedReplayChildProcess(
+	opt Options,
+	dispatch adapterexecution.DispatchReceipt,
+	dispatchSHA,
+	requestPath,
+	authRef string,
+	timeout time.Duration,
+	executableSHA string,
+	lease *lanemutation.Lease,
+	afterLaunch func(int) error,
+) ([]byte, int, error) {
+	child := BoundedReplayChildOptions{
+		RepoRoot:                   opt.RepoRoot,
+		CaseRoot:                   opt.CaseRoot,
+		Pack:                       opt.Pack,
+		GateEventID:                opt.GateEventID,
+		ExpectedDispatchSHA256:     dispatchSHA,
+		AdapterSession:             dispatch.Owner.AdapterSession,
+		Executor:                   dispatch.Owner.CurrentExecutor,
+		ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
+		RequestPath:                requestPath,
+		ExecutionControlBinding:    executioncontrol.CloneBinding(opt.ExecutionControlBinding),
+		InstructionIdentity:        cloneAdapterInstructionIdentity(opt.InstructionIdentity),
+	}
+	if lease == nil {
+		return nil, 0, fmt.Errorf("bounded replay child launch requires the parent lane mutation lease")
+	}
+	if err := lease.ValidateLaneFor(child.CaseRoot, dispatch.Owner.Lane); err != nil {
+		return nil, 0, err
+	}
 	if opt.testHooks != nil && opt.testHooks.runBoundedReplayChild != nil {
+		child.parentLeaseValidator = func() error {
+			return lease.ValidateLaneFor(child.CaseRoot, dispatch.Owner.Lane)
+		}
 		data, pid, err := opt.testHooks.runBoundedReplayChild(child)
 		if pid > 0 && afterLaunch != nil {
 			err = errors.Join(err, afterLaunch(pid))
@@ -554,15 +658,22 @@ func runBoundedReplayChildProcess(opt Options, dispatch adapterexecution.Dispatc
 		return data, pid, err
 	}
 	args := []string{privateChildBoundedReplayFlag, "-repo", child.RepoRoot, "-target", child.CaseRoot, "-pack", child.Pack, "-gate-event-id", child.GateEventID, "-expected-dispatch-sha256", child.ExpectedDispatchSHA256, "-adapter-session", child.AdapterSession, "-executor", child.Executor, "-expected-executor-generation", fmt.Sprintf("%d", child.ExpectedExecutorGeneration), "-child-request-path", child.RequestPath}
-	var err error
-	args, err = appendAdapterInstructionIdentityArg(args, child.InstructionIdentity)
+	args, err := appendAdapterInstructionIdentityArg(args, child.InstructionIdentity)
 	if err != nil {
 		return nil, 0, err
 	}
-	return runWebSecurityPrivateChild(args, timeout, executableSHA, replayAuthEnvironment(authRef), afterLaunch)
+	return runWebSecurityPrivateChild(args, child.ExecutionControlBinding, lease, timeout, executableSHA, replayAuthEnvironment(authRef), afterLaunch)
 }
 
-func runWebSecurityPrivateChild(args []string, timeout time.Duration, executableSHA string, environment []string, afterLaunch func(int) error) ([]byte, int, error) {
+func runWebSecurityPrivateChild(
+	args []string,
+	controlBinding *executioncontrol.Binding,
+	lease *lanemutation.Lease,
+	timeout time.Duration,
+	executableSHA string,
+	environment []string,
+	afterLaunch func(int) error,
+) ([]byte, int, error) {
 	executablePath, err := os.Executable()
 	if err != nil {
 		return nil, 0, err
@@ -575,7 +686,23 @@ func runWebSecurityPrivateChild(args []string, timeout time.Duration, executable
 	if !strings.EqualFold(binding.SHA256(), executableSHA) {
 		return nil, 0, fmt.Errorf("adapter executable identity changed before web-security child launch")
 	}
-	stdout, _, pid, err := runContainedProcessObserved(binding, args, environment, timeout, afterLaunch)
+	parentLaneLeaseFile, err := lease.DuplicateLaneLockForChild()
+	if err != nil {
+		return nil, 0, err
+	}
+	defer parentLaneLeaseFile.Close()
+	args, err = appendAuthorizedChildControlArgs(args, controlBinding, parentLaneLeaseFile.Fd())
+	if err != nil {
+		return nil, 0, err
+	}
+	stdout, _, pid, err := runContainedProcessObservedWithInheritedFiles(
+		binding,
+		args,
+		environment,
+		timeout,
+		[]*os.File{parentLaneLeaseFile},
+		afterLaunch,
+	)
 	return stdout, pid, err
 }
 

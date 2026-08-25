@@ -18,6 +18,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -29,6 +30,36 @@ import (
 type gateLaneMutationLease interface {
 	Validate() error
 	Unlock() error
+}
+
+func requireExecutionControlWithGateLease(caseRoot string, lease gateLaneMutationLease, binding *executioncontrol.Binding) error {
+	if binding == nil {
+		return nil
+	}
+	return executioncontrol.RequireCurrentBindingWithValidator(caseRoot, *binding, lease.Validate)
+}
+
+func requireDispatchExecutionControlWithGateLease(
+	caseRoot string,
+	lease gateLaneMutationLease,
+	dispatch adapterexecution.DispatchReceipt,
+	provided *executioncontrol.Binding,
+) error {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return err
+	}
+	binding := dispatch.LaunchControl
+	if binding == nil {
+		if stateRoot.Legacy {
+			return requireExecutionControlWithGateLease(caseRoot, lease, provided)
+		}
+		return fmt.Errorf("current STeamAI adapter execution dispatch is missing launch control lineage")
+	}
+	if provided != nil && !executioncontrol.SameBinding(provided, binding) {
+		return fmt.Errorf("provided execution control binding does not match immutable adapter dispatch lineage")
+	}
+	return executioncontrol.RequireCurrentBindingWithValidator(caseRoot, *binding, lease.Validate)
 }
 
 var acquireGateLaneMutationLease = func(caseRoot, laneID string) (gateLaneMutationLease, error) {
@@ -91,6 +122,7 @@ type Options struct {
 	ProfileGrantedAt                              string
 	ProfileExpiresAt                              string
 	ExpectedProfilePlanSHA256                     string
+	ExecutionControlBinding                       *executioncontrol.Binding
 }
 
 type Plan struct {
@@ -1308,6 +1340,18 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (_ ApplyResul
 	}
 	if err := lease.Validate(); err != nil {
 		return ApplyResult{}, err
+	}
+	if execution.Execution.AdapterExecutionDispatch != nil {
+		if err := requireDispatchExecutionControlWithGateLease(
+			inst.CaseRoot,
+			lease,
+			*execution.Execution.AdapterExecutionDispatch,
+			opt.ExecutionControlBinding,
+		); err != nil {
+			return ApplyResult{}, fmt.Errorf("gate execution observation control is stale: %w", err)
+		}
+	} else if err := requireExecutionControlWithGateLease(inst.CaseRoot, lease, opt.ExecutionControlBinding); err != nil {
+		return ApplyResult{}, fmt.Errorf("gate execution observation control is stale: %w", err)
 	}
 	known, err := mission.ReadFactEventIDs(inst.CaseRoot, "observation")
 	if err != nil {

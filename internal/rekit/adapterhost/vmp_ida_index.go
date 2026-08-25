@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instructionpacket"
 )
 
@@ -67,7 +68,10 @@ type VMPIDAIndexChildOptions struct {
 	Executor                   string
 	ExpectedExecutorGeneration int
 	RequestPath                string
+	ExecutionControlBinding    *executioncontrol.Binding
+	ParentLaneLeaseHandle      uintptr
 	InstructionIdentity        *instructionpacket.Identity
+	parentLeaseValidator       func() error
 }
 
 type vmpIDATSVRow struct {

@@ -32,6 +32,13 @@ func ConfigureSuspended(cmd *exec.Cmd, binding *ExecutableBinding) error {
 	return fmt.Errorf("verified suspended executable launch is available only on Windows")
 }
 
+func ConfigureInheritedFiles(cmd *exec.Cmd, files []*os.File) error {
+	if len(files) == 0 {
+		return nil
+	}
+	return fmt.Errorf("inherited child file handles are available only on Windows")
+}
+
 func ValidateContainAndResume(process *os.Process, binding *ExecutableBinding) (*Containment, error) {
 	return nil, fmt.Errorf("verified suspended executable launch is available only on Windows")
 }

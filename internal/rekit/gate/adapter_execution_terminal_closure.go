@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -26,6 +27,7 @@ type AdapterExecutionTerminalClosureOptions struct {
 	RecoveryProofPath             string
 	ExpectedRecoveryProofSHA256   string
 	Actor                         string
+	ExecutionControlBinding       *executioncontrol.Binding
 	ValidateExactArtifacts        func() error
 }
 
@@ -78,15 +80,6 @@ func RecordAdapterExecutionTerminalClosure(
 	if err := lease.Validate(); err != nil {
 		return AdapterExecutionTerminalClosureResult{}, err
 	}
-	if opt.ValidateExactArtifacts != nil {
-		if err := opt.ValidateExactArtifacts(); err != nil {
-			return AdapterExecutionTerminalClosureResult{}, fmt.Errorf("adapter terminal closure exact artifact validation: %w", err)
-		}
-		if err := lease.Validate(); err != nil {
-			return AdapterExecutionTerminalClosureResult{}, err
-		}
-	}
-
 	dispatchRel, dispatchFull, err := adapterExecutionDispatchPath(inst.CaseRoot, gateEvent.Lane, gateEvent.EventID)
 	if err != nil {
 		return AdapterExecutionTerminalClosureResult{}, err
@@ -118,6 +111,17 @@ func RecordAdapterExecutionTerminalClosure(
 		dispatch.Adapter.Pack != pack ||
 		!reflect.DeepEqual(dispatch.Gate, expectedGate) {
 		return AdapterExecutionTerminalClosureResult{}, fmt.Errorf("adapter terminal closure immutable dispatch does not match the authorized request ledger")
+	}
+	if err := requireDispatchExecutionControlWithGateLease(inst.CaseRoot, lease, dispatch, opt.ExecutionControlBinding); err != nil {
+		return AdapterExecutionTerminalClosureResult{}, fmt.Errorf("adapter terminal closure control is stale: %w", err)
+	}
+	if opt.ValidateExactArtifacts != nil {
+		if err := opt.ValidateExactArtifacts(); err != nil {
+			return AdapterExecutionTerminalClosureResult{}, fmt.Errorf("adapter terminal closure exact artifact validation: %w", err)
+		}
+		if err := lease.Validate(); err != nil {
+			return AdapterExecutionTerminalClosureResult{}, err
+		}
 	}
 
 	reportRel, reportSHA, report, err := readAdapterExecutionReport(

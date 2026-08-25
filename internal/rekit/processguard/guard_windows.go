@@ -213,6 +213,31 @@ func ConfigureSuspended(cmd *exec.Cmd, binding *ExecutableBinding) error {
 	return nil
 }
 
+func ConfigureInheritedFiles(cmd *exec.Cmd, files []*os.File) error {
+	if cmd == nil {
+		return fmt.Errorf("inherited file command is missing")
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	for _, file := range files {
+		if file == nil {
+			return fmt.Errorf("inherited child file handle is missing")
+		}
+		if _, err := file.Stat(); err != nil {
+			return fmt.Errorf("validate inherited child file handle: %w", err)
+		}
+		cmd.SysProcAttr.AdditionalInheritedHandles = append(
+			cmd.SysProcAttr.AdditionalInheritedHandles,
+			syscall.Handle(file.Fd()),
+		)
+	}
+	return nil
+}
+
 func ValidateContainAndResume(process *os.Process, binding *ExecutableBinding) (*Containment, error) {
 	return validateContainAndResume(process, binding, false, nil)
 }
