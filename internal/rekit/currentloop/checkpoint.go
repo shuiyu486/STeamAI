@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -115,6 +116,7 @@ type Payload struct {
 	ResumeSourceArtifactSHA256          string                                 `json:"resumeSourceArtifactSha256,omitempty"`
 	ObservationPath                     string                                 `json:"observationPath,omitempty"`
 	ObservationSHA256                   string                                 `json:"observationSha256,omitempty"`
+	ReviewedOpenInterventionIDs         []string                               `json:"reviewedOpenInterventionIds,omitempty"`
 	ObservationKind                     string                                 `json:"observationKind,omitempty"`
 	ObservationActor                    string                                 `json:"observationActor,omitempty"`
 	ReopenOperationSequence             int                                    `json:"reopenOperationSequence,omitempty"`
@@ -181,6 +183,7 @@ type Inspection struct {
 	ObservationSHA256             string                                 `json:"observationSha256,omitempty"`
 	ObservationKind               string                                 `json:"observationKind,omitempty"`
 	ObservationActor              string                                 `json:"observationActor,omitempty"`
+	ReviewedOpenInterventionIDs   []string                               `json:"-"`
 	ResumeDriverRequest           *mission.MissionCommanderDriverRequest `json:"resumeDriverRequest,omitempty"`
 	RefreshedCurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"refreshedCurrentDriverRequest,omitempty"`
 	Continuation                  *Continuation                          `json:"continuation,omitempty"`
@@ -352,7 +355,7 @@ func WriteValidatedWithProjectLease(repoRoot, caseRoot, pack string, payload Pay
 	if err != nil {
 		return Inspection{}, err
 	}
-	inspection = inspectRoot(root, identity, artifactRelRoot, caseRoot, pack, payload.RefreshedCurrentDriverRequest)
+	inspection = inspectRoot(root, identity, artifactRelRoot, caseRoot, pack, payload.RefreshedCurrentDriverRequest, false)
 	publishedRel := filepath.ToSlash(filepath.Join(filepath.FromSlash(artifactRelRoot), name))
 	if inspection.State == "invalid" || inspection.State == "missing" || inspection.ArtifactPath != publishedRel || !strings.EqualFold(inspection.PayloadSHA256, payloadSHA256) {
 		return inspection, fmt.Errorf("published current-loop checkpoint is not the exact latest strict artifact: %s", strings.Join(inspection.Warnings, "; "))
@@ -480,6 +483,17 @@ func InspectAttached(caseRoot string, current *mission.MissionCommanderDriverReq
 	return Inspect(inst.TemplateRoot, caseRoot, inst.TemplatePack, current)
 }
 
+// InspectAttachedForResultRecovery reads the latest checkpoint against its own
+// frozen refreshed request. This is only for classifying an already-produced
+// external result; ordinary status must continue to compare fresh current state.
+func InspectAttachedForResultRecovery(caseRoot string) Inspection {
+	inst, err := instance.Read(caseRoot)
+	if err != nil {
+		return FailedInspection("current-loop checkpoint attached case metadata cannot be read: " + err.Error())
+	}
+	return inspectForResultRecovery(inst.TemplateRoot, caseRoot, inst.TemplatePack)
+}
+
 func FailedInspection(warning string) Inspection {
 	base := Inspection{State: "write-failed", Boundary: inspectionBoundary()}
 	base.Warnings = []string{strings.TrimSpace(warning)}
@@ -487,6 +501,14 @@ func FailedInspection(warning string) Inspection {
 }
 
 func Inspect(repoRoot, caseRoot, pack string, current *mission.MissionCommanderDriverRequest) Inspection {
+	return inspect(repoRoot, caseRoot, pack, current, false)
+}
+
+func inspectForResultRecovery(repoRoot, caseRoot, pack string) Inspection {
+	return inspect(repoRoot, caseRoot, pack, nil, true)
+}
+
+func inspect(repoRoot, caseRoot, pack string, current *mission.MissionCommanderDriverRequest, recoverResult bool) Inspection {
 	base := Inspection{State: "missing", Boundary: inspectionBoundary()}
 	identity, err := caseIdentity(repoRoot, caseRoot, pack)
 	if err != nil {
@@ -504,10 +526,10 @@ func Inspect(repoRoot, caseRoot, pack string, current *mission.MissionCommanderD
 	if err != nil {
 		return invalidInspection(base, "current-loop checkpoint state root cannot be resolved: "+err.Error())
 	}
-	return inspectRoot(root, identity, artifactRelRoot, caseRoot, pack, current)
+	return inspectRoot(root, identity, artifactRelRoot, caseRoot, pack, current, recoverResult)
 }
 
-func inspectRoot(root *os.Root, identity, artifactRelRoot, caseRoot, pack string, current *mission.MissionCommanderDriverRequest) Inspection {
+func inspectRoot(root *os.Root, identity, artifactRelRoot, caseRoot, pack string, current *mission.MissionCommanderDriverRequest, recoverResult bool) Inspection {
 	base := Inspection{State: "missing", Boundary: inspectionBoundary()}
 	records, err := readArtifactChain(root, caseRoot)
 	if err != nil {
@@ -531,6 +553,7 @@ func inspectRoot(root *os.Root, identity, artifactRelRoot, caseRoot, pack string
 	base.ObservationSHA256 = payload.ObservationSHA256
 	base.ObservationKind = payload.ObservationKind
 	base.ObservationActor = payload.ObservationActor
+	base.ReviewedOpenInterventionIDs = append([]string{}, payload.ReviewedOpenInterventionIDs...)
 	base.ArtifactBytes = len(latest.data)
 	base.PayloadSHA256 = artifact.PayloadSHA256
 	base.RecordedAt = artifact.RecordedAt
@@ -571,6 +594,9 @@ func inspectRoot(root *os.Root, identity, artifactRelRoot, caseRoot, pack string
 		base.State = "terminal"
 		base.Warnings = []string{"latest current-loop checkpoint is valid terminal history and has no current driver request or recoverable continuation"}
 		return base
+	}
+	if recoverResult {
+		current = payload.RefreshedCurrentDriverRequest
 	}
 	if current == nil {
 		base.State = "stale-current-driver-request"
@@ -896,6 +922,7 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 		ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
 		ObservationPath               string                                `json:"observationPath,omitempty"`
 		ObservationSHA256             string                                `json:"observationSha256,omitempty"`
+		ReviewedOpenInterventionIDs   []string                              `json:"reviewedOpenInterventionIds,omitempty"`
 	}{
 		SchemaVersion:                 1,
 		CaseRoot:                      caseRoot,
@@ -910,6 +937,7 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 		ResumeSourceArtifactSHA256:    payload.ResumeSourceArtifactSHA256,
 		ObservationPath:               payload.ObservationPath,
 		ObservationSHA256:             payload.ObservationSHA256,
+		ReviewedOpenInterventionIDs:   append([]string{}, payload.ReviewedOpenInterventionIDs...),
 	}
 	if len(payload.StepReceipts) > 0 {
 		identity.ExpectedCurrentStepPlanSHA256 = payload.StepReceipts[0].ExpectedCurrentStepPlanSHA256
@@ -939,6 +967,13 @@ func validatePayload(payload Payload) error {
 	}
 	if payload.ObservationPath == "" && (payload.ObservationKind != "" || payload.ObservationActor != "") || payload.ObservationPath != "" && ((payload.ObservationKind == "") != (payload.ObservationActor == "")) {
 		return fmt.Errorf("observation typed receipt identity is invalid")
+	}
+	seenInterventions := make(map[string]bool, len(payload.ReviewedOpenInterventionIDs))
+	for _, id := range payload.ReviewedOpenInterventionIDs {
+		if strings.TrimSpace(id) == "" || id != strings.TrimSpace(id) || seenInterventions[id] {
+			return fmt.Errorf("reviewed open intervention identity is invalid")
+		}
+		seenInterventions[id] = true
 	}
 	if payload.ObservationKind != "" {
 		switch payload.ObservationKind {
@@ -1083,6 +1118,11 @@ func validatePayload(payload Payload) error {
 			rootMatches := attemptRoot == expectedSuffix || strings.HasSuffix(attemptRoot, "/"+expectedSuffix)
 			if member.AttemptID == "" || !strings.HasPrefix(member.AttemptID, expectedAttemptPrefix) || member.Lane != continuation.ExpectedLane || member.Executor == "" || member.ExecutorGeneration < 1 || !rootMatches || member.HandoffPath != attemptRoot+"/handoff.json" || member.ManifestPath != attemptRoot+"/result/manifest.json" || member.OutputsRoot != attemptRoot+"/result/outputs" || member.State != "handoff-ready" && member.State != "accepted" {
 				return fmt.Errorf("external member continuation handoff identity is invalid")
+			}
+			if member.LaunchControl != nil {
+				if err := executioncontrol.ValidateBinding(*member.LaunchControl); err != nil || member.LaunchControl.Lane != member.Lane || member.LaunchControl.Owner.Lane != member.Lane || member.LaunchControl.Owner.CurrentExecutor != member.Executor || member.LaunchControl.Owner.ExecutorGeneration != member.ExecutorGeneration {
+					return fmt.Errorf("external member continuation execution control binding is invalid")
+				}
 			}
 			expectedKinds := map[string]bool{
 				"member-session-returned": true,

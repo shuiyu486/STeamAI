@@ -56,6 +56,9 @@ func runCurrentLoopExternalSessionAttempt(ctx runtime.Context, opt Options, out 
 	if err != nil {
 		return err
 	}
+	if err := requireExternalMemberAttemptBirthControl(ctx.Target, *checkpoint, plan); err != nil {
+		return err
+	}
 	inspection, err := externalsession.Inspect(job)
 	if err != nil {
 		return err

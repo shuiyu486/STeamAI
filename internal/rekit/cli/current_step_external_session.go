@@ -130,7 +130,12 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 	if err := validateCurrentStepExternalOuterInputs(opt); err != nil {
 		return nil, "", true, err
 	}
-	job, err := externalSessionJobFor(ctx.Target, operator, *runbook.CurrentLoopSegment)
+	job, err := externalSessionJobForControlRecovery(
+		ctx.Target,
+		operator,
+		*runbook.CurrentLoopSegment,
+		opt.currentLoopExecutionControlRecovery,
+	)
 	if err != nil {
 		return nil, "", true, err
 	}
@@ -216,6 +221,9 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 			if err != nil {
 				return nil, "", true, err
 			}
+			if err := requireExternalMemberAttemptBirthControl(ctx.Target, *runbook.CurrentLoopSegment, attemptPlan); err != nil {
+				return nil, "", true, err
+			}
 			inspection, err := externalsession.Inspect(job)
 			if err != nil {
 				return nil, "", true, err
@@ -273,6 +281,9 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 				attemptPlan, err = externalsession.ResolveAttemptApplyPlanUnbound(job, attempt.Current.Harness, attempt.Current.Session, attempt.Current.Actor, attempt.Current.StartedAt, attempt.Current.SupersedesSHA256)
 			}
 			if err != nil {
+				return nil, "", true, err
+			}
+			if err := requireExternalMemberAttemptBirthControl(ctx.Target, *runbook.CurrentLoopSegment, attemptPlan); err != nil {
 				return nil, "", true, err
 			}
 			inspection, err := externalsession.Inspect(job)
@@ -341,6 +352,9 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		}
 		attemptPlan, err := externalsession.PreviewAttempt(job, opt.ExternalSessionHarness, opt.ExternalSessionID, opt.ExternalSessionActor, opt.ExternalSessionStartedAt, attempt.AttemptSHA256)
 		if err != nil {
+			return nil, "", true, err
+		}
+		if err := requireExternalMemberAttemptBirthControl(ctx.Target, *runbook.CurrentLoopSegment, attemptPlan); err != nil {
 			return nil, "", true, err
 		}
 		inspection, err := externalsession.Inspect(job)
@@ -488,6 +502,9 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		if err != nil {
 			return nil, "", true, err
 		}
+		if err := requireExternalMemberAttemptBirthControl(ctx.Target, *runbook.CurrentLoopSegment, attemptPlan); err != nil {
+			return nil, "", true, err
+		}
 		inspection, err := externalsession.Inspect(job)
 		if err != nil {
 			return nil, "", true, err
@@ -522,6 +539,9 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		}
 		attemptPlan, err := externalsession.PreviewAttempt(job, opt.ExternalSessionHarness, opt.ExternalSessionID, opt.ExternalSessionActor, opt.ExternalSessionStartedAt, attempt.AttemptSHA256)
 		if err != nil {
+			return nil, "", true, err
+		}
+		if err := requireExternalMemberAttemptBirthControl(ctx.Target, *runbook.CurrentLoopSegment, attemptPlan); err != nil {
 			return nil, "", true, err
 		}
 		inspection, err := externalsession.Inspect(job)

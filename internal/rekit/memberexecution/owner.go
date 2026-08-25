@@ -18,10 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
@@ -42,6 +44,10 @@ var applyLeaseHook func(Plan) error
 
 func PreviewDispatch(opt DispatchOptions) (Plan, error) {
 	caseRoot, owner, err := currentOwner(opt.CaseRoot, opt.Pack, opt.Lane)
+	if err != nil {
+		return Plan{}, err
+	}
+	launchControl, err := captureMemberHandoffLaunchControl(caseRoot, owner, opt.LaunchControl)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -90,7 +96,7 @@ func PreviewDispatch(opt DispatchOptions) (Plan, error) {
 		return Plan{}, err
 	}
 	taskContextPath := rel(caseRoot, filepath.Join(root, "task-context.json"))
-	handoff := Handoff{SchemaVersion: 1, Kind: KindHandoff, AttemptID: attemptID, Owner: owner, IntentSHA256: hash(intentBytes), TaskContextPath: taskContextPath, TaskContextSHA256: hash(taskContextBytes), ManifestPath: rel(caseRoot, filepath.Join(root, "result", "manifest.json")), OutputsRoot: rel(caseRoot, filepath.Join(root, "result", "outputs")), NextSteps: []string{"external harness accepts this handoff", "external member reads the exact immutable task context and writes bounded outputs", "record accepted then returned or failed observation through run-current-step"}, Boundary: boundaries()}
+	handoff := Handoff{SchemaVersion: 1, Kind: KindHandoff, AttemptID: attemptID, Owner: owner, IntentSHA256: hash(intentBytes), TaskContextPath: taskContextPath, TaskContextSHA256: hash(taskContextBytes), ManifestPath: rel(caseRoot, filepath.Join(root, "result", "manifest.json")), OutputsRoot: rel(caseRoot, filepath.Join(root, "result", "outputs")), LaunchControl: executioncontrol.CloneBinding(launchControl), NextSteps: []string{"external harness accepts this handoff", "external member reads the exact immutable task context and writes bounded outputs", "record accepted then returned or failed observation through run-current-step"}, Boundary: boundaries()}
 	handoffBytes, err := canonical(handoff)
 	if err != nil {
 		return Plan{}, err
@@ -103,6 +109,127 @@ func PreviewDispatch(opt DispatchOptions) (Plan, error) {
 	writes := []plannedWrite{{filepath.Join(root, "intent.json"), intentBytes}, {filepath.Join(root, "task-context.json"), taskContextBytes}, {filepath.Join(root, "handoff.json"), handoffBytes}, {filepath.Join(root, "commit.json"), commitBytes}}
 	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: owner, Intent: &intent, TaskContext: &taskContext, TaskContextPath: filepath.Join(root, "task-context.json"), TaskContextSHA256: hash(taskContextBytes), Handoff: &handoff, HandoffSHA256: hash(handoffBytes), AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
 	return finishPlan(Plan{SchemaVersion: 1, Mode: "dispatch", CaseRoot: caseRoot, Pack: opt.Pack, AttemptID: attemptID, Owner: owner, ExternalHandoff: &handoff, Inspection: inspection, ReviewRequired: true, RequiresConfirmation: true, Boundary: boundaries(), writes: writes})
+}
+
+func captureMemberHandoffLaunchControl(caseRoot string, owner Owner, provided *executioncontrol.Binding) (*executioncontrol.Binding, error) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	if root.Legacy || !root.Existing {
+		if provided != nil {
+			return nil, fmt.Errorf("legacy member execution handoff must not carry current execution control lineage")
+		}
+		return nil, nil
+	}
+	if provided != nil {
+		validated, err := validateMemberHandoffLaunchControl(caseRoot, owner, provided)
+		if err != nil {
+			return nil, err
+		}
+		if err := requireCurrentMemberHandoffControl(caseRoot, owner, validated); err != nil {
+			return nil, err
+		}
+		return validated, nil
+	}
+	transport, err := memberHandoffTransportCapability()
+	if err != nil {
+		return nil, err
+	}
+	binding, err := executioncontrol.CaptureBinding(caseRoot, memberExecutionLaneOwner(owner), transport)
+	if err != nil {
+		return nil, fmt.Errorf("capture member execution handoff control: %w", err)
+	}
+	return &binding, nil
+}
+
+func memberHandoffTransportCapability() (capabilitycontract.Binding, error) {
+	return capabilitycontract.Bind(capabilitycontract.Transport())
+}
+
+func validateMemberHandoffLaunchControl(caseRoot string, owner Owner, provided *executioncontrol.Binding) (*executioncontrol.Binding, error) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	if root.Legacy || !root.Existing {
+		if provided != nil {
+			return nil, fmt.Errorf("legacy member execution handoff must not carry current execution control lineage")
+		}
+		return nil, nil
+	}
+	if provided == nil {
+		return nil, fmt.Errorf("current member execution handoff requires frozen execution control lineage")
+	}
+	transport, err := memberHandoffTransportCapability()
+	if err != nil {
+		return nil, err
+	}
+	if err := executioncontrol.ValidateBinding(*provided); err != nil {
+		return nil, fmt.Errorf("member execution handoff control is invalid: %w", err)
+	}
+	if provided.Lane != owner.Lane || provided.Owner != memberExecutionLaneOwner(owner) || provided.Capability != transport {
+		return nil, fmt.Errorf("member execution handoff control does not match its transport lane owner")
+	}
+	return executioncontrol.CloneBinding(provided), nil
+}
+
+func memberExecutionLaneOwner(owner Owner) laneowner.Snapshot {
+	return laneowner.Snapshot{
+		Lane:               owner.Lane,
+		CurrentExecutor:    owner.Executor,
+		ExecutorGeneration: owner.ExecutorGeneration,
+	}
+}
+
+func requireCurrentMemberHandoffControlWithLease(caseRoot string, lease *lanemutation.Lease, owner Owner, binding *executioncontrol.Binding) error {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return err
+	}
+	if root.Legacy || !root.Existing {
+		if binding != nil {
+			return fmt.Errorf("legacy member execution handoff must not carry current execution control lineage")
+		}
+		return nil
+	}
+	if binding == nil {
+		return fmt.Errorf("current member execution handoff requires frozen execution control lineage")
+	}
+	if _, err := validateMemberHandoffLaunchControl(caseRoot, owner, binding); err != nil {
+		return err
+	}
+	if err := executioncontrol.RequireCurrentBindingWithLease(caseRoot, lease, *binding); err != nil {
+		return fmt.Errorf("member execution handoff control is stale: %w", err)
+	}
+	return nil
+}
+
+func requireCurrentMemberHandoffControl(caseRoot string, owner Owner, binding *executioncontrol.Binding) error {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return err
+	}
+	if root.Legacy || !root.Existing {
+		if binding != nil {
+			return fmt.Errorf("legacy member execution handoff must not carry current execution control lineage")
+		}
+		return nil
+	}
+	if binding == nil {
+		return fmt.Errorf("current member execution handoff requires frozen execution control lineage")
+	}
+	if _, err := validateMemberHandoffLaunchControl(caseRoot, owner, binding); err != nil {
+		return err
+	}
+	currentness, err := executioncontrol.InspectBindingReadOnly(caseRoot, *binding)
+	if err != nil {
+		return err
+	}
+	if !currentness.Current {
+		return &executioncontrol.BindingNotCurrentError{Currentness: currentness}
+	}
+	return nil
 }
 
 func currentTaskBindingRel(caseRoot, lane string, ownerGeneration int) (string, error) {
@@ -732,6 +859,10 @@ func validateTaskCorrectionRejectionFiles(caseRoot string, ctx *ReviewerRejectio
 }
 
 func PreviewObservation(opt ObservationOptions) (Plan, error) {
+	return previewObservationWithLease(opt, nil)
+}
+
+func previewObservationWithLease(opt ObservationOptions, lease *lanemutation.Lease) (Plan, error) {
 	caseRoot, owner, err := currentOwner(opt.CaseRoot, opt.Pack, opt.Lane)
 	if err != nil {
 		return Plan{}, err
@@ -748,6 +879,15 @@ func PreviewObservation(opt ObservationOptions) (Plan, error) {
 	}
 	if inspection.Owner != owner {
 		return Plan{}, fmt.Errorf("member execution attempt owner is stale; current executor generation differs")
+	}
+	if !opt.DeferControlCurrentness {
+		if lease != nil {
+			if err := requireCurrentMemberHandoffControlWithLease(caseRoot, lease, owner, inspection.Handoff.LaunchControl); err != nil {
+				return Plan{}, err
+			}
+		} else if err := requireCurrentMemberHandoffControl(caseRoot, owner, inspection.Handoff.LaunchControl); err != nil {
+			return Plan{}, err
+		}
 	}
 	outcome := strings.ToLower(strings.TrimSpace(opt.Outcome))
 	if outcome != "accepted" && outcome != "returned" && outcome != "failed" {
@@ -845,7 +985,7 @@ func ApplyCurrentWithLease(plan Plan, expected string, validateCurrent func(*lan
 	if len(mission.EffectiveOpenLaneInterventions(facts.Facts, plan.Owner.Lane)) > 0 {
 		return Result{}, fmt.Errorf("member execution refuses lane with an open intervention")
 	}
-	rebuilt, err := rebuildApplyPlan(plan)
+	rebuilt, err := rebuildApplyPlan(plan, lease)
 	if err != nil {
 		return Result{}, err
 	}
@@ -876,6 +1016,9 @@ func ApplyCurrentWithLease(plan Plan, expected string, validateCurrent func(*lan
 		}
 		if currentInspection.Owner != plan.Owner {
 			return Result{}, fmt.Errorf("member execution attempt owner changed before Apply")
+		}
+		if err := requireCurrentMemberHandoffControlWithLease(caseRoot, lease, plan.Owner, currentInspection.Handoff.LaunchControl); err != nil {
+			return Result{}, err
 		}
 		if plan.Outcome == "returned" {
 			_, sum, err := inspectManifestAnchored(anchor, currentInspection)
@@ -939,13 +1082,34 @@ func ApplyCurrentWithLease(plan Plan, expected string, validateCurrent func(*lan
 	return Result{Plan: plan, Applied: written > 0, AlreadyApplied: written == 0}, nil
 }
 
-func rebuildApplyPlan(plan Plan) (Plan, error) {
+func rebuildApplyPlan(plan Plan, lease *lanemutation.Lease) (Plan, error) {
 	if plan.Mode == "dispatch" && plan.Inspection.Intent != nil {
-		return PreviewDispatch(DispatchOptions{CaseRoot: plan.CaseRoot, Pack: plan.Pack, Lane: plan.Owner.Lane, RequestSHA256: plan.Inspection.Intent.RequestSHA256, CreatedAt: plan.Inspection.Intent.CreatedAt})
+		var launchControl *executioncontrol.Binding
+		if plan.Inspection.Handoff != nil {
+			launchControl = executioncontrol.CloneBinding(plan.Inspection.Handoff.LaunchControl)
+		}
+		root, err := projectstate.Resolve(plan.CaseRoot)
+		if err != nil {
+			return Plan{}, err
+		}
+		if root.Existing && !root.Legacy {
+			if launchControl == nil {
+				return Plan{}, fmt.Errorf("current member execution dispatch plan omitted frozen execution control lineage")
+			}
+			if err := requireCurrentMemberHandoffControlWithLease(
+				plan.CaseRoot,
+				lease,
+				plan.Owner,
+				launchControl,
+			); err != nil {
+				return Plan{}, err
+			}
+		}
+		return PreviewDispatch(DispatchOptions{CaseRoot: plan.CaseRoot, Pack: plan.Pack, Lane: plan.Owner.Lane, RequestSHA256: plan.Inspection.Intent.RequestSHA256, CreatedAt: plan.Inspection.Intent.CreatedAt, LaunchControl: launchControl})
 	}
 	if plan.Mode == "observe" && plan.Inspection.Latest != nil {
 		observation := plan.Inspection.Latest
-		return PreviewObservation(ObservationOptions{CaseRoot: plan.CaseRoot, Pack: plan.Pack, Lane: plan.Owner.Lane, AttemptID: plan.AttemptID, Outcome: plan.Outcome, Actor: plan.Actor, Reason: plan.Reason, ObservedAt: observation.ObservedAt})
+		return previewObservationWithLease(ObservationOptions{CaseRoot: plan.CaseRoot, Pack: plan.Pack, Lane: plan.Owner.Lane, AttemptID: plan.AttemptID, Outcome: plan.Outcome, Actor: plan.Actor, Reason: plan.Reason, ObservedAt: observation.ObservedAt, DeferControlCurrentness: plan.Inspection.Handoff != nil && plan.Inspection.Handoff.LaunchControl != nil}, lease)
 	}
 	return Plan{}, fmt.Errorf("member execution plan cannot be rebuilt")
 }
@@ -1016,6 +1180,11 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 	}
 	if handoff.SchemaVersion != SchemaVersion || handoff.Kind != KindHandoff || handoff.AttemptID != attemptID || handoff.Owner != intent.Owner || !strings.EqualFold(handoff.IntentSHA256, hash(intentBytes)) || handoff.TaskContextPath != taskContextRel || !strings.EqualFold(handoff.TaskContextSHA256, hash(taskContextBytes)) {
 		return Inspection{}, fmt.Errorf("invalid member execution handoff binding")
+	}
+	if handoff.LaunchControl != nil {
+		if _, err := validateMemberHandoffLaunchControl(anchor.path, intent.Owner, handoff.LaunchControl); err != nil {
+			return Inspection{}, err
+		}
 	}
 	manifestRel := filepath.ToSlash(filepath.Join(rootRel, "result", "manifest.json"))
 	outputsRel := filepath.ToSlash(filepath.Join(rootRel, "result", "outputs"))
@@ -1614,6 +1783,18 @@ func inspectPendingDispatchPrefix(anchor *anchoredCase, lane, attemptID string) 
 		if err != nil {
 			return false, err
 		}
+		var handoff Handoff
+		if err := strictCanonical(handoffBytes, &handoff); err != nil {
+			return false, fmt.Errorf("invalid pending member execution handoff: %w", err)
+		}
+		launchControl, err := validateMemberHandoffLaunchControl(
+			anchor.path,
+			intent.Owner,
+			handoff.LaunchControl,
+		)
+		if err != nil {
+			return false, err
+		}
 		expected := Handoff{
 			SchemaVersion:     SchemaVersion,
 			Kind:              KindHandoff,
@@ -1624,6 +1805,7 @@ func inspectPendingDispatchPrefix(anchor *anchoredCase, lane, attemptID string) 
 			TaskContextSHA256: hash(taskContextBytes),
 			ManifestPath:      filepath.ToSlash(filepath.Join(rootRel, "result", "manifest.json")),
 			OutputsRoot:       filepath.ToSlash(filepath.Join(rootRel, "result", "outputs")),
+			LaunchControl:     executioncontrol.CloneBinding(launchControl),
 			NextSteps:         []string{"external harness accepts this handoff", "external member reads the exact immutable task context and writes bounded outputs", "record accepted then returned or failed observation through run-current-step"},
 			Boundary:          boundaries(),
 		}

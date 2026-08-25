@@ -29,9 +29,9 @@
 
 ## 当前推进原则
 
-当前已批准路线是 `steamai-product-optimization-v1` P0～P3 residual closure；C1已完成，当前C2，随后C3→C4→retired identity→binary-re验收→总体验证。不创建 Batch 834 或自选功能；保持 source-clone-first、不做 installer，legacy `/rekit`/`.rekit` 暂兼容。局部 validation不替代路线完成，cross-compile不是运行证据。
+已批准路线：`steamai-product-optimization-v1` P0～P3 residual closure；C1/C2完成，当前C3，随后C4→retired identity→binary-re验收→总验证。不创建 Batch 834 或自选功能；source-clone-first、无 installer，暂兼容 legacy `/rekit`/`.rekit`。局部 validation 不代表路线完成，cross-compile 不是运行证据。
 
-保持 PowerShell-free/Go-native；禁止新增 PowerShell runtime logic。避免单字段微批次，把支撑改动并入产品闭环。公共入口删除门禁不完整则升级。
+保持 PowerShell-free/Go-native，不新增 PowerShell runtime logic。避免单字段微批次；公共入口删除门禁不完整则升级。
 
 ## 关键边界
 
@@ -51,7 +51,7 @@
 - project-local no-mode `help/status/continue` 只做用户摘要；diagnostics 与 exact preview/apply 规则见 `.claude/skills/steamai/SKILL.md`，current 默认不得泄漏 `/rekit`。
 - fresh 未接入 status 只读发布 schema-valid、非 template pack choices；pending onboarding publication 不重新选 pack，只发布绑定既有 identity/stamp/plan 的唯一 exact Apply recovery；committed missing-board 仍走 `overview` bootstrap。三者不得混用，status 不写项目。
 - `bounded-autonomous-v1` 只显式 opt-in 单 lane/exact action/exact target/有限预算/短 expiry，每次仍重验并留证；不授予无限权限、authority/confirmed、sync/promote 或 schema migration。
-- exact lane `control` 使用独立 append-only generation 与 review-first stamp/hash Apply；pause 不做 OS suspend，stop 先 durable 提交且仅 exact local supervisor owner 可关闭自己持有的 containment。actuation 失败不回滚 stopped，process termination 不是 durable stop 成功判据，opaque Remote Control session 不受本路径管理；旧 generation 结果不得推进 live output、Reviewer、completion 或 checkpoint。
+- exact lane `control`：独立 append-only generation + review-first stamp/hash Apply；pause 不做 OS suspend；stop 先 durable 提交，仅 exact local supervisor owner 可关闭其 containment。actuation 失败不回滚 stopped，process termination 不证明 durable stop，opaque Remote Control 不受管。current member handoff/checkpoint/attempt/observation 共用 birth control lineage，missing/stale 只读或 held、不补采 generation；legacy nil 兼容。旧 generation 不推进 live output、Reviewer、completion/checkpoint。
 - current-sync Apply 与 current `.steamai` detached-supervisor handoff 依赖 handle-bound exact filesystem mutation；Windows 提供，非 Windows 持久化副作用前 fail-closed；read-only/preview 与 legacy compatibility 保持可用。
 
 ## 验证命令

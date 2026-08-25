@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -21,7 +20,10 @@ import (
 
 const currentLoopRoutePolicy = "fixed-initial-route-and-lane"
 
-var currentLoopBeforeApplyStepHook func(int) error
+var (
+	currentLoopBeforeApplyStepHook       func(int) error
+	currentLoopAfterInitialStepBuildHook func() error
+)
 
 type currentLoopPlan struct {
 	SchemaVersion                  int                                    `json:"schemaVersion"`
@@ -56,6 +58,7 @@ type currentLoopPlan struct {
 	SegmentCheckpoint              *currentloop.Inspection                `json:"segmentCheckpoint,omitempty"`
 	FinalStatus                    *statusInventory                       `json:"finalStatus,omitempty"`
 	Boundary                       []string                               `json:"boundary"`
+	ReviewedOpenInterventionIDs    []string                               `json:"reviewedOpenInterventionIds,omitempty"`
 	zeroProgressVerified           bool                                   `json:"-"`
 }
 
@@ -115,6 +118,7 @@ type currentLoopPlanIdentity struct {
 	ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
 	ObservationPath               string                                `json:"observationPath,omitempty"`
 	ObservationSHA256             string                                `json:"observationSha256,omitempty"`
+	ReviewedOpenInterventionIDs   []string                              `json:"reviewedOpenInterventionIds,omitempty"`
 }
 
 func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -221,11 +225,30 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 		if hashErr != nil {
 			return hashErr
 		}
-		if claimErr := currentloop.ClaimResume(ctx.RepoRoot, ctx.Target, ctx.Pack, currentloop.Claim{
+		binding := executioncontrol.CloneBinding(opt.currentLoopExecutionControlBinding)
+		if claimErr := currentloop.ClaimResumeValidatedWithProjectLease(ctx.RepoRoot, ctx.Target, ctx.Pack, currentloop.Claim{
 			SourceArtifactSHA256:          plan.ExpectedResumeCheckpointSHA256,
 			ExpectedCurrentLoopPlanSHA256: plan.ExpectedCurrentLoopPlanSHA256,
 			CurrentDriverRequestSHA256:    requestSHA256,
 			Actor:                         plan.Actor,
+		}, func(lease *lanemutation.Lease) error {
+			if binding != nil {
+				if err := executioncontrol.RequireCurrentBindingWithProjectLease(ctx.Target, lease, *binding); err != nil {
+					return err
+				}
+			}
+			facts, err := mission.ReadStrictLedgerFacts(ctx.Target)
+			if err != nil {
+				return err
+			}
+			if currentLoopHasUnreviewedOpenIntervention(
+				facts.Facts,
+				plan.InitialLane,
+				plan.ReviewedOpenInterventionIDs,
+			) {
+				return fmt.Errorf("run-current-loop refuses checkpoint claim after Human-in-the-Lane intervention")
+			}
+			return nil
 		}); claimErr != nil {
 			return claimErr
 		}
@@ -292,17 +315,38 @@ func applyBuiltCurrentLoop(ctx runtime.Context, opt Options, plan currentLoopPla
 }
 
 func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, statusInventory, error) {
-	status, err := buildInvocationStatusInventory(ctx, opt)
-	if err != nil && opt.currentLoopExecutionControlRecovery {
-		recoveryStatus, recoveryErr := buildControlBoundResultRecoveryStatusInventory(ctx, opt)
-		if recoveryErr != nil {
-			return currentLoopPlan{}, statusInventory{}, errors.Join(err, fmt.Errorf("control-bound result recovery status: %w", recoveryErr))
+	var status statusInventory
+	var err error
+	if opt.currentLoopExecutionControlRecovery {
+		status, err = buildControlBoundResultRecoveryStatusInventory(ctx, opt)
+		if err != nil {
+			return currentLoopPlan{}, statusInventory{}, fmt.Errorf(
+				"control-bound result recovery status: %w",
+				err,
+			)
 		}
-		status = recoveryStatus
-		err = nil
-	}
-	if err != nil {
-		return currentLoopPlan{}, statusInventory{}, err
+	} else {
+		status, err = buildInvocationStatusInventory(ctx, opt)
+		if err != nil {
+			return currentLoopPlan{}, statusInventory{}, err
+		}
+		operator := status.MissionControlRunbook
+		if opt.ResumeCurrentLoop &&
+			(strings.TrimSpace(opt.CurrentLoopObservationPath) != "" ||
+				currentStepHasMemberObservation(opt)) &&
+			operator != nil &&
+			statusCurrentLoopOperatorHasStaleMemberCheckpoint(
+				operator.CurrentLoopOperator,
+			) {
+			status, err = buildControlBoundResultRecoveryStatusInventory(ctx, opt)
+			if err != nil {
+				return currentLoopPlan{}, statusInventory{}, fmt.Errorf(
+					"stale member result recovery status: %w",
+					err,
+				)
+			}
+			opt.currentLoopExecutionControlRecovery = true
+		}
 	}
 	var resumeSource *currentloop.Inspection
 	if opt.ResumeCurrentLoop {
@@ -409,6 +453,19 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		return plan, status, nil
 	}
 	plan.InitialCurrentStep = &step
+	if currentLoopAfterInitialStepBuildHook != nil {
+		if err := currentLoopAfterInitialStepBuildHook(); err != nil {
+			return currentLoopPlan{}, statusInventory{}, err
+		}
+	}
+	plan.ReviewedOpenInterventionIDs, err = currentLoopReviewedOpenInterventionIDs(
+		status,
+		plan.InitialLane,
+		request,
+	)
+	if err != nil {
+		return currentLoopPlan{}, statusInventory{}, err
+	}
 	if step.ExpectedCurrentStepPlanSHA256 == "" {
 		plan.StopReason = currentLoopExternalStop(step, request, status)
 		plan.ContinuationRequest = currentLoopContinuationFor(ctx, currentLoopSelectedLane(opt, plan.InitialLane), opt.MaxSteps, 0, route, plan.InitialLane, route, plan.Actor, plan.StopReason)
@@ -429,6 +486,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		InitialLane:                   plan.InitialLane,
 		InitialCurrentDriverRequest:   *request,
 		ExpectedCurrentStepPlanSHA256: step.ExpectedCurrentStepPlanSHA256,
+		ReviewedOpenInterventionIDs:   append([]string{}, plan.ReviewedOpenInterventionIDs...),
 	}
 	if resumeSource != nil {
 		identity.ResumeSourceArtifactSHA256 = resumeSource.ArtifactSHA256
@@ -686,6 +744,79 @@ func validateCurrentLoopResumeStatus(status statusInventory, inspection currentl
 	return nil
 }
 
+func currentLoopReviewedOpenInterventionIDs(
+	status statusInventory,
+	lane string,
+	request *mission.MissionCommanderDriverRequest,
+) ([]string, error) {
+	if request == nil || request.Invocation == nil ||
+		request.Invocation.Command != commands.Reconcile {
+		return nil, nil
+	}
+	selectedID, present, valid := request.Invocation.FlagValue(
+		"-InterventionId",
+		"--intervention-id",
+	)
+	selectedID = strings.TrimSpace(selectedID)
+	if !present || !valid || selectedID == "" {
+		return nil, fmt.Errorf(
+			"run-current-loop reconcile request omitted one exact intervention identity",
+		)
+	}
+	if status.CaseMission == nil || status.CaseMission.Sections == nil {
+		return nil, fmt.Errorf(
+			"run-current-loop reconcile status omitted the reviewed intervention snapshot",
+		)
+	}
+	section := status.CaseMission.Sections.OpenInterventions
+	if section.Total != section.Shown || section.Shown != len(section.Events) {
+		return nil, fmt.Errorf(
+			"run-current-loop reconcile status does not expose the complete reviewed intervention snapshot",
+		)
+	}
+	ids := make([]string, 0, len(section.Events))
+	seen := make(map[string]bool, len(section.Events))
+	selected := false
+	for _, item := range section.Events {
+		if strings.TrimSpace(mission.Value(item, "lane")) != strings.TrimSpace(lane) {
+			continue
+		}
+		id := strings.TrimSpace(mission.Value(item, "eventId"))
+		if id == "" || seen[id] {
+			return nil, fmt.Errorf(
+				"run-current-loop requires unique non-empty intervention event IDs",
+			)
+		}
+		seen[id] = true
+		selected = selected || id == selectedID
+		ids = append(ids, id)
+	}
+	if !selected {
+		return nil, fmt.Errorf(
+			"run-current-loop reconcile request is not present in the reviewed intervention snapshot",
+		)
+	}
+	return ids, nil
+}
+
+func currentLoopHasUnreviewedOpenIntervention(
+	facts mission.Facts,
+	lane string,
+	reviewed []string,
+) bool {
+	seen := make(map[string]bool, len(reviewed))
+	for _, id := range reviewed {
+		seen[id] = true
+	}
+	for _, item := range mission.EffectiveOpenLaneInterventions(facts, lane) {
+		id := strings.TrimSpace(mission.Value(item, "eventId"))
+		if id == "" || !seen[id] {
+			return true
+		}
+	}
+	return false
+}
+
 func currentLoopStatusCandidate(status statusInventory) (*mission.MissionCommanderDriverRequest, string, currentLoopStopReason) {
 	if status.CaseMission != nil && status.CaseMission.MissionCompletion != nil && status.CaseMission.MissionCompletion.Ready && status.CaseMission.MissionCompletion.State == "mission-complete" {
 		return nil, "case", currentLoopStopReason{Code: "mission-complete", Phase: "status", Message: "all durable lanes have committed completion receipts"}
@@ -838,6 +969,9 @@ func validateCurrentLoopMemberCheckpointObservation(ctx runtime.Context, opt Opt
 	if current.Owner.Lane != handoff.Lane || current.Owner.Executor != handoff.Executor || current.Owner.ExecutorGeneration != handoff.ExecutorGeneration || current.State != handoff.State {
 		return fmt.Errorf("run-current-loop member checkpoint attempt owner or state changed; refresh status instead of consuming prior budget")
 	}
+	if !executioncontrol.SameBinding(current.Handoff.LaunchControl, handoff.LaunchControl) {
+		return fmt.Errorf("run-current-loop member checkpoint execution control lineage changed; refresh status instead of consuming prior budget")
+	}
 	return nil
 }
 
@@ -890,6 +1024,7 @@ func currentLoopExternalMemberHandoff(ctx runtime.Context, inspection memberexec
 		TaskContextSHA256:   inspection.Handoff.TaskContextSHA256,
 		ManifestPath:        inspection.Handoff.ManifestPath,
 		OutputsRoot:         inspection.Handoff.OutputsRoot,
+		LaunchControl:       executioncontrol.CloneBinding(inspection.Handoff.LaunchControl),
 		NextSteps:           append([]string{}, inspection.Handoff.NextSteps...),
 		ObservationContract: observation,
 		Boundary: mission.UniqueStrings(append([]string{
@@ -1007,6 +1142,7 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan cu
 		ObservationSHA256:             plan.ObservationSHA256,
 		ObservationKind:               plan.ObservationKind,
 		ObservationActor:              plan.ObservationActor,
+		ReviewedOpenInterventionIDs:   append([]string{}, plan.ReviewedOpenInterventionIDs...),
 		ZeroProgressRecovery:          plan.StopReason.Code == "zero-progress-retry",
 		SegmentMaxSteps:               plan.MaxSteps,
 		AppliedStepsInSegment:         plan.AppliedSteps,

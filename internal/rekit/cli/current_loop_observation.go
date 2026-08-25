@@ -82,18 +82,32 @@ func applyCurrentLoopObservationSnapshot(ctx runtime.Context, opt *Options, insp
 	if err := qualifyCurrentLoopObservation(&snapshot.Envelope, inspection); err != nil {
 		return err
 	}
-	if snapshot.Envelope.LaunchControl != nil {
-		if err := executioncontrol.ValidateBinding(*snapshot.Envelope.LaunchControl); err != nil {
-			return fmt.Errorf("run-current-loop observation execution control binding is invalid: %w", err)
+	expectedControl := executioncontrol.CloneBinding(snapshot.Envelope.LaunchControl)
+	if strings.HasPrefix(snapshot.Envelope.ObservationKind, "member-session-") {
+		expectedControl = currentLoopObservationLaunchControl(inspection, snapshot.Envelope.ObservationKind)
+		controlRequired, err := currentMemberExecutionControlRequired(ctx.Target)
+		if err != nil {
+			return err
 		}
-		if snapshot.Envelope.LaunchControl.Lane != strings.TrimSpace(inspection.ExpectedLane) {
-			return fmt.Errorf("run-current-loop observation execution control lane does not match checkpoint continuation")
+		if controlRequired && !executioncontrol.SameBinding(expectedControl, snapshot.Envelope.LaunchControl) {
+			return fmt.Errorf("run-current-loop observation execution control binding does not match checkpoint birth lineage")
+		}
+		if !controlRequired {
+			expectedControl = executioncontrol.CloneBinding(snapshot.Envelope.LaunchControl)
 		}
 	}
-	if opt.currentLoopExecutionControlBinding != nil && !executioncontrol.SameBinding(opt.currentLoopExecutionControlBinding, snapshot.Envelope.LaunchControl) {
+	if expectedControl != nil {
+		if err := executioncontrol.ValidateBinding(*expectedControl); err != nil {
+			return fmt.Errorf("run-current-loop observation durable execution control binding is invalid: %w", err)
+		}
+		if expectedControl.Lane != strings.TrimSpace(inspection.ExpectedLane) {
+			return fmt.Errorf("run-current-loop observation durable execution control lane does not match checkpoint continuation")
+		}
+	}
+	if opt.currentLoopExecutionControlBinding != nil && !executioncontrol.SameBinding(opt.currentLoopExecutionControlBinding, expectedControl) {
 		return fmt.Errorf("run-current-loop observation execution control binding changed within the result turn")
 	}
-	opt.currentLoopExecutionControlBinding = executioncontrol.CloneBinding(snapshot.Envelope.LaunchControl)
+	opt.currentLoopExecutionControlBinding = executioncontrol.CloneBinding(expectedControl)
 	if requireCanonical {
 		inCanonicalInbox, err := currentLoopObservationInCanonicalInbox(ctx.Target, snapshot.Path)
 		if err != nil {
@@ -130,6 +144,13 @@ func applyCurrentLoopObservationSnapshot(ctx runtime.Context, opt *Options, insp
 		opt.ReviewerExitStatus = observation.ReviewerExitStatus
 	default:
 		return fmt.Errorf("run-current-loop observation kind %q is unsupported", observation.ObservationKind)
+	}
+	return nil
+}
+
+func currentLoopObservationLaunchControl(inspection currentloop.Inspection, observationKind string) *executioncontrol.Binding {
+	if strings.HasPrefix(observationKind, "member-session-") && inspection.Continuation != nil && inspection.Continuation.ExternalMemberHandoff != nil {
+		return executioncontrol.CloneBinding(inspection.Continuation.ExternalMemberHandoff.LaunchControl)
 	}
 	return nil
 }
@@ -295,6 +316,20 @@ func inspectCurrentLoopObservationInbox(caseRoot string, inspection currentloop.
 			inbox.Warnings = append(inbox.Warnings, filepath.Base(path)+": "+err.Error())
 			continue
 		}
+		if strings.HasPrefix(snapshot.Envelope.ObservationKind, "member-session-") {
+			controlRequired, controlErr := currentMemberExecutionControlRequired(caseRoot)
+			if controlErr != nil {
+				inbox.InvalidCount++
+				inbox.Warnings = append(inbox.Warnings, filepath.Base(path)+": "+controlErr.Error())
+				continue
+			}
+			expectedControl := currentLoopObservationLaunchControl(inspection, snapshot.Envelope.ObservationKind)
+			if controlRequired && !executioncontrol.SameBinding(expectedControl, snapshot.Envelope.LaunchControl) {
+				inbox.InvalidCount++
+				inbox.Warnings = append(inbox.Warnings, filepath.Base(path)+": observation execution control binding does not match checkpoint birth lineage")
+				continue
+			}
+		}
 		matches = append(matches, snapshot)
 	}
 	inbox.MatchingCount = len(matches)
@@ -405,6 +440,7 @@ func materializeCurrentLoopObservationEnvelopes(caseRoot string, inspection curr
 				continue
 			}
 			envelope.MemberAttemptID = inspection.Continuation.ExternalMemberHandoff.AttemptID
+			envelope.LaunchControl = executioncontrol.CloneBinding(inspection.Continuation.ExternalMemberHandoff.LaunchControl)
 			envelope.ObservedAt = "<RFC3339Nano>"
 			if alternative.Kind != "member-session-accepted" {
 				envelope.Reason = "<reason>"

@@ -16,6 +16,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -1585,6 +1586,104 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	}
 }
 
+func TestRunCurrentLoopResumeRejectsInterventionAfterStepSnapshotBeforeClaim(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	initial := runCurrentLoopPreview(t, caseRoot, 3)
+	driverStepAfterPreviewValidationHook = func() error {
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-snapshot")
+		return nil
+	}
+	t.Cleanup(func() {
+		driverStepAfterPreviewValidationHook = nil
+		currentLoopAfterInitialStepBuildHook = nil
+	})
+	first := runCurrentLoopApply(t, caseRoot, initial)
+	driverStepAfterPreviewValidationHook = nil
+	if first.SegmentCheckpoint == nil || first.SegmentCheckpoint.ResumeDriverRequest == nil {
+		t.Fatalf("initial segment did not expose resume request: %+v", first.SegmentCheckpoint)
+	}
+	previewArgs, err := splitDriverCommand(first.SegmentCheckpoint.ResumeDriverRequest.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := runCurrentLoopResult(t, append([]string{"-Command", previewArgs[1]}, previewArgs[2:]...))
+	if len(preview.ReviewedOpenInterventionIDs) != 1 ||
+		preview.ReviewedOpenInterventionIDs[0] != "int-current-loop-snapshot" {
+		t.Fatalf("reconcile preview omitted reviewed intervention identity: %+v", preview.ReviewedOpenInterventionIDs)
+	}
+	applyArgs, err := splitDriverCommand(preview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentLoopAfterInitialStepBuildHook = func() error {
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-after-step")
+		return nil
+	}
+	err = Run(append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...), &bytes.Buffer{})
+	currentLoopAfterInitialStepBuildHook = nil
+	if err == nil || !strings.Contains(err.Error(), "Human-in-the-Lane intervention") {
+		t.Fatalf("intervention introduced after step snapshot was accepted: %v", err)
+	}
+	claimPath, err := projectstate.Join(
+		caseRoot,
+		"runs",
+		"current-loop-segment-claims",
+		strings.ToLower(first.SegmentCheckpoint.ArtifactSHA256)+".json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFileNotExists(t, claimPath)
+	inspection := currentloop.Inspect(
+		repoRoot(t),
+		caseRoot,
+		"_template",
+		preview.InitialCurrentDriverRequest,
+	)
+	if !inspection.Ready || inspection.State != "ready" ||
+		inspection.ArtifactSHA256 != first.SegmentCheckpoint.ArtifactSHA256 {
+		t.Fatalf("rejected post-snapshot intervention consumed checkpoint: %+v", inspection)
+	}
+}
+
+func TestCurrentLoopReviewsAllVisibleOpenInterventions(t *testing.T) {
+	request := missionDriverRequestForTest(
+		`/rekit reconcile main -InterventionId int-visible-a -WhatIf -Format json`,
+	)
+	request.Lane = "main"
+	status := statusInventory{CaseMission: &statusCaseMission{
+		Sections: &overview.OverviewSections{
+			OpenInterventions: overview.EventSection{
+				Total: 2,
+				Shown: 2,
+				Events: []map[string]any{
+					{"eventId": "int-visible-a", "lane": "main"},
+					{"eventId": "int-visible-b", "lane": "main"},
+				},
+			},
+		},
+	}}
+	ids, err := currentLoopReviewedOpenInterventionIDs(status, "main", &request)
+	if err != nil || len(ids) != 2 || ids[0] != "int-visible-a" || ids[1] != "int-visible-b" {
+		t.Fatalf("reviewed intervention snapshot = %v err=%v", ids, err)
+	}
+
+	truncated := status
+	sections := *status.CaseMission.Sections
+	sections.OpenInterventions.Shown = 1
+	caseMission := *status.CaseMission
+	caseMission.Sections = &sections
+	truncated.CaseMission = &caseMission
+	if _, err := currentLoopReviewedOpenInterventionIDs(truncated, "main", &request); err == nil ||
+		!strings.Contains(err.Error(), "complete reviewed intervention snapshot") {
+		t.Fatalf("truncated intervention snapshot was accepted: %v", err)
+	}
+}
+
 func TestRunCurrentLoopDurableResumeDriverRequestProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -1877,6 +1976,7 @@ type currentLoopTestPlan struct {
 	SegmentCheckpoint              *currentloop.Inspection                `json:"segmentCheckpoint"`
 	FinalStatus                    *statusInventory                       `json:"finalStatus"`
 	Boundary                       []string                               `json:"boundary"`
+	ReviewedOpenInterventionIDs    []string                               `json:"reviewedOpenInterventionIds"`
 }
 
 func runCurrentLoopPreview(t *testing.T, caseRoot string, maxSteps int) currentLoopTestPlan {

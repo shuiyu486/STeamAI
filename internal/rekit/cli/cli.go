@@ -4603,13 +4603,29 @@ func bindStatusFocusedLaneHandoff(target string, runbook *statusMissionControlRu
 }
 
 func bindStatusCurrentLoop(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook) {
+	bindStatusCurrentLoopWithControlRecovery(target, caseMission, runbook, false)
+}
+
+func bindStatusCurrentLoopForControlRecovery(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook) {
+	bindStatusCurrentLoopWithControlRecovery(target, caseMission, runbook, true)
+}
+
+func bindStatusCurrentLoopWithControlRecovery(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook, allowStaleMemberControl bool) {
 	if runbook == nil || !instance.LooksLikeCase(target) {
 		return
 	}
 	inspectionRequest := statusCurrentLoopInspectionRequest(target, caseMission, runbook)
 	inspection := currentloop.InspectAttached(target, inspectionRequest)
+	if allowStaleMemberControl {
+		inspection = currentloop.InspectAttachedForResultRecovery(target)
+	}
 	runbook.CurrentLoopSegment = &inspection
-	runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(target, caseMission, runbook, inspection)
+	runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackageWithControlRecovery(target, caseMission, runbook, inspection, allowStaleMemberControl)
+	if operator := runbook.CurrentLoopOperator; operator != nil &&
+		!allowStaleMemberControl &&
+		statusCurrentLoopOperatorHasStaleMemberCheckpoint(operator) {
+		statusSuppressStaleCurrentLoopMemberCheckpoint(runbook, operator)
+	}
 	if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
 		request, err := externalSessionCurrentStepRequest(operator)
 		if err != nil {
@@ -4627,6 +4643,56 @@ func bindStatusCurrentLoop(target string, caseMission *statusCaseMission, runboo
 		runbook.CurrentRunLoopStepID = request.RunLoopStepID
 		runbook.CurrentCommand = strings.TrimSpace(request.Command)
 	}
+}
+
+func statusCurrentLoopOperatorHasStaleMemberCheckpoint(
+	operator *mission.CurrentLoopOperatorPackage,
+) bool {
+	if operator == nil || operator.Ready {
+		return false
+	}
+	return strings.HasPrefix(
+		strings.TrimSpace(operator.State),
+		"checkpoint-stale-member-",
+	)
+}
+
+func statusSuppressStaleCurrentLoopMemberCheckpoint(
+	runbook *statusMissionControlRunbook,
+	operator *mission.CurrentLoopOperatorPackage,
+) {
+	if runbook == nil || operator == nil {
+		return
+	}
+	reason := "stale member checkpoint control is diagnostic only; use the fresh current request to establish a new handoff under the current control generation"
+	operator.SelectedDriverRequest = nil
+	operator.StartDriverRequest = nil
+	operator.ResumeDriverRequest = nil
+	operator.ExternalSessionJob = nil
+	operator.ExternalMemberHandoff = nil
+	if operator.ObservationInbox != nil {
+		operator.ObservationInbox.SelectedDriverRequest = nil
+	}
+	if runbook.CurrentLoopSegment != nil {
+		runbook.CurrentLoopSegment.ResumeDriverRequest = nil
+		runbook.CurrentLoopSegment.LegacyUnboundWhatIfCommand = ""
+		if runbook.CurrentLoopSegment.Continuation != nil {
+			runbook.CurrentLoopSegment.Continuation.ObservationContract = nil
+			runbook.CurrentLoopSegment.Continuation.ExternalMemberHandoff = nil
+		}
+		runbook.CurrentLoopSegment.Warnings = mission.UniqueStrings(append(
+			runbook.CurrentLoopSegment.Warnings,
+			reason,
+		))
+		runbook.CurrentLoopSegment.Boundary = mission.UniqueStrings(append(
+			runbook.CurrentLoopSegment.Boundary,
+			"ordinary status does not expose checkpoint resume or observation carriers after member control birth lineage becomes stale",
+		))
+	}
+	runbook.RoutingReasons = mission.UniqueStrings(append(runbook.RoutingReasons, reason))
+	runbook.Boundary = mission.UniqueStrings(append(runbook.Boundary,
+		"the exact fresh currentDriverRequest remains executable and cannot consume the stale checkpoint; raw-result recovery uses a separate internal projection",
+	))
 }
 
 func statusCurrentLoopInspectionRequest(
@@ -4665,6 +4731,10 @@ func statusCurrentLoopInspectionRequest(
 }
 
 func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook, inspection currentloop.Inspection) *mission.CurrentLoopOperatorPackage {
+	return statusCurrentLoopOperatorPackageWithControlRecovery(target, caseMission, runbook, inspection, false)
+}
+
+func statusCurrentLoopOperatorPackageWithControlRecovery(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook, inspection currentloop.Inspection, allowStaleMemberControl bool) *mission.CurrentLoopOperatorPackage {
 	if runbook == nil {
 		return nil
 	}
@@ -4810,15 +4880,54 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 				return pkg
 			}
 			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
+			controlRequired, controlRootErr := currentMemberExecutionControlRequired(target)
+			controlReason := ""
+			switch {
+			case controlRootErr != nil:
+				controlReason = "the external member handoff state root is unreadable: " + controlRootErr.Error()
+			case pkg.ExternalMemberHandoff == nil ||
+				!executioncontrol.SameBinding(pkg.ExternalMemberHandoff.LaunchControl, expected.LaunchControl):
+				controlReason = "the external member handoff execution control lineage no longer matches its checkpoint birth identity"
+			case controlRequired && expected.LaunchControl == nil:
+				controlReason = "the current external member handoff checkpoint omitted execution control birth identity"
+			case controlRequired && !allowStaleMemberControl:
+				if currentness, controlErr := executioncontrol.InspectBindingReadOnly(target, *expected.LaunchControl); controlErr != nil {
+					controlReason = "the external member handoff execution control lineage is unreadable: " + controlErr.Error()
+				} else if !currentness.Current {
+					controlReason = "the external member handoff execution control lineage is not current: " + currentness.Disposition + ": " + currentness.Reason
+				}
+			}
+			if controlReason != "" {
+				pkg.Ready = false
+				pkg.State = "checkpoint-stale-member-control"
+				pkg.SelectedDriverRequest = nil
+				pkg.ResumeDriverRequest = nil
+				pkg.ExternalMemberHandoff = nil
+				pkg.RunbookSteps = []string{
+					"start a fresh member execution handoff under the current lane control generation instead of consuming the stale checkpoint budget",
+				}
+				pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, controlReason))
+				return pkg
+			}
 			if pkg.ExternalMemberHandoff != nil {
 				materializeCurrentLoopObservationEnvelopes(target, inspection, &pkg.ExternalMemberHandoff.ObservationContract)
 			}
-		} else if memberInspection, ok, err := memberexecution.Latest(target, pkg.Lane); err == nil && ok && (memberInspection.State == "handoff-ready" || memberInspection.State == "accepted") {
-			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
+		} else if memberInspection, ok, err := memberexecution.Latest(target, pkg.Lane); err == nil && ok && (memberInspection.State == "handoff-ready" || memberInspection.State == "accepted") && memberInspection.Handoff != nil {
+			controlRequired, controlRootErr := currentMemberExecutionControlRequired(target)
+			switch {
+			case controlRootErr != nil:
+			case !controlRequired:
+				pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
+			case memberInspection.Handoff.LaunchControl != nil:
+				currentness, controlErr := executioncontrol.InspectBindingReadOnly(target, *memberInspection.Handoff.LaunchControl)
+				if controlErr == nil && currentness.Current {
+					pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
+				}
+			}
 		}
 	}
 	if !currentStepRequestIsEvidenceReview(*runbook.CurrentDriverRequest) {
-		bindExternalSessionJob(target, pkg, inspection)
+		bindExternalSessionJob(target, pkg, inspection, allowStaleMemberControl)
 	}
 	return pkg
 }

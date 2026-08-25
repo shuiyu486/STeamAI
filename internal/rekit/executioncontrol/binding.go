@@ -237,6 +237,13 @@ func CaptureBindingWithProjectLease(caseRoot string, lease *lanemutation.Lease, 
 	return captureBindingWithValidation(caseRoot, owner, capability, validate)
 }
 
+// InspectBindingReadOnly classifies a frozen binding for status and diagnostics.
+// It does not linearize a mutation; every effect sink must still use a
+// lease-bound RequireCurrentBinding variant.
+func InspectBindingReadOnly(caseRoot string, binding Binding) (BindingCurrentness, error) {
+	return inspectBindingWithValidation(caseRoot, binding, func() error { return nil })
+}
+
 func InspectBindingWithLease(caseRoot string, lease *lanemutation.Lease, binding Binding) (BindingCurrentness, error) {
 	if lease == nil {
 		return BindingCurrentness{}, fmt.Errorf("execution control binding inspection requires an existing lane mutation lease")

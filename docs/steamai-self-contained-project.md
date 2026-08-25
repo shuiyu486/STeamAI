@@ -188,7 +188,7 @@ Claude Code executable、登录、配额或模型不可用时，STeamAI 只说�
 
 用户从自然语言或 `/steamai` 发起 `pause`、`resume`、`stop` 时，主 Agent必须先从 fresh typed state唯一选择exact lane；多lane先给typed choices。WhatIf零写入并绑定lane/action/actor/reason、current owner、publication stamp与plan SHA；只有用户确认同一preview后才能原样Apply。current-only只写`.steamai`，legacy-only只写`.rekit`，dual root在preview或写入前fail-closed。
 
-每个可能推进状态的结果在birth时捕获exact owner与control binding。raw execution truth始终可记录；但paused结果只生成stable `held-while-paused` receipt，stopped后的结果只生成`late-after-stop`，旧generation或head漂移只生成对应stale/changed receipt。它们不得进入live outputs、intake、Reviewer writeback、completion或checkpoint progression；resume只允许新generation下未来结果继续，不自动释放旧held result。
+每个可能推进状态的结果在birth时捕获exact owner与control binding。current member handoff把transport binding冻结进immutable handoff与checkpoint；external attempt、submission和observation必须保持同一birth lineage，historical missing/stale lineage只读diagnostic，不得在resume或recovery时补采新generation。legacy`.rekit` handoff的nil lineage继续仅作迁移兼容。raw execution truth始终可记录；但paused结果只生成stable `held-while-paused` receipt，stopped后的结果只生成`late-after-stop`，旧generation或head漂移只生成对应stale/changed receipt。它们不得进入live outputs、intake、Reviewer writeback、completion或checkpoint progression；resume只允许新generation下未来结果继续，不自动释放旧held result。
 
 `pause`只改变durable状态，不做OS suspend。`stop`先提交durable stopped receipt；exact local supervisor child观察该head后发布run-scoped actuation request，只能关闭自己持有的Windows Job/containment handle并追加observation。actuation失败不回滚stopped，terminal raw truth仍独立记录，process termination不是durable stop成功判据；不得按裸PID管理进程，也不得用本路径管理opaque Remote Control session。
 

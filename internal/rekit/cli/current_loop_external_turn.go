@@ -181,7 +181,11 @@ func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan 
 		if err != nil {
 			return err
 		}
-		if len(mission.EffectiveOpenLaneInterventions(facts.Facts, freshResume.InitialLane)) > 0 {
+		if currentLoopHasUnreviewedOpenIntervention(
+			facts.Facts,
+			freshResume.InitialLane,
+			freshResume.ReviewedOpenInterventionIDs,
+		) {
 			return fmt.Errorf("external session turn refuses checkpoint claim after Human-in-the-Lane intervention")
 		}
 		return nil
@@ -239,7 +243,12 @@ func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (
 	if !inspection.Ready || inspection.State != "ready" || !strings.EqualFold(inspection.ArtifactSHA256, opt.ExpectedCurrentLoopCheckpointSHA256) {
 		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("run-current-loop external session turn checkpoint is not the latest ready checkpoint")
 	}
-	job, err := externalSessionJobFor(ctx.Target, status.MissionControlRunbook.CurrentLoopOperator, *inspection)
+	job, err := externalSessionJobForControlRecovery(
+		ctx.Target,
+		status.MissionControlRunbook.CurrentLoopOperator,
+		*inspection,
+		recovered,
+	)
 	if err != nil {
 		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
 	}

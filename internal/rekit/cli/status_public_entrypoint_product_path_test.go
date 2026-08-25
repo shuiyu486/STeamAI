@@ -289,6 +289,28 @@ func TestStatusCurrentLoopExternalMemberProductPathProjectsSelectedEntrypoint(t 
 			if err := os.WriteFile(boardPath, append(boardData, '\n'), 0o644); err != nil {
 				t.Fatal(err)
 			}
+			lanePath, err := projectstate.Join(caseRoot, "lanes", "main", "lane.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			laneData, err := os.ReadFile(lanePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var lane map[string]any
+			if err := json.Unmarshal(laneData, &lane); err != nil {
+				t.Fatal(err)
+			}
+			lane["currentExecutor"] = "entrypoint-member"
+			lane["executorGeneration"] = 1
+			lane["updatedAt"] = "2026-08-15T01:00:00Z"
+			laneData, err = json.MarshalIndent(lane, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(lanePath, append(laneData, '\n'), 0o644); err != nil {
+				t.Fatal(err)
+			}
 
 			preview := runCurrentLoopPreviewWith(t, caseRoot, 2, "-Lane", "main")
 			if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil {
@@ -319,6 +341,12 @@ func TestStatusCurrentLoopExternalMemberProductPathProjectsSelectedEntrypoint(t 
 			operator := status.MissionControlRunbook.CurrentLoopOperator
 			if segment == nil || !segment.Ready || segment.State != "ready" || segment.StopCode != "external-member-handoff" || operator == nil || operator.ExternalMemberHandoff == nil {
 				t.Fatalf("current-loop status omitted durable external member handoff: segment=%+v operator=%+v", segment, operator)
+			}
+			if fixture.stateDir == projectstate.LegacyDir &&
+				(operator.ExternalMemberHandoff.LaunchControl != nil ||
+					operator.ExternalSessionJob == nil ||
+					operator.State != "external-session-ready-for-attempt") {
+				t.Fatalf("legacy nil-lineage external member handoff lost compatibility: %+v", operator)
 			}
 			if segment.ResumeDriverRequest != nil && !strings.HasPrefix(segment.ResumeDriverRequest.Command, fixture.entrypoint+" ") {
 				t.Fatalf("current-loop resume request uses mixed entrypoint: %+v", segment.ResumeDriverRequest)

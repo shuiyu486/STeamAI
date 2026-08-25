@@ -5,8 +5,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -55,6 +57,42 @@ func bindStatusMemberExecution(status *statusInventory) {
 	}
 	status.MemberExecution = &memberExecutionStatus{Ready: true, State: inspection.State, Lane: lane, AttemptID: inspection.AttemptID, Inspection: &inspection, PreviewCommand: memberStatusPreviewCommand(status.Target, status.Pack), Boundary: base}
 	if inspection.State == "handoff-ready" || inspection.State == "accepted" {
+		controlRequired, rootErr := currentMemberExecutionControlRequired(status.Target)
+		if rootErr != nil {
+			status.MemberExecution.Ready = false
+			status.MemberExecution.State = "corrupt"
+			status.MemberExecution.PreviewCommand = ""
+			status.MemberExecution.Boundary = []string{rootErr.Error(), "status remains read-only and does not repair member execution state"}
+			return
+		}
+		if controlRequired {
+			if inspection.Handoff == nil || inspection.Handoff.LaunchControl == nil {
+				status.MemberExecution.Ready = false
+				status.MemberExecution.State = "diagnostic-missing-execution-control"
+				status.MemberExecution.PreviewCommand = ""
+				status.MemberExecution.Boundary = mission.UniqueStrings(append(base,
+					"historical current member handoff omitted immutable execution control lineage; it remains diagnostic-only and cannot accept observations or launch a session",
+				))
+				return
+			}
+			currentness, err := executioncontrol.InspectBindingReadOnly(status.Target, *inspection.Handoff.LaunchControl)
+			if err != nil || !currentness.Current {
+				status.MemberExecution.Ready = false
+				status.MemberExecution.State = "diagnostic-stale-execution-control"
+				status.MemberExecution.PreviewCommand = ""
+				reason := "member handoff execution control lineage is unreadable"
+				if err != nil {
+					reason += ": " + err.Error()
+				} else {
+					reason = "member handoff execution control lineage is not current: " + currentness.Disposition + ": " + currentness.Reason
+				}
+				status.MemberExecution.Boundary = mission.UniqueStrings(append(base,
+					reason,
+					"historical member handoff remains diagnostic-only and cannot accept observations or launch a session",
+				))
+				return
+			}
+		}
 		status.MemberExecution.ObservationCommand = memberStatusObservationCommand(status.Target, status.Pack, inspection.AttemptID)
 	}
 	if inspection.State == "intake-ready" && inspection.Manifest != nil {
@@ -97,6 +135,14 @@ func bindStatusMemberExecution(status *statusInventory) {
 		args = append(args, "-Lane", lane, "-Format", "json")
 		status.MemberExecution.ReviewerPlanCommand = joinDriverCommand(args)
 	}
+}
+
+func currentMemberExecutionControlRequired(caseRoot string) (bool, error) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return false, err
+	}
+	return root.Existing && !root.Legacy, nil
 }
 
 func bindStatusReviewerCorrection(status *statusInventory) {

@@ -74,6 +74,101 @@ func TestDispatchUsesLegacyStateRootWithoutCurrentReferences(t *testing.T) {
 	}
 }
 
+func TestLegacyMemberHandoffRemainsNilControlCompatible(t *testing.T) {
+	caseRoot := memberCaseWithStateDir(t, projectstate.LegacyDir, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{
+		CaseRoot:      caseRoot,
+		Pack:          "_template",
+		Lane:          "feature-analysis",
+		RequestSHA256: strings.Repeat("b", 64),
+		CreatedAt:     "2026-08-13T01:02:03Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.ExternalHandoff == nil || plan.ExternalHandoff.LaunchControl != nil {
+		t.Fatalf("legacy handoff unexpectedly gained current control lineage: %+v", plan.ExternalHandoff)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := PreviewObservation(ObservationOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis",
+		AttemptID: plan.AttemptID, Outcome: "accepted", Actor: "legacy-harness",
+		ObservedAt: "2026-08-13T01:03:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Inspection.State != "accepted" {
+		t.Fatalf("legacy nil-lineage observation state = %+v", accepted.Inspection)
+	}
+}
+
+func TestCurrentHistoricalNilControlIsReadableButNotActionable(t *testing.T) {
+	caseRoot := memberCaseWithStateDir(t, projectstate.CurrentDir, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{
+		CaseRoot:      caseRoot,
+		Pack:          "_template",
+		Lane:          "feature-analysis",
+		RequestSHA256: strings.Repeat("c", 64),
+		CreatedAt:     "2026-08-13T01:02:03Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff := *plan.Inspection.Handoff
+	handoff.LaunchControl = nil
+	handoffBytes, err := canonical(handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := Commit{
+		SchemaVersion:     1,
+		Kind:              KindCommit,
+		AttemptID:         plan.AttemptID,
+		IntentSHA256:      plan.Inspection.Handoff.IntentSHA256,
+		TaskContextSHA256: plan.Inspection.Handoff.TaskContextSHA256,
+		HandoffSHA256:     hash(handoffBytes),
+	}
+	commitBytes, err := canonical(commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, data := range map[string][]byte{
+		filepath.Join(plan.Inspection.AttemptRoot, "intent.json"):       plan.writes[0].data,
+		filepath.Join(plan.Inspection.AttemptRoot, "task-context.json"): plan.writes[1].data,
+		filepath.Join(plan.Inspection.AttemptRoot, "handoff.json"):      handoffBytes,
+		filepath.Join(plan.Inspection.AttemptRoot, "commit.json"):       commitBytes,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inspection, err := Inspect(caseRoot, "feature-analysis", plan.AttemptID)
+	if err != nil || inspection.Handoff == nil || inspection.Handoff.LaunchControl != nil {
+		t.Fatalf("historical current nil-lineage handoff was not readable: inspection=%+v err=%v", inspection, err)
+	}
+	if _, err := PreviewObservation(ObservationOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis",
+		AttemptID: plan.AttemptID, Outcome: "accepted", Actor: "current-harness",
+		ObservedAt: "2026-08-13T01:03:00Z",
+	}); err == nil || !strings.Contains(err.Error(), "requires frozen execution control lineage") {
+		t.Fatalf("historical current nil-lineage handoff remained actionable: %v", err)
+	}
+	replay := plan
+	replay.Inspection.Handoff = &handoff
+	replay.ExternalHandoff = &handoff
+	replay.writes[2].data = handoffBytes
+	replay.writes[3].data = commitBytes
+	if _, err := Apply(replay, replay.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "omitted frozen execution control lineage") {
+		t.Fatalf("historical current nil-lineage dispatch silently captured a new control generation: %v", err)
+	}
+}
+
 func TestMemberExecutionRejectsDualStateRoots(t *testing.T) {
 	caseRoot := memberCaseWithStateDir(t, projectstate.CurrentDir, "executor-a", 1)
 	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.LegacyDir), 0o755); err != nil {
@@ -1228,7 +1323,18 @@ func memberCaseForPackAndStateDir(t *testing.T, pack, stateDir, executor string,
 	if err := os.MkdirAll(laneRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(laneRoot, "lane.json"), []byte("{\"id\":\"feature-analysis\",\"status\":\"active\"}\n"), 0o600); err != nil {
+	laneData, err := json.Marshal(map[string]any{
+		"schemaVersion": 1,
+		"id":            "feature-analysis", "type": "analysis", "name": "feature-analysis", "title": "feature-analysis",
+		"status": "active", "authority": false, "workspace": ".", "laneRoot": ".",
+		"canWrite": []string{}, "readOnly": []string{}, "outputs": []string{}, "counters": map[string]int{},
+		"currentExecutor": executor, "executorGeneration": generation,
+		"createdAt": "2026-08-03T01:00:00Z", "updatedAt": "2026-08-03T01:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(laneRoot, "lane.json"), append(laneData, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for path, data := range map[string][]byte{

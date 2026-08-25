@@ -463,6 +463,7 @@ type CurrentLoopExternalMemberHandoff struct {
 	TaskContextSHA256   string                         `json:"taskContextSha256"`
 	ManifestPath        string                         `json:"manifestPath"`
 	OutputsRoot         string                         `json:"outputsRoot"`
+	LaunchControl       *executioncontrol.Binding      `json:"launchControl,omitempty"`
 	NextSteps           []string                       `json:"nextSteps"`
 	ObservationContract CurrentLoopObservationContract `json:"observationContract"`
 	Boundary            []string                       `json:"boundary"`

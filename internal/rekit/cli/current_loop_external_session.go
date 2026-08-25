@@ -109,11 +109,11 @@ func currentExternalSessionJob(ctx runtime.Context, opt Options) (externalsessio
 	return externalSessionJobFor(ctx.Target, status.MissionControlRunbook.CurrentLoopOperator, *checkpoint)
 }
 
-func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPackage, inspection currentloop.Inspection) {
+func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPackage, inspection currentloop.Inspection, allowStaleMemberControl bool) {
 	if pkg == nil || !inspection.Ready || inspection.State != "ready" || inspection.Continuation == nil || inspection.Continuation.ObservationContract == nil {
 		return
 	}
-	job, err := externalSessionJobFor(target, pkg, inspection)
+	job, err := externalSessionJobForControlRecovery(target, pkg, inspection, allowStaleMemberControl)
 	if err != nil {
 		if pkg.ExternalMemberHandoff != nil || pkg.ExternalReviewerHandoff != nil {
 			pkg.Ready = false
@@ -316,12 +316,65 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 }
 
 func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackage, inspection currentloop.Inspection) (externalsession.Job, error) {
+	return externalSessionJobForControlRecovery(target, pkg, inspection, false)
+}
+
+func requireExternalMemberAttemptBirthControl(
+	target string,
+	inspection currentloop.Inspection,
+	plan externalsession.AttemptPlan,
+) error {
+	if inspection.StopCode != "external-member-handoff" ||
+		inspection.Continuation == nil ||
+		inspection.Continuation.ExternalMemberHandoff == nil {
+		return nil
+	}
+	controlRequired, err := currentMemberExecutionControlRequired(target)
+	if err != nil {
+		return err
+	}
+	expected := inspection.Continuation.ExternalMemberHandoff.LaunchControl
+	if !controlRequired {
+		return nil
+	}
+	if expected == nil {
+		return fmt.Errorf("current external member checkpoint omitted execution control birth identity")
+	}
+	if !executioncontrol.SameBinding(plan.Attempt.LaunchControl, expected) {
+		return fmt.Errorf("external member session attempt execution control does not match checkpoint birth lineage")
+	}
+	return nil
+}
+
+func externalSessionJobForControlRecovery(target string, pkg *mission.CurrentLoopOperatorPackage, inspection currentloop.Inspection, allowStaleMemberControl bool) (externalsession.Job, error) {
 	allowed := currentLoopExternalSessionAllowedOutcomes(inspection)
 	if inspection.StopCode == "external-member-handoff" && inspection.Continuation.ExternalMemberHandoff != nil {
 		expected := inspection.Continuation.ExternalMemberHandoff
 		memberInspection, err := memberexecution.Inspect(target, expected.Lane, expected.AttemptID)
 		if err != nil || memberInspection.Handoff == nil || memberInspection.State != expected.State || memberInspection.Owner.Lane != expected.Lane || memberInspection.Owner.Executor != expected.Executor || memberInspection.Owner.ExecutorGeneration != expected.ExecutorGeneration {
 			return externalsession.Job{}, fmt.Errorf("external session member attempt no longer matches checkpoint")
+		}
+		controlRequired, err := currentMemberExecutionControlRequired(target)
+		if err != nil {
+			return externalsession.Job{}, err
+		}
+		if !executioncontrol.SameBinding(
+			memberInspection.Handoff.LaunchControl,
+			expected.LaunchControl,
+		) {
+			return externalsession.Job{}, fmt.Errorf("external session member attempt execution control no longer matches checkpoint birth")
+		}
+		if controlRequired && expected.LaunchControl == nil {
+			return externalsession.Job{}, fmt.Errorf("current external session member attempt omitted checkpoint execution control birth")
+		}
+		if controlRequired && !allowStaleMemberControl {
+			currentness, err := executioncontrol.InspectBindingReadOnly(target, *expected.LaunchControl)
+			if err != nil {
+				return externalsession.Job{}, err
+			}
+			if !currentness.Current {
+				return externalsession.Job{}, &executioncontrol.BindingNotCurrentError{Currentness: currentness}
+			}
 		}
 		job, err := externalsession.NewMemberJob(target, pkg.Pack, inspection.ArtifactSHA256, expected.AttemptID, memberInspection.Owner, memberInspection.Handoff.ManifestPath, memberInspection.Handoff.OutputsRoot, allowed)
 		job.DispatchRequired = err == nil

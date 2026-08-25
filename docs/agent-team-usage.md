@@ -215,7 +215,7 @@ Committed attempt进入`externalSessionJob.dispatcher.state=queued`。外部disp
 
 `pause`不挂起OS进程；它先阻止旧binding结果和后续consumer progression。已经返回的raw result仍可durable记录，但只进入stable held receipt，resume后也不自动重放进live output。`stop`先提交durable stopped receipt；exact local supervisor run随后才能发布run-scoped request并关闭自己持有的containment handle。关闭失败不回滚stopped，process termination也不是durable stop成功判据；不按裸PID操作，不尝试停止opaque Remote Control session。
 
-result relay、checkpoint claim、member/Reviewer writer和completion都在自己的mutation lease内重验exact binding。paused/stopped/旧generation结果不能进入live outputs、intake、Reviewer writeback、completion或checkpoint progression。control receipt、request SHA、transport或actuation observation不授予authority/confirmed、profile、gate或heavy action。
+result relay、checkpoint claim、member/Reviewer writer和completion都在自己的mutation lease内重验exact binding。current member handoff还会把exact transport binding冻结到checkpoint birth identity；external attempt、submission与observation必须消费同一lineage，missing/stale lineage只保留diagnostic/raw/held truth，pause→resume不得补采新generation或重新暴露旧checkpoint的resume/observation/external-session carrier；不能消费旧checkpoint的fresh typed request仍可作为新birth入口。legacy`.rekit` handoff继续允许nil lineage作为迁移兼容。paused/stopped/旧generation结果不能进入live outputs、intake、Reviewer writeback、completion或checkpoint progression。control receipt、request SHA、transport或actuation observation不授予authority/confirmed、profile、gate或heavy action。
 
 ### Remote Control Reviewer transport companion
 

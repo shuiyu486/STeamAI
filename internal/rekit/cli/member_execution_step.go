@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -63,15 +64,16 @@ func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.
 			return nil, false, fmt.Errorf("member observation requires -MemberExecutionAttemptId and -MemberExecutionOutcome")
 		}
 		plan, err := memberexecution.PreviewObservation(memberexecution.ObservationOptions{
-			CaseRoot:       ctx.Target,
-			Pack:           ctx.Pack,
-			Lane:           lane,
-			AttemptID:      opt.MemberExecutionAttemptID,
-			Outcome:        opt.MemberExecutionOutcome,
-			Actor:          opt.Start.Actor,
-			Reason:         opt.MemberExecutionReason,
-			ObservedAt:     opt.MemberExecutionObservedAt,
-			ResultSnapshot: opt.currentLoopMemberResultSnapshot,
+			CaseRoot:                ctx.Target,
+			Pack:                    ctx.Pack,
+			Lane:                    lane,
+			AttemptID:               opt.MemberExecutionAttemptID,
+			Outcome:                 opt.MemberExecutionOutcome,
+			Actor:                   opt.Start.Actor,
+			Reason:                  opt.MemberExecutionReason,
+			ObservedAt:              opt.MemberExecutionObservedAt,
+			ResultSnapshot:          opt.currentLoopMemberResultSnapshot,
+			DeferControlCurrentness: opt.currentLoopExternalTurnResume,
 		})
 		if err != nil {
 			return nil, false, err
@@ -97,7 +99,11 @@ func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.
 				return nil, true, nil
 			}
 			if latest.State != "failed" {
-				plan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: ctx.Target, Pack: ctx.Pack, Lane: lane, RequestSHA256: requestSHA, CreatedAt: latest.Intent.CreatedAt})
+				var launchControl *executioncontrol.Binding
+				if latest.Handoff != nil {
+					launchControl = executioncontrol.CloneBinding(latest.Handoff.LaunchControl)
+				}
+				plan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: ctx.Target, Pack: ctx.Pack, Lane: lane, RequestSHA256: requestSHA, CreatedAt: latest.Intent.CreatedAt, LaunchControl: launchControl})
 				if err != nil {
 					return nil, false, err
 				}

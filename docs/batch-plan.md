@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1` 已完成，当前只推进 `P0P3-C2`；随后按 `C3`、`C4`、retired pack identity migration、binary-re 专项验收校准和完整 P0～P3 验证收口。Batch 830～833 与 validation repair 仍只是各自局部证据；不创建 Batch 834、不自选新功能。
+当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1`与`P0P3-C2`已完成，当前只推进`P0P3-C3`；随后按`C4`、retired pack identity migration、binary-re专项验收校准和完整P0～P3验证收口。Batch 830～833与validation repair仍只是各自局部证据；不创建Batch 834、不自选新功能。
 
 ## 执行清单
 
@@ -16,21 +16,21 @@
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `P0P3-C2 orchestration non-authorization` |
+| 当前批次 | `P0P3-C3 DTO/receipt/session/skill` |
 | 状态 | `in_progress` |
-| 唯一允许领取 | `P0P3-C2` |
-| 上一批 | `P0P3-C1 capability control sinks` 已完成并通过 fresh local validation |
-| 下一批 | `P0P3-C3 DTO/receipt/session/skill` |
+| 唯一允许领取 | `P0P3-C3` |
+| 上一批 | `P0P3-C2 orchestration non-authorization` 已完成并通过 fresh local validation |
+| 下一批 | `P0P3-C4 runtime ownership` |
 
 ### Current batch state
 
-### P0P3-C2：orchestration non-authorization
+### P0P3-C3：DTO/receipt/session/skill
 
-状态：in_progress；完成旧 task #37，不创建新 numbered batch。
+状态：in_progress；完成旧task #52，不创建新numbered batch。
 
-目标：统一 custom tools、MCP、tactical subagents、Reviewer 与 current model-tool handoff 的 durable typed command、owner/generation/currentness/capability/gate约束；transport、endpoint、delivery/provider acknowledgement、hooks、SessionStore、Agent Teams或tool presence不得构造 authority、confirmed、`authorized-gate` 或 heavy-tool grant。
+目标：闭合immutable diagnostics projection、canonical receipt/publication identity、session handoff与project-local skill provenance；优先检查non-mutating `skillcontractgen -check`、direct bundle/init provenance和production dependency direction，不扩张为session architecture重写。
 
-验证结果：待当前代码审计、直接越权复现、focused/product/full validation；不得把 C1 的 sink currentness、字段存在、`release-check.ready=true` 或 synthetic transport fixture预写为 C2 完成。
+验证结果：待C3直接复现与focused/product/full validation；C2已通过fresh全仓Go tests、vet、module verify及公开release/status/packs/doctor，但该证据只解锁C3，不证明后续路线完成。
 
 ### Batch 833：binary-re actual analysis
 
@@ -44,9 +44,9 @@
 
 | 工作 | 解锁条件 |
 |---|---|
-| `P0P3-C1` capability control sinks | 已完成并解锁 C2 |
-| `P0P3-C2` orchestration non-authorization | 当前唯一允许领取 |
-| `P0P3-C3` DTO/receipt/session/skill | C2完成并验证 |
+| `P0P3-C1` capability control sinks | 已完成 |
+| `P0P3-C2` orchestration non-authorization | 已完成并解锁C3 |
+| `P0P3-C3` DTO/receipt/session/skill | 当前唯一允许领取 |
 | `P0P3-C4` runtime ownership | C3完成并验证 |
 | retired pack identity migration | C4完成并验证 |
 | binary-re 专项验收校准 | retired pack identity migration完成并验证 |

@@ -15,6 +15,295 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
+func TestRunCurrentLoopCurrentMemberObservationRejectsMissingControl(t *testing.T) {
+	fixture := publicEntrypointProductFixture{
+		name:       "current",
+		stateDir:   projectstate.CurrentDir,
+		entrypoint: commands.CurrentPublicEntrypoint,
+	}
+	caseRoot := publicEntrypointProductCase(t, fixture, "missing-member-observation-control")
+	if err := Run([]string{
+		"-Command", "overview",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Format", "json",
+	}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	setCurrentPublicLaneOwner(t, caseRoot, "main", "missing-control-member", 1)
+
+	preview := runCurrentLoopPreviewWith(t, caseRoot, 2, "-Lane", "main")
+	if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil {
+		t.Fatalf("current project omitted member dispatch preview: %+v", preview)
+	}
+	memberPlan := preview.InitialCurrentStep.MemberExecution
+	dispatched := runCurrentLoopApplyWith(
+		t,
+		caseRoot,
+		preview,
+		"-Lane", "main",
+		"-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256,
+	)
+	if dispatched.SegmentCheckpoint == nil || dispatched.StopReason.Code != "external-member-handoff" {
+		t.Fatalf("current project did not checkpoint external member dispatch: %+v", dispatched)
+	}
+
+	observationPath := writeCurrentLoopObservation(
+		t,
+		caseRoot,
+		"missing-member-control",
+		currentLoopObservationEnvelope{
+			SchemaVersion:          1,
+			Kind:                   "current-loop-external-session-observation",
+			CheckpointSHA256:       dispatched.SegmentCheckpoint.ArtifactSHA256,
+			ObservationKind:        "member-session-accepted",
+			Actor:                  "missing-control-harness",
+			ObservedAt:             "2026-08-24T00:30:00Z",
+			MemberAttemptID:        memberPlan.AttemptID,
+			NoAuthorityOrConfirmed: true,
+			NoHeavyTool:            true,
+		},
+	)
+	claimPath, err := projectstate.Join(
+		caseRoot,
+		"runs",
+		"current-loop-segment-claims",
+		strings.ToLower(dispatched.SegmentCheckpoint.ArtifactSHA256)+".json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err = Run([]string{
+		"-Command", "run-current-loop",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Lane", "main",
+		"-ResumeCurrentLoop",
+		"-ExpectedCurrentLoopCheckpointSha256", dispatched.SegmentCheckpoint.ArtifactSHA256,
+		"-CurrentLoopObservationPath", observationPath,
+		"-WhatIf",
+		"-Format", "json",
+	}, &out)
+	if err == nil || !strings.Contains(err.Error(), "does not match checkpoint birth lineage") {
+		t.Fatalf("missing member observation control error = %v\n%s", err, out.String())
+	}
+	assertFileNotExists(t, claimPath)
+	inspection, inspectErr := memberexecution.Inspect(caseRoot, "main", memberPlan.AttemptID)
+	if inspectErr != nil || inspection.State != "handoff-ready" {
+		t.Fatalf("missing-control observation advanced member attempt: inspection=%+v err=%v", inspection, inspectErr)
+	}
+}
+
+func TestRunCurrentLoopCurrentMemberObservationRejectsStaleFrozenControl(t *testing.T) {
+	fixture := publicEntrypointProductFixture{
+		name:       "current",
+		stateDir:   projectstate.CurrentDir,
+		entrypoint: commands.CurrentPublicEntrypoint,
+	}
+	caseRoot := publicEntrypointProductCase(t, fixture, "stale-member-observation")
+	if err := Run([]string{
+		"-Command", "overview",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Format", "json",
+	}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	setCurrentPublicLaneOwner(t, caseRoot, "main", "stale-member", 1)
+
+	preview := runCurrentLoopPreviewWith(t, caseRoot, 2, "-Lane", "main")
+	if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil {
+		t.Fatalf("current project omitted member dispatch preview: %+v", preview)
+	}
+	memberPlan := preview.InitialCurrentStep.MemberExecution
+	dispatched := runCurrentLoopApplyWith(
+		t,
+		caseRoot,
+		preview,
+		"-Lane", "main",
+		"-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256,
+	)
+	if !dispatched.Applied || dispatched.SegmentCheckpoint == nil ||
+		dispatched.StopReason.Code != "external-member-handoff" {
+		t.Fatalf("current project did not checkpoint external member dispatch: %+v", dispatched)
+	}
+
+	_, status := runPublicEntrypointProductStatus(t, caseRoot, "main")
+	operator := status.MissionControlRunbook.CurrentLoopOperator
+	job := recordCurrentLoopExternalSessionAttempt(
+		t,
+		operator,
+		"stale-harness",
+		"stale-session",
+		"mission-commander",
+		"2026-08-24T01:00:00Z",
+	)
+	if job.CurrentAttempt == nil || job.CurrentAttempt.LaunchControl == nil {
+		t.Fatalf("current attempt omitted frozen launch control: %+v", job)
+	}
+	frozen := executioncontrol.CloneBinding(job.CurrentAttempt.LaunchControl)
+
+	paused := applyPublicExecutionControl(t, caseRoot, "main", executioncontrol.ActionPause)
+	if paused.State != executioncontrol.StatePaused || paused.ControlGeneration != 1 {
+		t.Fatalf("public pause did not commit generation one: %+v", paused)
+	}
+	resumed := applyPublicExecutionControl(t, caseRoot, "main", executioncontrol.ActionResume)
+	if resumed.State != executioncontrol.StateRunning || resumed.ControlGeneration != 2 {
+		t.Fatalf("public resume did not commit generation two: %+v", resumed)
+	}
+	if current, err := executioncontrol.Inspect(caseRoot, "main"); err != nil ||
+		current.CurrentGeneration == frozen.ControlGeneration {
+		t.Fatalf("control did not advance beyond frozen attempt: current=%+v frozen=%+v err=%v", current, frozen, err)
+	}
+
+	observationPath := writeCurrentLoopObservation(
+		t,
+		caseRoot,
+		"stale-member-accepted",
+		currentLoopObservationEnvelope{
+			SchemaVersion:          1,
+			Kind:                   "current-loop-external-session-observation",
+			CheckpointSHA256:       dispatched.SegmentCheckpoint.ArtifactSHA256,
+			ObservationKind:        "member-session-accepted",
+			Actor:                  "stale-harness",
+			ObservedAt:             "2026-08-24T01:00:30Z",
+			MemberAttemptID:        memberPlan.AttemptID,
+			LaunchControl:          frozen,
+			NoAuthorityOrConfirmed: true,
+			NoHeavyTool:            true,
+		},
+	)
+	claimPath, err := projectstate.Join(
+		caseRoot,
+		"runs",
+		"current-loop-segment-claims",
+		strings.ToLower(dispatched.SegmentCheckpoint.ArtifactSHA256)+".json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationPathState, err := projectstate.Join(
+		caseRoot,
+		"lanes",
+		"main",
+		"member-executions",
+		memberPlan.AttemptID,
+		"observations",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	segmentRoot, err := projectstate.Join(caseRoot, "runs", "current-loop-segments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	segmentsBefore := snapshotFiles(t, segmentRoot)
+
+	var out bytes.Buffer
+	err = Run([]string{
+		"-Command", "run-current-loop",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Lane", "main",
+		"-ResumeCurrentLoop",
+		"-ExpectedCurrentLoopCheckpointSha256", dispatched.SegmentCheckpoint.ArtifactSHA256,
+		"-CurrentLoopObservationPath", observationPath,
+		"-WhatIf",
+		"-Format", "json",
+	}, &out)
+	if err != nil {
+		t.Fatalf("stale member observation preview returned command error = %v\n%s", err, out.String())
+	}
+	var blocked currentLoopTestPlan
+	if err := json.Unmarshal(out.Bytes(), &blocked); err != nil {
+		t.Fatalf("stale member observation preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if blocked.ExpectedCurrentLoopPlanSHA256 != "" || blocked.InitialCurrentStep != nil ||
+		blocked.StopReason.Code != "requires-review" ||
+		!strings.Contains(blocked.StopReason.Message, "execution control binding disposition is stale-control-generation") {
+		t.Fatalf("stale member observation preview remained executable: %+v", blocked)
+	}
+	assertFileNotExists(t, claimPath)
+	assertFileNotExists(t, observationPathState)
+	assertSnapshotEqual(t, segmentsBefore, snapshotFiles(t, segmentRoot))
+	inspection, inspectErr := memberexecution.Inspect(caseRoot, "main", memberPlan.AttemptID)
+	if inspectErr != nil || inspection.State != "handoff-ready" {
+		t.Fatalf("stale observation advanced member attempt: inspection=%+v err=%v", inspection, inspectErr)
+	}
+}
+
+func TestCurrentMemberStatusAfterPauseResumeDoesNotExposeExecutableHandoff(t *testing.T) {
+	fixture := publicEntrypointProductFixture{
+		name:       "current",
+		stateDir:   projectstate.CurrentDir,
+		entrypoint: commands.CurrentPublicEntrypoint,
+	}
+	caseRoot := publicEntrypointProductCase(t, fixture, "stale-member-status")
+	if err := Run([]string{
+		"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json",
+	}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	setCurrentPublicLaneOwner(t, caseRoot, "main", "stale-status-member", 1)
+	preview := runCurrentLoopPreviewWith(t, caseRoot, 2, "-Lane", "main")
+	if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil {
+		t.Fatalf("current project omitted member dispatch preview: %+v", preview)
+	}
+	memberPlan := preview.InitialCurrentStep.MemberExecution
+	dispatched := runCurrentLoopApplyWith(
+		t, caseRoot, preview, "-Lane", "main",
+		"-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256,
+	)
+	if dispatched.SegmentCheckpoint == nil || dispatched.StopReason.Code != "external-member-handoff" {
+		t.Fatalf("current project did not checkpoint external member dispatch: %+v", dispatched)
+	}
+	applyPublicExecutionControl(t, caseRoot, "main", executioncontrol.ActionPause)
+	applyPublicExecutionControl(t, caseRoot, "main", executioncontrol.ActionResume)
+
+	_, status := runPublicEntrypointProductStatus(t, caseRoot, "main")
+	if status.MemberExecution == nil || status.MemberExecution.Ready ||
+		status.MemberExecution.State != "diagnostic-stale-execution-control" ||
+		status.MemberExecution.ObservationCommand != "" ||
+		status.MemberExecution.PreviewCommand != "" {
+		t.Fatalf("stale current member status remained executable: %+v", status.MemberExecution)
+	}
+	operator := status.MissionControlRunbook.CurrentLoopOperator
+	if operator == nil || operator.Ready || operator.State != "checkpoint-stale-member-control" ||
+		operator.SelectedDriverRequest != nil || operator.StartDriverRequest != nil ||
+		operator.ResumeDriverRequest != nil || operator.ExternalMemberHandoff != nil ||
+		operator.ExternalSessionJob != nil {
+		t.Fatalf("stale current checkpoint exposed executable member progression: %+v", operator)
+	}
+	for label, request := range map[string]*mission.MissionCommanderDriverRequest{
+		"top-level": status.MissionControlRunbook.CurrentDriverRequest,
+		"source":    operator.SourceCurrentDriverRequest,
+	} {
+		if request == nil || !request.CommandExecutable || request.Blocked ||
+			request.Invocation == nil || driverStepCommandName(request.Command) != commands.Continue {
+			t.Fatalf("stale checkpoint suppressed %s fresh current request: %+v", label, request)
+		}
+	}
+	segment := status.MissionControlRunbook.CurrentLoopSegment
+	if segment == nil || segment.ResumeDriverRequest != nil ||
+		segment.LegacyUnboundWhatIfCommand != "" ||
+		segment.Continuation == nil ||
+		segment.Continuation.ObservationContract != nil ||
+		segment.Continuation.ExternalMemberHandoff != nil {
+		t.Fatalf("stale current checkpoint exposed executable segment carriers: %+v", segment)
+	}
+	if operator.ObservationInbox != nil && operator.ObservationInbox.SelectedDriverRequest != nil {
+		t.Fatalf("stale current checkpoint exposed observation inbox request: %+v", operator.ObservationInbox)
+	}
+	if !status.MissionControlRunbook.Ready || status.MissionControlRunbook.CurrentCommand == "" ||
+		status.MissionControlRunbook.ReplacementExecutorTakeover == nil ||
+		status.MissionControlRunbook.Quickstart == nil ||
+		!status.MissionControlRunbook.Quickstart.CommandExecutable ||
+		status.MissionControlRunbook.Quickstart.Blocked {
+		t.Fatalf("stale checkpoint suppressed fresh runbook request: %+v", status.MissionControlRunbook)
+	}
+}
+
 func TestRunCurrentStepControlBoundResultTurnHoldsAfterPause(t *testing.T) {
 	result := newControlBoundExternalResultTurn(t, "control-bound-result-turn")
 	caseRoot := result.caseRoot

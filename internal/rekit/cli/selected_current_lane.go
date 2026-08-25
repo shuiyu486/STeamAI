@@ -67,7 +67,7 @@ func buildControlBoundResultRecoveryStatusInventory(ctx runtime.Context, opt Opt
 	bindStatusMemberExecution(&source)
 	bindStatusReviewerCorrection(&source)
 	bindStatusSelectedCurrentLaneCommands(&source, selected)
-	bindStatusCurrentLoop(source.Target, source.CaseMission, source.MissionControlRunbook)
+	bindStatusCurrentLoopForControlRecovery(source.Target, source.CaseMission, source.MissionControlRunbook)
 	bindStatusSelectedCurrentLaneCommands(&source, selected)
 	return finalizeStatusDiagnostics(source, selected, true)
 }

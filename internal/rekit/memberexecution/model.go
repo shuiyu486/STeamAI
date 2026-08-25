@@ -1,5 +1,7 @@
 package memberexecution
 
+import "github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
+
 const (
 	SchemaVersion            = 1
 	TaskContextSchemaVersion = 2
@@ -118,17 +120,18 @@ type TaskContext struct {
 }
 
 type Handoff struct {
-	SchemaVersion     int      `json:"schemaVersion"`
-	Kind              string   `json:"kind"`
-	AttemptID         string   `json:"attemptId"`
-	Owner             Owner    `json:"owner"`
-	IntentSHA256      string   `json:"intentSha256"`
-	TaskContextPath   string   `json:"taskContextPath"`
-	TaskContextSHA256 string   `json:"taskContextSha256"`
-	ManifestPath      string   `json:"manifestPath"`
-	OutputsRoot       string   `json:"outputsRoot"`
-	NextSteps         []string `json:"nextSteps"`
-	Boundary          []string `json:"boundary"`
+	SchemaVersion     int                       `json:"schemaVersion"`
+	Kind              string                    `json:"kind"`
+	AttemptID         string                    `json:"attemptId"`
+	Owner             Owner                     `json:"owner"`
+	IntentSHA256      string                    `json:"intentSha256"`
+	TaskContextPath   string                    `json:"taskContextPath"`
+	TaskContextSHA256 string                    `json:"taskContextSha256"`
+	ManifestPath      string                    `json:"manifestPath"`
+	OutputsRoot       string                    `json:"outputsRoot"`
+	LaunchControl     *executioncontrol.Binding `json:"launchControl,omitempty"`
+	NextSteps         []string                  `json:"nextSteps"`
+	Boundary          []string                  `json:"boundary"`
 }
 
 type Commit struct {
@@ -225,18 +228,20 @@ type DispatchOptions struct {
 	Lane          string
 	RequestSHA256 string
 	CreatedAt     string
+	LaunchControl *executioncontrol.Binding
 }
 
 type ObservationOptions struct {
-	CaseRoot       string
-	Pack           string
-	Lane           string
-	AttemptID      string
-	Outcome        string
-	Actor          string
-	Reason         string
-	ObservedAt     string
-	ResultSnapshot *ResultSnapshot
+	CaseRoot                string
+	Pack                    string
+	Lane                    string
+	AttemptID               string
+	Outcome                 string
+	Actor                   string
+	Reason                  string
+	ObservedAt              string
+	ResultSnapshot          *ResultSnapshot
+	DeferControlCurrentness bool
 }
 
 type ResultSnapshot struct {
