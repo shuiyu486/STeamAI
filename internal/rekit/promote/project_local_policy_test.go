@@ -371,14 +371,24 @@ func projectLocalPromoteFixture(t *testing.T) (repoRoot, caseRoot, pack string) 
 	t.Helper()
 	centralRoot, sourceCase, pack := promoteFixture(t)
 	for path, text := range map[string]string{
-		"common/policies/manifest.yml":             "policies: []\n",
-		"common/policies/README.md":                "# Policies\n",
-		"rekit/templates/steamai-project/SKILL.md": "# STeamAI\n",
-		"rekit/schemas/instance.schema.yml":        "schemaVersion: 1\n",
-		"rekit/schemas/pack-manifest.schema.yml":   "schemaVersion: 1\n",
-		"rekit/tests/catalog.json":                 "{}\n",
+		"common/policies/manifest.yml":           "policies: []\n",
+		"common/policies/README.md":              "# Policies\n",
+		"rekit/schemas/instance.schema.yml":      "schemaVersion: 1\n",
+		"rekit/schemas/pack-manifest.schema.yml": "schemaVersion: 1\n",
+		"rekit/tests/catalog.json":               "{}\n",
 	} {
 		writeText(t, filepath.Join(centralRoot, filepath.FromSlash(path)), text)
+	}
+	kitRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	for _, rel := range []string{
+		".claude/skills/steamai/SKILL.md",
+		"rekit/templates/steamai-project/SKILL.md",
+	} {
+		data, err := os.ReadFile(filepath.Join(kitRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeText(t, filepath.Join(centralRoot, filepath.FromSlash(rel)), string(data))
 	}
 	executable := filepath.Join(t.TempDir(), runtimebundle.ExecutableName())
 	writeText(t, executable, "fixture executable\n")

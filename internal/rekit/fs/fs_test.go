@@ -191,6 +191,36 @@ func TestWriteAtomicNoReplaceRegularFileAnchoredPublishesOnlyCompleteFinalBytes(
 	}
 }
 
+func TestWriteAtomicNoReplaceRegularFileAnchoredModePreservesMode(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel := ".steamai/handovers/main-stamped.md"
+	data := []byte("# handoff\n")
+	replayed, err := WriteAtomicNoReplaceRegularFileAnchoredMode(
+		caseRoot,
+		rel,
+		"stamped handoff",
+		data,
+		0o644,
+	)
+	if err != nil || replayed {
+		t.Fatalf("mode-aware publication replayed=%t err=%v", replayed, err)
+	}
+	info, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(rel)))
+	if err != nil || !anchoredModeMatches(0o644, info.Mode()) {
+		t.Fatalf("mode-aware publication mode=%v err=%v", info, err)
+	}
+	replayed, err = WriteAtomicNoReplaceRegularFileAnchoredMode(
+		caseRoot,
+		rel,
+		"stamped handoff",
+		data,
+		0o644,
+	)
+	if err != nil || !replayed {
+		t.Fatalf("mode-aware replay replayed=%t err=%v", replayed, err)
+	}
+}
+
 func TestWriteAtomicNoReplaceRegularFileAnchoredIgnoresStaleOwnedTemp(t *testing.T) {
 	caseRoot := t.TempDir()
 	rel := ".steamai/lanes/main/adapter-executions/gate-a/.binary-inventory-output-commit.json"

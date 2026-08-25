@@ -15,6 +15,7 @@ import (
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/skillcontract"
 )
 
 const (
@@ -64,6 +65,25 @@ type Plan struct {
 	Publications   []Publication
 }
 
+func (plan Plan) ValidatedProjectSkillBytes() ([]byte, error) {
+	for _, publication := range plan.Publications {
+		if publication.Path != skillcontract.ProjectTemplatePath {
+			continue
+		}
+		if publication.Kind != "runtime-asset" ||
+			publication.SourcePath != "" ||
+			len(publication.Content) == 0 {
+			return nil, fmt.Errorf(
+				"STeamAI bundle project skill publication is invalid",
+			)
+		}
+		return append([]byte(nil), publication.Content...), nil
+	}
+	return nil, fmt.Errorf(
+		"STeamAI bundle omitted the validated project skill publication",
+	)
+}
+
 var executableSource = defaultExecutableSource
 
 func defaultExecutableSource() (string, error) {
@@ -109,18 +129,36 @@ func BuildWithExecutable(repoRoot, pack, executable string) (Plan, error) {
 
 	publications := []Publication{}
 	artifacts := []Artifact{}
-	addSource := func(rel, kind, source string, limit int64) error {
+	addContent := func(rel, kind string, data []byte) error {
 		rel, err = cleanRel(rel)
-		if err != nil {
-			return err
-		}
-		data, err := readStableRegular(source, "STeamAI bundle source", limit)
 		if err != nil {
 			return err
 		}
 		artifact := artifactFor(rel, kind, data)
 		artifacts = append(artifacts, artifact)
-		publications = append(publications, Publication{Path: rel, Kind: kind, SourcePath: source})
+		publications = append(publications, Publication{
+			Path: rel, Kind: kind, Content: append([]byte(nil), data...),
+		})
+		return nil
+	}
+	addSource := func(rel, kind, source string, limit int64) error {
+		data, err := readStableRegular(
+			source,
+			"STeamAI bundle source",
+			limit,
+		)
+		if err != nil {
+			return err
+		}
+		rel, err = cleanRel(rel)
+		if err != nil {
+			return err
+		}
+		artifact := artifactFor(rel, kind, data)
+		artifacts = append(artifacts, artifact)
+		publications = append(publications, Publication{
+			Path: rel, Kind: kind, SourcePath: source,
+		})
 		return nil
 	}
 
@@ -132,8 +170,21 @@ func BuildWithExecutable(repoRoot, pack, executable string) (Plan, error) {
 	if err := collectTree(repoRoot, commonRoot, "common", "common-asset", nil, addSource); err != nil {
 		return Plan{}, err
 	}
+	projectSkill, err := skillcontract.ReadValidatedProjectTemplate(repoRoot)
+	if err != nil {
+		return Plan{}, fmt.Errorf(
+			"validate project-local /steamai skill provenance: %w",
+			err,
+		)
+	}
+	if err := addContent(
+		skillcontract.ProjectTemplatePath,
+		"runtime-asset",
+		projectSkill,
+	); err != nil {
+		return Plan{}, err
+	}
 	for _, rel := range []string{
-		"rekit/templates/steamai-project/SKILL.md",
 		"rekit/schemas/instance.schema.yml",
 		"rekit/schemas/pack-manifest.schema.yml",
 		"rekit/tests/catalog.json",

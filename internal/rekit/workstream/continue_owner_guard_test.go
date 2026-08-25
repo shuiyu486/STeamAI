@@ -801,6 +801,106 @@ func TestLaneHandoffApplyFailureDoesNotAdvanceCommittedGeneration(t *testing.T) 
 	}
 }
 
+func TestLaneHandoffApplyRejectsReusedStampedIdentity(t *testing.T) {
+	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	preview, err := HandoffPreview(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		HandoffOptions{Selector: "devirt-main"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.ReplacementExecutorTakeoverPackage == nil ||
+		!preview.ReplacementExecutorTakeoverPackage.Ready {
+		t.Fatalf("handoff preview omitted takeover package: %+v", preview)
+	}
+	apply := HandoffOptions{
+		Selector:                      "devirt-main",
+		ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256,
+		PublicationStamp:              preview.PublicationStamp,
+	}
+	if _, err := HandoffApply(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		apply,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := HandoffApply(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		apply,
+	); err != nil {
+		t.Fatalf("exact stamped handoff replay failed: %v", err)
+	}
+	if _, err := StartApply(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		StartOptions{
+			Selector:       "devirt-main",
+			Executor:       "executor-two",
+			Actor:          "main-agent",
+			TakeoverReason: "change owner after stamped handoff",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	_, err = HandoffApply(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		apply,
+	)
+	failure, typed := plancontract.FromError(err)
+	if err == nil || !typed || failure.Code != plancontract.CodePlanMismatch ||
+		failure.Actual == "" ||
+		strings.EqualFold(failure.Actual, preview.PublicationPlanSHA256) {
+		t.Fatalf("stale stamped handoff error = %v failure=%+v typed=%t", err, failure, typed)
+	}
+
+	handoverRoot := filepath.Join(caseRoot, ".rekit", "handovers")
+	paths := []string{
+		filepath.Join(handoverRoot, "devirt-main-"+preview.PublicationStamp+".md"),
+		filepath.Join(handoverRoot, "devirt-main-"+preview.PublicationStamp+"-replacement-executor-takeover.json"),
+		filepath.Join(handoverRoot, "devirt-main-"+preview.PublicationStamp+"-generation.json"),
+		filepath.Join(handoverRoot, "devirt-main-latest.md"),
+		filepath.Join(handoverRoot, "devirt-main-latest-replacement-executor-takeover.json"),
+		filepath.Join(handoverRoot, "devirt-main-latest-generation.json"),
+	}
+	before := map[string][]byte{}
+	for _, path := range paths {
+		before[path], err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	apply.ExpectedPublicationPlanSHA256 = failure.Actual
+	_, err = HandoffApply(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		apply,
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"conflicts with existing stamped identity",
+	) {
+		t.Fatalf("reused stamped handoff error = %v", err)
+	}
+	for _, path := range paths {
+		after, readErr := os.ReadFile(path)
+		if readErr != nil || !bytes.Equal(before[path], after) {
+			t.Fatalf("reused stamp changed %s: err=%v", path, readErr)
+		}
+	}
+}
+
 func generationTargetMismatch(t *testing.T, caseRoot string, data []byte) bool {
 	t.Helper()
 	var generation HandoffPublicationGeneration

@@ -12,7 +12,7 @@
 
 本项目文档必须做成按需路由、渐进式披露的样式；`docs/context-routing.md` 是唯一完整路由表，本文件只保留稳定边界。
 
-只读必要边界、router 和真实仓库状态，由 router 选择一个场景入口；不要默认串读路线图、batch plan、CHANGELOG、release readiness 或历史。active docs 只留当前决策/短指针，其余进入 backlog、专题或 archive。
+只读必要边界、router 和仓库状态，由 router 选择场景入口；不要串读路线图、batch plan、CHANGELOG、release readiness 或历史。active docs 只留当前决策/短指针，其余进入 backlog、专题或 archive。
 
 ## 维护入口
 
@@ -29,7 +29,7 @@
 
 ## 当前推进原则
 
-已批准路线：`steamai-product-optimization-v1` P0～P3 residual closure；C1/C2完成，当前C3，随后C4→retired identity→binary-re验收→总验证。不创建 Batch 834 或自选功能；source-clone-first、无 installer，暂兼容 legacy `/rekit`/`.rekit`。局部 validation 不代表路线完成，cross-compile 不是运行证据。
+当前已批准路线是 `steamai-product-optimization-v1` P0～P3 residual closure；C1/C2/C3完成，当前C4，随后retired identity→binary-re验收→总验证。不创建 Batch 834 或自选功能；source-clone-first，不做 installer，暂兼容 legacy `/rekit`/`.rekit`。局部 validation 不代表路线完成，cross-compile 不是运行证据。
 
 保持 PowerShell-free/Go-native，不新增 PowerShell runtime logic。避免单字段微批次；公共入口删除门禁不完整则升级。
 
@@ -51,7 +51,7 @@
 - project-local no-mode `help/status/continue` 只做用户摘要；diagnostics 与 exact preview/apply 规则见 `.claude/skills/steamai/SKILL.md`，current 默认不得泄漏 `/rekit`。
 - fresh 未接入 status 只读发布 schema-valid、非 template pack choices；pending onboarding publication 不重新选 pack，只发布绑定既有 identity/stamp/plan 的唯一 exact Apply recovery；committed missing-board 仍走 `overview` bootstrap。三者不得混用，status 不写项目。
 - `bounded-autonomous-v1` 只显式 opt-in 单 lane/exact action/exact target/有限预算/短 expiry，每次仍重验并留证；不授予无限权限、authority/confirmed、sync/promote 或 schema migration。
-- exact lane `control`：独立 append-only generation + review-first stamp/hash Apply；pause 不做 OS suspend；stop 先 durable 提交，仅 exact local supervisor owner 可关闭其 containment。actuation 失败不回滚 stopped，process termination 不证明 durable stop，opaque Remote Control 不受管。current member handoff/checkpoint/attempt/observation 共用 birth control lineage，missing/stale 只读或 held、不补采 generation；legacy nil 兼容。旧 generation 不推进 live output、Reviewer、completion/checkpoint。
+- exact lane `control` 使用独立 append-only generation + review-first stamp/hash Apply；pause 不做 OS suspend；stop 先 durable 提交，仅 exact local supervisor owner 可关闭其 containment。actuation 失败不回滚 stopped，process termination 不证明 durable stop，opaque Remote Control 不受管。current member handoff/checkpoint/attempt/observation 共用 birth control lineage，missing/stale 只读或 held、不补采 generation；legacy nil 兼容。旧 generation 不推进 live output、Reviewer、completion/checkpoint。
 - current-sync Apply 与 current `.steamai` detached-supervisor handoff 依赖 handle-bound exact filesystem mutation；Windows 提供，非 Windows 持久化副作用前 fail-closed；read-only/preview 与 legacy compatibility 保持可用。
 
 ## 验证命令

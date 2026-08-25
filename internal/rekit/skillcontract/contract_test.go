@@ -1,6 +1,7 @@
 package skillcontract
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -136,6 +137,80 @@ func TestReplaceMachineAppendixPreservesHumanOwnedTextAndLineEndings(t *testing.
 	}
 	if err := ValidateDocument(updated); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCheckValidatesPairWithoutWriting(t *testing.T) {
+	repo := t.TempDir()
+	appendix, err := RenderMachineAppendix()
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := []byte(
+		"# STeamAI\n\n机器命令附录是固定 front door、" +
+			"deterministic owner bridge、argv 与 Apply binding 的唯一 owner。\n\n" +
+			appendix + "\n",
+	)
+	for _, rel := range []string{CanonicalSkillPath, ProjectTemplatePath} {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, valid, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := map[string][]byte{}
+	for _, rel := range []string{CanonicalSkillPath, ProjectTemplatePath} {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		before[rel], err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Check(repo); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{CanonicalSkillPath, ProjectTemplatePath} {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		current, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(current, before[rel]) {
+			t.Fatalf("Check changed %s", rel)
+		}
+	}
+
+	templatePath := filepath.Join(repo, filepath.FromSlash(ProjectTemplatePath))
+	if err := os.WriteFile(templatePath, append(valid, []byte("drift\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(repo); err == nil ||
+		!strings.Contains(err.Error(), "not generated from the canonical skill") {
+		t.Fatalf("drifted pair Check error=%v", err)
+	}
+}
+
+func TestCheckRequiresBothRegularFiles(t *testing.T) {
+	for _, missing := range []string{CanonicalSkillPath, ProjectTemplatePath} {
+		t.Run(missing, func(t *testing.T) {
+			repo := t.TempDir()
+			other := CanonicalSkillPath
+			if missing == CanonicalSkillPath {
+				other = ProjectTemplatePath
+			}
+			path := filepath.Join(repo, filepath.FromSlash(other))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("fixture\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := Check(repo); err == nil {
+				t.Fatalf("Check accepted missing %s", missing)
+			}
+		})
 	}
 }
 

@@ -6257,7 +6257,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	for _, expected := range []string{
 		"release-check：mutation=false ready=true summary=release gate inventory ok",
 		"gateProfile=local-ci-minimum",
-		"release-check ci gate：workflow=.github/workflows/release-gate.yml ready=true jobs=3 commands=21",
+		"release-check ci gate：workflow=.github/workflows/release-gate.yml ready=true jobs=3 commands=24",
 		"boundary=inventory-ready-not-remote-ci-green",
 		"release-check required command：command=go run ./cmd/rekit -- -Command release-check -Format json kind=go-run repoPath=cmd/rekit required=true present=true resolved=true inCatalog=true",
 		"release-check document：path=docs/context-routing.md present=true",
@@ -6395,7 +6395,7 @@ func assertReleaseCheckCIReleaseGate(t *testing.T, gate releasecheck.CIReleaseGa
 	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected CI release gate inventory: %+v", gate)
 	}
-	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 21 || counts.ForbiddenStrings == 0 {
+	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 24 || counts.ForbiddenStrings == 0 {
 		t.Fatalf("CI release gate inventory omitted required sections: %+v", gate)
 	}
 	assertCIReleaseJob(t, gate, "go-checks-linux", "Go release checks (Linux)", "ubuntu-latest")
@@ -6406,6 +6406,7 @@ func assertReleaseCheckCIReleaseGate(t *testing.T, gate releasecheck.CIReleaseGa
 		assertCIReleaseCommand(t, gate, job, "go run ./cmd/rekit -- -Command status")
 		assertCIReleaseCommand(t, gate, job, "go run ./cmd/rekit -- -Command packs")
 		assertCIReleaseCommand(t, gate, job, "go run ./cmd/rekit -- -Command doctor")
+		assertCIReleaseCommand(t, gate, job, "go run ./cmd/skillcontractgen -repo . -check")
 		assertCIReleaseCommand(t, gate, job, releasecheck.CanonicalGoPackSmokeCommand)
 		assertCIReleaseCommand(t, gate, job, releasecheck.CanonicalGoTestCommand)
 		assertCIReleaseCommand(t, gate, job, "go vet ./...")
@@ -7093,7 +7094,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"release-check: release gate inventory ok",
 		"ready: true",
 		"gate profile: local-ci-minimum ready=true",
-		"CI release gate: .github/workflows/release-gate.yml ready=true jobs=3 commands=21 forbidden=12",
+		"CI release gate: .github/workflows/release-gate.yml ready=true jobs=3 commands=24 forbidden=12",
 		"required commands:",
 		"go run ./cmd/rekit -- -Command release-check -Format json kind=go-run path=cmd/rekit",
 		"go run ./cmd/rekit -- -Command status kind=go-run path=cmd/rekit",

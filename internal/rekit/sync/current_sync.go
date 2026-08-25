@@ -355,7 +355,20 @@ func buildCurrentSyncPlan(repoRoot, caseRoot, pack string, opt CurrentSyncOption
 	if projectName == "" {
 		projectName = casebind.ProjectNameFromRoot(caseFull)
 	}
-	leaves, writes, err := currentSyncPlanLeaves(repoFull, caseFull, stateRoot.Path, m, pack, projectName, bundle.ManifestSHA256)
+	validatedSkill, err := bundle.ValidatedProjectSkillBytes()
+	if err != nil {
+		return CurrentSyncPlan{}, err
+	}
+	leaves, writes, err := currentSyncPlanLeaves(
+		repoFull,
+		caseFull,
+		stateRoot.Path,
+		m,
+		pack,
+		projectName,
+		bundle.ManifestSHA256,
+		sourceartifact.CanonicalText(validatedSkill),
+	)
 	if err != nil {
 		return CurrentSyncPlan{}, err
 	}
@@ -604,7 +617,12 @@ func currentSyncProtectedTargets(m *manifest.Manifest) (map[string]currentSyncTa
 	return result, nil
 }
 
-func currentSyncPlanLeaves(repoRoot, caseRoot, stateRoot string, m *manifest.Manifest, pack, projectName, manifestSHA string) ([]currentSyncLeaf, []CurrentSyncWrite, error) {
+func currentSyncPlanLeaves(
+	repoRoot, caseRoot, stateRoot string,
+	m *manifest.Manifest,
+	pack, projectName, manifestSHA string,
+	validatedSkill []byte,
+) ([]currentSyncLeaf, []CurrentSyncWrite, error) {
 	leaves := []currentSyncLeaf{}
 	seen := map[string]string{}
 	add := func(rel, kind, action, source string, before []byte, beforeExists bool, after []byte, afterExists bool, mode os.FileMode) error {
@@ -743,9 +761,11 @@ func currentSyncPlanLeaves(repoRoot, caseRoot, stateRoot string, m *manifest.Man
 	}
 
 	skillSource := filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md")
-	skillAfter, err := sourceartifact.ReadCanonical(skillSource)
-	if err != nil {
-		return nil, nil, err
+	skillAfter := append([]byte(nil), validatedSkill...)
+	if len(skillAfter) == 0 {
+		return nil, nil, fmt.Errorf(
+			"current sync omitted validated project-local skill bytes",
+		)
 	}
 	skillRel := filepath.ToSlash(filepath.Join(".claude", "skills", "steamai", "SKILL.md"))
 	skillBefore, skillExists, err := currentSyncReadOptional(caseRoot, filepath.Join(caseRoot, filepath.FromSlash(skillRel)), "current sync project skill", 1<<20)

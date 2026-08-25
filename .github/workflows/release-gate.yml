@@ -31,6 +31,9 @@ jobs:
       - name: Pack inventory
         run: go run ./cmd/rekit -- -Command packs
 
+      - name: Skill contract
+        run: go run ./cmd/skillcontractgen -repo . -check
+
       - name: Doctor
         run: go run ./cmd/rekit -- -Command doctor
 
@@ -65,6 +68,9 @@ jobs:
       - name: Pack inventory
         run: go run ./cmd/rekit -- -Command packs
 
+      - name: Skill contract
+        run: go run ./cmd/skillcontractgen -repo . -check
+
       - name: Doctor
         run: go run ./cmd/rekit -- -Command doctor
 
@@ -98,6 +104,9 @@ jobs:
 
       - name: Pack inventory
         run: go run ./cmd/rekit -- -Command packs
+
+      - name: Skill contract
+        run: go run ./cmd/skillcontractgen -repo . -check
 
       - name: Doctor
         run: go run ./cmd/rekit -- -Command doctor

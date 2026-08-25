@@ -14,6 +14,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/skillcontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -366,7 +367,38 @@ func ordinaryInitPublicationsCurrent(root *os.Root, caseRoot string, published o
 	return nil
 }
 
+func validateOrdinaryInitProjectSkillSource(plan InitPlan) error {
+	for _, write := range plan.Writes {
+		if write.Kind != "project-local-steamai-skill" ||
+			len(write.rawContent) == 0 {
+			continue
+		}
+		current, err := skillcontract.ReadValidatedProjectTemplate(plan.RepoRoot)
+		if err != nil {
+			return fmt.Errorf(
+				"ordinary init skill provenance changed during publication: %s: %w",
+				write.Path,
+				err,
+			)
+		}
+		if !bytes.Equal(
+			sourceartifact.CanonicalText(current),
+			write.rawContent,
+		) {
+			return fmt.Errorf(
+				"ordinary init source changed during publication: %s",
+				write.Path,
+			)
+		}
+		return nil
+	}
+	return nil
+}
+
 func ordinaryInitSourcesCurrent(plan InitPlan) error {
+	if err := validateOrdinaryInitProjectSkillSource(plan); err != nil {
+		return err
+	}
 	manifestBytes, err := os.ReadFile(filepath.Join(plan.RepoRoot, "packs", filepath.FromSlash(plan.Pack), "manifest.yml"))
 	if err != nil || !strings.EqualFold(sha256Bytes(sourceartifact.SemanticText(manifestBytes)), plan.initManifestSHA256) {
 		return fmt.Errorf("ordinary init manifest changed during publication: %w", err)

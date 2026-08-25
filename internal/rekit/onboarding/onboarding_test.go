@@ -489,7 +489,7 @@ func copyOnboardingRepoFixture(t *testing.T) string {
 	t.Helper()
 	sourceRoot := testRepoRoot(t)
 	targetRoot := filepath.Join(t.TempDir(), "repo")
-	for _, rel := range []string{"packs/_template", "common", "rekit/templates/case-shim", "rekit/templates/steamai-project", "rekit/schemas", "rekit/tests/catalog.json"} {
+	for _, rel := range []string{"packs/_template", "common", ".claude/skills/steamai/SKILL.md", "rekit/templates/case-shim", "rekit/templates/steamai-project", "rekit/schemas", "rekit/tests/catalog.json"} {
 		source := filepath.Join(sourceRoot, filepath.FromSlash(rel))
 		target := filepath.Join(targetRoot, filepath.FromSlash(rel))
 		if info, err := os.Stat(source); err != nil {

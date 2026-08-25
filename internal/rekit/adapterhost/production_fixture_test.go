@@ -28,6 +28,7 @@ func copyProductionFixtureInputs(t *testing.T, targetRoot, pack string) {
 	for _, rel := range []string{
 		"common",
 		filepath.ToSlash(filepath.Join("packs", pack)),
+		".claude/skills/steamai/SKILL.md",
 		"rekit/templates/steamai-project/SKILL.md",
 		"rekit/schemas/instance.schema.yml",
 		"rekit/schemas/pack-manifest.schema.yml",

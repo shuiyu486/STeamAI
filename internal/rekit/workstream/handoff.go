@@ -1154,7 +1154,82 @@ func (ctx handoffContext) buildResumePublications() ([]laneResumePublication, er
 	return artifacts, nil
 }
 
-func (ctx handoffContext) publishPublicationPlan(plan handoffPublicationPlan) error {
+func immutableHandoffPublication(publication handoffPublicationWrite) bool {
+	return publication.Role == HandoffPublicationRoleHandoffStamped ||
+		publication.Role == HandoffPublicationRoleTakeoverStamped ||
+		(publication.Generation && !publication.GenerationCommit)
+}
+
+func validateImmutableHandoffPublications(
+	root *refsf.AnchoredRoot,
+	caseRoot string,
+	publications []handoffPublicationWrite,
+) error {
+	for _, publication := range publications {
+		if !immutableHandoffPublication(publication) {
+			continue
+		}
+		rel := relativePath(caseRoot, publication.Path)
+		info, err := root.Lstat(rel)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf(
+				"inspect immutable handoff publication %s: %w",
+				rel,
+				err,
+			)
+		}
+		if !info.Mode().IsRegular() ||
+			info.Mode()&os.ModeSymlink != 0 ||
+			info.Size() != int64(len(publication.Bytes)) {
+			return fmt.Errorf(
+				"immutable handoff publication conflicts with existing stamped identity: %s",
+				rel,
+			)
+		}
+		current, _, err := root.ReadStableFile(
+			rel,
+			int64(len(publication.Bytes)),
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"validate immutable handoff publication %s: %w",
+				rel,
+				err,
+			)
+		}
+		if !bytes.Equal(current, publication.Bytes) {
+			return fmt.Errorf(
+				"immutable handoff publication conflicts with existing stamped identity: %s",
+				rel,
+			)
+		}
+	}
+	return nil
+}
+
+func (ctx handoffContext) writeHandoffPublication(
+	publication handoffPublicationWrite,
+) error {
+	if !immutableHandoffPublication(publication) {
+		return writePublicationBytes(publication.Path, publication.Bytes)
+	}
+	rel := relativePath(ctx.inst.CaseRoot, publication.Path)
+	if _, err := refsf.WriteAtomicNoReplaceRegularFileAnchoredMode(
+		ctx.inst.CaseRoot,
+		rel,
+		"immutable stamped handoff publication",
+		publication.Bytes,
+		0o644,
+	); err != nil {
+		return fmt.Errorf("publish immutable handoff publication %s: %w", rel, err)
+	}
+	return nil
+}
+
+func (ctx handoffContext) publishPublicationPlan(plan handoffPublicationPlan) (resultErr error) {
 	currentInputs, err := ctx.publicationInputIdentity()
 	if err != nil {
 		return err
@@ -1172,6 +1247,20 @@ func (ctx handoffContext) publishPublicationPlan(plan handoffPublicationPlan) er
 			return fmt.Errorf("handoff publication inputs changed before first write; rerun handoff -WhatIf")
 		}
 	}
+	publicationRoot, err := refsf.OpenAnchoredRoot(ctx.inst.CaseRoot)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, publicationRoot.Close())
+	}()
+	if err := validateImmutableHandoffPublications(
+		publicationRoot,
+		ctx.inst.CaseRoot,
+		plan.Publications,
+	); err != nil {
+		return err
+	}
 	for phase := range 3 {
 		for _, publication := range plan.Publications {
 			publicationPhase := 0
@@ -1184,7 +1273,7 @@ func (ctx handoffContext) publishPublicationPlan(plan handoffPublicationPlan) er
 			if publicationPhase != phase {
 				continue
 			}
-			if err := writePublicationBytes(publication.Path, publication.Bytes); err != nil {
+			if err := ctx.writeHandoffPublication(publication); err != nil {
 				return err
 			}
 			if handoffApplyAfterWriteHook != nil {

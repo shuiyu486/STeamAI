@@ -1907,6 +1907,7 @@ func copySessionhostCurrentSyncSourceFixture(t *testing.T, source string) string
 	for _, rel := range []string{
 		"packs/_template",
 		"common",
+		".claude/skills/steamai/SKILL.md",
 		"rekit/templates/steamai-project/SKILL.md",
 		"rekit/schemas/instance.schema.yml",
 		"rekit/schemas/pack-manifest.schema.yml",

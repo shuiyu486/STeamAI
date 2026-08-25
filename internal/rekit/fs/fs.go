@@ -400,13 +400,34 @@ func WalkRegularFilesAnchored(caseRoot, rel, label string, limit int) ([]string,
 	return paths, nil
 }
 
-// WriteAtomicNoReplaceRegularFileAnchored publishes complete bytes under the
-// final name only after a same-directory temporary file has been synced. The
-// final install is a no-replace hard link, so an exact existing file is replay
-// and different or incomplete bytes fail closed.
+// WriteAtomicNoReplaceRegularFileAnchored publishes complete 0600 bytes under
+// the final name only after a same-directory temporary file has been synced.
+// The final install is a no-replace hard link, so an exact existing file is
+// replay and different or incomplete bytes fail closed.
 func WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, label string, data []byte) (bool, error) {
+	return WriteAtomicNoReplaceRegularFileAnchoredMode(
+		caseRoot,
+		rel,
+		label,
+		data,
+		0o600,
+	)
+}
+
+// WriteAtomicNoReplaceRegularFileAnchoredMode creates new files with the
+// caller's reviewed mode while retaining atomic no-replace publication. Exact
+// existing bytes keep the helper's prior replay behavior.
+func WriteAtomicNoReplaceRegularFileAnchoredMode(
+	caseRoot, rel, label string,
+	data []byte,
+	mode os.FileMode,
+) (bool, error) {
 	if len(data) == 0 {
 		return false, fmt.Errorf("%s content must be non-empty", label)
+	}
+	mode = mode.Perm()
+	if mode == 0 {
+		return false, fmt.Errorf("%s file mode must be non-zero", label)
 	}
 	rootPath, err := filepath.Abs(caseRoot)
 	if err != nil {
@@ -454,7 +475,7 @@ func WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, label string, data [
 	}
 	tempName := "." + name + ".owned-" + hex.EncodeToString(nonce) + ".tmp"
 	tempPath := filepath.Join(filepath.Dir(path), tempName)
-	file, err := parent.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_SYNC, 0o600)
+	file, err := parent.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_SYNC, mode)
 	if err != nil {
 		return false, err
 	}
@@ -464,6 +485,9 @@ func WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, label string, data [
 			_ = parent.Remove(tempName)
 		}
 	}()
+	if err := file.Chmod(mode); err != nil {
+		return false, errors.Join(err, file.Close())
+	}
 	written, writeErr := io.Copy(file, bytes.NewReader(data))
 	syncErr := file.Sync()
 	opened, statErr := file.Stat()
@@ -471,7 +495,8 @@ func WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, label string, data [
 	tempInfo, afterErr := parent.Lstat(tempName)
 	if writeErr != nil || written != int64(len(data)) || syncErr != nil || statErr != nil || closeErr != nil || afterErr != nil ||
 		!opened.Mode().IsRegular() || opened.Mode()&os.ModeSymlink != 0 || opened.Size() != int64(len(data)) ||
-		tempInfo.Mode()&os.ModeSymlink != 0 || !tempInfo.Mode().IsRegular() || !os.SameFile(opened, tempInfo) {
+		!anchoredModeMatches(mode, opened.Mode()) || tempInfo.Mode()&os.ModeSymlink != 0 ||
+		!tempInfo.Mode().IsRegular() || !os.SameFile(opened, tempInfo) || opened.Mode() != tempInfo.Mode() {
 		return false, fmt.Errorf("%s owned temporary publication failed: %s: %w", label, tempPath, errors.Join(writeErr, syncErr, statErr, closeErr, afterErr))
 	}
 	if err := rejectReparsePath(tempPath); err != nil {
@@ -494,7 +519,8 @@ func WriteAtomicNoReplaceRegularFileAnchored(caseRoot, rel, label string, data [
 		return false, fmt.Errorf("%s atomic no-replace install failed: %s: %w", label, rel, err)
 	}
 	finalInfo, err := parent.Lstat(name)
-	if err != nil || finalInfo.Mode()&os.ModeSymlink != 0 || !finalInfo.Mode().IsRegular() || !os.SameFile(tempInfo, finalInfo) {
+	if err != nil || finalInfo.Mode()&os.ModeSymlink != 0 || !finalInfo.Mode().IsRegular() ||
+		!os.SameFile(tempInfo, finalInfo) || !anchoredModeMatches(mode, finalInfo.Mode()) {
 		return false, fmt.Errorf("%s atomic no-replace result changed: %s: %w", label, rel, err)
 	}
 	if err := rejectReparsePath(path); err != nil {

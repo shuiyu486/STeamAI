@@ -282,7 +282,21 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		skillKind = "case-local-thin-shim"
 		skillSource = filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md")
 	}
-	if _, err := readSourceText(skillSource, canonicalSources); err != nil {
+	bundleManifestSHA256 := ""
+	var bundlePlan runtimebundle.Plan
+	var projectSkillContent []byte
+	if !stateRoot.Legacy && initPublishesCanonicalText(targetClass) {
+		bundlePlan, err = runtimebundle.Build(repoFull, pack)
+		if err != nil {
+			return InitPlan{}, err
+		}
+		validatedSkill, err := bundlePlan.ValidatedProjectSkillBytes()
+		if err != nil {
+			return InitPlan{}, err
+		}
+		projectSkillContent = sourceartifact.CanonicalText(validatedSkill)
+		bundleManifestSHA256 = bundlePlan.ManifestSHA256
+	} else if _, err := readSourceText(skillSource, canonicalSources); err != nil {
 		return InitPlan{}, err
 	}
 	instanceRel := filepath.ToSlash(filepath.Join(stateRoot.Dir, "instance.yml"))
@@ -291,20 +305,12 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	skillTarget := filepath.Join(caseFull, ".claude", "skills", skill, "SKILL.md")
 	writes := []WriteResult{
 		{Path: instanceRel, Kind: "instance-metadata", Action: casebind.ActionFor(instanceTarget), TargetPath: instanceTarget},
-		{Path: skillRel, Kind: skillKind, Action: casebind.ActionFor(skillTarget), SourcePath: skillSource, TargetPath: skillTarget},
+		{Path: skillRel, Kind: skillKind, Action: casebind.ActionFor(skillTarget), SourcePath: skillSource, TargetPath: skillTarget, rawContent: projectSkillContent},
 	}
-	bundleManifestSHA256 := ""
-	if !stateRoot.Legacy && initPublishesCanonicalText(targetClass) {
-		bundlePlan, err := runtimebundle.Build(repoFull, pack)
-		if err != nil {
-			return InitPlan{}, err
-		}
-		bundleManifestSHA256 = bundlePlan.ManifestSHA256
-		for _, publication := range bundlePlan.Publications {
-			path := filepath.ToSlash(filepath.Join(stateRoot.Dir, filepath.FromSlash(publication.Path)))
-			target := filepath.Join(stateRoot.Path, filepath.FromSlash(publication.Path))
-			writes = append(writes, WriteResult{Path: path, Kind: publication.Kind, Action: casebind.ActionFor(target), SourcePath: publication.SourcePath, TargetPath: target, rawContent: append([]byte(nil), publication.Content...)})
-		}
+	for _, publication := range bundlePlan.Publications {
+		path := filepath.ToSlash(filepath.Join(stateRoot.Dir, filepath.FromSlash(publication.Path)))
+		target := filepath.Join(stateRoot.Path, filepath.FromSlash(publication.Path))
+		writes = append(writes, WriteResult{Path: path, Kind: publication.Kind, Action: casebind.ActionFor(target), SourcePath: publication.SourcePath, TargetPath: target, rawContent: append([]byte(nil), publication.Content...)})
 	}
 	if stateRoot.Legacy {
 		writes = append(writes, WriteResult{Path: ".re-template.yml", Kind: "legacy-metadata", Action: casebind.ActionFor(filepath.Join(caseFull, ".re-template.yml")), TargetPath: filepath.Join(caseFull, ".re-template.yml")})

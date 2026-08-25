@@ -515,6 +515,21 @@ promoteDenyPatterns:
 	return repoRoot, caseRoot, pack
 }
 
+func writePromoteSTeamAISkillPair(t *testing.T, repoRoot string) {
+	t.Helper()
+	kitRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	for _, rel := range []string{
+		".claude/skills/steamai/SKILL.md",
+		"rekit/templates/steamai-project/SKILL.md",
+	} {
+		data, err := os.ReadFile(filepath.Join(kitRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeText(t, filepath.Join(repoRoot, filepath.FromSlash(rel)), string(data))
+	}
+}
+
 func writeLegacyInitMarker(t *testing.T, caseRoot, repoRoot, pack string) {
 	t.Helper()
 	writeText(t, filepath.Join(caseRoot, ".re-template.yml"), "templateRoot: "+repoRoot+"\ntemplatePack: "+pack+"\ncurrentProjectPath: "+caseRoot+"\nrekitMode: case-local-shim\n")
@@ -637,7 +652,7 @@ budgets:
 	writeText(t, filepath.Join(packRoot, "manifest.yml"), manifestText)
 	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# skill\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是 retained compatibility façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), "# shim\n\ncase-local 薄 shim\n不包含业务逻辑\ncanonical `/rekit`\n.rekit/instance.yml\n.re-template.yml\n<templateRoot>/.claude/skills/rekit/SKILL.md\ncanonical runtime\nsync` / `promote` 默认必须 review-first\n新会话 first screen 先使用 `/rekit`\nstatus case shim ready=true\ninstalledShimMatchesTemplate=true\ndurable artifacts 接手\nnext-batch action queues\n不要在本 shim 里维护模板规则\n不要读取或修改用户级 `~/.claude/skills`\n不要在 shim 中复制逻辑\n不展示底层脚本或 CLI 命令\nGo-native backend\n")
-	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md"), "# STeamAI\n\nproject-local Mission Control skill\n")
+	writePromoteSTeamAISkillPair(t, repoRoot)
 	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "instance.schema.yml"), "fixture instance schema\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "pack-manifest.schema.yml"), "fixture pack manifest schema\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "tests", "catalog.json"), "{}\n")
@@ -759,7 +774,7 @@ budgets:
 	writeText(t, filepath.Join(packRoot, "manifest.yml"), manifest)
 	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# skill\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是 retained compatibility façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), "# shim\n\ncase-local 薄 shim\n不包含业务逻辑\ncanonical `/rekit`\n.rekit/instance.yml\n.re-template.yml\n<templateRoot>/.claude/skills/rekit/SKILL.md\ncanonical runtime\nsync` / `promote` 默认必须 review-first\n新会话 first screen 先使用 `/rekit`\nstatus case shim ready=true\ninstalledShimMatchesTemplate=true\ndurable artifacts 接手\nnext-batch action queues\n不要在本 shim 里维护模板规则\n不要读取或修改用户级 `~/.claude/skills`\n不要在 shim 中复制逻辑\n不展示底层脚本或 CLI 命令\nGo-native backend\n")
-	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md"), "# STeamAI\n\nproject-local Mission Control skill\n")
+	writePromoteSTeamAISkillPair(t, repoRoot)
 	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "instance.schema.yml"), "fixture instance schema\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "pack-manifest.schema.yml"), "fixture pack manifest schema\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "tests", "catalog.json"), "{}\n")

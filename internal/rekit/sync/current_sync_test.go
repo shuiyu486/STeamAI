@@ -910,7 +910,7 @@ func TestCurrentSyncPlanLeavesRejectsProtectedManagedTargets(t *testing.T) {
 	}
 	m.ManagedFiles = append(m.ManagedFiles, "references/template/task-handoff.md")
 
-	_, _, err = currentSyncPlanLeaves(fixture.repoRoot, fixture.caseRoot, filepath.Join(fixture.caseRoot, projectstate.CurrentDir), m, fixture.pack, "project", strings.Repeat("a", 64))
+	_, _, err = currentSyncPlanLeaves(fixture.repoRoot, fixture.caseRoot, filepath.Join(fixture.caseRoot, projectstate.CurrentDir), m, fixture.pack, "project", strings.Repeat("a", 64), []byte("validated skill\n"))
 	if err == nil || !strings.Contains(err.Error(), "protected as") {
 		t.Fatalf("current sync protected managed target error = %v", err)
 	}
@@ -933,6 +933,7 @@ func TestCurrentSyncPlanLeavesAllowsDeclaredManagedBlockInLocalHost(t *testing.T
 		fixture.pack,
 		"project",
 		strings.Repeat("a", 64),
+		[]byte("validated skill\n"),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -962,7 +963,7 @@ func TestCurrentSyncPlanLeavesRejectsStateRootAndDuplicateTargets(t *testing.T) 
 		copy := *m
 		copy.ManagedFiles = append([]string{}, m.ManagedFiles...)
 		copy.ManagedFiles = append(copy.ManagedFiles, ".steamai/lanes/main/authority.json")
-		_, _, err := currentSyncPlanLeaves(fixture.repoRoot, fixture.caseRoot, filepath.Join(fixture.caseRoot, projectstate.CurrentDir), &copy, fixture.pack, "project", strings.Repeat("a", 64))
+		_, _, err := currentSyncPlanLeaves(fixture.repoRoot, fixture.caseRoot, filepath.Join(fixture.caseRoot, projectstate.CurrentDir), &copy, fixture.pack, "project", strings.Repeat("a", 64), []byte("validated skill\n"))
 		if err == nil || !strings.Contains(err.Error(), "outside the allowed refresh leaves") {
 			t.Fatalf("current sync mutable state target error = %v", err)
 		}
@@ -972,7 +973,7 @@ func TestCurrentSyncPlanLeavesRejectsStateRootAndDuplicateTargets(t *testing.T) 
 		copy := *m
 		copy.ManagedFiles = append([]string{}, m.ManagedFiles...)
 		copy.ManagedFiles = append(copy.ManagedFiles, copy.ManagedFiles[0])
-		_, _, err := currentSyncPlanLeaves(fixture.repoRoot, fixture.caseRoot, filepath.Join(fixture.caseRoot, projectstate.CurrentDir), &copy, fixture.pack, "project", strings.Repeat("a", 64))
+		_, _, err := currentSyncPlanLeaves(fixture.repoRoot, fixture.caseRoot, filepath.Join(fixture.caseRoot, projectstate.CurrentDir), &copy, fixture.pack, "project", strings.Repeat("a", 64), []byte("validated skill\n"))
 		if err == nil || !strings.Contains(err.Error(), "declared more than once") {
 			t.Fatalf("current sync duplicate target error = %v", err)
 		}

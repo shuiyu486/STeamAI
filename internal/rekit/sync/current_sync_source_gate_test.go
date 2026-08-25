@@ -203,7 +203,9 @@ func TestRebuildCurrentSyncPlanForStagingRejectsSourceDrift(t *testing.T) {
 		opt,
 		intent,
 	)
-	if err == nil || !strings.Contains(err.Error(), "plan changed after preview") {
+	if err == nil ||
+		(!strings.Contains(err.Error(), "plan changed after preview") &&
+			!strings.Contains(err.Error(), "skill provenance")) {
 		t.Fatalf("current sync staging source drift error = %v", err)
 	}
 }

@@ -1066,7 +1066,7 @@ func missionInitAttachedSnapshot(t *testing.T, caseRoot string) []missionintent.
 	return artifacts
 }
 
-func TestOrdinaryInitSourceBytesChangePlanHash(t *testing.T) {
+func TestOrdinaryInitRejectsProjectSkillProvenanceDrift(t *testing.T) {
 	repoRoot, pack := exclusiveInitFixture(t)
 	caseRoot := t.TempDir()
 	first, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "source-drift", CreateLocalFiles: true, Command: "init"})
@@ -1075,12 +1075,9 @@ func TestOrdinaryInitSourceBytesChangePlanHash(t *testing.T) {
 	}
 	shim := filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md")
 	writeText(t, shim, "# changed project-local STeamAI skill\n")
-	second, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "source-drift", CreateLocalFiles: true, Command: "init"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.ExpectedPlanSHA256 == second.ExpectedPlanSHA256 {
-		t.Fatal("shim source drift did not change init plan hash")
+	_, err = InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "source-drift", CreateLocalFiles: true, Command: "init"})
+	if err == nil || !strings.Contains(err.Error(), "skill provenance") {
+		t.Fatalf("shim provenance drift error = %v; first=%s", err, first.ExpectedPlanSHA256)
 	}
 }
 
@@ -1359,11 +1356,41 @@ func TestOrdinaryInitFinalValidationRejectsLateSourceDrift(t *testing.T) {
 		ProjectName: "late-source", CreateLocalFiles: true, Command: "init",
 		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
 	})
-	if err == nil || !strings.Contains(err.Error(), "source changed during publication") {
+	if err == nil || !strings.Contains(err.Error(), "skill provenance changed during publication") {
 		t.Fatalf("ordinary init late source drift error = %v", err)
 	}
 	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("ordinary init late source drift left created state: %v", statErr)
+	}
+}
+
+func TestOrdinaryInitFinalValidationRejectsLateCanonicalSkillDrift(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "late-canonical-skill", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := filepath.Join(repoRoot, ".claude", "skills", "steamai", "SKILL.md")
+	previous := ordinaryInitBeforeFinalValidationHook
+	defer func() { ordinaryInitBeforeFinalValidationHook = previous }()
+	ordinaryInitBeforeFinalValidationHook = func(InitPlan) error {
+		return os.WriteFile(canonical, []byte("# late canonical replacement\n"), 0o644)
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "late-canonical-skill", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "skill provenance changed during publication") {
+		t.Fatalf("ordinary init late canonical skill drift error = %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(caseRoot, ".steamai"),
+		filepath.Join(caseRoot, ".claude", "skills", "steamai", "SKILL.md"),
+	} {
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("ordinary init late canonical skill drift left publication %s: %v", path, statErr)
+		}
 	}
 }
 
@@ -1500,8 +1527,15 @@ func exclusiveInitFixture(t *testing.T) (repoRoot, pack string) {
 		t.Fatal(err)
 	}
 	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# canonical test skill\n")
-	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md"), "# project-local STeamAI skill\n")
-	for _, rel := range []string{"rekit/schemas/instance.schema.yml", "rekit/schemas/pack-manifest.schema.yml", "rekit/tests/catalog.json", "common/policies/manifest.yml", "common/policies/README.md"} {
+	for _, rel := range []string{
+		".claude/skills/steamai/SKILL.md",
+		"rekit/templates/steamai-project/SKILL.md",
+		"rekit/schemas/instance.schema.yml",
+		"rekit/schemas/pack-manifest.schema.yml",
+		"rekit/tests/catalog.json",
+		"common/policies/manifest.yml",
+		"common/policies/README.md",
+	} {
 		source := filepath.Join(exclusiveInitKitRoot(t), filepath.FromSlash(rel))
 		data, err := os.ReadFile(source)
 		if err != nil {

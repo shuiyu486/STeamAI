@@ -39,6 +39,52 @@ func TestBuildAndValidateStrictUnifiedLayout(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsProjectSkillProvenanceDrift(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureRoot := t.TempDir()
+	for _, rel := range []string{
+		".claude/skills/steamai/SKILL.md",
+		"rekit/templates/steamai-project/SKILL.md",
+		"packs/_template/manifest.yml",
+		"common/policies/manifest.yml",
+		"common/policies/README.md",
+		"rekit/schemas/instance.schema.yml",
+		"rekit/schemas/pack-manifest.schema.yml",
+		"rekit/tests/catalog.json",
+	} {
+		source := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		data, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(fixtureRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	templatePath := filepath.Join(
+		fixtureRoot,
+		filepath.FromSlash("rekit/templates/steamai-project/SKILL.md"),
+	)
+	if err := os.WriteFile(templatePath, []byte("drift\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(t.TempDir(), ExecutableName())
+	if err := os.WriteFile(executable, []byte("test runtime executable\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildWithExecutable(fixtureRoot, "_template", executable); err == nil ||
+		!strings.Contains(err.Error(), "skill provenance") {
+		t.Fatalf("drifted project skill bundle error=%v", err)
+	}
+}
+
 func TestBuildExcludesGeneratedPackState(t *testing.T) {
 	fixtureRoot := t.TempDir()
 	fixturePackRoot := filepath.Join(fixtureRoot, "packs", "_template")
@@ -46,7 +92,6 @@ func TestBuildExcludesGeneratedPackState(t *testing.T) {
 		"packs/_template/manifest.yml",
 		"common/policies/manifest.yml",
 		"common/policies/README.md",
-		"rekit/templates/steamai-project/SKILL.md",
 		"rekit/schemas/instance.schema.yml",
 		"rekit/schemas/pack-manifest.schema.yml",
 		"rekit/tests/catalog.json",
@@ -56,6 +101,26 @@ func TestBuildExcludesGeneratedPackState(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte("fixture\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		".claude/skills/steamai/SKILL.md",
+		"rekit/templates/steamai-project/SKILL.md",
+	} {
+		data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(fixtureRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

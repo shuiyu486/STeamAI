@@ -218,7 +218,7 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 	if gate.Kind != "workflow-definition" || !gate.DefinitionReady || gate.DefinitionReady != gate.Ready || gate.ReadyMeaning != "workflow-definition" || gate.ProvesRemoteExecution || gate.ProvesRemoteGreen {
 		t.Fatalf("CI release gate readiness meaning drifted: %+v", gate)
 	}
-	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 21 || counts.ForbiddenStrings == 0 {
+	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 24 || counts.ForbiddenStrings == 0 {
 		t.Fatalf("CI release gate omitted required sections: %+v", gate)
 	}
 	assertCIJob(t, gate, "go-checks-linux", "Go release checks (Linux)", "ubuntu-latest")
@@ -229,6 +229,7 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command status")
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command packs")
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command doctor")
+		assertCICommand(t, gate, job, "go run ./cmd/skillcontractgen -repo . -check")
 		assertCICommand(t, gate, job, CanonicalGoPackSmokeCommand)
 		assertCICommand(t, gate, job, CanonicalGoTestCommand)
 		assertCICommand(t, gate, job, "go vet ./...")

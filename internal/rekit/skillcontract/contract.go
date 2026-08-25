@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -298,6 +299,51 @@ func ReplaceMachineAppendix(data []byte) ([]byte, error) {
 
 func Synchronize(repoRoot string) error {
 	return synchronize(repoRoot, writeIfChanged)
+}
+
+// Check verifies the exact canonical/project-local skill pair without writing.
+func Check(repoRoot string) error {
+	_, err := ReadValidatedProjectTemplate(repoRoot)
+	return err
+}
+
+// ReadValidatedProjectTemplate returns the exact template bytes that passed the
+// canonical skill contract. Callers can publish these bytes without rereading.
+func ReadValidatedProjectTemplate(repoRoot string) ([]byte, error) {
+	repoRoot, err := filepath.Abs(strings.TrimSpace(repoRoot))
+	if err != nil {
+		return nil, err
+	}
+	canonicalPath := filepath.Join(
+		repoRoot,
+		filepath.FromSlash(CanonicalSkillPath),
+	)
+	templatePath := filepath.Join(
+		repoRoot,
+		filepath.FromSlash(ProjectTemplatePath),
+	)
+	canonical, err := rekitfs.ReadStableRegularFileAnchored(
+		repoRoot,
+		canonicalPath,
+		"canonical /steamai skill",
+		1<<20,
+	)
+	if err != nil {
+		return nil, err
+	}
+	template, err := rekitfs.ReadStableRegularFileAnchored(
+		repoRoot,
+		templatePath,
+		"project-local /steamai template",
+		1<<20,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidatePair(canonical, template); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), template...), nil
 }
 
 type skillContractFileState struct {
