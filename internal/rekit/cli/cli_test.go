@@ -3567,6 +3567,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 			TemplatePack        string   `json:"templatePack"`
 			PackMatchesMetadata bool     `json:"packMatchesMetadata"`
 			PackDiagnostic      string   `json:"packDiagnostic"`
+			EnabledSpecialties  []string `json:"enabledSpecialties"`
 			NextSteps           []string `json:"nextSteps"`
 			ProjectName         string   `json:"projectName"`
 			Moved               bool     `json:"moved"`
@@ -3630,7 +3631,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Pack != "_template" || status.PackSource != "explicit" || !status.TargetProvided || status.Mode != "case" || status.Manifest != nil {
 		t.Fatalf("unexpected case status JSON envelope: %+v", status)
 	}
-	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || !status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, "pack matches case metadata templatePack") || len(status.Case.NextSteps) != 0 || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
+	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || !status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, "pack matches case metadata templatePack") || status.Case.EnabledSpecialties == nil || len(status.Case.EnabledSpecialties) != 0 || len(status.Case.NextSteps) != 0 || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
 		t.Fatalf("unexpected case status JSON: %+v", status.Case)
 	}
 	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 || len(status.CaseShim.NextSteps) != 0 {

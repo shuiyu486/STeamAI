@@ -311,7 +311,7 @@ func TestManagedAdapterExecutionRejectsMissingReportAndInvalidCatalog(t *testing
 		{
 			name: "catalog duplicate id",
 			mutate: func(t *testing.T, repoRoot, pack string) {
-				writeGateText(t, filepath.Join(repoRoot, "packs", pack, "tooling", "catalog.yml"), "tools:\n  - id: dynamic-debug-or-writeback-action\n    status: supported\n    entry: first\n    sideEffects: debug\n  - id: dynamic-debug-or-writeback-action\n    status: auxiliary\n    entry: second\n    sideEffects: debug\n")
+				writeGateText(t, filepath.Join(repoRoot, "packs", pack, "tooling", "catalog.yml"), "tools:\n  - id: dynamic-debug-or-writeback-action\n    status: supported\n    entry: first\n    purpose: First duplicate candidate.\n    sideEffects: debug\n  - id: dynamic-debug-or-writeback-action\n    status: auxiliary\n    entry: second\n    purpose: Second duplicate candidate.\n    sideEffects: debug\n")
 			},
 			want: "duplicate tools id",
 		},

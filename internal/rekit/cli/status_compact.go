@@ -46,11 +46,12 @@ type statusCompactMissionControlRunbook struct {
 }
 
 type statusCompactCase struct {
-	CaseRoot            string `json:"caseRoot"`
-	ProjectName         string `json:"projectName,omitempty"`
-	TemplatePack        string `json:"templatePack,omitempty"`
-	PackMatchesMetadata bool   `json:"packMatchesMetadata"`
-	Moved               bool   `json:"moved"`
+	CaseRoot            string   `json:"caseRoot"`
+	ProjectName         string   `json:"projectName,omitempty"`
+	TemplatePack        string   `json:"templatePack,omitempty"`
+	EnabledSpecialties  []string `json:"enabledSpecialties"`
+	PackMatchesMetadata bool     `json:"packMatchesMetadata"`
+	Moved               bool     `json:"moved"`
 }
 
 type statusCompactMission struct {
@@ -152,6 +153,7 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 			CaseRoot:            status.Case.CaseRoot,
 			ProjectName:         status.Case.ProjectName,
 			TemplatePack:        status.Case.TemplatePack,
+			EnabledSpecialties:  append([]string{}, status.Case.EnabledSpecialties...),
 			PackMatchesMetadata: status.Case.PackMatchesMetadata,
 			Moved:               status.Case.Moved,
 		}

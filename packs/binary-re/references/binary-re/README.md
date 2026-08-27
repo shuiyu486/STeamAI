@@ -1,6 +1,6 @@
 # Binary RE 按需路由入口
 
-> `binary-re` 是唯一 active 二进制逆向 pack。通用 static triage、function/API behavior review 是基线；VMProtect x64 trace-based devirtualization 与 IDA sidecar inspection 是同一 pack 内的成熟专项能力。
+> `binary-re` 是唯一 active 二进制逆向 pack。通用 static triage、function/API behavior review 是基线；当前启用的专项能力只包括对已有 IDA TSV export 的 bounded inspection。VMProtect trace/devirtualization 仍是 review-first workflow 与 recipe，不是已启用 producer。
 
 ## 常驻原则
 

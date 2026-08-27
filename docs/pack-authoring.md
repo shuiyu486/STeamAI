@@ -102,6 +102,13 @@ subagentRoutes:
     mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
     outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,defer_reason
 toolingFiles: []
+heavyToolGates:
+  - id: inspect
+    title: 只读检查
+    sideEffects: inspect
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected-side-effect
 promoteFiles:
   - references/<pack>/README.md
   - references/<pack>/agent-team.md
@@ -199,4 +206,4 @@ budgets:
 - 新 pack 初始化不会覆盖 case-local 文件。
 - pack smoke 通过 `rekit/tests/pack-smoke-lib.ps1` 或等价验证覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界；临时 case prefix 不能让 pack 名中的通用词触发 case-specific deny pattern 误拦截。需要全量、子集或机器可读回归时使用 `rekit/tests/pack-smoke-matrix.ps1`（支持 `-Format json`）；`-DiscoveryOnly` 检查全部 schema-valid skeleton 加显式 production smoke allowlist 与 matrix/wrapper/catalog 一致，修改 matrix 输出契约时运行 `pack-smoke-matrix-selftest.ps1`。
 - promote deny patterns 覆盖绝对路径、artifact/capture/trace/dump、地址快照和 case 状态。
-- 声称 `maturity: mature` 还必须通过 `release-check.productionRegistry` 与 `productionPacks[]`：mature manifest 集合、`internal/rekit/productioncontract` registry 和 `adapterhost` compiled-in adapter 集合 exact match；每个 pack 的 harmless/synthetic 或 loopback fixture与 semantic verifier Go symbol 可解析；prompt/policy packet 从 project-local verified bundle 构建稳定 identity，并由 dispatch ticket、adapter intent/result、Claude launch、detached supervisor spec 与 structured-output recovery receipt 原样绑定。任一 source、symbol、receipt kind、pack 或 aggregate SHA drift 都会 fail-closed；仍不能用 schema-valid、tooling catalog、production smoke 或 E2E 任一单项代替四要素。
+- 声称 `maturity: mature` 还必须通过 `release-check.productionRegistry` 与 `productionPacks[]`：mature manifest 集合、`internal/rekit/productioncontract` registry、typed verified catalog 和 `adapterhost` 逐 pack executable owner exact match；每个 pack 的 harmless/synthetic 或 loopback fixture与 semantic verifier Go symbol 可解析；prompt/policy packet 从 project-local verified bundle 构建稳定 identity，并由 dispatch ticket、adapter intent/result、Claude launch、detached supervisor spec 与 structured-output recovery receipt 原样绑定。`productionPacks[].ready` 的 typed meaning 仅为 `repository-contract-inventory`，maturity来源是manifest声明，`receiptKind`只是expected instruction-consumption receipt kind；synthetic fixture不等于real Claude或real target/tool receipt。任一 source、symbol、receipt kind、pack 或 aggregate SHA drift 都会 fail-closed；仍不能用 schema-valid、tooling catalog、production smoke 或 E2E 任一单项替代完整合同或提升未观察的证据层。

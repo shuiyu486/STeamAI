@@ -475,71 +475,6 @@ func RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack string, opt Options)
 	return result, nil
 }
 
-func strictCatalogToolIDs(data []byte, key string) ([]string, error) {
-	prefix := key + ":"
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	inside := false
-	ids := []string{}
-	seen := map[string]bool{}
-	for index, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		indent := len(line) - len(strings.TrimLeft(line, " \t"))
-		if !inside {
-			if indent == 0 && trimmed == prefix {
-				inside = true
-			}
-			continue
-		}
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if indent == 0 {
-			break
-		}
-		if indent != 2 || !strings.HasPrefix(trimmed, "-") {
-			continue
-		}
-		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
-		id := ""
-		if value, ok := strings.CutPrefix(rest, "id:"); ok {
-			id = strings.TrimSpace(value)
-		} else if rest == "" {
-			for next := index + 1; next < len(lines); next++ {
-				field := lines[next]
-				fieldTrimmed := strings.TrimSpace(field)
-				fieldIndent := len(field) - len(strings.TrimLeft(field, " \t"))
-				if fieldTrimmed == "" || strings.HasPrefix(fieldTrimmed, "#") {
-					continue
-				}
-				if fieldIndent <= 2 {
-					break
-				}
-				if fieldIndent == 4 && strings.HasPrefix(fieldTrimmed, "id:") {
-					id = strings.TrimSpace(strings.TrimPrefix(fieldTrimmed, "id:"))
-				}
-				break
-			}
-		}
-		if id == "" {
-			return nil, fmt.Errorf("%s row %d requires a non-empty id", key, len(ids)+1)
-		}
-		id = strings.Trim(id, `"'`)
-		if id == "" {
-			return nil, fmt.Errorf("%s row %d requires a non-empty id", key, len(ids)+1)
-		}
-		identity := strings.ToLower(id)
-		if seen[identity] {
-			return nil, fmt.Errorf("duplicate %s id %q", key, id)
-		}
-		seen[identity] = true
-		ids = append(ids, id)
-	}
-	if !inside || len(ids) == 0 {
-		return nil, fmt.Errorf("%s must be a YAML object list", key)
-	}
-	return ids, nil
-}
-
 func adapterExecutionReceiptRequired(caseRoot string, gateEvent EventPreview, m *manifest.Manifest) (bool, error) {
 	if m == nil {
 		return false, nil
@@ -588,11 +523,7 @@ func strictAdapterToolCandidates(m *manifest.Manifest, event EventPreview) ([]Ad
 		if err != nil {
 			return nil, fmt.Errorf("read tooling catalog %s: %w", rel, err)
 		}
-		catalogIDs, err := strictCatalogToolIDs(catalogData, "tools")
-		if err != nil {
-			return nil, fmt.Errorf("parse tooling catalog %s: %w", rel, err)
-		}
-		items, err := manifest.ObjectListFromFile(path, "tools")
+		catalog, err := manifest.ParseToolCatalog(catalogData, m.Pack)
 		if err != nil {
 			return nil, fmt.Errorf("parse tooling catalog %s: %w", rel, err)
 		}
@@ -600,24 +531,11 @@ func strictAdapterToolCandidates(m *manifest.Manifest, event EventPreview) ([]Ad
 		if err != nil || before != after {
 			return nil, fmt.Errorf("tooling catalog changed while selecting adapter: %s", rel)
 		}
-		catalogIDSet := map[string]bool{}
-		for _, id := range catalogIDs {
-			catalogIDSet[strings.ToLower(id)] = true
-		}
-		parsedIDs := map[string]bool{}
-		for _, item := range items {
-			id := strings.TrimSpace(item["id"])
-			if id == "" || !catalogIDSet[strings.ToLower(id)] {
-				continue
-			}
-			parsedIDs[strings.ToLower(id)] = true
+		for _, item := range catalog.Tools {
 			candidate := adapterToolCandidateFromCatalogItem(item, rel, action, gateSpec)
 			if candidate.ID != "" {
 				candidates = append(candidates, candidate)
 			}
-		}
-		if len(parsedIDs) != len(catalogIDSet) {
-			return nil, fmt.Errorf("parse tooling catalog %s: tools rows could not be projected losslessly", rel)
 		}
 	}
 	return candidates, nil

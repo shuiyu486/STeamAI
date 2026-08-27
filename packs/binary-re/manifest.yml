@@ -1,7 +1,7 @@
 schemaVersion: 1
 name: binary-re
 version: 0.3.0
-description: Authorized binary reverse engineering with general static analysis and mature VMProtect x64 capabilities
+description: Authorized binary reverse engineering with general static analysis and bounded inspection of existing IDA TSV exports
 maturity: mature
 
 managedFiles:

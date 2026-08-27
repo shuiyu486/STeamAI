@@ -12,7 +12,7 @@ import (
 // pending onboarding intents stay recoverable after future pack revisions.
 var acceptedManagedBlockSHA256 = map[string]map[string]struct{}{
 	"_template":                 {"a425c88cfdff2fd66358777c0aec41b0bfe8a0cfc7f3e8b98edd45795ee7a54b": {}},
-	defaults.DefaultPack:        {"f12e9febbf923f815f1113f48b2b31e20137a77fb640a12db341dac9e8e4988e": {}, "3230948002ebeefb79f7e233bccc4b23fbad0048588bd3cc99375de7724cd57d": {}},
+	defaults.DefaultPack:        {"f12e9febbf923f815f1113f48b2b31e20137a77fb640a12db341dac9e8e4988e": {}, "3230948002ebeefb79f7e233bccc4b23fbad0048588bd3cc99375de7724cd57d": {}, "009394f5e368588bf89eca48c78ec1e6aeeaeb23ce0f63bc0fc4dc81221d2718": {}, "0dfb64144dd593183646fd041a189901650b8aac28c0e8375e2b9a7485a767a8": {}},
 	"web-security":              {"7eef51aaab24e7900161ab973245493540d49acb7dca4ff169c6aff9b22a0aa5": {}, "aea88ea6987b8181d7dae7378569e012eae1929d428c0d2b9995bf02eb07e1aa": {}},
 	"malware-analysis":          {"19a212821fb415c700cd35af71874ac1d2b029e11c76d8b129bae5e6b95b3b3e": {}},
 	"vuln-research":             {"292d2289e79128fef5815943cc5ea5680c668859fc89468a16e2249746de2ddb": {}},

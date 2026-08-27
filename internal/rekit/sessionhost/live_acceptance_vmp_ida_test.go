@@ -31,6 +31,24 @@ func TestBinaryREAdapterLifecycleUsesProjectLocalPackRoot(t *testing.T) {
 	}
 }
 
+func TestLiveAcceptanceVMPIDAEvidenceScopeSeparatesSyntheticInputAndRealExecution(t *testing.T) {
+	proof := &LiveAcceptanceVMPIDA{
+		EvidenceScope: verifiedLiveAcceptanceVMPIDAEvidenceScope(),
+		Verified:      true,
+	}
+	data, err := json.Marshal(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded LiveAcceptanceVMPIDA
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.Verified || decoded.EvidenceScope == nil || decoded.EvidenceScope.InputClass != "synthetic-existing-ida-tsv-export" || decoded.EvidenceScope.AdapterExecutionClass != "real-contained-compiled-adapter-child" || decoded.EvidenceScope.ClaudeReviewClass != "real-independent-claude-code-sessions" || decoded.EvidenceScope.SourceProducerObserved || decoded.EvidenceScope.RealTargetToolReceiptObserved || decoded.EvidenceScope.VerifiedMeaning != "bounded-existing-index-inspection-lifecycle" {
+		t.Fatalf("VMP IDA evidence scope blurred synthetic input, real execution, or missing producer evidence: %+v", decoded)
+	}
+}
+
 func TestSelectBinaryREVMPIDARowUsesRequestTermsInsteadOfAcceptanceFixtureTerm(t *testing.T) {
 	caseRoot := t.TempDir()
 	sourcePath := filepath.ToSlash(filepath.Join(adapterhost.VMPIDAIndexDefaultExportRoot, "function_index.tsv"))

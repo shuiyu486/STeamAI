@@ -1,7 +1,7 @@
 <!-- BEGIN binary-re-template:router v0.3.0 -->
 ## Binary RE 按需路由
 
-`binary-re` 是唯一 active 二进制逆向 pack：通用 static triage、function/API behavior review 是基线能力，VMProtect x64 trace-based devirtualization 与 IDA sidecar inspection 是成熟专项能力。先读 `references/binary-re/README.md`，只按当前任务选择一个入口。
+`binary-re` 是唯一 active 二进制逆向 pack：通用 static triage、function/API behavior review 是基线能力；当前启用的专项 adapter 只对已有 IDA TSV export 做 bounded inspection。VMProtect trace/devirtualization 仍是 review-first workflow/recipe，不是已启用 producer。先读 `references/binary-re/README.md`，只按当前任务选择一个入口。
 
 | 任务 | 读取 |
 |---|---|

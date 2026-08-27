@@ -8,7 +8,7 @@
 
 当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。Batch 830～833与validation repair只是局部证据；2026-08-24～25复核确认 C1～C4 已按序闭合，但不能把局部完成提升为总体完成。
 
-`P0P3-C1`、`P0P3-C2`、`P0P3-C3`、`P0P3-C4` 与 retired pack identity review-first migration 已完成。当前 residual work 只剩 binary-re 专项验收校准，完成后才能执行完整 P0～P3 验证。全过程不创建 Batch 834、不自选新功能，也不回滚 Batch 830～833 或已保留的 `web-security` baseline。
+`P0P3-C1`、`P0P3-C2`、`P0P3-C3`、`P0P3-C4`、retired pack identity review-first migration 与 binary-re 专项验收校准已完成。当前唯一 residual work 是完整 P0～P3 验证。全过程不创建 Batch 834、不自选新功能，也不回滚 Batch 830～833 或已保留的 `web-security` baseline。
 
 产品获取方式保持 `source-clone-first`：Go 与 Claude Code 是预期依赖；不实现 installer。current 项目继续拒绝 PATH/外部 kit fallback，默认 quickstart 只保留 `cd <project> → claude → /steamai`。Go-native、project-local runtime 和现有权限边界保持不变。
 
@@ -17,11 +17,11 @@
 | 字段 | 当前值 |
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
-| 当前批次 | `路线收口 binary-re 专项验收校准` |
+| 当前批次 | `路线收口 完整 P0～P3 验证` |
 | 状态 | `in_progress` |
 | 唯一允许领取 | 路线收口 |
-| 上一批 | retired pack identity migration 已完成并通过 focused/package/document validation |
-| 下一批 | 完整 P0～P3 验证 |
+| 上一批 | binary-re 专项验收校准已完成并通过 review/focused/package/document validation |
+| 下一批 | 无；仅在全部未取消项有证据后关闭路线 |
 | canonical repository | `https://github.com/shuiyu486/STeamAI` |
 | 暂保留兼容身份 | Go module `github.com/shuiyu486/re-context-kits`、内部 `rekit` names、legacy `/rekit` / `.rekit` |
 
@@ -31,26 +31,26 @@
 - [x] **P0P3-C1～C3**：capability sinks、orchestration non-authorization、DTO/receipt/session/skill 已闭合；C3 exact skill provenance、immutable stamped publication与审计结论见 `CHANGELOG.md`。
 - [x] **P0P3-C4 — runtime ownership**：完成原 #38；69 个 exact runtime owners 通过机器 inventory，continue 锁后 lane identity 与 gate 孤立 report binding 的窄复现已 fail-closed；未发现 control/session/provider 的可复现平行 owner。
 - [x] **retired pack identity migration closure**：`vmp-re` / `generic-binary-re` 只经显式 pre-runtime owner review-first、exact-plan、single-write迁移为canonical `binary-re`；root/onboarding projection与receipt replay provenance已闭合，不alias、双写或自动择优。
-- [ ] **binary-re 专项验收校准**：区分 synthetic、real Claude 与真实目标/工具证据，收窄或实证 VMP producer 能力，并投影 established-case enabled specialties。
-- [ ] **完整获批方案验收**：逐项复核 P0～P3，运行产品/focused/full gates；未完成项、synthetic-only evidence 或待专项边界不得写成总体完成。
+- [x] **binary-re 专项验收校准**：established status只投影同pack executable owner、production contract与typed verified catalog完全一致的specialties；VMP仅保留已有IDA TSV bounded inspection；repository inventory、synthetic input、real contained child/Claude与未观察的producer/target-tool receipt已typed分层。
+- [ ] **完整获批方案验收**：当前唯一工作；逐项复核 P0～P3，运行产品/focused/full gates；未完成项或synthetic-only evidence不得写成总体完成。
 
 ## 当前批次卡
 
 ### 路线收口：
 
-**状态**：in_progress；retired migration 已完成，本卡完成并验证后才解锁完整 P0～P3 验证。
+**状态**：in_progress；C1～C4、retired migration与binary-re专项均已闭合，本卡是路线关闭前唯一剩余工作。
 
-**来源**：已批准 P0～P3 residual route 的 binary-re 专项验收校准。前置 C1～C4 与 retired migration 已闭合；本卡不新增 pack、通用分析引擎或未授权执行能力。
+**来源**：已批准 P0～P3 residual route 的最终验收要求。本卡不新增功能，只核对原批准项、真实产品路径、机器门禁与Git-local publication truth。
 
-**目标**：让 established-case status显式投影 enabled specialties；校准VMP producer能力声明；把synthetic、real Claude与真实目标/工具receipt分层，保证public maturity与实际证据一致。
+**目标**：逐项证明所有未取消的P0～P3要求已有实现与足够证据；任何未闭合项保持open，不用局部测试、readiness inventory或文档claim代替总体完成。
 
 **执行边界**：
 
-1. 先从现有 manifest/catalog/status/adapter/acceptance owners审计 established-case specialties与VMP producer证据，不创建平行状态机或第二套capability registry。
-2. VMP 能力只保留已有 IDA index 的 bounded inspection，或由真实 strict-gated producer与独立review receipt实证；不能用fixture、catalog字段或prompt声明替代producer证据。
-3. synthetic fixture、real Claude session、真实目标/工具 execution receipt必须使用typed字段清楚分层；三者不能相互冒充。
+1. 从原P0～P3批准、task ledger与当前源码逐项建立完成矩阵，合并重复项，不重新实现已闭合能力。
+2. 运行产品入口、focused/full tests、vet/module/skill contract、release/status/packs/doctor与diff门禁；cross-compile不替代runtime evidence。
+3. 核对真实用户路径、fresh machine receipt、direct commit与本地tracking ref；不把synthetic fixture、repository inventory或remote workflow定义提升为真实外部执行证据。
 4. 不写真实样本、trace/dump/capture、绝对case路径或case-specific进度；不执行未授权heavy action，不改变authority/confirmed边界。
-5. focused产品路径与fresh package验证通过后才切换完整P0～P3验收；本卡局部成功不代表路线总体完成。
+5. 只有全部未取消项均有实现与证据才关闭路线；否则仅记录具体缺口并继续修复。
 
 ## 验证标准
 
@@ -78,6 +78,7 @@ git diff --check
 
 ## 路线变更记录
 
+- 2026-08-28：binary-re专项验收校准完成；established status exact specialties、逐pack executable owner、typed catalog、VMP existing-index能力上限与synthetic/real/未观察证据层已通过review和fresh affected-package validation；active card切换到完整P0～P3验证。
 - 2026-08-28：retired pack identity migration完成；两个retired identities的review-first transaction、canonical root/onboarding projection、exact replay provenance、copy/move与capability fail-closed已通过审查和focused/package/document validation；active card切换到binary-re专项验收校准，完整P0～P3验证仍未完成。
 - 2026-08-25：`P0P3-C4` 完成；scoped owner inventory、continue lock-after-reparse identity guard、gate orphaned report-binding rejection 与未复现候选边界见 `CHANGELOG.md`。
 - 2026-08-25：`P0P3-C3` 完成并切换到 C4；exact skill provenance、immutable stamped publication与审计结论见 `CHANGELOG.md`。

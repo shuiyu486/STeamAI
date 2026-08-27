@@ -1269,6 +1269,231 @@ func ObjectListFromFile(path, key string) ([]map[string]string, error) {
 	return yamlObjectList(lines, key), nil
 }
 
+type ToolCatalog struct {
+	SchemaVersion string
+	Pack          string
+	Purpose       string
+	Paths         map[string]string
+	Tools         []map[string]string
+}
+
+// ParseToolCatalog parses the repository tooling catalog subset. It rejects
+// unknown structure instead of treating malformed or descriptive YAML as
+// executable production metadata.
+func ParseToolCatalog(data []byte, expectedPack string) (ToolCatalog, error) {
+	catalog := ToolCatalog{Paths: map[string]string{}, Tools: []map[string]string{}}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	topSeen := map[string]bool{}
+	toolIDs := map[string]bool{}
+	section := ""
+	var current map[string]string
+	noteList := false
+	noteCount := 0
+
+	finishTool := func() error {
+		if current == nil {
+			return nil
+		}
+		for _, key := range []string{"id", "status", "entry", "purpose"} {
+			if strings.TrimSpace(current[key]) == "" {
+				return fmt.Errorf("tool catalog row %d is missing %s", len(catalog.Tools)+1, key)
+			}
+		}
+		if noteList && noteCount == 0 {
+			return fmt.Errorf("tool catalog row %d has an empty reusableNotes list", len(catalog.Tools)+1)
+		}
+		identity := strings.ToLower(current["id"])
+		if toolIDs[identity] {
+			return fmt.Errorf("duplicate tools id %q", current["id"])
+		}
+		toolIDs[identity] = true
+		catalog.Tools = append(catalog.Tools, current)
+		current = nil
+		noteList = false
+		noteCount = 0
+		return nil
+	}
+
+	for index, line := range lines {
+		lineNumber := index + 1
+		if strings.ContainsRune(line, '\t') {
+			return ToolCatalog{}, fmt.Errorf("tool catalog line %d contains a tab", lineNumber)
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		switch indent {
+		case 0:
+			if err := finishTool(); err != nil {
+				return ToolCatalog{}, err
+			}
+			key, value, ok := toolCatalogField(trimmed)
+			if !ok {
+				return ToolCatalog{}, fmt.Errorf("tool catalog line %d is not a scalar field", lineNumber)
+			}
+			if topSeen[key] {
+				return ToolCatalog{}, fmt.Errorf("tool catalog contains duplicate top-level key %q", key)
+			}
+			topSeen[key] = true
+			switch key {
+			case "schemaVersion", "pack", "purpose":
+				parsed, err := toolCatalogScalar(value)
+				if err != nil {
+					return ToolCatalog{}, fmt.Errorf("tool catalog %s: %w", key, err)
+				}
+				switch key {
+				case "schemaVersion":
+					catalog.SchemaVersion = parsed
+				case "pack":
+					catalog.Pack = parsed
+				case "purpose":
+					catalog.Purpose = parsed
+				}
+				section = ""
+			case "paths", "tools":
+				if strings.TrimSpace(value) != "" {
+					return ToolCatalog{}, fmt.Errorf("tool catalog %s must be a block", key)
+				}
+				section = key
+			default:
+				return ToolCatalog{}, fmt.Errorf("tool catalog contains unsupported top-level key %q", key)
+			}
+		case 2:
+			switch section {
+			case "paths":
+				key, value, ok := toolCatalogField(trimmed)
+				if !ok {
+					return ToolCatalog{}, fmt.Errorf("tool catalog path line %d is invalid", lineNumber)
+				}
+				if _, exists := catalog.Paths[key]; exists {
+					return ToolCatalog{}, fmt.Errorf("tool catalog contains duplicate path key %q", key)
+				}
+				parsed, err := toolCatalogScalar(value)
+				if err != nil {
+					return ToolCatalog{}, fmt.Errorf("tool catalog path %s: %w", key, err)
+				}
+				catalog.Paths[key] = parsed
+			case "tools":
+				if !strings.HasPrefix(trimmed, "- ") {
+					return ToolCatalog{}, fmt.Errorf("tool catalog line %d must start a tool row", lineNumber)
+				}
+				if err := finishTool(); err != nil {
+					return ToolCatalog{}, err
+				}
+				key, value, ok := toolCatalogField(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+				if !ok || key != "id" {
+					return ToolCatalog{}, fmt.Errorf("tool catalog row %d requires a non-empty id", len(catalog.Tools)+1)
+				}
+				id, err := toolCatalogScalar(value)
+				if err != nil {
+					return ToolCatalog{}, fmt.Errorf("tool catalog row %d requires a non-empty id: %w", len(catalog.Tools)+1, err)
+				}
+				current = map[string]string{"id": id}
+			default:
+				return ToolCatalog{}, fmt.Errorf("tool catalog line %d is outside paths or tools", lineNumber)
+			}
+		case 4:
+			if section != "tools" || current == nil {
+				return ToolCatalog{}, fmt.Errorf("tool catalog line %d is outside a tool row", lineNumber)
+			}
+			if noteList {
+				if noteCount == 0 {
+					return ToolCatalog{}, fmt.Errorf("tool catalog row %d has an empty reusableNotes list", len(catalog.Tools)+1)
+				}
+				noteList = false
+			}
+			key, value, ok := toolCatalogField(trimmed)
+			if !ok {
+				return ToolCatalog{}, fmt.Errorf("tool catalog row field line %d is invalid", lineNumber)
+			}
+			switch key {
+			case "status", "entry", "purpose", "sideEffects", "gateActions", "reusableNotes":
+			default:
+				return ToolCatalog{}, fmt.Errorf("tool catalog row %q contains unsupported key %q", current["id"], key)
+			}
+			if _, exists := current[key]; exists {
+				return ToolCatalog{}, fmt.Errorf("tool catalog row %q contains duplicate key %q", current["id"], key)
+			}
+			if key == "reusableNotes" {
+				value = strings.TrimSpace(value)
+				if value != "" && value != "[]" {
+					return ToolCatalog{}, fmt.Errorf("tool catalog row %q reusableNotes must be a list", current["id"])
+				}
+				current[key] = value
+				noteList = value == ""
+				noteCount = 0
+				continue
+			}
+			parsed, err := toolCatalogScalar(value)
+			if err != nil {
+				return ToolCatalog{}, fmt.Errorf("tool catalog row %q field %s: %w", current["id"], key, err)
+			}
+			current[key] = parsed
+		case 6:
+			if section != "tools" || current == nil || !noteList || !strings.HasPrefix(trimmed, "- ") {
+				return ToolCatalog{}, fmt.Errorf("tool catalog line %d is not a reusableNotes item", lineNumber)
+			}
+			if _, err := toolCatalogScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))); err != nil {
+				return ToolCatalog{}, fmt.Errorf("tool catalog row %q reusableNotes item: %w", current["id"], err)
+			}
+			noteCount++
+		default:
+			return ToolCatalog{}, fmt.Errorf("tool catalog line %d has unsupported indentation", lineNumber)
+		}
+	}
+	if err := finishTool(); err != nil {
+		return ToolCatalog{}, err
+	}
+	for _, key := range []string{"schemaVersion", "pack", "purpose", "tools"} {
+		if !topSeen[key] {
+			return ToolCatalog{}, fmt.Errorf("tool catalog is missing top-level key %q", key)
+		}
+	}
+	if catalog.SchemaVersion != "1" {
+		return ToolCatalog{}, fmt.Errorf("tool catalog schemaVersion must be 1")
+	}
+	if strings.TrimSpace(expectedPack) != "" && catalog.Pack != strings.TrimSpace(expectedPack) {
+		return ToolCatalog{}, fmt.Errorf("tool catalog pack differs from manifest: catalog=%s manifest=%s", catalog.Pack, strings.TrimSpace(expectedPack))
+	}
+	if len(catalog.Tools) == 0 {
+		return ToolCatalog{}, fmt.Errorf("tool catalog tools must be non-empty")
+	}
+	return catalog, nil
+}
+
+func toolCatalogField(line string) (string, string, bool) {
+	key, value, ok := strings.Cut(line, ":")
+	key = strings.TrimSpace(key)
+	if !ok || key == "" {
+		return "", "", false
+	}
+	for index, char := range key {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char == '_' || char == '-' || (index > 0 && char >= '0' && char <= '9') {
+			continue
+		}
+		return "", "", false
+	}
+	return key, strings.TrimSpace(value), true
+}
+
+func toolCatalogScalar(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("requires a non-empty scalar")
+	}
+	if strings.ContainsRune("[{|>", rune(value[0])) {
+		return "", fmt.Errorf("requires a scalar value")
+	}
+	if value[0] == '\'' || value[0] == '"' {
+		if len(value) < 2 || value[len(value)-1] != value[0] {
+			return "", fmt.Errorf("contains an unterminated quoted scalar")
+		}
+	}
+	return convertValue(value), nil
+}
+
 func yamlSubagentRoutes(lines []string, key string) []SubagentRoute {
 	rows := yamlObjectList(lines, key)
 	routes := make([]SubagentRoute, 0, len(rows))

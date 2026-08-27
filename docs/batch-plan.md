@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1`～`P0P3-C4`与 retired pack identity migration 已完成，当前只推进 binary-re 专项验收校准；随后执行完整 P0～P3 验证。Batch 830～833与validation repair仍只是各自局部证据；不创建Batch 834、不自选新功能。
+当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1`～`P0P3-C4`、retired pack identity migration与binary-re专项验收校准已完成，当前只执行完整P0～P3验证。Batch 830～833与validation repair仍只是各自局部证据；不创建Batch 834、不自选新功能。
 
 ## 执行清单
 
@@ -16,11 +16,11 @@
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `路线收口 binary-re 专项验收校准` |
+| 当前批次 | `路线收口 完整 P0～P3 验证` |
 | 状态 | `in_progress` |
 | 唯一允许领取 | 路线收口 |
-| 上一批 | retired pack identity migration 已完成并通过 focused/package/document validation |
-| 下一批 | 完整 P0～P3 验证 |
+| 上一批 | binary-re 专项验收校准已完成并通过 review/focused/package/document validation |
+| 下一批 | 无；仅在全部未取消项有证据后关闭路线 |
 
 ### Current batch state
 
@@ -34,11 +34,19 @@
 
 ### binary-re 专项验收校准
 
-状态：in_progress；C1～C4与 retired migration 已完成，不创建新numbered batch。
+状态：已完成；C1～C4与 retired migration均已完成，不创建新numbered batch。
 
-目标：让 established-case status 显式投影 enabled specialties；将 VMP 能力声明收窄到已有 IDA index 的 bounded inspection，或用真实 gated producer实证；分层 synthetic、real Claude与真实目标/工具 receipt，避免把 fixture证据提升为产品能力。
+结果：established status只投影同pack executable owner、production contract与typed verified catalog完全一致的exact IDs；VMP能力收窄到已有IDA TSV bounded inspection；repository inventory、synthetic input、real contained child/Claude与未观察的producer/target-tool receipt已typed分层。
 
-验证结果：待 established-case projection、VMP producer边界与三层证据语义逐项复核；完成后才解锁完整 P0～P3验证。
+验证结果：两条独立review发现并关闭跨pack归属与catalog结构缺口；focused、受影响完整package、文档与release门禁fresh通过。本结果只解锁总验证，不代表路线完成。
+
+### 完整 P0～P3 验证
+
+状态：in_progress；当前唯一允许领取。
+
+目标：逐项复核全部未取消的原P0～P3要求，运行产品/focused/full gates，并核对真实用户路径、fresh machine receipt、direct commit与本地tracking ref。
+
+验证结果：待完整矩阵与全仓门禁；任何缺口保持open，局部green不提升为总体完成。
 
 ### Batch 833：binary-re actual analysis
 
@@ -57,8 +65,9 @@
 | `P0P3-C3` DTO/receipt/session/skill | 已完成并解锁C4 |
 | `P0P3-C4` runtime ownership | 已完成并解锁retired migration |
 | retired pack identity migration | 已完成并解锁binary-re专项验收校准 |
-| binary-re 专项验收校准 | 当前唯一允许领取 |
-| 路线总体完成 | binary-re专项及原P0～P3逐项验收全部通过 |
+| binary-re 专项验收校准 | 已完成并解锁总验证 |
+| 完整P0～P3验证 | 当前唯一允许领取 |
+| 路线总体完成 | 原P0～P3全部未取消项逐项验收通过 |
 
 ## 验证标准
 

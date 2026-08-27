@@ -179,32 +179,53 @@ type LiveAcceptanceCompletion struct {
 	NoHeavyTool   bool   `json:"noHeavyTool"`
 }
 
+type LiveAcceptanceVMPIDAEvidenceScope struct {
+	InputClass                    string `json:"inputClass"`
+	AdapterExecutionClass         string `json:"adapterExecutionClass"`
+	ClaudeReviewClass             string `json:"claudeReviewClass"`
+	SourceProducerObserved        bool   `json:"sourceProducerObserved"`
+	RealTargetToolReceiptObserved bool   `json:"realTargetToolReceiptObserved"`
+	VerifiedMeaning               string `json:"verifiedMeaning"`
+}
+
+func verifiedLiveAcceptanceVMPIDAEvidenceScope() *LiveAcceptanceVMPIDAEvidenceScope {
+	return &LiveAcceptanceVMPIDAEvidenceScope{
+		InputClass:                    "synthetic-existing-ida-tsv-export",
+		AdapterExecutionClass:         "real-contained-compiled-adapter-child",
+		ClaudeReviewClass:             "real-independent-claude-code-sessions",
+		SourceProducerObserved:        false,
+		RealTargetToolReceiptObserved: false,
+		VerifiedMeaning:               "bounded-existing-index-inspection-lifecycle",
+	}
+}
+
 type LiveAcceptanceVMPIDA struct {
-	Verified                bool                            `json:"verified"`
-	AdapterPath             string                          `json:"adapterPath"`
-	AdapterSHA256           string                          `json:"adapterSha256"`
-	AdapterProcessID        int                             `json:"adapterProcessId"`
-	RequestPath             string                          `json:"requestPath"`
-	RequestSHA256           string                          `json:"requestSha256"`
-	ProfilePreviewSHA256    string                          `json:"profilePreviewSha256"`
-	ProfileSHA256           string                          `json:"profileSha256"`
-	DeniedActions           []string                        `json:"deniedActions"`
-	GateEventID             string                          `json:"gateEventId"`
-	Authorization           string                          `json:"authorization"`
-	Lifecycle               *BinaryREAdapterLifecycleResult `json:"ordinaryLifecycle,omitempty"`
-	Run                     adapterhost.AuthorizedRunResult `json:"run"`
-	AcknowledgementEventID  string                          `json:"acknowledgementEventId"`
-	EvidenceReviewSessionID string                          `json:"evidenceReviewSessionId"`
-	EvidenceReviewDecision  string                          `json:"evidenceReviewDecision"`
-	SelectedEvidenceRef     string                          `json:"selectedEvidenceRef"`
-	EvidenceReviewCleared   bool                            `json:"evidenceReviewCleared"`
-	MemberBindingVerified   bool                            `json:"memberBindingVerified"`
-	ReviewerLineageVerified bool                            `json:"reviewerLineageVerified"`
-	TerminalReplayNoChild   bool                            `json:"terminalReplayNoChild"`
-	TerminalReplayNoClaude  bool                            `json:"terminalReplayNoClaude"`
-	NoAuthorityOrConfirmed  bool                            `json:"noAuthorityOrConfirmed"`
-	NoNetworkBoundary       string                          `json:"noNetworkBoundary"`
-	AcknowledgementBoundary string                          `json:"acknowledgementBoundary"`
+	Verified                bool                               `json:"verified"`
+	EvidenceScope           *LiveAcceptanceVMPIDAEvidenceScope `json:"evidenceScope,omitempty"`
+	AdapterPath             string                             `json:"adapterPath"`
+	AdapterSHA256           string                             `json:"adapterSha256"`
+	AdapterProcessID        int                                `json:"adapterProcessId"`
+	RequestPath             string                             `json:"requestPath"`
+	RequestSHA256           string                             `json:"requestSha256"`
+	ProfilePreviewSHA256    string                             `json:"profilePreviewSha256"`
+	ProfileSHA256           string                             `json:"profileSha256"`
+	DeniedActions           []string                           `json:"deniedActions"`
+	GateEventID             string                             `json:"gateEventId"`
+	Authorization           string                             `json:"authorization"`
+	Lifecycle               *BinaryREAdapterLifecycleResult    `json:"ordinaryLifecycle,omitempty"`
+	Run                     adapterhost.AuthorizedRunResult    `json:"run"`
+	AcknowledgementEventID  string                             `json:"acknowledgementEventId"`
+	EvidenceReviewSessionID string                             `json:"evidenceReviewSessionId"`
+	EvidenceReviewDecision  string                             `json:"evidenceReviewDecision"`
+	SelectedEvidenceRef     string                             `json:"selectedEvidenceRef"`
+	EvidenceReviewCleared   bool                               `json:"evidenceReviewCleared"`
+	MemberBindingVerified   bool                               `json:"memberBindingVerified"`
+	ReviewerLineageVerified bool                               `json:"reviewerLineageVerified"`
+	TerminalReplayNoChild   bool                               `json:"terminalReplayNoChild"`
+	TerminalReplayNoClaude  bool                               `json:"terminalReplayNoClaude"`
+	NoAuthorityOrConfirmed  bool                               `json:"noAuthorityOrConfirmed"`
+	NoNetworkBoundary       string                             `json:"noNetworkBoundary"`
+	AcknowledgementBoundary string                             `json:"acknowledgementBoundary"`
 }
 
 type LiveAcceptanceReplay struct {
@@ -572,6 +593,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		}
 		receipt.VMPIDA.TerminalReplayNoChild = true
 		receipt.VMPIDA.TerminalReplayNoClaude = replayResult.SessionLaunches == 0
+		receipt.VMPIDA.EvidenceScope = verifiedLiveAcceptanceVMPIDAEvidenceScope()
 		receipt.VMPIDA.Verified = true
 	}
 

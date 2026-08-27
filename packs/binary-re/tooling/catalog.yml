@@ -1,6 +1,6 @@
 schemaVersion: 1
 pack: binary-re
-purpose: General binary reverse engineering tooling with mature VMProtect x64 trace-based devirtualization capabilities
+purpose: General binary reverse engineering tooling with compiled static triage and bounded inspection of existing IDA TSV exports; VMProtect trace/devirtualization entries remain recipes or templates
 
 paths:
   caseRoot: <caseRoot>

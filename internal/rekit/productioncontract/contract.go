@@ -67,16 +67,22 @@ func productionInstructionReceiptKind(pack string) string {
 }
 
 type Admission struct {
-	Pack                string               `json:"pack"`
-	Maturity            string               `json:"maturity"`
-	Ready               bool                 `json:"ready"`
-	Warnings            []string             `json:"warnings"`
-	Adapters            []string             `json:"adapters"`
-	Fixture             string               `json:"fixture"`
-	Verifier            string               `json:"verifier"`
-	Instruction         string               `json:"instruction"`
-	ReceiptKind         string               `json:"receiptKind"`
-	InstructionIdentity *InstructionIdentity `json:"instructionIdentity,omitempty"`
+	Pack                          string               `json:"pack"`
+	Maturity                      string               `json:"maturity"`
+	MaturitySource                string               `json:"maturitySource"`
+	Ready                         bool                 `json:"ready"`
+	ReadyMeaning                  string               `json:"readyMeaning"`
+	Warnings                      []string             `json:"warnings"`
+	Adapters                      []string             `json:"adapters"`
+	Fixture                       string               `json:"fixture"`
+	FixtureClass                  string               `json:"fixtureClass,omitempty"`
+	RealClaudeReceiptObserved     bool                 `json:"realClaudeReceiptObserved"`
+	RealTargetToolReceiptObserved bool                 `json:"realTargetToolReceiptObserved"`
+	Verifier                      string               `json:"verifier"`
+	Instruction                   string               `json:"instruction"`
+	ReceiptKind                   string               `json:"receiptKind"`
+	ReceiptKindMeaning            string               `json:"receiptKindMeaning,omitempty"`
+	InstructionIdentity           *InstructionIdentity `json:"instructionIdentity,omitempty"`
 }
 
 type RegistryAdmission struct {
@@ -93,14 +99,14 @@ var registry = []Contract{
 		Pack:       packidentity.Canonical,
 		AdapterIDs: []string{binaryinventory.AdapterID, adapterhost.VMPIDAIndexAdapterID},
 		Fixture: SourceContract{
-			Identity: "synthetic PE and ELF parser fixtures",
+			Identity: "synthetic PE/ELF and existing IDA TSV inspection fixtures",
 			Bindings: []GoSourceBinding{
 				{Path: "internal/rekit/binaryinventory/inspect_test.go", Symbols: []string{"TestInspectSyntheticPEAndELFMatchGolden", "TestInspectRejectsBindingDriftUnsupportedAndTruncatedInput"}},
 				{Path: "internal/rekit/adapterhost/vmp_ida_index_test.go", Symbols: []string{"TestInspectVMPIDAIndexMatchesLiteralsCaseInsensitively", "TestInspectVMPIDAIndexRejectsNonCanonicalRequestAndSourceDrift"}},
 			},
 		},
 		SemanticVerifier: SourceContract{
-			Identity: "typed PE/ELF inventory and VMP/IDA packet validators",
+			Identity: "typed PE/ELF inventory and existing IDA TSV inspection packet validators",
 			Bindings: []GoSourceBinding{
 				{Path: "internal/rekit/binaryinventory/model.go", Symbols: []string{"CanonicalBytes", "Validate"}},
 				{Path: "internal/rekit/adapterhost/vmp_ida_index.go", Symbols: []string{"InspectVMPIDAIndex"}},
@@ -153,8 +159,88 @@ func CompiledInProductionAdapterIDs() []string {
 	return adapterhost.CompiledInProductionAdapterIDs()
 }
 
+func compiledInProductionAdapterIDsForPack(pack string) []string {
+	return adapterhost.CompiledInProductionAdapterIDsForPack(pack)
+}
+
+// EnabledSpecialties returns the exact supported production adapter set for a
+// mature pack. The current executable contract and the verified pack catalog
+// must agree; descriptive recipes and non-supported candidates never become
+// enabled specialties.
+func EnabledSpecialties(repoRoot, pack string) ([]string, error) {
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.ValidateSchema(); err != nil {
+		return nil, err
+	}
+	if strings.ToLower(strings.TrimSpace(m.Maturity)) != "mature" {
+		return []string{}, nil
+	}
+	contract, ok := ContractFor(m.Pack)
+	if !ok {
+		return nil, fmt.Errorf("mature pack has no production contract registry entry: %s", m.Pack)
+	}
+	contractIDs := uniqueSorted(contract.AdapterIDs)
+	if len(contractIDs) == 0 || len(contractIDs) != len(contract.AdapterIDs) {
+		return nil, fmt.Errorf("production contract specialties are empty or duplicated: %s", m.Pack)
+	}
+	compiled := compiledInProductionAdapterIDsForPack(m.Pack)
+	if !slices.Equal(contractIDs, compiled) {
+		return nil, fmt.Errorf("production contract specialties differ from executable pack ownership: contract=%v executable=%v", contractIDs, compiled)
+	}
+	catalogIDs, err := supportedCatalogSpecialties(m)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Equal(contractIDs, catalogIDs) {
+		return nil, fmt.Errorf("enabled specialty catalog differs from production contract: contract=%v catalog=%v", contractIDs, catalogIDs)
+	}
+	return contractIDs, nil
+}
+
+func supportedCatalogSpecialties(m *manifest.Manifest) ([]string, error) {
+	const catalogRel = "tooling/catalog.yml"
+	catalogs := 0
+	for _, rel := range m.ToolingFiles {
+		if strings.TrimSpace(rel) == catalogRel {
+			catalogs++
+		}
+	}
+	if catalogs != 1 {
+		return nil, fmt.Errorf("mature production pack requires exactly one %s entry: %s", catalogRel, m.Pack)
+	}
+	path, err := m.SourcePath(catalogRel)
+	if err != nil {
+		return nil, err
+	}
+	data, err := fs.ReadStableRegularFileAnchored(m.PackRoot, path, "production tooling catalog", 2<<20)
+	if err != nil {
+		return nil, fmt.Errorf("read production tooling catalog %s: %w", catalogRel, err)
+	}
+	catalog, err := manifest.ParseToolCatalog(data, m.Pack)
+	if err != nil {
+		return nil, fmt.Errorf("parse production tooling catalog %s: %w", catalogRel, err)
+	}
+	ids := []string{}
+	for _, row := range catalog.Tools {
+		if strings.ToLower(strings.TrimSpace(row["status"])) == "supported" {
+			ids = append(ids, row["id"])
+		}
+	}
+	return uniqueSorted(ids), nil
+}
+
 func BuildAdmission(repoRoot string, summary manifest.PackSummary) Admission {
-	admission := Admission{Pack: summary.ID, Maturity: summary.Maturity, Ready: true, Warnings: []string{}}
+	admission := Admission{
+		Pack:           summary.ID,
+		Maturity:       summary.Maturity,
+		MaturitySource: "manifest-declared",
+		Ready:          true,
+		ReadyMeaning:   "repository-contract-inventory",
+		Warnings:       []string{},
+	}
 	if summary.Maturity != "mature" {
 		return admission
 	}
@@ -166,13 +252,17 @@ func BuildAdmission(repoRoot string, summary manifest.PackSummary) Admission {
 	}
 	admission.Adapters = append([]string{}, contract.AdapterIDs...)
 	admission.Fixture = contract.Fixture.Identity
+	admission.FixtureClass = "synthetic-repository-fixture"
 	admission.Verifier = contract.SemanticVerifier.Identity
 	admission.Instruction = contract.Instruction.Mode
 	admission.ReceiptKind = contract.ReceiptKind
-	for _, id := range contract.AdapterIDs {
-		if !slices.Contains(CompiledInProductionAdapterIDs(), id) {
-			admission.Warnings = append(admission.Warnings, fmt.Sprintf("production contract adapter is not compiled in: %s", id))
-		}
+	admission.ReceiptKindMeaning = "expected-instruction-consumption-receipt-kind"
+	contractIDs := uniqueSorted(contract.AdapterIDs)
+	executableIDs := compiledInProductionAdapterIDsForPack(summary.ID)
+	if len(contractIDs) == 0 || len(contractIDs) != len(contract.AdapterIDs) || !slices.Equal(contractIDs, executableIDs) {
+		admission.Warnings = append(admission.Warnings, fmt.Sprintf("production contract adapters differ from executable pack ownership: contract=%v executable=%v", contractIDs, executableIDs))
+	} else if _, err := EnabledSpecialties(repoRoot, summary.ID); err != nil {
+		admission.Warnings = append(admission.Warnings, fmt.Sprintf("production enabled specialties are invalid: %v", err))
 	}
 	admission.Warnings = append(admission.Warnings, validateGoSourceContract(repoRoot, "fixture", contract.Fixture)...)
 	admission.Warnings = append(admission.Warnings, validateGoSourceContract(repoRoot, "semantic verifier", contract.SemanticVerifier)...)
@@ -217,6 +307,11 @@ func BuildRegistryAdmission(summaries []manifest.PackSummary) RegistryAdmission 
 	for _, contract := range registry {
 		admission.ContractPacks = append(admission.ContractPacks, contract.Pack)
 		admission.ContractAdapters = append(admission.ContractAdapters, contract.AdapterIDs...)
+		contractIDs := uniqueSorted(contract.AdapterIDs)
+		executableIDs := compiledInProductionAdapterIDsForPack(contract.Pack)
+		if len(contractIDs) == 0 || len(contractIDs) != len(contract.AdapterIDs) || !slices.Equal(contractIDs, executableIDs) {
+			admission.Warnings = append(admission.Warnings, fmt.Sprintf("production contract adapter ownership differs for pack %s: contract=%v executable=%v", contract.Pack, contractIDs, executableIDs))
+		}
 	}
 	admission.MaturePacks = uniqueSorted(admission.MaturePacks)
 	admission.ContractPacks = uniqueSorted(admission.ContractPacks)

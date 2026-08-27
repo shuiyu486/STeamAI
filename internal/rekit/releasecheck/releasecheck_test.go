@@ -123,8 +123,8 @@ func TestReleaseCheckIncludesProductionMaturityAdmission(t *testing.T) {
 		t.Fatalf("production pack admission count=%d, want 2: %+v", len(result.ProductionPacks), result.ProductionPacks)
 	}
 	for _, admission := range result.ProductionPacks {
-		if !admission.Ready || admission.InstructionIdentity == nil || admission.InstructionIdentity.SHA256 == "" || len(admission.InstructionIdentity.Sources) == 0 {
-			t.Fatalf("production pack admission omitted four-element or instruction identity evidence: %+v", admission)
+		if !admission.Ready || admission.MaturitySource != "manifest-declared" || admission.ReadyMeaning != "repository-contract-inventory" || admission.FixtureClass != "synthetic-repository-fixture" || admission.RealClaudeReceiptObserved || admission.RealTargetToolReceiptObserved || admission.ReceiptKindMeaning != "expected-instruction-consumption-receipt-kind" || admission.InstructionIdentity == nil || admission.InstructionIdentity.SHA256 == "" || len(admission.InstructionIdentity.Sources) == 0 {
+			t.Fatalf("production pack admission omitted or overstated repository inventory evidence: %+v", admission)
 		}
 		data, err := json.Marshal(admission.InstructionIdentity)
 		if err != nil {

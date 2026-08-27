@@ -1,6 +1,6 @@
 # Binary RE 通用分析基线
 
-通用 static triage、function behavior analysis、API behavior review 与 tooling sidecar review 是 `binary-re` 的基线能力。VMProtect/IDA 不是另一套 pack，而是需要时由顶层 router 进入的成熟专项能力。
+通用 static triage、function behavior analysis、API behavior review 与 tooling sidecar review 是 `binary-re` 的基线能力。VMProtect/IDA 不是另一套 pack；当前 enabled specialty 只覆盖已有 IDA TSV export 的 bounded inspection，trace/devirtualization 仍由顶层 router 进入 review-first workflow/recipe，不是已启用 producer。
 
 ## 何时读取
 

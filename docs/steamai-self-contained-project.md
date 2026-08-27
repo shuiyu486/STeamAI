@@ -155,6 +155,7 @@ Mature production pack 的 Claude session 还必须绑定 project-local instruct
 - 所有 typed choices 与 invocation 完整保留；
 - 不携带完整 project handoff、takeover、queues 或大段诊断对象；
 - request identity 无效或完整内容超预算时，不截断、不重建，返回 `details-required` blocked envelope；
+- established case 的 `case.enabledSpecialties[]` 在 compact/full JSON 与 text 中保持同一 exact adapter ID 集合；它只表示同 pack project-local executable owner、production contract 与 typed verified catalog `supported` 三者完全一致，不表示已授权、已执行、已有真实 target/tool receipt或 recipe/template 已成为 producer；
 - full `json` 只在 typed envelope 明确要求，或用户/维护者显式传 `--diagnostics` / `--format=json` 时按需读取；默认 no-mode `status` 不显示 SHA、durable lane/session ID、generation、absolute path 或内部维护 command。
 
 ## 6. 故障恢复

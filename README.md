@@ -43,7 +43,7 @@ claude
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 
-> Batch 828 的 Windows 自包含闭环与 Batch 829 的 canonical GitHub repository identity 已完成并归档。`steamai-product-optimization-v1` 的核心闭环、唯一 `binary-re`、durable pause/resume/stop、ordinary actual binary analysis 与路线级真实验收已收口；后续等待用户明确批准新路线，不自动创建 Batch 834。完成证据只认 Git-local machine receipt、本地 tracking ref 和 `docs/real-usage-hardening-roadmap.md` 记录的真实 gate，本地 readiness 不冒充 remote CI green。
+> Batch 828 的 Windows 自包含闭环、Batch 829 的 canonical GitHub repository identity、Batch 830～833、P0P3-C1～C4与retired identity migration已完成并归档。`steamai-product-optimization-v1` 当前仍按active route完成`binary-re`专项验收校准，随后执行完整P0～P3验证；局部live acceptance、synthetic fixture、manifest maturity或测试通过都不单独代表路线完成，也不自动创建Batch 834。完成证据只认Git-local machine receipt、本地tracking ref与`docs/real-usage-hardening-roadmap.md`的当前记录，本地readiness不冒充remote CI green。
 
 STeamAI 不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。heavy action 只在 strict durable profile 与 fresh `authorized-gate` 覆盖的 exact scope/budget/stop/output 内执行并留证；`bounded-autonomous-v1` 只是显式、短时、有界的免逐次询问，不是无限权限。
 
@@ -62,7 +62,7 @@ Claude Code Remote Control 仅作为显式 opt-in 的 read-only Reviewer transpo
 - Mission Control 最终产品方向：`docs/mission-control-product-direction.md`
 - 当前架构说明：`docs/design.md`
 - 历史真实可用性与产品化程度评估快照：`docs/current-usability-assessment-2026-08-11.md`（仅用于追溯当时 Windows-only 评分与候选；其中“第二个成熟 pack 待做”已由 mature `web-security` vertical slice 超越，不是当前路线或默认 read-first；当前事实看 active route、release readiness 与 fresh machine inventory）
-- 已实现的日常产品四闭环详细设计：`docs/daily-product-closure-plan.md`（`DPC-01`～`DPC-04` 均已完成实现和独立真实验收；当前只按需读取完成证据与共同边界）
+- 已实现的日常产品四闭环详细设计：`docs/daily-product-closure-plan.md`（`DPC-01`～`DPC-04` 均已完成实现与各自验收；其中binary-re live gate使用synthetic existing-index input，不能作为IDA export producer、真实目标工具或VMProtect trace/devirtualization实证；当前只按需读取历史完成证据与共同边界）
 - 后续真实使用有序路线与压缩后接手协议：`docs/real-usage-hardening-roadmap.md`
 - 当前批次和路线指针投影：`docs/batch-plan.md`
 - 启动已批准路线的短 goal 与新会话接手指南：`docs/autonomous-goal.md`
@@ -120,7 +120,7 @@ fresh target 会选择默认 `binary-re`；已通过 `attach/init` 绑定且 doc
 
 外部 initializer 对尚未接入的普通非空目录先做只读分类并返回 `directory-adoption-required`；选择 `initialize-in-place` 前零写入。接入使用 canonical init preview 的 exact plan SHA，再执行 hash-bound Apply；只允许新增或保留现有文件，managed collision、partial state、wrong binding、dual root、symlink/junction/reparse 和 plan/source/target drift 均 fail-closed。Apply 发布 `/steamai`、`.steamai` 和 verified project-local runtime bundle；从此才进入上面的项目内日常路径。bundle/copy、installed-skill typed-command bridge 与完整 Windows local minimum 均已通过，路线已按 Windows 本机口径完成。
 
-`binary-re` 的成熟 VMProtect/IDA capability 还支持查询用户已经导出的 `function_index.tsv`（必需）以及可选 `strings.tsv` / `imports.tsv` / `xrefs.tsv`。主 Agent 会先预览内容寻址 request 和最长 15 分钟的 exact `inspect` profile；只有用户确认 profile 且 canonical `authorized-gate` current 时，独立 `rekit-adapter-host` 才运行 compiled-in `vmp-ida-index-inspector`，随后写入 bounded packet/report/receipt/observation、恢复默认 manual profile，并交给独立 evidence review、member 和 Reviewer。该路径不安装或启动 IDA、不打开 IDB、不联网，也从不执行 tooling catalog 的 `entry`；当前 `NoNetwork` 只表示固定 Go child 没有网络代码路径，不是 OS 级 socket 隔离。
+`binary-re` 的 established-case status 会显式投影 `enabledSpecialties`；该集合只取当前 pack 的 executable owner、production contract 与 typed verified project-local catalog `supported` 集合完全一致的 exact adapter IDs。当前为 `static-binary-triage-sidecar` 与 `vmp-ida-index-inspector`；它不表示已授权、已执行或已有真实 target/tool receipt。后者只查询用户已经导出的 `function_index.tsv`（必需）以及可选 `strings.tsv` / `imports.tsv` / `xrefs.tsv`。主 Agent 会先预览内容寻址 request 和最长 15 分钟的 exact `inspect` profile；只有用户确认 profile 且 canonical `authorized-gate` current 时，独立 `rekit-adapter-host` 才运行 compiled-in inspector，随后写入 bounded packet/report/receipt/observation、恢复默认 manual profile，并交给独立 evidence review、member 和 Reviewer。该路径不生成 export、不安装或启动 IDA、不打开 IDB、不联网，也从不执行 tooling catalog 的 `entry`；VMProtect trace/devirtualization 仍是 recipe/template，不是已启用 producer。当前 `NoNetwork` 只表示固定 Go child 没有网络代码路径，不是 OS 级 socket 隔离。
 
 人工纠偏也只提交文本；多个可纠偏 lane（包括已完成 lane）会先返回 typed choices，选择前零写入、零 Claude launch。用户只需告诉主 Agent“按这条意见纠偏：优先核对控制流证据，区分 observation 与 hypothesis”；主 Agent 选择同一个 canonical lane ID，并只调用 manifest 绑定的项目内 `steamai.exe host`。中央源码目录下的 direct host 仅作为 maintenance/internal API，不是新项目默认入口。
 
@@ -230,7 +230,7 @@ go run ./cmd/rekit-host -live-acceptance -adapter "<outside-repository>/rekit-ad
 go run ./cmd/rekit-host -live-acceptance -pack "<_template-or-web-security>" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
 ```
 
-通过 receipt 必须同时满足 `passed=true`、exact `pack`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。attached case 还必须证明 member packet cutpoint、accepted Reviewer intake cutpoint、同一 goal 的零 Claude completion recovery 和 terminal replay，且 `replayLaunches=0`。每个 member 记录从所选 pack manifest 派生的 `outputContract`（manifest path/SHA、task type、route ID 与 fields），Reviewer rejection/acceptance 必须绑定同一 exact route；completion 还会重验 packet shard 与 canonical `ReviewerResult.items` 完全一致，并都指向当前 member manifest。action-ready 路径继续要求 TaskContext 绑定当前 RESUME/checkpoint/owner/correction；终态 receipt 只把已完成 attempt 当作 immutable snapshot 验证其内部 artifact hashes、mission intent 与当前 exact pack contract，不能因 completion 合法刷新 lane 文档而误报历史快照漂移。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
+通过 receipt 必须同时满足 `passed=true`、exact `pack`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。默认 `binary-re` 的 `vmpIda.verified=true` 只表示 `evidenceScope.verifiedMeaning=bounded-existing-index-inspection-lifecycle`；同一 scope 还必须逐项写明 synthetic existing-IDA-TSV input、real contained compiled adapter child、real independent Claude Code sessions，以及 `sourceProducerObserved=false`、`realTargetToolReceiptObserved=false`，因此不能提升为 IDA export producer、真实目标工具验收或 VMProtect trace/devirtualization 实证。attached case 还必须证明 member packet cutpoint、accepted Reviewer intake cutpoint、同一 goal 的零 Claude completion recovery 和 terminal replay，且 `replayLaunches=0`。每个 member 记录从所选 pack manifest 派生的 `outputContract`（manifest path/SHA、task type、route ID 与 fields），Reviewer rejection/acceptance 必须绑定同一 exact route；completion 还会重验 packet shard 与 canonical `ReviewerResult.items` 完全一致，并都指向当前 member manifest。action-ready 路径继续要求 TaskContext 绑定当前 RESUME/checkpoint/owner/correction；终态 receipt 只把已完成 attempt 当作 immutable snapshot 验证其内部 artifact hashes、mission intent 与当前 exact pack contract，不能因 completion 合法刷新 lane 文档而误报历史快照漂移。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
 
 维护 RH-09 Windows 连续试用时，使用 Go-owned 聚合 gate；它顺序运行默认 `binary-re`、`_template`、`web-security` 三个真实任务，并追加既有真实进程中断恢复门槛，任一失败仍保留在最终仓库外 receipt 中：
 

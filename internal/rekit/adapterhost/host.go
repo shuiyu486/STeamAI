@@ -47,6 +47,20 @@ func CompiledInProductionAdapterIDs() []string {
 	return ids
 }
 
+// CompiledInProductionAdapterIDsForPack returns only adapters whose fixed
+// execution branch owns the exact pack. It shares the executor's pack binding
+// rather than deriving ownership from catalog or production-contract metadata.
+func CompiledInProductionAdapterIDsForPack(pack string) []string {
+	pack = strings.TrimSpace(pack)
+	ids := []string{}
+	for _, id := range CompiledInProductionAdapterIDs() {
+		if authorizedAdapterPack(id) == pack {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 type hostTestHooks struct {
 	beforeReportWrite                             func() error
 	afterCleanupIdentityOpen                      func(string) error

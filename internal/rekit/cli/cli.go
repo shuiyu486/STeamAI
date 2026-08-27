@@ -39,6 +39,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/productioncontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
@@ -3765,6 +3766,7 @@ type statusCase struct {
 	TemplatePack        string   `json:"templatePack"`
 	PackMatchesMetadata bool     `json:"packMatchesMetadata"`
 	PackDiagnostic      string   `json:"packDiagnostic,omitempty"`
+	EnabledSpecialties  []string `json:"enabledSpecialties"`
 	NextSteps           []string `json:"nextSteps,omitempty"`
 	ProjectName         string   `json:"projectName"`
 	ProjectRoot         string   `json:"projectRoot"`
@@ -4341,6 +4343,11 @@ func runStatusText(ctx runtime.Context, opt Options, out io.Writer) error {
 		}
 		if strings.TrimSpace(status.Case.PackDiagnostic) != "" {
 			if _, err := fmt.Fprintf(out, "status case pack diagnostic：%s\n", status.Case.PackDiagnostic); err != nil {
+				return err
+			}
+		}
+		for _, specialty := range status.Case.EnabledSpecialties {
+			if _, err := fmt.Fprintf(out, "status case enabled specialty：%s\n", specialty); err != nil {
 				return err
 			}
 		}
@@ -9047,6 +9054,10 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 			return statusInventory{}, err
 		}
 		status.Mode = "case"
+		enabledSpecialties, err := productioncontract.EnabledSpecialties(ctx.RepoRoot, ctx.Pack)
+		if err != nil {
+			return statusInventory{}, fmt.Errorf("resolve enabled case specialties: %w", err)
+		}
 		caseShim := buildStatusCaseShim(ctx.RepoRoot, inst.CaseRoot)
 		status.CaseShim = caseShim
 		status.CaseShim.NextSteps = statusCaseShimNextSteps(caseShim, inst.CaseRoot, statusRepairPack(inst, ctx.Pack))
@@ -9058,6 +9069,7 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 			TemplatePack:        inst.TemplatePack,
 			PackMatchesMetadata: statusPackMatchesMetadata(ctx.Pack, inst.TemplatePack),
 			PackDiagnostic:      statusPackDiagnostic(ctx.Pack, inst.TemplatePack, packSource),
+			EnabledSpecialties:  enabledSpecialties,
 			NextSteps:           statusCaseNextSteps(inst, ctx.Pack, packSource),
 			ProjectName:         inst.ProjectName,
 			ProjectRoot:         inst.ProjectRoot,

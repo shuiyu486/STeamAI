@@ -1,6 +1,6 @@
 # binary-re tooling
 
-本目录同时承载通用 binary/function/API passive analysis tooling，以及成熟 VMProtect x64 trace-based devirtualization/IDA sidecar 能力。case 私有目标与 raw output 始终留在 project-local artifact/sidecar。
+本目录同时承载通用 binary/function/API passive analysis tooling、compiled static triage，以及对已有 IDA TSV export 的 bounded inspection。VMProtect trace/devirtualization 当前仅保留 recipe/template，不是已启用 producer；case 私有目标与 raw output 始终留在 project-local artifact/sidecar。
 
 ## 内容分层
 

@@ -77,14 +77,14 @@ func retiredVMPRecoveryWrites() map[string]PackRecoveryWrite {
 func defaultPackRecoveryWrites() map[string]PackRecoveryWrite {
 	prefix := "references/" + defaults.DefaultPack + "/"
 	return map[string]PackRecoveryWrite{
-		prefix + "README.md":                   generation("managed-file", "dbb5dcf99256d2ef8fecd46ea573483299f6547c7359c39b222aa41bb1f08a70", "d9303c2ae1cb48d8fcd24c269e025020941228aad4fe2215a90e70344b8bee5a"),
+		prefix + "README.md":                   generation("managed-file", "dbb5dcf99256d2ef8fecd46ea573483299f6547c7359c39b222aa41bb1f08a70", "d9303c2ae1cb48d8fcd24c269e025020941228aad4fe2215a90e70344b8bee5a", "0438b4d5ba6f76ad609c93b3127593f706865c166f5fb18953e7a09f5d6472e6", "f5fe89f502a555a9dcd6700cdb1a905cea023742f4a150050b55e072f1ecc239"),
 		prefix + "agent-driven-re.md":          generation("managed-file", "b52e2f367db70034f09b28820e1f99924987a3a9c21f4abd092c443910b24bf8", "004196bacabfcfa644e22f9e87c2234c4420d24ce8a9338953594ca9b1be081f"),
 		prefix + "workflow-template.md":        generation("managed-file", "ea9b72db6a3820a6f2e5708a9a8d8afac5fc203b58a03fe232a5719b88198c61", "795e22978f407e6c0ca48cb17341099bb90e5b3ea0602bf79ee306cf99e64d5a"),
 		prefix + "progressive-disclosure.md":   generation("managed-file", "468ef2e1aa6d2bea6167bbdb8b163fcc8588661883ba6452e23c03fc7c864331", "a583693c67c71edbb4ecf1c58bab3ab99cb58b387d1bdaaffe64ad226d2bf6a7", "c562a24f8c944bd894f60e526248cf87f1c4c74c7ff9636e6e92958b3decb5d1"),
 		prefix + "toolchain-router.md":         generation("managed-file", "816628c21cfa7df813a8c730486c9da0a7fc3f452affdf15d8405be94f750b9e", "c2ac4a190674c2cfebfd25c8344b83171eb26a5bcc62573ff5fc0935a5816b57"),
 		prefix + "singleton-handler-review.md": generation("managed-file", "cbd2cae562d09e9a14f07454b5eb20c5d927a3d587670b571c2b00bc145dd23c"),
 		prefix + "lane-collaboration.md":       generation("managed-file", "18d3963aefb6f8e9bd85c17724a12220451162b50c364e5e68ff488ca8c167b9", "fa36ab439290c9f747c5e015aba1d27d5784bd17b7cacd54d03400f6377d974f", "941ec5a3a625cd61615be8ea948e2aa9b2970d70cffa37cbb609d9e49b031ab6"),
-		prefix + "general-analysis.md":         generation("managed-file", "c6f70c9f15576402f563aaa190413fd3902463ee05ee6baa2b8da86b4a5f011c"),
+		prefix + "general-analysis.md":         generation("managed-file", "c6f70c9f15576402f563aaa190413fd3902463ee05ee6baa2b8da86b4a5f011c", "0b905526edf8b6ac9e68e41898c0375554787c7cf1b1e29fa53c7d78a1581018", "f91a5b0813ab20ed87fa7ed4d50748b65abc249a8be96879f808b6567a3639eb"),
 		prefix + "general-agent-team.md":       generation("managed-file", "b148397a565bf81468599d033bc5c3e76b80ffa8441cef029478d10ae2ab01ce"),
 		prefix + "general-workflow.md":         generation("managed-file", "368efcf14d0c20814c50ed32e7309a7dafb725109c5a4f76e283681283c5430e"),
 		prefix + "general-toolchain-router.md": generation("managed-file", "e1f94327afb948713fb942b4e6b9c090c329156de7e3438857c48566685e2c2c"),

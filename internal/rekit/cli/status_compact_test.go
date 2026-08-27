@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,6 +41,54 @@ func TestRunStatusCompactJSONCurrentRequestIdentityParity(t *testing.T) {
 	}
 	if actual != compact.MissionControlRunbook.CurrentDriverRequestSHA256 {
 		t.Fatalf("compact request SHA-256 = %q, recomputed %q", compact.MissionControlRunbook.CurrentDriverRequestSHA256, actual)
+	}
+}
+
+func TestEstablishedBinaryREStatusProjectsEnabledSpecialtiesAcrossFormats(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "binary-re")
+	args := []string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re"}
+	want := []string{"static-binary-triage-sidecar", "vmp-ida-index-inspector"}
+
+	var fullOut bytes.Buffer
+	if err := Run(append(append([]string{}, args...), "-Format", "json"), &fullOut); err != nil {
+		t.Fatal(err)
+	}
+	var full statusInventory
+	if err := json.Unmarshal(fullOut.Bytes(), &full); err != nil {
+		t.Fatal(err)
+	}
+	if full.Case == nil || !slices.Equal(full.Case.EnabledSpecialties, want) {
+		t.Fatalf("full status enabled specialties = %+v, want %v", full.Case, want)
+	}
+
+	var compactOut bytes.Buffer
+	if err := Run(append(append([]string{}, args...), "-Format", "compact-json"), &compactOut); err != nil {
+		t.Fatal(err)
+	}
+	if compactOut.Len() > statusCompactJSONMaxBytes {
+		t.Fatalf("compact status exceeded budget: %d", compactOut.Len())
+	}
+	var compact statusCompactInventory
+	if err := json.Unmarshal(compactOut.Bytes(), &compact); err != nil {
+		t.Fatal(err)
+	}
+	if compact.Case == nil || !slices.Equal(compact.Case.EnabledSpecialties, want) {
+		t.Fatalf("compact status enabled specialties = %+v, want %v", compact.Case, want)
+	}
+
+	var textOut bytes.Buffer
+	if err := Run(append(append([]string{}, args...), "-Format", "text"), &textOut); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range want {
+		if strings.Count(textOut.String(), "status case enabled specialty："+id+"\n") != 1 {
+			t.Fatalf("text status omitted or duplicated enabled specialty %s:\n%s", id, textOut.String())
+		}
+	}
+	for _, forbidden := range []string{"vmenter-trace-script", "ida-agent-bridge", "x64dbg-mcp"} {
+		if strings.Contains(fullOut.String(), forbidden) || strings.Contains(compactOut.String(), forbidden) || strings.Contains(textOut.String(), forbidden) {
+			t.Fatalf("status promoted non-supported catalog entry %s", forbidden)
+		}
 	}
 }
 
