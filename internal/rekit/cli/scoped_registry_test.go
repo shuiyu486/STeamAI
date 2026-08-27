@@ -278,7 +278,21 @@ func TestRuntimeOwnerInventoryCoversEveryPublicCommand(t *testing.T) {
 	if len(seen) != len(commands.Public()) {
 		t.Fatalf("runtime owner inventory=%d public commands=%d", len(seen), len(commands.Public()))
 	}
-	if len(preRuntimeCommandOwners) != 2 || preRuntimeCommandOwners[0].Name != "current-sync-maintenance" || preRuntimeCommandOwners[0].Mode != commands.MutationModeCurrentSync || len(preRuntimeCommandOwners[0].Scopes) != 1 || preRuntimeCommandOwners[0].Scopes[0] != (commands.CommandScope{Command: commands.Sync, Mode: commands.MutationModeCurrentSync}) || preRuntimeCommandOwners[0].Validate == nil || preRuntimeCommandOwners[1].Name != "current-sync-recovery-front-door" || preRuntimeCommandOwners[1].Mode != "pending-current-sync-recovery" || len(preRuntimeCommandOwners[1].Scopes) != 0 || preRuntimeCommandOwners[1].Validate == nil {
+	if len(preRuntimeCommandOwners) != 3 ||
+		preRuntimeCommandOwners[0].Name != "retired-pack-migration" ||
+		preRuntimeCommandOwners[0].Mode != commands.MutationModeDefault ||
+		len(preRuntimeCommandOwners[0].Scopes) != 1 ||
+		preRuntimeCommandOwners[0].Scopes[0] != (commands.CommandScope{Command: commands.MigrateState, Mode: commands.MutationModeDefault}) ||
+		preRuntimeCommandOwners[0].Validate == nil ||
+		preRuntimeCommandOwners[1].Name != "current-sync-maintenance" ||
+		preRuntimeCommandOwners[1].Mode != commands.MutationModeCurrentSync ||
+		len(preRuntimeCommandOwners[1].Scopes) != 1 ||
+		preRuntimeCommandOwners[1].Scopes[0] != (commands.CommandScope{Command: commands.Sync, Mode: commands.MutationModeCurrentSync}) ||
+		preRuntimeCommandOwners[1].Validate == nil ||
+		preRuntimeCommandOwners[2].Name != "current-sync-recovery-front-door" ||
+		preRuntimeCommandOwners[2].Mode != "pending-current-sync-recovery" ||
+		len(preRuntimeCommandOwners[2].Scopes) != 0 ||
+		preRuntimeCommandOwners[2].Validate == nil {
 		t.Fatalf("pre-runtime owners drifted: %+v", preRuntimeCommandOwners)
 	}
 }

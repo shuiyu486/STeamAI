@@ -20,6 +20,7 @@ import (
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
@@ -47,6 +48,8 @@ type preparedPlan struct {
 	legacyEntries  []InventoryEntry
 	plannedEntries []InventoryEntry
 	publications   []plannedFile
+	rootFiles      []plannedRootFile
+	onboarding     *plannedOnboarding
 	receipt        []byte
 	receiptValue   Receipt
 	legacyMetadata []byte
@@ -54,26 +57,29 @@ type preparedPlan struct {
 }
 
 type planIdentity struct {
-	SchemaVersion      int               `json:"schemaVersion"`
-	Kind               string            `json:"kind"`
-	Command            string            `json:"command"`
-	CaseRoot           string            `json:"caseRoot"`
-	RepoRoot           string            `json:"repoRoot"`
-	Pack               string            `json:"pack"`
-	ProjectName        string            `json:"projectName"`
-	CaseRootIdentity   Identity          `json:"caseRootIdentity"`
-	SourceRootIdentity Identity          `json:"sourceRootIdentity"`
-	LegacyInventory    Inventory         `json:"legacyInventory"`
-	LegacyInstance     FileBinding       `json:"legacyInstance"`
-	LegacyState        FileBinding       `json:"legacyState"`
-	LegacyMetadata     *FileBinding      `json:"legacyMetadata,omitempty"`
-	LegacySkill        FileBinding       `json:"legacySkill"`
-	CurrentInstance    FileBinding       `json:"currentInstance"`
-	CurrentState       FileBinding       `json:"currentState"`
-	CurrentSkill       FileBinding       `json:"currentSkill"`
-	BundleManifest     FileBinding       `json:"bundleManifest"`
-	Writes             []Write           `json:"writes"`
-	Publications       []publicationHash `json:"publications"`
+	SchemaVersion      int                   `json:"schemaVersion"`
+	Kind               string                `json:"kind"`
+	Command            string                `json:"command"`
+	CaseRoot           string                `json:"caseRoot"`
+	RepoRoot           string                `json:"repoRoot"`
+	SourcePack         string                `json:"sourcePack"`
+	Pack               string                `json:"pack"`
+	ProjectName        string                `json:"projectName"`
+	CaseRootIdentity   Identity              `json:"caseRootIdentity"`
+	SourceRootIdentity Identity              `json:"sourceRootIdentity"`
+	LegacyInventory    Inventory             `json:"legacyInventory"`
+	LegacyInstance     FileBinding           `json:"legacyInstance"`
+	LegacyState        FileBinding           `json:"legacyState"`
+	LegacyMetadata     *FileBinding          `json:"legacyMetadata,omitempty"`
+	LegacySkill        FileBinding           `json:"legacySkill"`
+	CurrentInstance    FileBinding           `json:"currentInstance"`
+	CurrentState       FileBinding           `json:"currentState"`
+	CurrentSkill       FileBinding           `json:"currentSkill"`
+	BundleManifest     FileBinding           `json:"bundleManifest"`
+	Onboarding         *OnboardingProjection `json:"onboarding,omitempty"`
+	RootFiles          []RootFileTransition  `json:"rootFiles,omitempty"`
+	Writes             []Write               `json:"writes"`
+	Publications       []publicationHash     `json:"publications"`
 }
 
 type publicationHash struct {
@@ -159,7 +165,13 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 		return Plan{}, fmt.Errorf("legacy state root is partial: missing .rekit/state.json")
 	}
 	legacyStateBinding := bindingFor(".rekit/state.json", legacyState)
-	inst, err := instance.Read(caseRoot)
+	sourceSelector := strings.ToLower(strings.TrimSpace(pack))
+	var inst instance.Instance
+	if packidentity.IsRetired(sourceSelector) {
+		inst, err = instance.ReadRetiredMigrationSource(caseRoot, sourceSelector)
+	} else {
+		inst, err = instance.Read(caseRoot)
+	}
 	if err != nil {
 		return Plan{}, err
 	}
@@ -176,14 +188,18 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 	if !casebind.SameExistingPath(inst.TemplateRoot, repoRoot) {
 		return Plan{}, fmt.Errorf("legacy project is attached to a different templateRoot: %s", inst.TemplateRoot)
 	}
-	if strings.TrimSpace(pack) == "" {
-		pack = inst.TemplatePack
+	if sourceSelector == "" {
+		sourceSelector = strings.ToLower(strings.TrimSpace(inst.TemplatePack))
 	}
-	if !strings.EqualFold(strings.TrimSpace(pack), strings.TrimSpace(inst.TemplatePack)) {
+	if !strings.EqualFold(sourceSelector, strings.TrimSpace(inst.TemplatePack)) {
 		return Plan{}, fmt.Errorf("legacy project is attached to a different templatePack: %s", inst.TemplatePack)
 	}
-	pack = inst.TemplatePack
-	m, err := manifest.Load(repoRoot, pack)
+	sourcePack := inst.TemplatePack
+	targetPack := sourcePack
+	if packidentity.IsRetired(sourcePack) {
+		targetPack = packidentity.Canonical
+	}
+	m, err := manifest.Load(repoRoot, targetPack)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -226,6 +242,13 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	metadataSourcePack, err := strictLegacyTemplatePack(legacyMetadata)
+	if err != nil {
+		return Plan{}, err
+	}
+	if metadataSourcePack != sourcePack {
+		return Plan{}, fmt.Errorf("legacy metadata templatePack differs from migration source pack")
+	}
 	binding := bindingFor(".re-template.yml", legacyMetadata)
 	legacyMetadataBinding := &binding
 
@@ -233,12 +256,16 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 	if projectName == "" {
 		projectName = casebind.ProjectNameFromRoot(caseRoot)
 	}
-	bundle, err := runtimebundle.Build(repoRoot, pack)
+	bundle, err := runtimebundle.Build(repoRoot, targetPack)
 	if err != nil {
 		return Plan{}, err
 	}
-	currentInstance := []byte(casebind.STeamAIInstanceText(caseRoot, pack, projectName, runtimebundle.ManifestRel, bundle.ManifestSHA256))
-	currentState, err := relocatableState(legacyState, pack)
+	currentInstance := []byte(casebind.STeamAIInstanceText(caseRoot, targetPack, projectName, runtimebundle.ManifestRel, bundle.ManifestSHA256))
+	rootTransitions, rootFiles, err := planRetiredRootFiles(caseRoot, sourcePack, projectName, m)
+	if err != nil {
+		return Plan{}, err
+	}
+	currentState, err := relocatableState(legacyState, sourcePack, targetPack, rootTransitions)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -276,7 +303,13 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 	currentStateBinding := bindingFor(".steamai/state.json", currentState)
 	currentSkillBinding := bindingFor(".claude/skills/steamai/SKILL.md", currentSkill)
 	bundleBinding := bindingFor(".steamai/"+runtimebundle.ManifestRel, bundle.ManifestData)
+	onboarding, err := planRetiredOnboarding(caseRoot, sourcePack, targetPack, contents, currentInstanceBinding, currentStateBinding, currentSkillBinding)
+	if err != nil {
+		return Plan{}, err
+	}
 	writes := plannedWrites(publications, currentSkillBinding, legacySkillBinding)
+	writes = append(writes, onboardingProjectionWrites(onboarding)...)
+	writes = append(writes, rootTransitionWrites(rootTransitions)...)
 	receiptWrite := Write{Path: ReceiptRel, Kind: "state-root-migration-receipt", Action: "create"}
 	identityWrites := append(append([]Write(nil), writes...), receiptWrite)
 	publicationBindings := make([]publicationHash, 0, len(publications)+1)
@@ -284,25 +317,29 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 		publicationBindings = append(publicationBindings, publicationHash{Path: ".steamai/" + publication.rel, Kind: publication.kind, SHA256: sha256Hex(publication.data), Size: int64(len(publication.data)), Mode: uint32(publication.mode.Perm())})
 	}
 	publicationBindings = append(publicationBindings, publicationHash{Path: currentSkillBinding.Path, Kind: "project-local-steamai-skill", SHA256: currentSkillBinding.SHA256, Size: currentSkillBinding.Size, Mode: 0o644})
+	publicationBindings = append(publicationBindings, onboardingProjectionPublicationHashes(onboarding)...)
 
 	identity := planIdentity{
-		SchemaVersion: SchemaVersion, Kind: PlanKind, Command: Command, CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ProjectName: projectName,
+		SchemaVersion: SchemaVersion, Kind: PlanKind, Command: Command, CaseRoot: caseRoot, RepoRoot: repoRoot, SourcePack: sourcePack, Pack: targetPack, ProjectName: projectName,
 		CaseRootIdentity: caseIdentity, SourceRootIdentity: sourceIdentity, LegacyInventory: inventory,
 		LegacyInstance: legacyInstanceBinding, LegacyState: legacyStateBinding, LegacyMetadata: legacyMetadataBinding, LegacySkill: legacySkillBinding,
 		CurrentInstance: currentInstanceBinding, CurrentState: currentStateBinding, CurrentSkill: currentSkillBinding, BundleManifest: bundleBinding,
-		Writes: identityWrites, Publications: publicationBindings,
+		Onboarding: onboardingProjection(onboarding), RootFiles: rootTransitions, Writes: identityWrites, Publications: publicationBindings,
 	}
 	planSHA, err := canonicalSHA(identity)
 	if err != nil {
 		return Plan{}, err
 	}
 	plannedEntries := replaceInventoryEntries(entries, currentInstanceBinding, currentStateBinding, publications)
+	plannedEntries = overlayOnboardingInventory(plannedEntries, onboarding)
 	plannedInventory := inventoryForEntries(".steamai", plannedEntries)
 	receipt := Receipt{
-		SchemaVersion: SchemaVersion, Kind: ReceiptKind, Command: Command, State: "committed", PlanSHA256: planSHA, Pack: pack,
+		SchemaVersion: SchemaVersion, Kind: ReceiptKind, Command: Command, State: "committed", PlanSHA256: planSHA, SourcePack: sourcePack, Pack: targetPack,
 		Before:   ReceiptState{StateRoot: ".rekit", RootIdentity: sourceIdentity, InventorySHA: inventory.SHA256, Files: inventory.Files, Bytes: inventory.Bytes},
 		After:    ReceiptState{StateRoot: ".steamai", RootIdentity: sourceIdentity, InventorySHA: plannedInventory.SHA256, Files: plannedInventory.Files, Bytes: plannedInventory.Bytes},
 		Instance: currentInstanceBinding, StateMetadata: currentStateBinding, Skill: currentSkillBinding, BundleManifest: bundleBinding,
+		Onboarding:     onboardingProjection(onboarding),
+		RootFiles:      rootTransitions,
 		LegacyInstance: legacyInstanceBinding, LegacyState: legacyStateBinding, LegacyMetadata: legacyMetadataBinding, LegacySkill: legacySkillBinding,
 		NoAuthority: true, NoConfirmed: true, NoHeavyTool: true, NoSyncPromote: true,
 	}
@@ -314,7 +351,7 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 	publications = append(publications, receiptPublication)
 	writes = append(writes, receiptWrite)
 
-	applyArgs := []string{"-Command", Command, "-Target", caseRoot, "-Pack", pack, "-ExpectedMigrationPlanSha256", planSHA, "-Apply", "-Format", "json"}
+	applyArgs := []string{"-Command", Command, "-Target", caseRoot, "-Pack", sourcePack, "-ExpectedMigrationPlanSha256", planSHA, "-Apply", "-Format", "json"}
 	action, err := commands.ExactActionFromCLIArgs(applyArgs)
 	if err != nil {
 		return Plan{}, fmt.Errorf("build migrate-state exact Apply action: %w", err)
@@ -328,15 +365,15 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 		return Plan{}, err
 	}
 	return Plan{
-		SchemaVersion: SchemaVersion, Kind: PlanKind, Command: Command, Status: "ready-to-migrate", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ProjectName: projectName,
+		SchemaVersion: SchemaVersion, Kind: PlanKind, Command: Command, Status: "ready-to-migrate", CaseRoot: caseRoot, RepoRoot: repoRoot, SourcePack: sourcePack, Pack: targetPack, ProjectName: projectName,
 		SourceStateRoot: ".rekit", TargetStateRoot: ".steamai", CaseRootIdentity: caseIdentity, SourceRootIdentity: sourceIdentity,
 		LegacyInventory: inventory, PlannedInventory: plannedInventory, LegacyInstance: legacyInstanceBinding, LegacyState: legacyStateBinding,
 		LegacyMetadata: legacyMetadataBinding, LegacySkill: legacySkillBinding, CurrentInstance: currentInstanceBinding, CurrentState: currentStateBinding,
-		CurrentSkill: currentSkillBinding, BundleManifest: bundleBinding, Writes: writes, ExpectedPlanSHA256: planSHA, ApplyCommand: applyCommand, ApplyArgs: applyArgs,
+		CurrentSkill: currentSkillBinding, BundleManifest: bundleBinding, Onboarding: onboardingProjection(onboarding), RootFiles: rootTransitions, Writes: writes, ExpectedPlanSHA256: planSHA, ApplyCommand: applyCommand, ApplyArgs: applyArgs,
 		RequiresReview: true, RequiresConfirmation: true,
 		BlockedActions: []string{"dual-root merge", "authority/confirmed writes", "gate or autonomy expansion", "sync/promote", "heavy-tool execution"},
 		NextSteps:      []string{"review the complete legacy inventory and planned publications", "run the exact ApplyArgs with the expected migration plan SHA-256"},
-		prepared:       &preparedPlan{caseInfo: caseInfo, sourceInfo: sourceInfo, legacyEntries: entries, plannedEntries: plannedEntries, publications: publications, receipt: receiptBytes, receiptValue: receipt, legacyMetadata: legacyMetadata, legacySkill: legacySkill},
+		prepared:       &preparedPlan{caseInfo: caseInfo, sourceInfo: sourceInfo, legacyEntries: entries, plannedEntries: plannedEntries, publications: publications, rootFiles: rootFiles, onboarding: onboarding, receipt: receiptBytes, receiptValue: receipt, legacyMetadata: legacyMetadata, legacySkill: legacySkill},
 	}, nil
 }
 
@@ -372,9 +409,7 @@ func currentPlan(caseRoot, pack string, currentInfo os.FileInfo) (Plan, error) {
 	if inst.Source != "steamai" || inst.SchemaVersion != 2 || inst.Mode != "project-local-bundle" || inst.Moved() {
 		return Plan{}, fmt.Errorf("current state root is partial or has invalid relocatable metadata")
 	}
-	if strings.TrimSpace(pack) != "" && !strings.EqualFold(pack, inst.TemplatePack) {
-		return Plan{}, fmt.Errorf("current project uses a different pack: %s", inst.TemplatePack)
-	}
+	requestedPack := strings.TrimSpace(pack)
 	pack = inst.TemplatePack
 	if _, err := runtimebundle.Validate(filepath.Join(caseRoot, ".steamai"), inst.BundleManifest, inst.BundleManifestSHA256, pack); err != nil {
 		return Plan{}, fmt.Errorf("current project runtime bundle is invalid: %w", err)
@@ -413,7 +448,7 @@ func currentPlan(caseRoot, pack string, currentInfo os.FileInfo) (Plan, error) {
 	}
 
 	base := Plan{
-		SchemaVersion: SchemaVersion, Kind: PlanKind, Command: Command, Status: "already-current", CaseRoot: caseRoot, RepoRoot: filepath.Join(caseRoot, ".steamai"), Pack: pack, ProjectName: inst.ProjectName,
+		SchemaVersion: SchemaVersion, Kind: PlanKind, Command: Command, Status: "already-current", CaseRoot: caseRoot, RepoRoot: filepath.Join(caseRoot, ".steamai"), SourcePack: pack, Pack: pack, ProjectName: inst.ProjectName,
 		TargetStateRoot: ".steamai", IsMutation: false, Applied: false, Replay: false, AlreadyCurrent: true,
 		CurrentInstance: bindingFor(".steamai/instance.yml", currentInstance), CurrentState: bindingFor(".steamai/state.json", currentState),
 		CurrentSkill: bindingFor(".claude/skills/steamai/SKILL.md", currentSkill), BundleManifest: bundleManifest,
@@ -422,6 +457,9 @@ func currentPlan(caseRoot, pack string, currentInfo os.FileInfo) (Plan, error) {
 		NextSteps:      []string{"continue using the project-local /steamai entrypoint"},
 	}
 	if !migrationExists {
+		if requestedPack != "" && !strings.EqualFold(requestedPack, pack) {
+			return Plan{}, fmt.Errorf("current project uses a different pack: %s", pack)
+		}
 		return base, nil
 	}
 	receiptPath := filepath.Join(caseRoot, filepath.FromSlash(ReceiptRel))
@@ -436,20 +474,50 @@ func currentPlan(caseRoot, pack string, currentInfo os.FileInfo) (Plan, error) {
 	if receipt.Pack != pack {
 		return Plan{}, fmt.Errorf("state migration receipt pack differs from current project metadata")
 	}
-	if err := validateCurrentReceiptBindings(caseRoot, inst, receipt); err != nil {
+	if strings.TrimSpace(receipt.SourcePack) == "" {
+		receipt.SourcePack = receipt.Pack
+	}
+	if receipt.SourcePack != receipt.Pack && (!packidentity.IsRetired(receipt.SourcePack) || receipt.Pack != packidentity.Canonical) {
+		return Plan{}, fmt.Errorf("state migration receipt source-to-target pack identity is invalid")
+	}
+	verifiedSourcePack, err := validateCurrentReceiptBindings(caseRoot, inst, receipt)
+	if err != nil {
+		return Plan{}, err
+	}
+	if verifiedSourcePack != receipt.SourcePack {
+		return Plan{}, fmt.Errorf("state migration receipt source pack differs from migrated legacy metadata")
+	}
+	if err := validateReceiptRootTransitions(verifiedSourcePack, receipt.Pack, receipt.RootFiles); err != nil {
+		return Plan{}, err
+	}
+	if err := validateOnboardingProjection(receipt.Onboarding, verifiedSourcePack, receipt.Pack); err != nil {
+		return Plan{}, err
+	}
+	if requestedPack != "" && !strings.EqualFold(requestedPack, verifiedSourcePack) && !strings.EqualFold(requestedPack, receipt.Pack) {
+		return Plan{}, fmt.Errorf("current project uses a different migration source or target pack: source=%s target=%s", verifiedSourcePack, receipt.Pack)
+	}
+	if err := expectedRetiredRootProjection(filepath.Join(caseRoot, ".steamai"), verifiedSourcePack, receipt.RootFiles); err != nil {
+		return Plan{}, err
+	}
+	if err := validateCurrentReceiptRootFiles(caseRoot, receipt.RootFiles); err != nil {
+		return Plan{}, err
+	}
+	if err := validateCurrentOnboardingProjection(caseRoot, verifiedSourcePack, receipt.Pack, receipt.Onboarding); err != nil {
 		return Plan{}, err
 	}
 	base.Replay = true
+	base.SourcePack = verifiedSourcePack
 	base.ExpectedPlanSHA256 = receipt.PlanSHA256
 	base.CurrentInstance = receipt.Instance
 	base.CurrentState = receipt.StateMetadata
 	base.CurrentSkill = receipt.Skill
 	base.BundleManifest = receipt.BundleManifest
+	base.Onboarding = receipt.Onboarding
 	base.prepared = &preparedPlan{receipt: receiptBytes, receiptValue: receipt}
 	return base, nil
 }
 
-func validateCurrentReceiptBindings(caseRoot string, inst instance.Instance, receipt Receipt) error {
+func validateCurrentReceiptBindings(caseRoot string, inst instance.Instance, receipt Receipt) (string, error) {
 	bindings := []struct {
 		binding FileBinding
 		label   string
@@ -464,36 +532,65 @@ func validateCurrentReceiptBindings(caseRoot string, inst instance.Instance, rec
 		path := filepath.Join(caseRoot, filepath.FromSlash(candidate.binding.Path))
 		data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, path, candidate.label, candidate.limit)
 		if err != nil {
-			return fmt.Errorf("read state migration receipt binding from current project: %s: %w", candidate.binding.Path, err)
+			return "", fmt.Errorf("read state migration receipt binding from current project: %s: %w", candidate.binding.Path, err)
 		}
 		if sha256Hex(data) != candidate.binding.SHA256 || int64(len(data)) != candidate.binding.Size {
-			return fmt.Errorf("state migration receipt binding differs from current project: %s", candidate.binding.Path)
+			return "", fmt.Errorf("state migration receipt binding differs from current project: %s", candidate.binding.Path)
 		}
 	}
 	if inst.BundleManifestSHA256 != receipt.BundleManifest.SHA256 {
-		return fmt.Errorf("state migration receipt runtime manifest differs from current metadata")
+		return "", fmt.Errorf("state migration receipt runtime manifest differs from current metadata")
 	}
 	legacyMetadataPath := filepath.Join(caseRoot, filepath.FromSlash(receipt.LegacyMetadata.Path))
 	legacyMetadata, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, legacyMetadataPath, "migrated legacy compatibility metadata", maxMetadata)
 	if err != nil {
-		return fmt.Errorf("read state migration legacy metadata binding from current project: %w", err)
+		return "", fmt.Errorf("read state migration legacy metadata binding from current project: %w", err)
 	}
 	if sha256Hex(legacyMetadata) != receipt.LegacyMetadata.SHA256 || int64(len(legacyMetadata)) != receipt.LegacyMetadata.Size {
-		return fmt.Errorf("state migration legacy metadata binding differs from current project")
+		return "", fmt.Errorf("state migration legacy metadata binding differs from current project")
+	}
+	verifiedSourcePack, err := strictLegacyTemplatePack(legacyMetadata)
+	if err != nil {
+		return "", err
 	}
 	root, _, err := OpenRootIdentity(filepath.Join(caseRoot, ".steamai"))
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer root.Close()
 	entries, _, _, err := inventoryRoot(root, ".steamai")
 	if err != nil {
-		return err
+		return "", err
 	}
-	if inventoryWithoutReceipt(entries).SHA256 != receipt.After.InventorySHA {
-		return fmt.Errorf("current state inventory differs from migration receipt")
+	currentInventory := inventoryWithoutReceipt(entries)
+	if currentInventory.SHA256 != receipt.After.InventorySHA || currentInventory.Files != receipt.After.Files || currentInventory.Bytes != receipt.After.Bytes {
+		return "", fmt.Errorf("current state inventory differs from migration receipt")
 	}
-	return nil
+	return verifiedSourcePack, nil
+}
+
+func strictLegacyTemplatePack(data []byte) (string, error) {
+	pack := ""
+	found := false
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) != "templatePack" {
+			continue
+		}
+		if found {
+			return "", fmt.Errorf("migrated legacy metadata contains duplicate templatePack fields")
+		}
+		found = true
+		pack = strings.TrimSpace(parts[1])
+		if len(pack) >= 2 && ((pack[0] == '"' && pack[len(pack)-1] == '"') || (pack[0] == '\'' && pack[len(pack)-1] == '\'')) {
+			pack = pack[1 : len(pack)-1]
+		}
+		pack = strings.TrimSpace(pack)
+	}
+	if !found || pack == "" {
+		return "", fmt.Errorf("migrated legacy metadata requires one non-empty templatePack field")
+	}
+	return pack, nil
 }
 
 func inventoryRoot(root *os.Root, stateRoot string) ([]InventoryEntry, map[string][]byte, Inventory, error) {
@@ -532,10 +629,14 @@ func inventoryRoot(root *os.Root, stateRoot string) ([]InventoryEntry, map[strin
 				}
 				continue
 			}
-			if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maxStateFile {
-				return fmt.Errorf("legacy state entry must be a bounded regular file or directory: %s", filepath.ToSlash(rel))
+			limit := maxStateFile
+			if stateRoot == ".steamai" && filepath.ToSlash(rel) == filepath.ToSlash(filepath.Join("runtime", "bin", runtimebundle.ExecutableName())) {
+				limit = runtimebundle.MaxExecutableBytes
 			}
-			data, err := readRootFile(root, rel, info, maxStateFile)
+			if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > limit {
+				return fmt.Errorf("state entry must be a bounded regular file or directory: %s", filepath.ToSlash(rel))
+			}
+			data, err := readRootFile(root, rel, info, limit)
 			if err != nil {
 				return err
 			}
@@ -628,7 +729,7 @@ func plannedWrites(publications []plannedFile, currentSkill, legacySkill FileBin
 	return writes
 }
 
-func relocatableState(data []byte, pack string) ([]byte, error) {
+func relocatableState(data []byte, sourcePack, targetPack string, rootTransitions []RootFileTransition) ([]byte, error) {
 	var state map[string]json.RawMessage
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&state); err != nil {
@@ -643,10 +744,58 @@ func relocatableState(data []byte, pack string) ([]byte, error) {
 		return nil, fmt.Errorf("legacy state.json schemaVersion must be 1")
 	}
 	var statePack string
-	if err := json.Unmarshal(state["templatePack"], &statePack); err != nil || !strings.EqualFold(strings.TrimSpace(statePack), strings.TrimSpace(pack)) {
+	if err := json.Unmarshal(state["templatePack"], &statePack); err != nil || !strings.EqualFold(strings.TrimSpace(statePack), strings.TrimSpace(sourcePack)) {
 		return nil, fmt.Errorf("legacy state.json templatePack does not match attached metadata")
 	}
+	previous := map[string]struct {
+		SourceHash       string `json:"sourceHash"`
+		TargetHashAtSync string `json:"targetHashAtSync"`
+		LastAction       string `json:"lastAction"`
+	}{}
+	if raw := state["managed"]; len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &previous); err != nil {
+			return nil, fmt.Errorf("legacy state.json managed map is invalid: %w", err)
+		}
+	}
+	managed := map[string]any{}
+	keys := map[string]string{}
+	for path, entry := range previous {
+		clean, err := cleanRootTransitionPath(path)
+		if err != nil {
+			return nil, fmt.Errorf("legacy state.json managed path is invalid: %s", path)
+		}
+		key := strings.ToLower(clean)
+		if prior, ok := keys[key]; ok && prior != path {
+			return nil, fmt.Errorf("legacy state.json managed paths collide after normalization: %s and %s", prior, path)
+		}
+		keys[key] = path
+		if !packidentity.IsRetired(sourcePack) || entry.LastAction != "sync" {
+			managed[path] = entry
+		}
+	}
+	if packidentity.IsRetired(sourcePack) {
+		for _, transition := range rootTransitions {
+			if transition.Kind != "managed-file" {
+				continue
+			}
+			key := strings.ToLower(transition.Path)
+			if prior, ok := keys[key]; ok && prior != transition.Path {
+				return nil, fmt.Errorf("canonical managed path collides with preserved state entry: %s and %s", prior, transition.Path)
+			}
+			managed[transition.Path] = struct {
+				SourceHash       string `json:"sourceHash"`
+				TargetHashAtSync string `json:"targetHashAtSync"`
+				LastAction       string `json:"lastAction"`
+			}{transition.AfterSHA256, transition.AfterSHA256, "sync"}
+		}
+	}
+	managedBytes, err := json.Marshal(managed)
+	if err != nil {
+		return nil, err
+	}
 	state["templateRoot"] = json.RawMessage(strconv.Quote("."))
+	state["templatePack"] = json.RawMessage(strconv.Quote(targetPack))
+	state["managed"] = managedBytes
 	return canonicalRawObject(state)
 }
 
@@ -775,6 +924,15 @@ func decodeReceipt(data []byte) (Receipt, error) {
 	}
 	if receipt.LegacyMetadata == nil || !validFileBinding(*receipt.LegacyMetadata, ".re-template.yml") {
 		return Receipt{}, fmt.Errorf("state migration receipt legacy metadata binding is invalid")
+	}
+	if receipt.Before.Files < 1 || receipt.Before.Bytes < 1 || receipt.After.Files < 1 || receipt.After.Bytes < 1 {
+		return Receipt{}, fmt.Errorf("state migration receipt inventory counts are invalid")
+	}
+	if err := validateReceiptRootTransitions(receipt.SourcePack, receipt.Pack, receipt.RootFiles); err != nil {
+		return Receipt{}, err
+	}
+	if err := validateOnboardingProjection(receipt.Onboarding, receipt.SourcePack, receipt.Pack); err != nil {
+		return Receipt{}, err
 	}
 	if err := receipt.Before.RootIdentity.Validate(); err != nil {
 		return Receipt{}, err

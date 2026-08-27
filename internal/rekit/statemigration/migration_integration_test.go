@@ -8,12 +8,16 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
@@ -122,6 +126,248 @@ func TestPreviewIsZeroWriteAndApplyPreservesDurableBytes(t *testing.T) {
 	if inst.Source != "steamai" || inst.SchemaVersion != 2 || inst.Mode != "project-local-bundle" || inst.Moved() || inst.TemplateRoot != filepath.Join(fixture.caseRoot, ".steamai") || inst.ProjectRoot != fixture.caseRoot {
 		t.Fatalf("unexpected migrated instance: %+v", inst)
 	}
+}
+
+func TestActiveMigrationPreservesManagedSyncOwnership(t *testing.T) {
+	fixture := newMigrationFixture(t)
+	statePath := filepath.Join(fixture.caseRoot, ".rekit", "state.json")
+	stateData, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]any
+	if err := json.Unmarshal(stateData, &state); err != nil {
+		t.Fatal(err)
+	}
+	state["managed"] = map[string]any{
+		"references/template/README.md": map[string]any{
+			"sourceHash": "active-source", "targetHashAtSync": "active-target", "lastAction": "sync",
+		},
+		"local/custom.md": map[string]any{
+			"sourceHash": "local-source", "targetHashAtSync": "local-target", "lastAction": "manual",
+		},
+	}
+	stateData, err = json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFile(t, statePath, append(stateData, '\n'))
+
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected struct {
+		Managed map[string]struct {
+			SourceHash       string `json:"sourceHash"`
+			TargetHashAtSync string `json:"targetHashAtSync"`
+			LastAction       string `json:"lastAction"`
+		} `json:"managed"`
+	}
+	if err := json.Unmarshal(plan.prepared.publicationData("state.json"), &projected); err != nil {
+		t.Fatal(err)
+	}
+	if got := projected.Managed["references/template/README.md"]; got.SourceHash != "active-source" || got.TargetHashAtSync != "active-target" || got.LastAction != "sync" {
+		t.Fatalf("active sync ownership was not preserved in preview: %+v", got)
+	}
+	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	currentState, err := os.ReadFile(filepath.Join(fixture.caseRoot, ".steamai", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(currentState, &projected); err != nil {
+		t.Fatal(err)
+	}
+	if got := projected.Managed["references/template/README.md"]; got.SourceHash != "active-source" || got.TargetHashAtSync != "active-target" || got.LastAction != "sync" {
+		t.Fatalf("active sync ownership was not preserved after Apply: %+v", got)
+	}
+}
+
+func TestRetiredApplyFailsBeforeRenameWhenExactMutationIsUnsupported(t *testing.T) {
+	if rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("platform supports retired exact mutation")
+	}
+	fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, fixture.caseRoot)
+	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "handle-bound exact filesystem mutation") {
+		t.Fatalf("unsupported retired Apply did not fail before mutation: %v", err)
+	}
+	if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+		t.Fatal("unsupported retired Apply mutated the project before capability rejection")
+	}
+	assertFile(t, filepath.Join(fixture.caseRoot, ".rekit", "instance.yml"))
+	assertMissing(t, filepath.Join(fixture.caseRoot, ".steamai"))
+}
+
+func TestRetiredPreviewBindsSourceToCanonicalTargetWithoutWriting(t *testing.T) {
+	for _, sourcePack := range packidentity.RetiredIDs() {
+		t.Run(sourcePack, func(t *testing.T) {
+			fixture := newRetiredMigrationFixture(t, sourcePack)
+			before := snapshotTree(t, fixture.caseRoot)
+			plan, err := Preview(fixture.repoRoot, fixture.caseRoot, sourcePack)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.SourcePack != sourcePack || plan.Pack != packidentity.Canonical || plan.Status != "ready-to-migrate" || !plan.RequiresReview || !plan.RequiresConfirmation {
+				t.Fatalf("retired migration identity = %+v", plan)
+			}
+			if !containsExactArg(plan.ApplyArgs, "-Pack", sourcePack) || !containsExactArg(plan.ApplyArgs, "-ExpectedMigrationPlanSha256", plan.ExpectedPlanSHA256) {
+				t.Fatalf("retired Apply carrier does not retain exact source selector: %+v", plan.ApplyArgs)
+			}
+			if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+				t.Fatal("retired migration preview mutated the project")
+			}
+			var state map[string]any
+			if err := json.Unmarshal(plan.prepared.publicationData("state.json"), &state); err != nil {
+				t.Fatal(err)
+			}
+			if state["templatePack"] != packidentity.Canonical || state["templateRoot"] != "." {
+				t.Fatalf("retired target state identity = %+v", state)
+			}
+			if !bytes.Contains(plan.prepared.publicationData("instance.yml"), []byte("templatePack: "+packidentity.Canonical+"\n")) {
+				t.Fatalf("retired target instance is not canonical: %s", plan.prepared.publicationData("instance.yml"))
+			}
+		})
+	}
+}
+
+func TestRetiredApplyReplayAndCopyPreserveExactSourceIdentity(t *testing.T) {
+	if !rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("retired Apply requires handle-bound exact mutation")
+	}
+	fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied || result.SourcePack != fixture.pack || result.Pack != packidentity.Canonical || result.Receipt == nil || result.Receipt.SourcePack != fixture.pack || result.Receipt.Pack != packidentity.Canonical {
+		t.Fatalf("retired migration result = %+v", result)
+	}
+	inst, err := instance.Read(fixture.caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.TemplatePack != packidentity.Canonical || inst.Source != "steamai" || inst.Moved() {
+		t.Fatalf("retired migrated instance = %+v", inst)
+	}
+
+	before := snapshotTree(t, fixture.caseRoot)
+	replay, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.Applied || !replay.Replay || replay.SourcePack != fixture.pack || replay.Pack != packidentity.Canonical {
+		t.Fatalf("retired exact replay = %+v", replay)
+	}
+	if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+		t.Fatal("retired exact replay mutated the project")
+	}
+
+	copyRoot := filepath.Join(t.TempDir(), "copied-retired-migration")
+	copyTree(t, fixture.caseRoot, copyRoot)
+	copied, err := Preview(fixture.repoRoot, copyRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !copied.AlreadyCurrent || !copied.Replay || copied.SourcePack != fixture.pack || copied.Pack != packidentity.Canonical || copied.ExpectedPlanSHA256 != plan.ExpectedPlanSHA256 {
+		t.Fatalf("copied retired migration = %+v", copied)
+	}
+}
+
+func TestRetiredCommittedOnboardingProjectsToRelocatableV2(t *testing.T) {
+	for _, sourcePack := range packidentity.RetiredIDs() {
+		t.Run(sourcePack, func(t *testing.T) {
+			if !rekitfs.HandleBoundExactMutationSupported() {
+				t.Skip("retired onboarding Apply requires handle-bound exact mutation")
+			}
+			fixture := newRetiredMigrationFixture(t, sourcePack)
+			sourceIdentity := writeRetiredCommittedOnboarding(t, fixture)
+			before := snapshotTree(t, fixture.caseRoot)
+			first, err := Preview(fixture.repoRoot, fixture.caseRoot, sourcePack)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := Preview(fixture.repoRoot, fixture.caseRoot, sourcePack)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Onboarding == nil || second.Onboarding == nil || first.ExpectedPlanSHA256 != second.ExpectedPlanSHA256 || first.Onboarding.ProjectID != second.Onboarding.ProjectID || first.Onboarding.TargetOnboardingPlanSHA256 != second.Onboarding.TargetOnboardingPlanSHA256 {
+				t.Fatalf("retired onboarding preview is not deterministic: first=%+v second=%+v", first.Onboarding, second.Onboarding)
+			}
+			if len(first.Onboarding.Before) != 3 || len(first.Onboarding.After) != 4 {
+				t.Fatalf("retired onboarding preview omitted bindings: %+v", first.Onboarding)
+			}
+			if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+				t.Fatal("retired onboarding preview changed the project")
+			}
+
+			result, err := Apply(fixture.repoRoot, fixture.caseRoot, sourcePack, first.ExpectedPlanSHA256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Receipt == nil || result.Receipt.Onboarding == nil || result.Receipt.Onboarding.ProjectID != first.Onboarding.ProjectID {
+				t.Fatalf("retired onboarding receipt omitted exact projection: %+v", result.Receipt)
+			}
+			inspection, err := missionintent.Inspect(fixture.caseRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantLane := sourceIdentity.InitialLane
+			if sourcePack == packidentity.RetiredGeneric {
+				wantLane = "devirt-main"
+			}
+			if !inspection.Committed || inspection.Identity.SchemaVersion != 2 || inspection.Identity.Target != "." || inspection.Identity.Pack != packidentity.Canonical || inspection.Identity.ProjectID != first.Onboarding.ProjectID || inspection.Identity.ProjectName != sourceIdentity.ProjectName || inspection.Identity.Goal != sourceIdentity.Goal || inspection.Identity.Actor != sourceIdentity.Actor || inspection.Identity.Executor != sourceIdentity.Executor || inspection.Identity.InitialLane != wantLane || inspection.OnboardingPlanSHA256 != first.Onboarding.TargetOnboardingPlanSHA256 {
+				t.Fatalf("migrated onboarding identity differs: %+v", inspection)
+			}
+
+			copyRoot := filepath.Join(t.TempDir(), "copied-onboarding-migration")
+			copyTree(t, fixture.caseRoot, copyRoot)
+			copiedInspection, err := missionintent.Inspect(copyRoot)
+			if err != nil || !copiedInspection.Committed || copiedInspection.Identity != inspection.Identity {
+				t.Fatalf("copied onboarding identity is not relocatable: inspection=%+v err=%v", copiedInspection, err)
+			}
+			copied, err := Preview(fixture.repoRoot, copyRoot, sourcePack)
+			if err != nil || !copied.Replay || copied.ExpectedPlanSHA256 != first.ExpectedPlanSHA256 {
+				t.Fatalf("copied onboarding migration is not exact replay: plan=%+v err=%v", copied, err)
+			}
+		})
+	}
+}
+
+func TestRetiredOnboardingPendingAndCorruptRejectWithoutWriting(t *testing.T) {
+	t.Run("pending", func(t *testing.T) {
+		fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+		writeRetiredPendingOnboarding(t, fixture)
+		before := snapshotTree(t, fixture.caseRoot)
+		if _, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack); err == nil || !strings.Contains(err.Error(), "pending") {
+			t.Fatalf("expected pending onboarding rejection, got %v", err)
+		}
+		if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+			t.Fatal("pending onboarding rejection wrote the project")
+		}
+	})
+	t.Run("corrupt", func(t *testing.T) {
+		fixture := newRetiredMigrationFixture(t, packidentity.RetiredGeneric)
+		writeRetiredCommittedOnboarding(t, fixture)
+		writeFixtureFile(t, filepath.Join(fixture.caseRoot, ".rekit", "onboarding", "commit.json"), []byte("{}\n"))
+		before := snapshotTree(t, fixture.caseRoot)
+		if _, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack); err == nil || !strings.Contains(err.Error(), "corrupt") {
+			t.Fatalf("expected corrupt onboarding rejection, got %v", err)
+		}
+		if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+			t.Fatal("corrupt onboarding rejection wrote the project")
+		}
+	})
 }
 
 func TestPreviewRejectsMissingLegacyMetadata(t *testing.T) {
@@ -380,6 +626,200 @@ func TestApplyExactReplayAndReceiptTamperFailClosed(t *testing.T) {
 	}
 }
 
+func TestRetiredReplayRejectsCanonicalizedReceiptProjectionTamper(t *testing.T) {
+	if !rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("retired replay setup requires handle-bound exact mutation")
+	}
+	fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+	writeRetiredCommittedOnboarding(t, fixture)
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := filepath.Join(fixture.caseRoot, filepath.FromSlash(ReceiptRel))
+	data, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := decodeReceipt(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.RootFiles = receipt.RootFiles[:1]
+	mutated, err := canonical(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receiptPath, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, fixture.caseRoot)
+	if _, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack); err == nil || !strings.Contains(err.Error(), "incomplete") {
+		t.Fatalf("canonicalized incomplete projection receipt was accepted: %v", err)
+	}
+	if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+		t.Fatal("rejected receipt projection tamper wrote the project")
+	}
+}
+
+func TestRetiredReplayRejectsCanonicalizedOnboardingProjectionOmission(t *testing.T) {
+	if !rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("retired onboarding replay setup requires handle-bound exact mutation")
+	}
+	fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+	writeRetiredCommittedOnboarding(t, fixture)
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := filepath.Join(fixture.caseRoot, filepath.FromSlash(ReceiptRel))
+	data, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := decodeReceipt(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.Onboarding = nil
+	mutated, err := canonical(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receiptPath, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, fixture.caseRoot)
+	if _, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack); err == nil || !strings.Contains(err.Error(), "omits the current onboarding projection") {
+		t.Fatalf("canonicalized onboarding projection omission was accepted: %v", err)
+	}
+	if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+		t.Fatal("rejected onboarding projection omission wrote the project")
+	}
+}
+
+func TestStrictLegacyTemplatePack(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "exact", data: "templateRoot: C:/kit\ntemplatePack: vmp-re\n", want: "vmp-re"},
+		{name: "quoted", data: "templatePack: 'generic-binary-re'\n", want: "generic-binary-re"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := strictLegacyTemplatePack([]byte(tc.data))
+			if err != nil || got != tc.want {
+				t.Fatalf("strict legacy templatePack = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "missing", data: "templateRoot: C:/kit\n", want: "requires one non-empty templatePack"},
+		{name: "empty", data: "templatePack: ''\n", want: "requires one non-empty templatePack"},
+		{name: "duplicate", data: "templatePack: vmp-re\ntemplatePack: binary-re\n", want: "duplicate templatePack"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := strictLegacyTemplatePack([]byte(tc.data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("strict legacy templatePack error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestRetiredReplayRejectsCanonicalizedSourceAndProjectionOmission(t *testing.T) {
+	if !rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("retired onboarding replay setup requires handle-bound exact mutation")
+	}
+	fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+	writeRetiredCommittedOnboarding(t, fixture)
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := filepath.Join(fixture.caseRoot, filepath.FromSlash(ReceiptRel))
+	data, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := decodeReceipt(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.SourcePack = receipt.Pack
+	receipt.RootFiles = nil
+	receipt.Onboarding = nil
+	mutated, err := canonical(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receiptPath, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, fixture.caseRoot)
+	if _, err := Preview(fixture.repoRoot, fixture.caseRoot, packidentity.Canonical); err == nil || !strings.Contains(err.Error(), "source pack differs from migrated legacy metadata") {
+		t.Fatalf("canonicalized source and projection omission was accepted: %v", err)
+	}
+	if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+		t.Fatal("rejected source and projection omission wrote the project")
+	}
+}
+
+func TestRetiredReplayRejectsCanonicalizedOnboardingModeTamper(t *testing.T) {
+	if !rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("retired onboarding replay setup requires handle-bound exact mutation")
+	}
+	fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+	writeRetiredCommittedOnboarding(t, fixture)
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := filepath.Join(fixture.caseRoot, filepath.FromSlash(ReceiptRel))
+	data, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := decodeReceipt(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Onboarding == nil {
+		t.Fatal("migration receipt omitted onboarding projection")
+	}
+	receipt.Onboarding.After[0].Mode = 0o400
+	mutated, err := canonical(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receiptPath, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, fixture.caseRoot)
+	if _, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack); err == nil || !strings.Contains(err.Error(), "binding differs") {
+		t.Fatalf("canonicalized onboarding mode tamper was accepted: %v", err)
+	}
+	if after := snapshotTree(t, fixture.caseRoot); !equalSnapshot(before, after) {
+		t.Fatal("rejected onboarding mode tamper wrote the project")
+	}
+}
+
 func TestCurrentOnlyWithoutMigrationReceiptIsExplicitNoOp(t *testing.T) {
 	fixture := newMigrationFixture(t)
 	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
@@ -505,9 +945,21 @@ type migrationFixture struct {
 
 func newMigrationFixture(t *testing.T) migrationFixture {
 	t.Helper()
+	return newMigrationFixtureForPack(t, "_template")
+}
+
+func newRetiredMigrationFixture(t *testing.T, pack string) migrationFixture {
+	t.Helper()
+	if !packidentity.IsRetired(pack) {
+		t.Fatalf("retired migration fixture requires a retired pack, got %q", pack)
+	}
+	return newMigrationFixtureForPack(t, pack)
+}
+
+func newMigrationFixtureForPack(t *testing.T, pack string) migrationFixture {
+	t.Helper()
 	repoRoot := repositoryRoot(t)
 	caseRoot := filepath.Join(t.TempDir(), "legacy-project")
-	pack := "_template"
 	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +985,7 @@ func newMigrationFixture(t *testing.T) migrationFixture {
 	stateData = append(stateData, '\n')
 	writeFixtureFile(t, filepath.Join(caseRoot, ".rekit", "instance.yml"), instanceData)
 	writeFixtureFile(t, filepath.Join(caseRoot, ".rekit", "state.json"), stateData)
-	legacyMetadata := []byte("templateRoot: " + repoRoot + "\r\ntemplatePack: " + pack + "\r\ncurrentProjectPath: " + caseRoot + "\r\n")
+	legacyMetadata := []byte("templateRoot: " + repoRoot + "\r\nrekitMode: case-local-shim\r\ntemplatePack: " + pack + "\r\ncurrentProjectPath: " + caseRoot + "\r\n")
 	writeFixtureFile(t, filepath.Join(caseRoot, ".re-template.yml"), legacyMetadata)
 	legacySkill, err := os.ReadFile(filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"))
 	if err != nil {
@@ -553,6 +1005,70 @@ func newMigrationFixture(t *testing.T) migrationFixture {
 		writeFixtureFile(t, filepath.Join(caseRoot, ".rekit", filepath.FromSlash(rel)), data)
 	}
 	return migrationFixture{repoRoot: repoRoot, caseRoot: caseRoot, pack: pack, durable: durable}
+}
+
+func writeRetiredCommittedOnboarding(t *testing.T, fixture migrationFixture) missionintent.Identity {
+	t.Helper()
+	identity, missionBytes, intentBytes := retiredOnboardingIntent(t, fixture)
+	commitBytes, err := missionintent.MarshalCommit(missionintent.Commit{
+		SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: "20260817-010203004",
+		OnboardingPlanSHA256: strings.Repeat("a", 64), MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFile(t, filepath.Join(fixture.caseRoot, ".rekit", "mission-intent.json"), missionBytes)
+	writeFixtureFile(t, filepath.Join(fixture.caseRoot, ".rekit", "onboarding", "intent.json"), intentBytes)
+	writeFixtureFile(t, filepath.Join(fixture.caseRoot, ".rekit", "onboarding", "commit.json"), commitBytes)
+	return identity
+}
+
+func writeRetiredPendingOnboarding(t *testing.T, fixture migrationFixture) {
+	t.Helper()
+	_, missionBytes, intentBytes := retiredOnboardingIntent(t, fixture)
+	writeFixtureFile(t, filepath.Join(fixture.caseRoot, ".rekit", "mission-intent.json"), missionBytes)
+	writeFixtureFile(t, filepath.Join(fixture.caseRoot, ".rekit", "onboarding", "intent.json"), intentBytes)
+}
+
+func retiredOnboardingIntent(t *testing.T, fixture migrationFixture) (missionintent.Identity, []byte, []byte) {
+	t.Helper()
+	lane := "devirt-main"
+	if fixture.pack == packidentity.RetiredGeneric {
+		lane = "main"
+	}
+	identity := missionintent.Identity{
+		SchemaVersion: 1, Target: fixture.caseRoot, Pack: fixture.pack, ProjectName: "legacy-project",
+		Goal: "preserve retired mission goal", Actor: "operator", Executor: "executor-a", InitialLane: lane,
+	}
+	missionBytes, err := missionintent.MarshalMissionIntent(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyBindings := []struct {
+		path, kind string
+	}{
+		{".claude/skills/rekit/SKILL.md", "case-local-thin-shim"},
+		{".re-template.yml", "legacy-metadata"},
+		{".rekit/instance.yml", "instance-metadata"},
+		{".rekit/state.json", "sync-state"},
+	}
+	recovery := missionintent.RecoveryEnvelope{SchemaVersion: 1, RepoRoot: fixture.repoRoot, CreatedAt: "2026-08-17T01:02:03.004Z", Mode: "attached-adoption"}
+	for _, item := range legacyBindings {
+		data, err := os.ReadFile(filepath.Join(fixture.caseRoot, filepath.FromSlash(item.path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		recovery.AttachedSnapshot = append(recovery.AttachedSnapshot, missionintent.SnapshotArtifact{Path: item.path, Kind: item.kind, SHA256: missionintent.SHA256(data), Size: int64(len(data))})
+	}
+	sort.Slice(recovery.AttachedSnapshot, func(i, j int) bool { return recovery.AttachedSnapshot[i].Path < recovery.AttachedSnapshot[j].Path })
+	intentBytes, err := missionintent.MarshalIntent(missionintent.Intent{
+		SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: "20260817-010203004",
+		OnboardingPlanSHA256: strings.Repeat("a", 64), Identity: identity, Recovery: recovery,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity, missionBytes, intentBytes
 }
 
 func repositoryRoot(t *testing.T) string {
@@ -635,6 +1151,18 @@ func containsExactArg(args []string, name, value string) bool {
 
 func containsExactFlag(args []string, flag string) bool {
 	return slices.Contains(args, flag)
+}
+
+func (prepared *preparedPlan) publicationData(rel string) []byte {
+	if prepared == nil {
+		return nil
+	}
+	for _, publication := range prepared.publications {
+		if publication.rel == rel {
+			return publication.data
+		}
+	}
+	return nil
 }
 
 func migrationWrite(writes []Write, path string) (Write, bool) {

@@ -37,6 +37,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
@@ -1748,109 +1749,7 @@ func validateCurrentSyncMaintenanceArguments(args []string) error {
 	return nil
 }
 
-func Run(args []string, stdout io.Writer) error {
-	return runWithOptions(args, stdout, nil, nil, nil, "")
-}
-
-// RunProjectLocal dispatches an ordinary project-local process against its
-// executable owner while preserving an omitted public target.
-func RunProjectLocal(args []string, stdout io.Writer, projectRoot string) error {
-	return runWithOptions(args, stdout, nil, nil, nil, projectRoot)
-}
-
-func RunWithReviewerResultSnapshot(args []string, stdout io.Writer, snapshot *subagents.ReviewerResultInputSnapshot) error {
-	return runWithOptions(args, stdout, snapshot, nil, nil, "")
-}
-
-func RunWithReviewerResultPublication(
-	args []string,
-	stdout io.Writer,
-	snapshot *subagents.ReviewerResultInputSnapshot,
-	publication *executioncontrol.ResultPublicationOptions,
-) error {
-	return runWithOptions(args, stdout, snapshot, publication, nil, "")
-}
-
-func RunWithReplacementResultPublication(
-	args []string,
-	stdout io.Writer,
-	publication *executioncontrol.ResultPublicationOptions,
-) error {
-	return runWithOptions(args, stdout, nil, nil, publication, "")
-}
-
-func runWithOptions(
-	args []string,
-	stdout io.Writer,
-	snapshot *subagents.ReviewerResultInputSnapshot,
-	reviewerPublication,
-	replacementPublication *executioncontrol.ResultPublicationOptions,
-	projectRoot string,
-) error {
-	opt, err := Parse(args)
-	if err != nil {
-		return err
-	}
-	opt.currentLoopReviewerResultSnapshot = snapshot
-	if reviewerPublication != nil {
-		if snapshot == nil {
-			return fmt.Errorf("reviewer result publication provenance requires the exact in-process result snapshot")
-		}
-		if replacementPublication != nil {
-			return fmt.Errorf("reviewer and replacement result publication provenance cannot be combined")
-		}
-		if opt.Command != commands.RunCurrentStep && opt.Command != commands.RunReviewerStep {
-			return fmt.Errorf("reviewer result publication provenance is supported only by current or bound reviewer step runners")
-		}
-		bound := *reviewerPublication
-		opt.currentLoopReviewerResultPublication = &bound
-	}
-	if replacementPublication != nil {
-		if snapshot != nil || opt.Command != commands.RunCurrentStep {
-			return fmt.Errorf("replacement result publication provenance is supported only by run-current-step without a Reviewer snapshot")
-		}
-		bound := *replacementPublication
-		opt.currentLoopReplacementResultPublication = &bound
-	}
-	opt.bindReviewerResultSnapshot = snapshot != nil
-	if opt.ExpectedExecutorGenerationProvided && opt.Command != commands.Continue && opt.Command != commands.Gate {
-		return fmt.Errorf("-ExpectedExecutorGeneration is supported only by continue and gate adapter execution provenance")
-	}
-	if err := validateCurrentSyncMaintenanceOptions(opt); err != nil {
-		return err
-	}
-	if handled, err := runPreRuntimeCommand(opt, stdout); handled || err != nil {
-		return err
-	}
-	runtimePack := opt.Pack
-	if !opt.PackProvided {
-		runtimePack = ""
-	}
-	cwdOverride := runtimeCwdOverride(opt)
-	var ctx runtime.Context
-	if strings.TrimSpace(projectRoot) != "" {
-		ctx, err = runtime.NewProjectLocal(
-			projectRoot,
-			opt.Target,
-			runtimePack,
-			cwdOverride,
-		)
-	} else {
-		ctx, err = runtime.NewWithCwd(opt.Target, runtimePack, cwdOverride)
-	}
-	if err != nil {
-		return err
-	}
-	if !opt.PackProvided && instance.LooksLikeCase(ctx.Target) {
-		inst, err := instance.Read(ctx.Target)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(inst.TemplatePack) != "" {
-			ctx.Pack = inst.TemplatePack
-			opt.Pack = inst.TemplatePack
-		}
-	}
+func validateCommandOptionOwnership(opt Options) error {
 	if (opt.VerifyPackMemoryConsumerUse || strings.TrimSpace(opt.PackMemoryConsumerOutputPath) != "") && opt.Command != commands.Sync {
 		return fmt.Errorf("pack-memory consumer-use verification flags are supported only by sync")
 	}
@@ -1940,6 +1839,115 @@ func runWithOptions(
 	}
 	if (strings.TrimSpace(opt.ProjectID) != "" || strings.TrimSpace(opt.Goal) != "" || strings.TrimSpace(opt.InitialLane) != "" || strings.TrimSpace(opt.OnboardingPublicationStamp) != "" || strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) != "") && opt.Command != commands.Onboard {
 		return fmt.Errorf("mission onboarding flags are supported only by onboard")
+	}
+	return nil
+}
+
+func Run(args []string, stdout io.Writer) error {
+	return runWithOptions(args, stdout, nil, nil, nil, "")
+}
+
+// RunProjectLocal dispatches an ordinary project-local process against its
+// executable owner while preserving an omitted public target.
+func RunProjectLocal(args []string, stdout io.Writer, projectRoot string) error {
+	return runWithOptions(args, stdout, nil, nil, nil, projectRoot)
+}
+
+func RunWithReviewerResultSnapshot(args []string, stdout io.Writer, snapshot *subagents.ReviewerResultInputSnapshot) error {
+	return runWithOptions(args, stdout, snapshot, nil, nil, "")
+}
+
+func RunWithReviewerResultPublication(
+	args []string,
+	stdout io.Writer,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	publication *executioncontrol.ResultPublicationOptions,
+) error {
+	return runWithOptions(args, stdout, snapshot, publication, nil, "")
+}
+
+func RunWithReplacementResultPublication(
+	args []string,
+	stdout io.Writer,
+	publication *executioncontrol.ResultPublicationOptions,
+) error {
+	return runWithOptions(args, stdout, nil, nil, publication, "")
+}
+
+func runWithOptions(
+	args []string,
+	stdout io.Writer,
+	snapshot *subagents.ReviewerResultInputSnapshot,
+	reviewerPublication,
+	replacementPublication *executioncontrol.ResultPublicationOptions,
+	projectRoot string,
+) error {
+	opt, err := Parse(args)
+	if err != nil {
+		return err
+	}
+	opt.currentLoopReviewerResultSnapshot = snapshot
+	if reviewerPublication != nil {
+		if snapshot == nil {
+			return fmt.Errorf("reviewer result publication provenance requires the exact in-process result snapshot")
+		}
+		if replacementPublication != nil {
+			return fmt.Errorf("reviewer and replacement result publication provenance cannot be combined")
+		}
+		if opt.Command != commands.RunCurrentStep && opt.Command != commands.RunReviewerStep {
+			return fmt.Errorf("reviewer result publication provenance is supported only by current or bound reviewer step runners")
+		}
+		bound := *reviewerPublication
+		opt.currentLoopReviewerResultPublication = &bound
+	}
+	if replacementPublication != nil {
+		if snapshot != nil || opt.Command != commands.RunCurrentStep {
+			return fmt.Errorf("replacement result publication provenance is supported only by run-current-step without a Reviewer snapshot")
+		}
+		bound := *replacementPublication
+		opt.currentLoopReplacementResultPublication = &bound
+	}
+	opt.bindReviewerResultSnapshot = snapshot != nil
+	if opt.ExpectedExecutorGenerationProvided && opt.Command != commands.Continue && opt.Command != commands.Gate {
+		return fmt.Errorf("-ExpectedExecutorGeneration is supported only by continue and gate adapter execution provenance")
+	}
+	if err := validateCurrentSyncMaintenanceOptions(opt); err != nil {
+		return err
+	}
+	if err := validateCommandOptionOwnership(opt); err != nil {
+		return err
+	}
+	if handled, err := runPreRuntimeCommand(opt, stdout); handled || err != nil {
+		return err
+	}
+	runtimePack := opt.Pack
+	if !opt.PackProvided {
+		runtimePack = ""
+	}
+	cwdOverride := runtimeCwdOverride(opt)
+	var ctx runtime.Context
+	if strings.TrimSpace(projectRoot) != "" {
+		ctx, err = runtime.NewProjectLocal(
+			projectRoot,
+			opt.Target,
+			runtimePack,
+			cwdOverride,
+		)
+	} else {
+		ctx, err = runtime.NewWithCwd(opt.Target, runtimePack, cwdOverride)
+	}
+	if err != nil {
+		return err
+	}
+	if !opt.PackProvided && instance.LooksLikeCase(ctx.Target) {
+		inst, err := instance.Read(ctx.Target)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(inst.TemplatePack) != "" {
+			ctx.Pack = inst.TemplatePack
+			opt.Pack = inst.TemplatePack
+		}
 	}
 	return runOwnedCommand(ctx, opt, stdout)
 }
@@ -11236,6 +11244,34 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeSyncApplyText(out, result)
 	}
 	return fmt.Errorf("%s write requires -Apply; use -WhatIf for preview", opt.Command)
+}
+
+func runRetiredPackMigration(opt Options, out io.Writer) error {
+	ctx, retiredErr := runtime.NewRetiredMigration(opt.Target, opt.Pack, runtimeCwdOverride(opt))
+	if retiredErr == nil {
+		return runMigrateState(ctx, opt, out)
+	}
+	current, currentErr := runtime.NewWithCwd(
+		opt.Target,
+		packidentity.Canonical,
+		runtimeCwdOverride(opt),
+	)
+	if currentErr != nil {
+		return errors.Join(retiredErr, currentErr)
+	}
+	sourcePack := strings.ToLower(strings.TrimSpace(opt.Pack))
+	replay, replayErr := statemigration.Preview(current.RepoRoot, current.Target, sourcePack)
+	if replayErr != nil || !replay.AlreadyCurrent || !replay.Replay || replay.SourcePack != sourcePack || replay.Pack != packidentity.Canonical || replay.ExpectedPlanSHA256 == "" {
+		if replayErr == nil {
+			replayErr = fmt.Errorf("current project does not contain the exact retired migration receipt for %s", sourcePack)
+		}
+		return errors.Join(retiredErr, replayErr)
+	}
+	if opt.Apply && !strings.EqualFold(strings.TrimSpace(opt.ExpectedMigrationPlanSHA256), replay.ExpectedPlanSHA256) {
+		return errors.Join(retiredErr, fmt.Errorf("retired migration replay requires the exact durable receipt plan SHA-256"))
+	}
+	current.Pack = sourcePack
+	return runMigrateState(current, opt, out)
 }
 
 func runMigrateState(ctx runtime.Context, opt Options, out io.Writer) error {

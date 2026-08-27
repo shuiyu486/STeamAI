@@ -86,7 +86,7 @@ func Apply(repoRoot, caseRoot, pack, expectedPlanSHA256 string) (Result, error) 
 		return Result{}, err
 	}
 	return Result{
-		SchemaVersion: SchemaVersion, Kind: ResultKind, Command: Command, Status: "migrated", CaseRoot: plan.CaseRoot, Pack: plan.Pack,
+		SchemaVersion: SchemaVersion, Kind: ResultKind, Command: Command, Status: "migrated", CaseRoot: plan.CaseRoot, SourcePack: plan.SourcePack, Pack: plan.Pack,
 		IsMutation: true, Applied: true, Replay: false, AlreadyCurrent: false, PlanSHA256: plan.ExpectedPlanSHA256,
 		ReceiptPath: filepath.Join(plan.CaseRoot, filepath.FromSlash(ReceiptRel)), Receipt: &plan.prepared.receiptValue, Writes: plan.Writes,
 		NextSteps: []string{"continue from the project-local /steamai entrypoint", "run status and doctor from the migrated project"},
@@ -156,8 +156,20 @@ func applyPrepared(plan Plan) error {
 	if err := validatePublicationSources(plan, prepared.publications); err != nil {
 		return err
 	}
+	if err := validateRootFileSources(prepared.rootFiles); err != nil {
+		return err
+	}
+	if err := validateRootFileTargets(plan.CaseRoot, prepared.rootFiles, "after preview"); err != nil {
+		return err
+	}
 	if err := validatePublicationTargetsMissing(legacyRoot, prepared.publications); err != nil {
 		return err
+	}
+	if err := validateOnboardingBeforeRename(legacyRoot, prepared.onboarding); err != nil {
+		return err
+	}
+	if (prepared.onboarding != nil || len(prepared.rootFiles) != 0) && !rekitfs.HandleBoundExactMutationSupported() {
+		return fmt.Errorf("retired identity migration requires handle-bound exact filesystem mutation")
 	}
 	if beforeCommitHook != nil {
 		if err := beforeCommitHook(); err != nil {
@@ -183,7 +195,16 @@ func applyPrepared(plan Plan) error {
 	if err := validatePublicationSources(plan, prepared.publications); err != nil {
 		return err
 	}
+	if err := validateRootFileSources(prepared.rootFiles); err != nil {
+		return err
+	}
+	if err := validateRootFileTargets(plan.CaseRoot, prepared.rootFiles, "immediately before migration commit"); err != nil {
+		return err
+	}
 	if err := validatePublicationTargetsMissing(legacyRoot, prepared.publications); err != nil {
+		return err
+	}
+	if err := validateOnboardingBeforeRename(legacyRoot, prepared.onboarding); err != nil {
 		return err
 	}
 	if err := legacyRoot.Close(); err != nil {
@@ -220,6 +241,12 @@ func applyPrepared(plan Plan) error {
 		return fmt.Errorf("renamed state root filesystem identity changed")
 	}
 	if err := publishCurrentRoot(currentRoot, prepared.publications); err != nil {
+		return err
+	}
+	if err := applyProjectedOnboarding(plan.CaseRoot, prepared.onboarding); err != nil {
+		return err
+	}
+	if err := applyRootFiles(plan.CaseRoot, prepared.rootFiles); err != nil {
 		return err
 	}
 	currentSkillRel := filepath.ToSlash(filepath.Join(".claude", "skills", "steamai", "SKILL.md"))
@@ -265,6 +292,12 @@ func applyPrepared(plan Plan) error {
 		if err := beforeReceiptPublicationHook(); err != nil {
 			return err
 		}
+	}
+	if err := validateAppliedRootFiles(plan.CaseRoot, prepared.rootFiles); err != nil {
+		return err
+	}
+	if err := validateAppliedOnboarding(plan.CaseRoot, prepared.onboarding); err != nil {
+		return err
 	}
 	if err := validateMigratedBeforeReceipt(plan, caseRoot, currentRoot, receiptTempRel); err != nil {
 		return err
@@ -632,7 +665,7 @@ func inventoryEntriesEqual(left, right []InventoryEntry) bool {
 func replayResult(plan Plan) Result {
 	receipt := plan.prepared.receiptValue
 	return Result{
-		SchemaVersion: SchemaVersion, Kind: ResultKind, Command: Command, Status: "already-current", CaseRoot: plan.CaseRoot, Pack: plan.Pack,
+		SchemaVersion: SchemaVersion, Kind: ResultKind, Command: Command, Status: "already-current", CaseRoot: plan.CaseRoot, SourcePack: plan.SourcePack, Pack: plan.Pack,
 		IsMutation: false, Applied: false, Replay: true, AlreadyCurrent: true, PlanSHA256: receipt.PlanSHA256,
 		ReceiptPath: filepath.Join(plan.CaseRoot, filepath.FromSlash(ReceiptRel)), Receipt: &receipt,
 		NextSteps: []string{"continue using the project-local /steamai entrypoint"},

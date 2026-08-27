@@ -39,41 +39,77 @@ type Write struct {
 	SourcePath string `json:"sourcePath,omitempty"`
 }
 
+type OnboardingFileBinding struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	Mode   uint32 `json:"mode"`
+}
+
+type OnboardingProjection struct {
+	SourceSchemaVersion        int                     `json:"sourceSchemaVersion"`
+	TargetSchemaVersion        int                     `json:"targetSchemaVersion"`
+	SourceOnboardingPlanSHA256 string                  `json:"sourceOnboardingPlanSha256"`
+	TargetOnboardingPlanSHA256 string                  `json:"targetOnboardingPlanSha256"`
+	SourceCommitSHA256         string                  `json:"sourceCommitSha256"`
+	ProjectID                  string                  `json:"projectId"`
+	PublicationStamp           string                  `json:"publicationStamp"`
+	Before                     []OnboardingFileBinding `json:"before"`
+	After                      []OnboardingFileBinding `json:"after"`
+}
+
+type RootFileTransition struct {
+	Path         string `json:"path"`
+	Kind         string `json:"kind"`
+	Action       string `json:"action"`
+	BeforeSHA256 string `json:"beforeSha256,omitempty"`
+	BeforeSize   int64  `json:"beforeSize,omitempty"`
+	BeforeMode   uint32 `json:"beforeMode,omitempty"`
+	AfterSHA256  string `json:"afterSha256"`
+	AfterSize    int64  `json:"afterSize"`
+	AfterMode    uint32 `json:"afterMode"`
+	SourcePath   string `json:"sourcePath,omitempty"`
+	SourceSHA256 string `json:"sourceSha256,omitempty"`
+}
+
 type Plan struct {
-	SchemaVersion        int          `json:"schemaVersion"`
-	Kind                 string       `json:"kind"`
-	Command              string       `json:"command"`
-	Status               string       `json:"status"`
-	CaseRoot             string       `json:"caseRoot"`
-	RepoRoot             string       `json:"repoRoot,omitempty"`
-	Pack                 string       `json:"pack"`
-	ProjectName          string       `json:"projectName,omitempty"`
-	SourceStateRoot      string       `json:"sourceStateRoot,omitempty"`
-	TargetStateRoot      string       `json:"targetStateRoot"`
-	CaseRootIdentity     Identity     `json:"caseRootIdentity,omitempty"`
-	SourceRootIdentity   Identity     `json:"sourceRootIdentity,omitempty"`
-	LegacyInventory      Inventory    `json:"legacyInventory,omitempty"`
-	PlannedInventory     Inventory    `json:"plannedInventory,omitempty"`
-	LegacyInstance       FileBinding  `json:"legacyInstance,omitempty"`
-	LegacyState          FileBinding  `json:"legacyState,omitempty"`
-	LegacyMetadata       *FileBinding `json:"legacyMetadata,omitempty"`
-	LegacySkill          FileBinding  `json:"legacySkill,omitempty"`
-	CurrentInstance      FileBinding  `json:"currentInstance,omitempty"`
-	CurrentState         FileBinding  `json:"currentState,omitempty"`
-	CurrentSkill         FileBinding  `json:"currentSkill,omitempty"`
-	BundleManifest       FileBinding  `json:"bundleManifest,omitempty"`
-	Writes               []Write      `json:"writes,omitempty"`
-	ExpectedPlanSHA256   string       `json:"expectedPlanSha256,omitempty"`
-	ApplyCommand         string       `json:"applyCommand,omitempty"`
-	ApplyArgs            []string     `json:"applyArgs,omitempty"`
-	IsMutation           bool         `json:"isMutation"`
-	Applied              bool         `json:"applied"`
-	Replay               bool         `json:"replay"`
-	AlreadyCurrent       bool         `json:"alreadyCurrent"`
-	RequiresReview       bool         `json:"requiresReview"`
-	RequiresConfirmation bool         `json:"requiresConfirmation"`
-	BlockedActions       []string     `json:"blockedActions"`
-	NextSteps            []string     `json:"nextSteps"`
+	SchemaVersion        int                   `json:"schemaVersion"`
+	Kind                 string                `json:"kind"`
+	Command              string                `json:"command"`
+	Status               string                `json:"status"`
+	CaseRoot             string                `json:"caseRoot"`
+	RepoRoot             string                `json:"repoRoot,omitempty"`
+	SourcePack           string                `json:"sourcePack,omitempty"`
+	Pack                 string                `json:"pack"`
+	ProjectName          string                `json:"projectName,omitempty"`
+	SourceStateRoot      string                `json:"sourceStateRoot,omitempty"`
+	TargetStateRoot      string                `json:"targetStateRoot"`
+	CaseRootIdentity     Identity              `json:"caseRootIdentity,omitempty"`
+	SourceRootIdentity   Identity              `json:"sourceRootIdentity,omitempty"`
+	LegacyInventory      Inventory             `json:"legacyInventory,omitempty"`
+	PlannedInventory     Inventory             `json:"plannedInventory,omitempty"`
+	LegacyInstance       FileBinding           `json:"legacyInstance,omitempty"`
+	LegacyState          FileBinding           `json:"legacyState,omitempty"`
+	LegacyMetadata       *FileBinding          `json:"legacyMetadata,omitempty"`
+	LegacySkill          FileBinding           `json:"legacySkill,omitempty"`
+	CurrentInstance      FileBinding           `json:"currentInstance,omitempty"`
+	CurrentState         FileBinding           `json:"currentState,omitempty"`
+	CurrentSkill         FileBinding           `json:"currentSkill,omitempty"`
+	BundleManifest       FileBinding           `json:"bundleManifest,omitempty"`
+	Onboarding           *OnboardingProjection `json:"onboarding,omitempty"`
+	RootFiles            []RootFileTransition  `json:"rootFiles,omitempty"`
+	Writes               []Write               `json:"writes,omitempty"`
+	ExpectedPlanSHA256   string                `json:"expectedPlanSha256,omitempty"`
+	ApplyCommand         string                `json:"applyCommand,omitempty"`
+	ApplyArgs            []string              `json:"applyArgs,omitempty"`
+	IsMutation           bool                  `json:"isMutation"`
+	Applied              bool                  `json:"applied"`
+	Replay               bool                  `json:"replay"`
+	AlreadyCurrent       bool                  `json:"alreadyCurrent"`
+	RequiresReview       bool                  `json:"requiresReview"`
+	RequiresConfirmation bool                  `json:"requiresConfirmation"`
+	BlockedActions       []string              `json:"blockedActions"`
+	NextSteps            []string              `json:"nextSteps"`
 
 	prepared *preparedPlan
 }
@@ -87,26 +123,29 @@ type ReceiptState struct {
 }
 
 type Receipt struct {
-	SchemaVersion  int          `json:"schemaVersion"`
-	Kind           string       `json:"kind"`
-	Command        string       `json:"command"`
-	State          string       `json:"state"`
-	PlanSHA256     string       `json:"planSha256"`
-	Pack           string       `json:"pack"`
-	Before         ReceiptState `json:"before"`
-	After          ReceiptState `json:"after"`
-	Instance       FileBinding  `json:"instance"`
-	StateMetadata  FileBinding  `json:"stateMetadata"`
-	Skill          FileBinding  `json:"skill"`
-	BundleManifest FileBinding  `json:"bundleManifest"`
-	LegacyInstance FileBinding  `json:"legacyInstance"`
-	LegacyState    FileBinding  `json:"legacyState"`
-	LegacyMetadata *FileBinding `json:"legacyMetadata,omitempty"`
-	LegacySkill    FileBinding  `json:"legacySkill"`
-	NoAuthority    bool         `json:"noAuthority"`
-	NoConfirmed    bool         `json:"noConfirmed"`
-	NoHeavyTool    bool         `json:"noHeavyTool"`
-	NoSyncPromote  bool         `json:"noSyncOrPromote"`
+	SchemaVersion  int                   `json:"schemaVersion"`
+	Kind           string                `json:"kind"`
+	Command        string                `json:"command"`
+	State          string                `json:"state"`
+	PlanSHA256     string                `json:"planSha256"`
+	SourcePack     string                `json:"sourcePack,omitempty"`
+	Pack           string                `json:"pack"`
+	Before         ReceiptState          `json:"before"`
+	After          ReceiptState          `json:"after"`
+	Instance       FileBinding           `json:"instance"`
+	StateMetadata  FileBinding           `json:"stateMetadata"`
+	Skill          FileBinding           `json:"skill"`
+	BundleManifest FileBinding           `json:"bundleManifest"`
+	Onboarding     *OnboardingProjection `json:"onboarding,omitempty"`
+	RootFiles      []RootFileTransition  `json:"rootFiles,omitempty"`
+	LegacyInstance FileBinding           `json:"legacyInstance"`
+	LegacyState    FileBinding           `json:"legacyState"`
+	LegacyMetadata *FileBinding          `json:"legacyMetadata,omitempty"`
+	LegacySkill    FileBinding           `json:"legacySkill"`
+	NoAuthority    bool                  `json:"noAuthority"`
+	NoConfirmed    bool                  `json:"noConfirmed"`
+	NoHeavyTool    bool                  `json:"noHeavyTool"`
+	NoSyncPromote  bool                  `json:"noSyncOrPromote"`
 }
 
 type Result struct {
@@ -115,6 +154,7 @@ type Result struct {
 	Command        string   `json:"command"`
 	Status         string   `json:"status"`
 	CaseRoot       string   `json:"caseRoot"`
+	SourcePack     string   `json:"sourcePack,omitempty"`
 	Pack           string   `json:"pack"`
 	IsMutation     bool     `json:"isMutation"`
 	Applied        bool     `json:"applied"`

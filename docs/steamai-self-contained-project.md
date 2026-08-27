@@ -217,10 +217,12 @@ control receipt、request SHA、transport/endpoint/delivery observation与actuat
 1. preview 验证 legacy-only attached project、完整 `.rekit` tree、legacy skill/metadata、无 reparse 和 `.steamai` 缺失；零写入返回 inventory、before/after identity、writes 和 plan SHA；
 2. Apply 必须携带同一个有效 SHA，重新验证 project/state-root identity、source tree、metadata、skill 和所有目标 currentness；
 3. 迁移保留 lane/facts/evidence/gate/autonomy 等 durable bytes，不推导或提升权限；
-4. 发布 current relocatable metadata、`/steamai` skill 和 migration receipt，并确保最终只有 `.steamai` 是 mutable root；
-5. exact replay 只接受同一 receipt/plan；source/target drift、dual root、partial publication 或不同 hash fail-closed。
+4. attached source pack 为 retired `vmp-re` / `generic-binary-re` 时，只有显式 `migrate-state -Pack <exact-retired-pack>` 可进入 pre-runtime migration owner；普通 `status` / `doctor` 仍拒绝 retired identity，unknown pack 与 current-only forged retired bundle不进入迁移；
+5. retired migration在同一 plan/lease/fence/receipt 内发布 canonical `binary-re` runtime bundle、managed/template/block/support root projection；若存在 committed schema-v1 onboarding，则确定性重建为 relocatable schema-v2，pending/corrupt或未知 lane 在写入前拒绝；
+6. 发布 current relocatable metadata、`/steamai` skill 和 migration receipt，并确保最终只有 `.steamai` 是 mutable root；
+7. exact replay 只接受同一 receipt/plan，并从 receipt 绑定的 legacy metadata 恢复 source pack后重验 root/onboarding provenance；source/target drift、provenance omission、dual root、partial publication 或不同 hash fail-closed。
 
-迁移完成前，legacy project 继续从 `/rekit` 单写 `.rekit`。不得为了显示新品牌而只改 skill 展示、却让状态 owner 继续写旧根。
+迁移完成前，仍受支持的 legacy project继续从 `/rekit` 单写 `.rekit`；retired source只能先执行显式迁移，不能继续 ordinary runtime。不得为了显示新品牌而只改 skill展示、手工把 retired pack改成`binary-re`，或让状态 owner继续写旧根。
 
 ## 验证标准
 

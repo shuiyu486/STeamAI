@@ -88,7 +88,85 @@ func Read(target string) (Instance, error) {
 	return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: "missing", StateDir: root.Dir, TemplatePack: defaults.DefaultPack, ProjectName: projectName(caseRoot), ProjectRoot: caseRoot}, nil
 }
 
+// ReadRetiredMigrationSource reads a legacy-only attached project for the
+// review-first state migration path. It does not admit the retired identity to
+// ordinary runtime use.
+func ReadRetiredMigrationSource(target, sourcePack string) (Instance, error) {
+	sourcePack = strings.ToLower(strings.TrimSpace(sourcePack))
+	if !packidentity.IsRetired(sourcePack) {
+		return Instance{}, fmt.Errorf("retired migration source selector is not a retired pack: %q", sourcePack)
+	}
+	caseRoot, err := filepath.Abs(target)
+	if err != nil {
+		return Instance{}, err
+	}
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return Instance{}, err
+	}
+	if !root.Legacy || !root.Existing {
+		return Instance{}, fmt.Errorf("retired pack migration requires an existing legacy-only %s state root", StateDirRekit)
+	}
+	instancePath := filepath.Join(root.Path, "instance.yml")
+	if !refsf.Exists(instancePath) {
+		return Instance{}, fmt.Errorf("retired pack migration requires legacy instance metadata: %s", instancePath)
+	}
+	inst, err := readInstanceWithPackValidator(
+		caseRoot,
+		instancePath,
+		"instance",
+		root.Dir,
+		func(pack string) error {
+			if !strings.EqualFold(strings.TrimSpace(pack), sourcePack) {
+				return fmt.Errorf("retired migration source selector %q does not match case pack %q", sourcePack, pack)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return Instance{}, err
+	}
+	if inst.SchemaVersion != 1 {
+		return Instance{}, fmt.Errorf("retired pack migration requires schema v1 instance metadata")
+	}
+
+	legacyPath := filepath.Join(caseRoot, ".re-template.yml")
+	legacy, err := readScalarFile(legacyPath)
+	if err != nil {
+		return Instance{}, fmt.Errorf("read retired legacy metadata: %w", err)
+	}
+	if pack := strings.TrimSpace(legacy["templatePack"]); !strings.EqualFold(pack, sourcePack) {
+		return Instance{}, fmt.Errorf("retired legacy metadata pack %q does not match source selector %q", pack, sourcePack)
+	}
+	if root := strings.TrimSpace(legacy["templateRoot"]); root == "" || !samePath(root, inst.TemplateRoot) {
+		return Instance{}, fmt.Errorf("retired legacy metadata templateRoot does not match instance metadata")
+	}
+	if projectRoot := strings.TrimSpace(legacy["currentProjectPath"]); projectRoot == "" || !samePath(projectRoot, inst.ProjectRoot) {
+		return Instance{}, fmt.Errorf("retired legacy metadata project root does not match instance metadata")
+	}
+	if mode := strings.TrimSpace(legacy["rekitMode"]); mode == "" || mode != inst.Mode {
+		return Instance{}, fmt.Errorf("retired legacy metadata mode does not match instance metadata")
+	}
+	return inst, nil
+}
+
 func readInstance(caseRoot, instancePath, source, stateDir string) (Instance, error) {
+	return readInstanceWithPackValidator(
+		caseRoot,
+		instancePath,
+		source,
+		stateDir,
+		packidentity.Validate,
+	)
+}
+
+func readInstanceWithPackValidator(
+	caseRoot,
+	instancePath,
+	source,
+	stateDir string,
+	validatePack func(string) error,
+) (Instance, error) {
 	values, err := readScalarFile(instancePath)
 	if err != nil {
 		return Instance{}, err
@@ -127,7 +205,7 @@ func readInstance(caseRoot, instancePath, source, stateDir string) (Instance, er
 		return Instance{}, err
 	}
 	templatePack := valueOr(values["templatePack"], defaults.DefaultPack)
-	if err := packidentity.Validate(templatePack); err != nil {
+	if err := validatePack(templatePack); err != nil {
 		return Instance{}, fmt.Errorf("read case pack identity: %w", err)
 	}
 	bundleManifest := strings.TrimSpace(values["bundleManifest"])

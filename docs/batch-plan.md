@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1`、`P0P3-C2`与`P0P3-C3`已完成，当前只推进`P0P3-C4`；随后按 retired pack identity migration、binary-re专项验收校准和完整P0～P3验证收口。Batch 830～833与validation repair仍只是各自局部证据；不创建Batch 834、不自选新功能。
+当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1`～`P0P3-C4`与 retired pack identity migration 已完成，当前只推进 binary-re 专项验收校准；随后执行完整 P0～P3 验证。Batch 830～833与validation repair仍只是各自局部证据；不创建Batch 834、不自选新功能。
 
 ## 执行清单
 
@@ -16,11 +16,11 @@
 |---|---|
 | 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `P0P3-C4 runtime ownership` |
+| 当前批次 | `路线收口 binary-re 专项验收校准` |
 | 状态 | `in_progress` |
-| 唯一允许领取 | `P0P3-C4` |
-| 上一批 | `P0P3-C3 DTO/receipt/session/skill` 已完成并通过 focused/product validation |
-| 下一批 | retired pack identity migration |
+| 唯一允许领取 | 路线收口 |
+| 上一批 | retired pack identity migration 已完成并通过 focused/package/document validation |
+| 下一批 | 完整 P0～P3 验证 |
 
 ### Current batch state
 
@@ -32,13 +32,13 @@
 
 验证结果：skillcontract、runtimebundle、sync、fs、workstream、releasecheck、CLI handoff/release-check focused tests及受影响完整 package tests通过；完整 P0～P3 验证仍未完成。
 
-### P0P3-C4：runtime ownership
+### binary-re 专项验收校准
 
-状态：in_progress；完成旧task #38，不创建新numbered batch。
+状态：in_progress；C1～C4与 retired migration 已完成，不创建新numbered batch。
 
-目标：让 scoped descriptor 与 typed reducer 真正拥有 continue/control/gate 目标 runtime 的 binder、validator、handler、profile、policy 和 publication owner，消除平行 dispatch 与共享可变投影；只修复可复现缺口，不重写 durable state、gate、receipt 或权限模型。
+目标：让 established-case status 显式投影 enabled specialties；将 VMP 能力声明收窄到已有 IDA index 的 bounded inspection，或用真实 gated producer实证；分层 synthetic、real Claude与真实目标/工具 receipt，避免把 fixture证据提升为产品能力。
 
-验证结果：待 C4 focused/product/full validation；C4 完成并验证后才解锁 retired pack identity migration。
+验证结果：待 established-case projection、VMP producer边界与三层证据语义逐项复核；完成后才解锁完整 P0～P3验证。
 
 ### Batch 833：binary-re actual analysis
 
@@ -54,11 +54,11 @@
 |---|---|
 | `P0P3-C1` capability control sinks | 已完成 |
 | `P0P3-C2` orchestration non-authorization | 已完成并解锁C3 |
-| `P0P3-C3` DTO/receipt/session/skill | 当前唯一允许领取 |
-| `P0P3-C4` runtime ownership | C3完成并验证 |
-| retired pack identity migration | C4完成并验证 |
-| binary-re 专项验收校准 | retired pack identity migration完成并验证 |
-| 路线总体完成 | 上述闭环及原P0～P3逐项验收全部通过 |
+| `P0P3-C3` DTO/receipt/session/skill | 已完成并解锁C4 |
+| `P0P3-C4` runtime ownership | 已完成并解锁retired migration |
+| retired pack identity migration | 已完成并解锁binary-re专项验收校准 |
+| binary-re 专项验收校准 | 当前唯一允许领取 |
+| 路线总体完成 | binary-re专项及原P0～P3逐项验收全部通过 |
 
 ## 验证标准
 

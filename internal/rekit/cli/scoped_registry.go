@@ -8,6 +8,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
@@ -113,6 +114,21 @@ var scopedCommandRuntimeOwners = []scopedCommandRuntimeOwner{
 var scopedCommandRoutes = scopedCommandRoutesForOwners(scopedCommandRuntimeOwners)
 
 var preRuntimeCommandOwners = []preRuntimeCommandOwner{
+	{
+		Name:     "retired-pack-migration",
+		Mode:     commands.MutationModeDefault,
+		Commands: []string{commands.MigrateState},
+		Scopes: []commands.CommandScope{
+			{Command: commands.MigrateState, Mode: commands.MutationModeDefault},
+		},
+		Select: func(opt Options) bool {
+			return opt.Command == commands.MigrateState && opt.PackProvided && packidentity.IsRetired(opt.Pack)
+		},
+		Validate: validateRetiredPackMigrationOptions,
+		Handle: func(opt Options, out io.Writer) (bool, error) {
+			return true, runRetiredPackMigration(opt, out)
+		},
+	},
 	{
 		Name:     "current-sync-maintenance",
 		Mode:     commands.MutationModeCurrentSync,
@@ -550,10 +566,37 @@ func validateReleaseCheckCommand(ctx runtime.Context, binding scopedCommandBindi
 }
 
 func validateMigrateStateCommand(ctx runtime.Context, binding scopedCommandBinding) error {
-	opt := binding.Options
 	if !ctx.TargetProvided {
 		return fmt.Errorf("migrate-state requires an explicit -Target project directory")
 	}
+	return validateMigrateStateBinding(binding)
+}
+
+func validateRetiredPackMigrationOptions(opt Options) error {
+	if !opt.targetProvided || strings.TrimSpace(opt.Target) == "" {
+		return fmt.Errorf("migrate-state requires an explicit -Target project directory")
+	}
+	owner, ok := scopedCommandRuntimeOwnerFor(commands.MigrateState)
+	if !ok {
+		return fmt.Errorf("migrate-state scoped runtime owner is unavailable")
+	}
+	scope := commands.CommandScope{Command: commands.MigrateState, Mode: commands.MutationModeDefault}
+	route, ok := scopedCommandRouteForOwner(owner, scope)
+	if !ok {
+		return fmt.Errorf("migrate-state scoped runtime route is unavailable")
+	}
+	binding, err := route.Bind(opt, scope)
+	if err != nil {
+		return err
+	}
+	if err := validateScopedCommandPolicy(binding); err != nil {
+		return err
+	}
+	return validateMigrateStateBinding(binding)
+}
+
+func validateMigrateStateBinding(binding scopedCommandBinding) error {
+	opt := binding.Options
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("migrate-state -WhatIf cannot be combined with -Apply")
 	}

@@ -4501,7 +4501,7 @@ func releaseHandoffActiveRoute(repo string) ReleaseHandoffActiveRoute {
 	if !releaseHandoffActiveRouteStateSupported(route.State) {
 		route.Warnings = append(route.Warnings, "active approved route uses unsupported state: "+route.State)
 	}
-	current := releaseHandoffBatchID(route.CurrentBatch)
+	current := releaseHandoffCurrentClaim(route.CurrentBatch, route.ExclusiveClaim)
 	next := releaseHandoffBatchID(route.NextBatch)
 	claim := strings.TrimSpace(route.ExclusiveClaim)
 	if current == "" || (route.State != "completed" && !strings.EqualFold(claim, current)) {
@@ -4565,6 +4565,18 @@ func releaseHandoffBatchID(value string) string {
 	return first
 }
 
+func releaseHandoffCurrentClaim(current, claim string) string {
+	claim = strings.TrimSpace(claim)
+	current = strings.TrimSpace(current)
+	if claim == "" || current == "" {
+		return ""
+	}
+	if strings.EqualFold(claim, current) || strings.HasPrefix(strings.ToLower(current), strings.ToLower(claim)+" ") {
+		return claim
+	}
+	return releaseHandoffBatchID(current)
+}
+
 func releaseHandoffActiveRouteStateSupported(state string) bool {
 	switch strings.ToLower(strings.TrimSpace(state)) {
 	case "in_progress", "blocked", "completed":
@@ -4605,7 +4617,10 @@ func releaseHandoffCompletedRouteAction(route ReleaseHandoffActiveRoute) *missio
 }
 
 func releaseHandoffActiveRouteAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
-	currentID := releaseHandoffBatchID(route.CurrentBatch)
+	currentID := strings.TrimSpace(route.ExclusiveClaim)
+	if currentID == "" {
+		currentID = releaseHandoffBatchID(route.CurrentBatch)
+	}
 	if currentID == "" {
 		currentID = "active-route"
 	}

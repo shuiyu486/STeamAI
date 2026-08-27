@@ -1,8 +1,6 @@
 package onboarding
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,8 +28,8 @@ import (
 )
 
 const (
-	planMarker          = "<onboarding-plan-sha256>"
-	attachedPlanCommand = "attached-onboarding-adoption"
+	planMarker          = missionintent.OnboardingPlanSHA256Marker
+	attachedPlanCommand = missionintent.AttachedOnboardingPlanCommand
 )
 
 var (
@@ -447,34 +445,14 @@ func generatedOnboardingWrites(caseRoot string, identity missionintent.Identity,
 		phase      int
 	}{}
 	if identity.SchemaVersion == 2 {
-		binding := missionintent.ProjectBinding{
-			SchemaVersion:        1,
-			ProjectID:            identity.ProjectID,
-			Target:               ".",
-			MissionIntentSHA256:  missionintent.SHA256(missionBytes),
-			PublicationStamp:     stamp,
-			OnboardingPlanSHA256: planSHA256,
-			NoAuthority:          true,
-			NoConfirmed:          true,
-			NoHeavyTool:          true,
-		}
-		bindingBytes, err := missionintent.MarshalProjectBindingAt(caseRoot, binding)
+		generation, err := missionintent.MarshalCommittedV2Projected(caseRoot, identity, recovery, stamp, planSHA256)
 		if err != nil {
 			return nil, err
 		}
-		intent.ProjectBindingSHA256 = missionintent.SHA256(bindingBytes)
-		intentBytes, err := missionintent.MarshalIntentAt(caseRoot, intent)
-		if err != nil {
-			return nil, err
-		}
-		commit := missionintent.Commit{SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256, MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes)}
-		commitBytes, err := missionintent.MarshalCommitAt(caseRoot, commit)
-		if err != nil && planSHA256 == planMarker {
-			commitBytes, err = marshalMarkerCommit(stamp, commit.MissionIntentSHA256, commit.IntentSHA256)
-		}
-		if err != nil {
-			return nil, err
-		}
+		missionBytes = generation.MissionIntentBytes
+		bindingBytes := generation.ProjectBindingBytes
+		intentBytes := generation.IntentBytes
+		commitBytes := generation.CommitBytes
 		generated = append(generated,
 			struct {
 				path, kind string
@@ -881,29 +859,14 @@ func recoveryWriteByKind(writes []missionintent.RecoveryWrite, kind string) (mis
 }
 
 func hashExclusivePlan(plan syncreview.ExclusiveInitPlan, identity missionintent.Identity) (string, error) {
-	type hashWrite struct {
-		Path             string `json:"path"`
-		Kind             string `json:"kind"`
-		SHA256           string `json:"sha256"`
-		Size             int64  `json:"size"`
-		PublicationPhase int    `json:"publicationPhase"`
-	}
 	caseRoot := plan.CaseRoot
 	if identity.SchemaVersion == 2 {
 		caseRoot = "."
 	}
-	value := struct {
-		SchemaVersion int         `json:"schemaVersion"`
-		Command       string      `json:"command"`
-		CaseRoot      string      `json:"caseRoot"`
-		RepoRoot      string      `json:"repoRoot"`
-		Pack          string      `json:"pack"`
-		ProjectName   string      `json:"projectName"`
-		ProvisionID   string      `json:"provisionId"`
-		Role          string      `json:"role"`
-		CreatedAt     string      `json:"createdAt"`
-		Writes        []hashWrite `json:"writes"`
-	}{plan.SchemaVersion, plan.Command, caseRoot, plan.RepoRoot, plan.Pack, plan.ProjectName, plan.ProvisionID, plan.Role, plan.CreatedAt, nil}
+	value := missionintent.PlanHashInput{
+		SchemaVersion: plan.SchemaVersion, Command: plan.Command, CaseRoot: caseRoot, RepoRoot: plan.RepoRoot,
+		Pack: plan.Pack, ProjectName: plan.ProjectName, ProvisionID: plan.ProvisionID, Role: plan.Role, CreatedAt: plan.CreatedAt,
+	}
 	for _, write := range plan.Writes {
 		hash := strings.ToLower(write.SHA256)
 		size := write.Size
@@ -918,14 +881,9 @@ func hashExclusivePlan(plan syncreview.ExclusiveInitPlan, identity missionintent
 			hash = strings.ToLower(canonical.SHA256)
 			size = canonical.Size
 		}
-		value.Writes = append(value.Writes, hashWrite{write.Path, write.Kind, hash, size, write.PublicationPhase})
+		value.Writes = append(value.Writes, missionintent.PlanHashWrite{Path: write.Path, Kind: write.Kind, SHA256: hash, Size: size, PublicationPhase: write.PublicationPhase})
 	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
+	return missionintent.HashOnboardingPlan(value)
 }
 
 func samePath(left, right string) bool {

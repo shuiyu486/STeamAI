@@ -15,7 +15,7 @@ description: Legacy compatibility and maintenance skill for legacy-only .rekit p
 
 1. 同时发现 `.steamai` 与 `.rekit`：立即 fail-closed；不得合并、择优、双写或把其中一个当 alias。
 2. 发现 `.steamai`，或发现 project-local `.claude/skills/steamai/SKILL.md`：停止本 skill，交给该项目的 `/steamai`；不得从中央 kit 运行 `/rekit` 代替它。
-3. 只发现 `.rekit/instance.yml`：这是 legacy-only 项目；从 metadata 取得 `templateRoot`、`templatePack` 和 case root，再使用 `<templateRoot>/.claude/skills/rekit/SKILL.md` 的 deterministic compatibility 协议。
+3. 只发现 `.rekit/instance.yml`：这是 legacy-only 项目；按 metadata 绑定的 canonical skill处理。retired `vmp-re` / `generic-binary-re` 只走显式 `migrate-state`，不进入 ordinary status/daily。
 4. 当前目录是 STeamAI 实现仓库：仅在维护本仓库或用户显式要求 `/rekit` 诊断时使用本 skill。GitHub canonical identity 是 `shuiyu486/STeamAI`；旧 Go module/internal names 不用于判断 repository identity。
 5. 普通目录且没有上述标记：不要自动接入或创建 legacy state；引导用户从该目录使用 `/steamai`／自然语言走 current 安全接入。
 
@@ -78,7 +78,7 @@ correction: go run ./cmd/rekit-host -daily -target <case-root> -lane <typed-choi
 - `continue -Apply` 不写 authority/confirmed、不执行 heavy tool。
 - gate 只记录 request/evidence；actual heavy action 仍要求 strict durable profile + exact `authorized-gate`。
 - 不自动写 authority/confirmed、提升 manual lane 或把口头确认当 authorized gate。
-- legacy 项目迁移到 current 状态根必须使用独立 `migrate-state` zero-write preview → exact hash-bound Apply → durable receipt；不得边迁移边继续写 `.rekit`。
+- state-root迁移只用`migrate-state`零写preview；确认后原样消费exact `applyArgs[]`与durable receipt。retired source不得alias、改写selector或手拼hash，也不得继续写`.rekit`。
 
 ### 4. 停止条件
 

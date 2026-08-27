@@ -21,10 +21,12 @@ var acceptedManagedBlockSHA256 = map[string]map[string]struct{}{
 	"ollvm":                     {"79b570b0d5093ce33825d7e7acf8a044437fbbdb1ec66d739bc15cc7f4ab3a94": {}},
 	"android-native":            {"e492d274ec3e6ac8798e877d844b64cc2b22b130d197b98f259109b037bf765a": {}},
 	packidentity.RetiredGeneric: {"791bdef68910f51acd810c60a322ff2ee5624a0598290e2a6f619eb0a3f92bb1": {}},
+	packidentity.RetiredVMP:     {"f12e9febbf923f815f1113f48b2b31e20137a77fb640a12db341dac9e8e4988e": {}},
 }
 
 var acceptedSupportSHA256 = map[string]map[string]map[string]struct{}{
-	defaults.DefaultPack: {".gitignore": {"1f2e0c6e920633ca91511262703bb5e9c00ddc74657b0a7fd21ea372bc8fef96": {}}},
+	defaults.DefaultPack:    {".gitignore": {"1f2e0c6e920633ca91511262703bb5e9c00ddc74657b0a7fd21ea372bc8fef96": {}}},
+	packidentity.RetiredVMP: {".gitignore": {"1f2e0c6e920633ca91511262703bb5e9c00ddc74657b0a7fd21ea372bc8fef96": {}}},
 }
 
 func ValidateManagedBlockSHA256(pack, sum string) error {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 )
@@ -107,6 +108,48 @@ type Commit struct {
 	IntentSHA256         string `json:"intentSha256"`
 }
 
+// CommittedGeneration contains the exact canonical bytes of one immutable
+// current onboarding generation. It is a pure projection and never writes.
+type CommittedGeneration struct {
+	Identity            Identity
+	ProjectBinding      ProjectBinding
+	Intent              Intent
+	Commit              Commit
+	MissionIntentBytes  []byte
+	ProjectBindingBytes []byte
+	IntentBytes         []byte
+	CommitBytes         []byte
+}
+
+// PlanHashWrite and PlanHashInput define the stable reviewed onboarding plan
+// identity shared by ordinary onboarding and state migration projection.
+type PlanHashWrite struct {
+	Path             string `json:"path"`
+	Kind             string `json:"kind"`
+	SHA256           string `json:"sha256"`
+	Size             int64  `json:"size"`
+	PublicationPhase int    `json:"publicationPhase"`
+}
+
+type PlanHashInput struct {
+	SchemaVersion int             `json:"schemaVersion"`
+	Command       string          `json:"command"`
+	CaseRoot      string          `json:"caseRoot"`
+	RepoRoot      string          `json:"repoRoot"`
+	Pack          string          `json:"pack"`
+	ProjectName   string          `json:"projectName"`
+	ProvisionID   string          `json:"provisionId"`
+	Role          string          `json:"role"`
+	CreatedAt     string          `json:"createdAt"`
+	LineageSHA256 string          `json:"lineageSha256,omitempty"`
+	Writes        []PlanHashWrite `json:"writes"`
+}
+
+const (
+	AttachedOnboardingPlanCommand = "attached-onboarding-adoption"
+	OnboardingPlanSHA256Marker    = "<onboarding-plan-sha256>"
+)
+
 type ArtifactPaths struct {
 	MissionIntent  string
 	ProjectBinding string
@@ -194,6 +237,17 @@ func MarshalIntentAt(caseRoot string, value Intent) ([]byte, error) {
 	return marshalBoundedCanonical(value, maxIntentArtifactBytes, "onboarding intent")
 }
 
+func CanonicalizeProjectedCurrentRecoveryAt(caseRoot string, identity Identity, recovery RecoveryEnvelope) (RecoveryEnvelope, error) {
+	physicalRoot, err := projectedPhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return RecoveryEnvelope{}, err
+	}
+	if identity.SchemaVersion != 2 {
+		return RecoveryEnvelope{}, fmt.Errorf("projected current recovery requires schemaVersion 2 identity")
+	}
+	return canonicalizeRecoveryEnvelope(physicalRoot, identity, recovery)
+}
+
 func MarshalCommit(value Commit) ([]byte, error) {
 	if err := validateCommit(value); err != nil {
 		return nil, err
@@ -206,6 +260,99 @@ func MarshalCommitAt(caseRoot string, value Commit) ([]byte, error) {
 		return nil, err
 	}
 	return marshalBoundedCanonical(value, maxArtifactBytes, "onboarding commit")
+}
+
+// MarshalCommittedV2Projected builds one future current generation without
+// consulting the selected on-disk state root. Callers must validate the
+// supplied identity, recovery envelope, and source lineage before projection.
+func MarshalCommittedV2Projected(caseRoot string, identity Identity, recovery RecoveryEnvelope, stamp, planSHA256 string) (CommittedGeneration, error) {
+	if !validStamp(stamp) || !validPlanHash(planSHA256) {
+		return CommittedGeneration{}, fmt.Errorf("invalid projected current onboarding generation")
+	}
+	canonicalRecovery, err := CanonicalizeProjectedCurrentRecoveryAt(caseRoot, identity, recovery)
+	if err != nil {
+		return CommittedGeneration{}, err
+	}
+	if err := ValidateProjectedCurrentRecoveryAt(caseRoot, identity, canonicalRecovery); err != nil {
+		return CommittedGeneration{}, err
+	}
+	recovery = canonicalRecovery
+	missionBytes, err := marshalBoundedCanonical(identity, maxArtifactBytes, "mission intent")
+	if err != nil {
+		return CommittedGeneration{}, err
+	}
+	binding := ProjectBinding{
+		SchemaVersion: 1, ProjectID: identity.ProjectID, Target: ".", MissionIntentSHA256: SHA256(missionBytes),
+		PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true,
+	}
+	bindingBytes, err := marshalBoundedCanonical(binding, maxArtifactBytes, "project binding")
+	if err != nil {
+		return CommittedGeneration{}, err
+	}
+	intent := Intent{
+		SchemaVersion: 2, Kind: "mission-onboarding-intent", PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256,
+		ProjectBindingSHA256: SHA256(bindingBytes), Identity: identity, Recovery: recovery,
+	}
+	intentBytes, err := marshalBoundedCanonical(intent, maxIntentArtifactBytes, "onboarding intent")
+	if err != nil {
+		return CommittedGeneration{}, err
+	}
+	commit := Commit{
+		SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: stamp, OnboardingPlanSHA256: planSHA256,
+		MissionIntentSHA256: SHA256(missionBytes), IntentSHA256: SHA256(intentBytes),
+	}
+	commitBytes, err := marshalBoundedCanonical(commit, maxArtifactBytes, "onboarding commit")
+	if err != nil {
+		return CommittedGeneration{}, err
+	}
+	return CommittedGeneration{
+		Identity: identity, ProjectBinding: binding, Intent: intent, Commit: commit,
+		MissionIntentBytes: missionBytes, ProjectBindingBytes: bindingBytes, IntentBytes: intentBytes, CommitBytes: commitBytes,
+	}, nil
+}
+
+// ValidateProjectedCurrentRecoveryAt validates a future .steamai generation
+// while the selected project can still be legacy-only during migration preview.
+func ValidateProjectedCurrentRecoveryAt(caseRoot string, identity Identity, recovery RecoveryEnvelope) error {
+	physicalRoot, err := projectedPhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return err
+	}
+	if identity.SchemaVersion != 2 || identity.Target != "." || !validProjectID(identity.ProjectID) {
+		return fmt.Errorf("invalid projected current onboarding identity")
+	}
+	if err := validateIdentityFields(identity); err != nil {
+		return err
+	}
+	if recovery.SchemaVersion != 1 || recovery.RepoRoot != "." {
+		return fmt.Errorf("projected current onboarding recovery must be relocatable")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, recovery.CreatedAt); err != nil {
+		return fmt.Errorf("invalid projected onboarding recovery createdAt: %w", err)
+	}
+	projectedRoot := projectstate.Root{Dir: projectstate.CurrentDir, Path: filepath.Join(physicalRoot, projectstate.CurrentDir), Existing: true}
+	return validateRecoveryEnvelope(projectedRoot, physicalRoot, identity, recovery)
+}
+
+func HashOnboardingPlan(value PlanHashInput) (string, error) {
+	if value.SchemaVersion != 1 || strings.TrimSpace(value.Command) == "" || strings.TrimSpace(value.CaseRoot) == "" || strings.TrimSpace(value.RepoRoot) == "" || strings.TrimSpace(value.Pack) == "" || strings.TrimSpace(value.ProjectName) == "" || strings.TrimSpace(value.ProvisionID) == "" || strings.TrimSpace(value.Role) == "" || strings.TrimSpace(value.CreatedAt) == "" || len(value.Writes) == 0 {
+		return "", fmt.Errorf("invalid onboarding plan hash input")
+	}
+	if value.LineageSHA256 != "" && !validSHA256(value.LineageSHA256) {
+		return "", fmt.Errorf("invalid onboarding plan lineage hash")
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return SHA256(data), nil
+}
+
+func DeriveProjectedProjectID(sourceCommitSHA256 string) (string, error) {
+	if !validSHA256(sourceCommitSHA256) {
+		return "", fmt.Errorf("projected current onboarding requires exact source commit sha256")
+	}
+	return SHA256([]byte("steamai-retired-onboarding-project-id-v1\x00" + strings.ToLower(sourceCommitSHA256)))[:16], nil
 }
 
 func ValidateIdentity(identity Identity) error {
@@ -338,6 +485,56 @@ func validateIdentityFields(identity Identity) error {
 		}
 	}
 	return nil
+}
+
+func projectedPhysicalCaseRoot(caseRoot string) (string, error) {
+	if strings.TrimSpace(caseRoot) == "" {
+		return "", fmt.Errorf("physical case root is empty")
+	}
+	physicalRoot, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	physicalRoot = filepath.Clean(physicalRoot)
+	current := physicalRoot
+	for {
+		info, statErr := os.Lstat(current)
+		if statErr == nil {
+			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("physical case root existing ancestor is not a regular directory: %s", current)
+			}
+			if err := validateProjectedPathComponents(current); err != nil {
+				return "", err
+			}
+			return physicalRoot, nil
+		}
+		if !os.IsNotExist(statErr) {
+			return "", statErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("physical case root has no existing directory ancestor: %s", physicalRoot)
+		}
+		current = parent
+	}
+}
+
+func validateProjectedPathComponents(path string) error {
+	current := filepath.Clean(path)
+	for {
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("physical case root contains a non-directory or reparse component: %s", current)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+		current = parent
+	}
 }
 
 func resolvePhysicalCaseRoot(caseRoot string) (string, projectstate.Root, error) {
@@ -1171,6 +1368,54 @@ func inspectV2(caseRoot string, stateRoot projectstate.Root, missionBytes []byte
 	inspection.Committed = true
 	inspection.CommitSHA256 = SHA256(commitBytes)
 	return inspection, nil
+}
+
+func ValidateCommittedV2ProjectedAt(caseRoot string, expected CommittedGeneration) error {
+	physicalRoot, err := projectedPhysicalCaseRoot(caseRoot)
+	if err != nil {
+		return err
+	}
+	var identity Identity
+	if err := decodeCanonical(expected.MissionIntentBytes, &identity); err != nil {
+		return fmt.Errorf("invalid projected mission intent: %w", err)
+	}
+	var binding ProjectBinding
+	if err := decodeCanonical(expected.ProjectBindingBytes, &binding); err != nil {
+		return fmt.Errorf("invalid projected project binding: %w", err)
+	}
+	var intent Intent
+	if err := decodeCanonical(expected.IntentBytes, &intent); err != nil {
+		return fmt.Errorf("invalid projected onboarding intent: %w", err)
+	}
+	var commit Commit
+	if err := decodeCanonical(expected.CommitBytes, &commit); err != nil {
+		return fmt.Errorf("invalid projected onboarding commit: %w", err)
+	}
+	if identity.SchemaVersion != 2 || identity.Target != "." || !validProjectID(identity.ProjectID) || intent.SchemaVersion != 2 || intent.Identity != identity || binding.ProjectID != identity.ProjectID || binding.Target != "." || binding.MissionIntentSHA256 != SHA256(expected.MissionIntentBytes) || binding.PublicationStamp != intent.PublicationStamp || binding.OnboardingPlanSHA256 != intent.OnboardingPlanSHA256 || intent.ProjectBindingSHA256 != SHA256(expected.ProjectBindingBytes) || commit.PublicationStamp != intent.PublicationStamp || commit.OnboardingPlanSHA256 != intent.OnboardingPlanSHA256 || commit.MissionIntentSHA256 != SHA256(expected.MissionIntentBytes) || commit.IntentSHA256 != SHA256(expected.IntentBytes) || !binding.NoAuthority || !binding.NoConfirmed || !binding.NoHeavyTool {
+		return fmt.Errorf("projected current onboarding generation hash chain is invalid")
+	}
+	if err := ValidateProjectedCurrentRecoveryAt(physicalRoot, identity, intent.Recovery); err != nil {
+		return err
+	}
+	for _, artifact := range []struct {
+		rel  string
+		data []byte
+	}{
+		{filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "mission-intent.json")), expected.MissionIntentBytes},
+		{ProjectBindingRel, expected.ProjectBindingBytes},
+		{filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "onboarding", "intent.json")), expected.IntentBytes},
+		{filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "onboarding", "commit.json")), expected.CommitBytes},
+	} {
+		path := filepath.Join(physicalRoot, filepath.FromSlash(artifact.rel))
+		data, err := rekitfs.ReadStableRegularFileAnchored(physicalRoot, path, "projected current onboarding artifact", maxIntentArtifactBytes)
+		if err != nil {
+			return fmt.Errorf("read projected current onboarding artifact %s: %w", artifact.rel, err)
+		}
+		if !bytes.Equal(data, artifact.data) {
+			return fmt.Errorf("projected current onboarding artifact differs: %s", artifact.rel)
+		}
+	}
+	return nil
 }
 
 func AssertCommittedOrAbsent(caseRoot string) error {

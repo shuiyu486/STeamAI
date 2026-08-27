@@ -200,6 +200,48 @@ func ValidateExecutable(executable string) error {
 	return nil
 }
 
+// NewRetiredMigration resolves the central maintenance runtime and one exact
+// legacy retired source without admitting that pack to ordinary runtime use.
+func NewRetiredMigration(target, sourcePack, cwdOverride string) (Context, error) {
+	if !packidentity.IsRetired(sourcePack) {
+		return Context{}, fmt.Errorf("retired migration runtime requires a retired source pack: %q", sourcePack)
+	}
+	cwd, err := refsf.FullPath(cwdOverride)
+	if err != nil {
+		return Context{}, err
+	}
+	if strings.TrimSpace(target) == "" {
+		return Context{}, fmt.Errorf("retired migration runtime requires an explicit target")
+	}
+	resolvedTarget := strings.TrimSpace(target)
+	if !filepath.IsAbs(resolvedTarget) {
+		resolvedTarget = filepath.Join(cwd, resolvedTarget)
+	}
+	resolvedTarget, err = filepath.Abs(resolvedTarget)
+	if err != nil {
+		return Context{}, err
+	}
+	inst, err := instance.ReadRetiredMigrationSource(resolvedTarget, sourcePack)
+	if err != nil {
+		return Context{}, err
+	}
+	repoRoot, err := refsf.FullPath(inst.TemplateRoot)
+	if err != nil {
+		return Context{}, err
+	}
+	if found, ok := findRepoRoot(repoRoot); !ok || !refsf.SamePath(found, repoRoot) {
+		return Context{}, fmt.Errorf("retired migration source templateRoot is not the exact rekit repo root: %s", repoRoot)
+	}
+	return Context{
+		RuntimeRoot:    filepath.Join(repoRoot, "rekit"),
+		RepoRoot:       repoRoot,
+		Cwd:            cwd,
+		Target:         filepath.Clean(resolvedTarget),
+		TargetProvided: true,
+		Pack:           strings.ToLower(strings.TrimSpace(sourcePack)),
+	}, nil
+}
+
 func NewWithCwd(target, pack, cwdOverride string) (Context, error) {
 	cwd, err := refsf.FullPath(cwdOverride)
 	if err != nil {

@@ -30,6 +30,10 @@ const (
 	maxBundleFiles     = 2048
 )
 
+// MaxExecutableBytes is the canonical upper bound shared by bundle builders
+// and transactions that inventory a published project-local runtime.
+const MaxExecutableBytes = int64(maxExecutableBytes)
+
 type Artifact struct {
 	Path   string `json:"path"`
 	Kind   string `json:"kind"`
@@ -163,11 +167,11 @@ func BuildWithExecutable(repoRoot, pack, executable string) (Plan, error) {
 	}
 
 	packRoot := filepath.Join(repoRoot, "packs", pack)
-	if err := collectTree(repoRoot, packRoot, filepath.ToSlash(filepath.Join("packs", pack)), "pack-asset", skipPackRuntimeAsset, addSource); err != nil {
+	if err := collectTree(packRoot, filepath.ToSlash(filepath.Join("packs", pack)), "pack-asset", skipPackRuntimeAsset, addSource); err != nil {
 		return Plan{}, err
 	}
 	commonRoot := filepath.Join(repoRoot, "common")
-	if err := collectTree(repoRoot, commonRoot, "common", "common-asset", nil, addSource); err != nil {
+	if err := collectTree(commonRoot, "common", "common-asset", nil, addSource); err != nil {
 		return Plan{}, err
 	}
 	projectSkill, err := skillcontract.ReadValidatedProjectTemplate(repoRoot)
@@ -443,7 +447,7 @@ func skipPackRuntimeAsset(rel string) bool {
 		strings.HasSuffix(lower, "/.gitkeep") || lower == ".gitkeep"
 }
 
-func collectTree(_ string, sourceRoot, destinationRoot, kind string, skip func(string) bool, add func(string, string, string, int64) error) error {
+func collectTree(sourceRoot, destinationRoot, kind string, skip func(string) bool, add func(string, string, string, int64) error) error {
 	if err := rekitfs.ValidateTreeNoReparse(sourceRoot, "STeamAI bundle source tree"); err != nil {
 		return err
 	}
