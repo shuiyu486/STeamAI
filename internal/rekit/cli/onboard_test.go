@@ -371,48 +371,59 @@ func TestRunStatusPublishesReadOnlyOnboardingPackChoices(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := snapshotFiles(t, caseRoot)
-	var out bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "binary-re", "-Format", "compact-json"}, &out); err != nil {
-		t.Fatal(err)
+	test := func(t *testing.T, args []string, wantSelected string) {
+		t.Helper()
+		var out bytes.Buffer
+		if err := Run(args, &out); err != nil {
+			t.Fatal(err)
+		}
+		var status struct {
+			Mode       string `json:"mode"`
+			Onboarding struct {
+				State        string `json:"state"`
+				SelectedPack string `json:"selectedPack"`
+				PackChoices  []struct {
+					ID          string `json:"id"`
+					Maturity    string `json:"maturity"`
+					Recommended bool   `json:"recommended"`
+					Selected    bool   `json:"selected"`
+					Selectable  bool   `json:"selectable"`
+				} `json:"packChoices"`
+			} `json:"onboarding"`
+			MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+			t.Fatal(err)
+		}
+		if status.Mode != "case-onboarding-required" || status.Onboarding.State != "absent" || status.Onboarding.SelectedPack != wantSelected || status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest != nil {
+			t.Fatalf("fresh project status omitted the non-executable onboarding choice state: %+v\n%s", status, out.String())
+		}
+		seenRecommended := false
+		for _, choice := range status.Onboarding.PackChoices {
+			if choice.ID == "_template" {
+				t.Fatalf("fresh project pack choices exposed authoring template: %+v", status.Onboarding.PackChoices)
+			}
+			if choice.Selected != (wantSelected != "" && choice.ID == wantSelected) {
+				t.Fatalf("fresh project choice selection drifted: selected=%q choice=%+v", wantSelected, choice)
+			}
+			if choice.ID == "binary-re" {
+				if choice.Maturity != "mature" || !choice.Recommended || !choice.Selectable {
+					t.Fatalf("fresh project omitted the recommended production pack: %+v", choice)
+				}
+				seenRecommended = true
+			}
+		}
+		if !seenRecommended {
+			t.Fatalf("fresh project pack choices omitted binary-re: %+v", status.Onboarding.PackChoices)
+		}
 	}
-	var status struct {
-		Mode       string `json:"mode"`
-		Onboarding struct {
-			State        string `json:"state"`
-			SelectedPack string `json:"selectedPack"`
-			PackChoices  []struct {
-				ID         string `json:"id"`
-				Maturity   string `json:"maturity"`
-				Selected   bool   `json:"selected"`
-				Selectable bool   `json:"selectable"`
-			} `json:"packChoices"`
-		} `json:"onboarding"`
-		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
-		t.Fatal(err)
-	}
-	if status.Mode != "case-onboarding-required" || status.Onboarding.State != "absent" || status.Onboarding.SelectedPack != "binary-re" || status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest != nil {
-		t.Fatalf("fresh project status omitted the non-executable onboarding choice state: %+v\n%s", status, out.String())
-	}
-	byID := map[string]struct {
-		Maturity   string
-		Selected   bool
-		Selectable bool
-	}{}
-	for _, choice := range status.Onboarding.PackChoices {
-		byID[choice.ID] = struct {
-			Maturity   string
-			Selected   bool
-			Selectable bool
-		}{choice.Maturity, choice.Selected, choice.Selectable}
-	}
-	if binary, ok := byID["binary-re"]; !ok || binary.Maturity != "mature" || !binary.Selected || !binary.Selectable {
-		t.Fatalf("fresh project pack choices omitted selected production pack: %+v", byID)
-	}
-	if _, ok := byID["_template"]; ok {
-		t.Fatalf("fresh project pack choices exposed authoring template: %+v", byID)
-	}
+
+	t.Run("default is recommendation only", func(t *testing.T) {
+		test(t, []string{"-Command", "status", "-Target", caseRoot, "-Format", "compact-json"}, "")
+	})
+	t.Run("explicit pack is selected", func(t *testing.T) {
+		test(t, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "web-security", "-Format", "compact-json"}, "web-security")
+	})
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 }
 

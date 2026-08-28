@@ -29,7 +29,7 @@
 
 ## 当前推进原则
 
-当前已批准路线是 `steamai-product-optimization-v1` P0～P3 residual closure；C1～C4、retired migration与binary-re验收已完成，当前总验证。不创建 Batch 834 或自选功能；source-clone-first，不做 installer，暂兼容 legacy `/rekit`/`.rekit`。局部 validation 不代表路线完成，cross-compile 不是运行证据。
+当前已批准路线是 `steamai-product-optimization-v1`，完成；无下一路线，等待显式变更。不创建 Batch 834，不自选功能；source-clone-first，不做 installer，兼容 legacy `/rekit`/`.rekit`。Machine publication认Git-local typed receipt、direct commit与本地tracking ref；cross-compile不是运行证据，不声称remote CI green。
 
 保持 PowerShell-free/Go-native，不新增 PowerShell runtime logic。避免单字段微批次；公共入口删除门禁不完整则升级。
 

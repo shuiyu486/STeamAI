@@ -40,19 +40,25 @@ type ReleaseHandoff struct {
 }
 
 type ReleaseHandoffActiveRoute struct {
-	Ready                bool                                    `json:"ready"`
-	Present              bool                                    `json:"present"`
-	Path                 string                                  `json:"path"`
-	ProjectionPath       string                                  `json:"projectionPath"`
-	Route                string                                  `json:"route"`
-	CurrentBatch         string                                  `json:"currentBatch"`
-	State                string                                  `json:"state"`
-	ExclusiveClaim       string                                  `json:"exclusiveClaim"`
-	NextBatch            string                                  `json:"nextBatch"`
-	NextBatchUnlocked    bool                                    `json:"nextBatchUnlocked"`
-	ProjectionConsistent bool                                    `json:"projectionConsistent"`
-	CurrentAction        *mission.MissionCommanderNextActionItem `json:"currentAction,omitempty"`
-	Warnings             []string                                `json:"warnings,omitempty"`
+	Ready                  bool                                    `json:"ready"`
+	Present                bool                                    `json:"present"`
+	Path                   string                                  `json:"path"`
+	ProjectionPath         string                                  `json:"projectionPath"`
+	Route                  string                                  `json:"route"`
+	CurrentBatch           string                                  `json:"currentBatch"`
+	State                  string                                  `json:"state"`
+	ExclusiveClaim         string                                  `json:"exclusiveClaim"`
+	NextBatch              string                                  `json:"nextBatch"`
+	NextBatchUnlocked      bool                                    `json:"nextBatchUnlocked"`
+	ProjectionConsistent   bool                                    `json:"projectionConsistent"`
+	LocalValidationReady   bool                                    `json:"localValidationReady"`
+	ReleaseCheckReady      bool                                    `json:"releaseCheckReady"`
+	LocalValidationReceipt *LocalValidationReceiptInspection       `json:"localValidationReceipt,omitempty"`
+	PostPushReceipt        *ReleaseHandoffPostPushReceipt          `json:"postPushReceipt,omitempty"`
+	CommitRefs             []string                                `json:"commitRefs,omitempty"`
+	Evidence               []string                                `json:"evidence,omitempty"`
+	CurrentAction          *mission.MissionCommanderNextActionItem `json:"currentAction,omitempty"`
+	Warnings               []string                                `json:"warnings,omitempty"`
 }
 
 type ReleaseHandoffCounts struct {
@@ -434,12 +440,14 @@ func BuildProjectHandoff(repoRoot string) (ReleaseHandoff, error) {
 		return ReleaseHandoff{}, err
 	}
 	actions := heavyToolGateActions(packs)
+	activeRoute := releaseHandoffActiveRoute(repo)
+	latest, activeRoute := releaseHandoffWithValidationReceipt(repo, latestBatchSummary(repo), activeRoute)
 	handoff := ReleaseHandoff{
 		Ready:       true,
 		Summary:     "release handoff summary ok",
 		ReadFirst:   releaseHandoffDocuments(repo),
-		ActiveRoute: releaseHandoffActiveRoute(repo),
-		LatestBatch: releaseHandoffLatestBatchWithPostPushReceipt(repo, latestBatchSummary(repo)),
+		ActiveRoute: activeRoute,
+		LatestBatch: latest,
 		Validation:  releaseHandoffValidation(gateProfile(catalogGateSteps(repo, cat.RecommendedMinimum)).Steps),
 		NextActions: releaseHandoffNextActions(),
 		Warnings:    []string{},
@@ -453,17 +461,26 @@ func BuildProjectHandoff(repoRoot string) (ReleaseHandoff, error) {
 		handoff.Ready = false
 		handoff.Summary = "release handoff summary has warnings"
 	}
+	if handoff.ActiveRoute.Present {
+		handoff.LatestBatch.Handoff.NextAction = ""
+		handoff.LatestBatch.Handoff.ReleaseInspectionCadence.NextAction = ""
+	}
+	if handoff.ActiveRoute.CurrentAction == nil || handoff.ActiveRoute.Ready && handoff.ActiveRoute.ProjectionConsistent {
+		handoff.ActiveRoute.CurrentAction = releaseHandoffFinalActiveRouteAction(handoff.ActiveRoute)
+	}
 	handoff.NextBatchSelectionPackage = BuildNextBatchSelectionPackage(handoff)
 	return handoff, nil
 }
 
 func releaseHandoff(repo string, check Result) ReleaseHandoff {
+	activeRoute := releaseHandoffActiveRoute(repo)
+	latest, activeRoute := releaseHandoffWithValidationReceipt(repo, latestBatchSummary(repo), activeRoute)
 	handoff := ReleaseHandoff{
 		Ready:       true,
 		Summary:     "release handoff summary ok",
 		ReadFirst:   releaseHandoffDocuments(repo),
-		ActiveRoute: releaseHandoffActiveRoute(repo),
-		LatestBatch: releaseHandoffLatestBatchWithPostPushReceipt(repo, latestBatchSummary(repo)),
+		ActiveRoute: activeRoute,
+		LatestBatch: latest,
 		Validation:  releaseHandoffValidation(check.GateProfile.Steps),
 		NextActions: releaseHandoffNextActions(),
 		Warnings:    []string{},
@@ -478,6 +495,13 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 	if ReleaseHandoffCountsFor(handoff).Warnings > 0 {
 		handoff.Ready = false
 		handoff.Summary = "release handoff summary has warnings"
+	}
+	if handoff.ActiveRoute.Present {
+		handoff.LatestBatch.Handoff.NextAction = ""
+		handoff.LatestBatch.Handoff.ReleaseInspectionCadence.NextAction = ""
+	}
+	if handoff.ActiveRoute.CurrentAction == nil || handoff.ActiveRoute.Ready && handoff.ActiveRoute.ProjectionConsistent {
+		handoff.ActiveRoute.CurrentAction = releaseHandoffFinalActiveRouteAction(handoff.ActiveRoute)
 	}
 	handoff.NextBatchSelectionPackage = BuildNextBatchSelectionPackage(handoff)
 	return handoff
@@ -4277,15 +4301,112 @@ func releaseHandoffExactActiveRouteNextBatchAction(route ReleaseHandoffActiveRou
 	}
 }
 
+func releaseHandoffActiveRouteValidationAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
+	if !route.Present || !route.Ready || !route.ProjectionConsistent || route.State != "completed" {
+		return nil
+	}
+	validation := route.LocalValidationReceipt
+	if validation == nil || (!validation.Ready && validation.State != "recorded-for-implementation-commit") {
+		state := "not-recorded"
+		if validation != nil && strings.TrimSpace(validation.State) != "" {
+			state = validation.State
+		}
+		return &mission.MissionCommanderNextActionItem{
+			Label:          route.ExclusiveClaim,
+			ActionID:       "active-route-local-validation",
+			State:          "active-route-validation-required",
+			Command:        "/rekit release-run -Format json",
+			Source:         "releaseHandoffActiveRoute.localValidationReceipt",
+			RequiresReview: true,
+			Reasons: mission.UniqueStrings([]string{
+				"the completed active route has no current exact machine validation receipt: " + state,
+				"route completion and machine validation remain independent truth sources",
+			}),
+			Boundary: []string{
+				"run the full local release minimum only after the exact route/current/state/claim/next projection is complete",
+				"release-run records a Git-local typed receipt and does not commit, push, or claim remote CI green",
+				"do not use the latest numbered batch receipt as active-route evidence",
+			},
+		}
+	}
+	if validation.State == "recorded-for-implementation-commit" && validation.Receipt != nil && validation.Receipt.Subject != nil {
+		return releaseHandoffActiveRouteCommitAction(route)
+	}
+	if validation.Ready && (route.PostPushReceipt == nil || !route.PostPushReceipt.Ready) {
+		state := "not-recorded"
+		if route.PostPushReceipt != nil && strings.TrimSpace(route.PostPushReceipt.State) != "" {
+			state = route.PostPushReceipt.State
+		}
+		return &mission.MissionCommanderNextActionItem{
+			Label:          route.ExclusiveClaim,
+			ActionID:       "active-route-post-push-reconcile",
+			State:          state,
+			Command:        "make the validated direct active-route commit the clean synchronized main HEAD, then refresh status",
+			Source:         "releaseHandoffActiveRoute.postPushReceipt",
+			RequiresReview: true,
+			Reasons: mission.UniqueStrings([]string{
+				"the active-route implementation commit matches the exact validation receipt",
+				"post-push receipt is not ready: " + state,
+			}),
+			Boundary: []string{
+				"do not amend or add another commit after the validated direct implementation commit",
+				"use only local Git refs for status; this action does not fetch, pull, push, or claim remote CI green",
+				"refresh status after the user reconciles main and the local origin/main tracking ref",
+			},
+		}
+	}
+	return nil
+}
+
+func releaseHandoffFinalActiveRouteAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
+	if action := releaseHandoffActiveRouteValidationAction(route); action != nil {
+		return action
+	}
+	if route.Ready && route.ProjectionConsistent && route.State == "completed" && !releaseHandoffNextBatchSelectable(route.NextBatch) {
+		return releaseHandoffCompletedRouteAction(route)
+	}
+	if route.NextBatchUnlocked {
+		return nil
+	}
+	return releaseHandoffActiveRouteAction(route)
+}
+
+func releaseHandoffActiveRouteCommitAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
+	return &mission.MissionCommanderNextActionItem{
+		Label:          route.ExclusiveClaim,
+		ActionID:       "active-route-implementation-commit",
+		State:          "recorded-for-implementation-commit",
+		Command:        "create and push the one direct implementation commit bound by the active-route validation receipt, then refresh status",
+		Source:         "releaseHandoffActiveRoute.localValidationReceipt",
+		RequiresReview: true,
+		Reasons: mission.UniqueStrings([]string{
+			"the full local release minimum passed for the exact active route subject",
+			"the current working-tree artifact snapshot still matches the Git-local typed receipt",
+		}),
+		Boundary: []string{
+			"commit only the exact artifact set bound by activeRoute.localValidationReceipt",
+			"do not reinterpret this commit as a repair for the latest numbered batch",
+			"refresh status after push so postPushReceipt can bind HEAD to the local origin/main tracking ref",
+			"the receipt does not execute commit or push and does not claim remote CI green",
+		},
+	}
+}
+
 func releaseHandoffReadyForNextBatchSelection(handoff ReleaseHandoff) bool {
-	if handoff.ActiveRoute.Present && !releaseHandoffUsesExactActiveRouteNextBatch(handoff) {
-		return false
+	if handoff.ActiveRoute.Present {
+		if !releaseHandoffUsesExactActiveRouteNextBatch(handoff) || !handoff.ActiveRoute.LocalValidationReady || !handoff.ActiveRoute.ReleaseCheckReady || handoff.ActiveRoute.PostPushReceipt == nil || !handoff.ActiveRoute.PostPushReceipt.Ready {
+			return false
+		}
+	} else {
+		if !handoff.LatestBatch.Handoff.LocalValidationReady || !handoff.LatestBatch.Handoff.ReleaseCheckReady {
+			return false
+		}
+		cadence := handoff.LatestBatch.Handoff.ReleaseInspectionCadence
+		if cadence.State != "complete" || !cadence.ImplementationCommitReady {
+			return false
+		}
 	}
-	if !handoff.Ready || !handoff.LatestBatch.Handoff.LocalValidationReady || !handoff.LatestBatch.Handoff.ReleaseCheckReady {
-		return false
-	}
-	cadence := handoff.LatestBatch.Handoff.ReleaseInspectionCadence
-	if cadence.State != "complete" || !cadence.ImplementationCommitReady {
+	if !handoff.Ready {
 		return false
 	}
 	packCandidates := handoff.PackMemoryCandidates
@@ -4512,8 +4633,11 @@ func releaseHandoffActiveRoute(repo string) ReleaseHandoffActiveRoute {
 	}
 	route.Ready = len(route.Warnings) == 0
 	route.NextBatchUnlocked = route.Ready && route.ProjectionConsistent && route.State == "completed" && next != "" && strings.EqualFold(claim, next)
-	if route.Ready && route.ProjectionConsistent && route.State == "completed" && !releaseHandoffNextBatchSelectable(route.NextBatch) {
-		route.CurrentAction = releaseHandoffCompletedRouteAction(route)
+	if route.Ready && route.ProjectionConsistent && route.State == "completed" {
+		route.CurrentAction = releaseHandoffActiveRouteValidationAction(route)
+		if route.CurrentAction == nil && !releaseHandoffNextBatchSelectable(route.NextBatch) {
+			route.CurrentAction = releaseHandoffCompletedRouteAction(route)
+		}
 	} else if !route.NextBatchUnlocked {
 		route.CurrentAction = releaseHandoffActiveRouteAction(route)
 		if !route.Ready || !route.ProjectionConsistent {

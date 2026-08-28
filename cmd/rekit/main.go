@@ -113,6 +113,14 @@ func run(args []string) int {
 			runErr = cli.Run(modeArgs, os.Stdout)
 		}
 		if runErr != nil {
+			if code, handled := cli.RenderRuntimePlanFailure(
+				modeArgs,
+				runErr,
+				os.Stdout,
+				os.Stderr,
+			); handled {
+				return code
+			}
 			fmt.Fprintln(os.Stderr, runErr)
 			return 1
 		}

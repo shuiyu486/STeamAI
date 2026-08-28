@@ -137,6 +137,39 @@ func TestRetiredMigrationProjectsCanonicalRootStateAndHealth(t *testing.T) {
 	}
 }
 
+func TestRetiredRootProjectionPreservesUnrelatedManagedBlock(t *testing.T) {
+	if !rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("retired managed-block replacement requires handle-bound exact mutation")
+	}
+	fixture := newRetiredMigrationFixture(t, packidentity.RetiredVMP)
+	unrelated := sourceartifact.CanonicalText([]byte("<!-- BEGIN other-tool:context v1 -->\n## Other tool context\nkeep me\n<!-- END other-tool:context -->"))
+	retiredBlock := sourceartifact.CanonicalText([]byte(strings.TrimSpace(retiredRouterFixture(fixture.pack))))
+	host := append([]byte("# User-owned context\r\n\r\n"), retiredBlock...)
+	host = append(host, []byte("\r\n")...)
+	host = append(host, unrelated...)
+	writeFixtureFile(t, filepath.Join(fixture.caseRoot, "CLAUDE.local.md"), host)
+
+	plan, err := Preview(fixture.repoRoot, fixture.caseRoot, fixture.pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRootTransitionAction(t, plan.RootFiles, "CLAUDE.local.md", "replace-managed-block")
+	result, err := Apply(fixture.repoRoot, fixture.caseRoot, fixture.pack, plan.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Receipt == nil {
+		t.Fatalf("migration omitted receipt: %+v", result)
+	}
+	actual, err := os.ReadFile(filepath.Join(fixture.caseRoot, "CLAUDE.local.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(actual, []byte("<!-- BEGIN binary-re-template:router")) != 1 || bytes.Contains(actual, []byte(retiredManagedBlockID(fixture.pack))) || !bytes.Contains(actual, bytes.TrimSpace(unrelated)) {
+		t.Fatalf("migration did not replace only its retired block:\n%s", actual)
+	}
+}
+
 func TestRetiredRootProjectionReplacesTrustedOlderCanonicalManagedFile(t *testing.T) {
 	if !rekitfs.HandleBoundExactMutationSupported() {
 		t.Skip("exact managed-file replacement requires handle-bound mutation support")

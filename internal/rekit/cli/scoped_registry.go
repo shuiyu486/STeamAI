@@ -600,7 +600,7 @@ func validateMigrateStateBinding(binding scopedCommandBinding) error {
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("migrate-state -WhatIf cannot be combined with -Apply")
 	}
-	if opt.CreateCandidates || opt.Force || opt.Review || wantsReviewArtifacts(opt) {
+	if opt.CreateCandidates || opt.Force || opt.Review || opt.List || wantsReviewArtifacts(opt) {
 		return fmt.Errorf("migrate-state supports only zero-write preview or exact hash-bound -Apply")
 	}
 	contract := binding.Descriptor.Mutation

@@ -13,7 +13,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
 
-type skeletonPackSmokeFixture struct {
+type packSmokeFixture struct {
 	pack                   string
 	taskType               string
 	items                  string
@@ -21,20 +21,18 @@ type skeletonPackSmokeFixture struct {
 	expectedOutputContract string
 	laneName               string
 	expectedLane           string
+	expectedPromoteAction  string
 }
 
-var skeletonPackSmokeFixtures = []skeletonPackSmokeFixture{
+var packSmokeFixtures = []packSmokeFixture{
 	{pack: "android-native", taskType: "jni-triage", items: "app-a,library-b", expectedRoute: "android-native:native-analysis", expectedOutputContract: "jni_symbol_ref", laneName: "jni", expectedLane: "native-analysis-jni"},
+	{pack: "binary-re", taskType: "binary-analysis", items: "binary-a,function-b", expectedRoute: "binary-re:binary-analysis", expectedOutputContract: "binary_ref", laneName: "general", expectedLane: "binary-analysis-general", expectedPromoteAction: "blocked-deny-pattern"},
 	{pack: "ctf", taskType: "pwn-analysis", items: "challenge-a,artifact-b", expectedRoute: "ctf:challenge-analysis", expectedOutputContract: "challenge_ref", laneName: "pwn", expectedLane: "challenge-analysis-pwn"},
 	{pack: "malware-analysis", taskType: "static-triage", items: "sample-a,behavior-b", expectedRoute: "malware-analysis:sample-analysis", expectedOutputContract: "sample_ref", laneName: "triage", expectedLane: "sample-analysis-triage"},
 	{pack: "ollvm", taskType: "control-flow-triage", items: "function-a,region-b", expectedRoute: "ollvm:obfuscation-analysis", expectedOutputContract: "function_ref", laneName: "cfg", expectedLane: "obfuscation-analysis-cfg"},
 	{pack: "unpack-pe", taskType: "loader-triage", items: "sample-a,loader-b", expectedRoute: "unpack-pe:unpack-analysis", expectedOutputContract: "sample_ref", laneName: "loader", expectedLane: "unpack-analysis-loader"},
 	{pack: "vuln-research", taskType: "crash-triage", items: "crash-a,patch-b", expectedRoute: "vuln-research:vuln-analysis", expectedOutputContract: "target_ref", laneName: "crash", expectedLane: "vuln-analysis-crash"},
 	{pack: "web-security", taskType: "endpoint-analysis", items: "/login,/api/orders", expectedRoute: "web-security:feature-analysis", expectedOutputContract: "endpoint", laneName: "authz", expectedLane: "feature-authz"},
-}
-
-var productionPackSmokePacks = map[string]bool{
-	"web-security": true,
 }
 
 func TestRunGoSkeletonPackSmokeMatrix(t *testing.T) {
@@ -44,27 +42,14 @@ func TestRunGoSkeletonPackSmokeMatrix(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := map[string]bool{}
-	for _, fixture := range skeletonPackSmokeFixtures {
+	for _, fixture := range packSmokeFixtures {
 		expected[fixture.pack] = true
-	}
-	discovered := map[string]manifest.PackSummary{}
-	for _, pack := range packs {
-		if pack.SchemaValid {
-			discovered[pack.ID] = pack
-		}
 	}
 	actual := map[string]bool{}
 	for _, pack := range packs {
-		if pack.SchemaValid && pack.Maturity == "skeleton" {
+		if pack.SchemaValid && (pack.Maturity == "skeleton" || pack.Maturity == "mature") {
 			actual[pack.ID] = true
 		}
-	}
-	for pack := range productionPackSmokePacks {
-		row, ok := discovered[pack]
-		if !ok || row.Maturity != "mature" {
-			t.Fatalf("production pack smoke %s is not a schema-valid mature pack: %+v", pack, row)
-		}
-		actual[pack] = true
 	}
 	if len(actual) != len(expected) {
 		t.Fatalf("pack smoke inventory drifted: actual=%v expected=%v", actual, expected)
@@ -80,14 +65,14 @@ func TestRunGoSkeletonPackSmokeMatrix(t *testing.T) {
 		}
 	}
 
-	for _, fixture := range skeletonPackSmokeFixtures {
+	for _, fixture := range packSmokeFixtures {
 		t.Run(fixture.pack, func(t *testing.T) {
-			runSkeletonPackSmoke(t, fixture)
+			runPackSmoke(t, fixture)
 		})
 	}
 }
 
-func runSkeletonPackSmoke(t *testing.T, fixture skeletonPackSmokeFixture) {
+func runPackSmoke(t *testing.T, fixture packSmokeFixture) {
 	t.Helper()
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "doctor", "-Pack", fixture.pack, "-Format", "json"}, &out); err != nil {
@@ -230,15 +215,23 @@ func runSkeletonPackSmoke(t *testing.T, fixture skeletonPackSmokeFixture) {
 	if err := json.Unmarshal(promoteData, &promotePlan); err != nil {
 		t.Fatalf("decode promote review packet: %v", err)
 	}
+	expectedPromoteAction := fixture.expectedPromoteAction
+	if expectedPromoteAction == "" {
+		expectedPromoteAction = "candidate-after-llm-review"
+	}
 	found := false
 	for _, item := range promotePlan.Items {
-		if item.Path == workflowRel && item.Kind == "managed-doc" && item.Action == "candidate-after-llm-review" {
-			found = true
-			break
+		if item.Path != workflowRel || item.Kind != "managed-doc" || item.Action != expectedPromoteAction {
+			continue
 		}
+		if expectedPromoteAction == "blocked-deny-pattern" && len(item.DenyViolations) == 0 {
+			t.Fatalf("blocked promote review omitted deny-pattern evidence: %+v", item)
+		}
+		found = true
+		break
 	}
 	if !found {
-		t.Fatalf("promote review omitted the managed workflow candidate: %+v", promotePlan.Items)
+		t.Fatalf("promote review omitted managed workflow action %s: %+v", expectedPromoteAction, promotePlan.Items)
 	}
 
 	for _, rel := range []string{"board.json", "facts", "lanes"} {

@@ -21,10 +21,14 @@ import (
 )
 
 const (
-	localValidationReceiptSchemaVersion = 2
-	localValidationReceiptKind          = "rekit-local-validation-receipt"
-	localValidationReceiptMaxBytes      = 2 * 1024 * 1024
-	localValidationArtifactMaxBytes     = 32 * 1024 * 1024
+	localValidationReceiptSchemaVersion       = 3
+	localValidationReceiptLegacySchemaVersion = 2
+	localValidationReceiptKind                = "rekit-local-validation-receipt"
+	localValidationReceiptMaxBytes            = 2 * 1024 * 1024
+	localValidationArtifactMaxBytes           = 32 * 1024 * 1024
+
+	LocalValidationReceiptSubjectNumberedBatch = "numbered-batch"
+	LocalValidationReceiptSubjectActiveRoute   = "active-route"
 )
 
 type LocalValidationReceiptStep struct {
@@ -44,10 +48,21 @@ type LocalValidationReceiptArtifact struct {
 	BlobOID string `json:"blobOid,omitempty"`
 }
 
+type LocalValidationReceiptSubject struct {
+	Kind           string `json:"kind"`
+	BatchID        string `json:"batchId,omitempty"`
+	Route          string `json:"route,omitempty"`
+	CurrentBatch   string `json:"currentBatch,omitempty"`
+	State          string `json:"state,omitempty"`
+	ExclusiveClaim string `json:"exclusiveClaim,omitempty"`
+	NextBatch      string `json:"nextBatch,omitempty"`
+}
+
 type LocalValidationReceipt struct {
 	SchemaVersion     int                              `json:"schemaVersion"`
 	Kind              string                           `json:"kind"`
-	BatchID           string                           `json:"batchId"`
+	BatchID           string                           `json:"batchId,omitempty"`
+	Subject           *LocalValidationReceiptSubject   `json:"subject,omitempty"`
 	BaselineHead      string                           `json:"baselineHead"`
 	GateProfile       string                           `json:"gateProfile"`
 	StepCount         int                              `json:"stepCount"`
@@ -62,7 +77,7 @@ type LocalValidationReceipt struct {
 }
 
 type LocalValidationReceiptInput struct {
-	BatchID           string
+	Subject           LocalValidationReceiptSubject
 	GateProfile       string
 	Passed            int
 	Failed            int
@@ -106,11 +121,60 @@ func CaptureLocalValidationSnapshot(repo string) (LocalValidationSnapshot, error
 	return LocalValidationSnapshot{BaselineHead: baseline, Artifacts: artifacts}, nil
 }
 
+func LocalValidationReceiptSubjectFor(handoff ReleaseHandoff) (LocalValidationReceiptSubject, bool) {
+	if route := handoff.ActiveRoute; route.Present {
+		if !route.Ready || !route.ProjectionConsistent || route.State != "completed" {
+			return LocalValidationReceiptSubject{}, false
+		}
+		subject, err := normalizeLocalValidationReceiptSubject(LocalValidationReceiptSubject{
+			Kind:           LocalValidationReceiptSubjectActiveRoute,
+			Route:          route.Route,
+			CurrentBatch:   route.CurrentBatch,
+			State:          route.State,
+			ExclusiveClaim: route.ExclusiveClaim,
+			NextBatch:      route.NextBatch,
+		})
+		return subject, err == nil
+	}
+	latest := handoff.LatestBatch
+	if !latest.Handoff.Completed || latestBatchIDNumber(latest.BatchID) < 817 || latest.Handoff.ReleaseInspectionCadence.State != "implementation-pending" {
+		return LocalValidationReceiptSubject{}, false
+	}
+	subject, err := normalizeLocalValidationReceiptSubject(LocalValidationReceiptSubject{
+		Kind:    LocalValidationReceiptSubjectNumberedBatch,
+		BatchID: latest.BatchID,
+	})
+	return subject, err == nil
+}
+
+func normalizeLocalValidationReceiptSubject(subject LocalValidationReceiptSubject) (LocalValidationReceiptSubject, error) {
+	subject.Kind = strings.TrimSpace(subject.Kind)
+	subject.BatchID = strings.TrimSpace(subject.BatchID)
+	subject.Route = strings.TrimSpace(subject.Route)
+	subject.CurrentBatch = strings.TrimSpace(subject.CurrentBatch)
+	subject.State = strings.ToLower(strings.TrimSpace(subject.State))
+	subject.ExclusiveClaim = strings.TrimSpace(subject.ExclusiveClaim)
+	subject.NextBatch = strings.TrimSpace(subject.NextBatch)
+	switch subject.Kind {
+	case LocalValidationReceiptSubjectNumberedBatch:
+		if subject.BatchID == "" || subject.Route != "" || subject.CurrentBatch != "" || subject.State != "" || subject.ExclusiveClaim != "" || subject.NextBatch != "" {
+			return LocalValidationReceiptSubject{}, fmt.Errorf("numbered-batch local validation receipt subject is invalid")
+		}
+	case LocalValidationReceiptSubjectActiveRoute:
+		if subject.BatchID != "" || subject.Route == "" || subject.CurrentBatch == "" || subject.State != "completed" || subject.ExclusiveClaim == "" || subject.NextBatch == "" {
+			return LocalValidationReceiptSubject{}, fmt.Errorf("active-route local validation receipt subject is invalid")
+		}
+	default:
+		return LocalValidationReceiptSubject{}, fmt.Errorf("local validation receipt requires a typed subject")
+	}
+	return subject, nil
+}
+
 func PublishLocalValidationReceipt(repo string, input LocalValidationReceiptInput) (LocalValidationReceiptInspection, error) {
 	inspection := localValidationReceiptInspectionBase()
-	batchID := strings.TrimSpace(input.BatchID)
-	if batchID == "" {
-		return inspection, fmt.Errorf("local validation receipt requires the latest batch id")
+	subject, err := normalizeLocalValidationReceiptSubject(input.Subject)
+	if err != nil {
+		return inspection, err
 	}
 	if strings.TrimSpace(input.GateProfile) == "" || !input.ReleaseCheckReady || input.Failed != 0 || input.Skipped != 0 || input.Passed != len(input.Steps) || len(input.Steps) == 0 {
 		return inspection, fmt.Errorf("local validation receipt requires a complete successful release run")
@@ -135,7 +199,7 @@ func PublishLocalValidationReceipt(repo string, input LocalValidationReceiptInpu
 	receipt := LocalValidationReceipt{
 		SchemaVersion:     localValidationReceiptSchemaVersion,
 		Kind:              localValidationReceiptKind,
-		BatchID:           batchID,
+		Subject:           &subject,
 		BaselineHead:      baseline,
 		GateProfile:       strings.TrimSpace(input.GateProfile),
 		StepCount:         len(input.Steps),
@@ -201,19 +265,40 @@ func PublishLocalValidationReceipt(repo string, input LocalValidationReceiptInpu
 	return inspection, nil
 }
 
-func InspectLocalValidationReceipt(repo string, latest ReleaseHandoffLatestBatch) LocalValidationReceiptInspection {
+func InspectLocalValidationReceipt(repo string, subject LocalValidationReceiptSubject) LocalValidationReceiptInspection {
 	inspection := localValidationReceiptInspectionBase()
+	expectedSubject, subjectErr := normalizeLocalValidationReceiptSubject(subject)
+	if subjectErr != nil {
+		inspection.State = "invalid-subject"
+		inspection.Warnings = append(inspection.Warnings, subjectErr.Error())
+		return inspection
+	}
 	path, err := localValidationReceiptPath(repo)
 	if err != nil {
 		inspection.State = "git-path-unavailable"
 		inspection.Warnings = append(inspection.Warnings, err.Error())
 		return inspection
 	}
+	legacyPathSelected := false
 	inspection.Path = localValidationReceiptDisplayPath(repo, path)
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
-		inspection.State = "not-recorded"
-		return inspection
+		legacyPath, legacyErr := localValidationLegacyReceiptPath(repo)
+		if legacyErr != nil {
+			inspection.State = "git-path-unavailable"
+			inspection.Warnings = append(inspection.Warnings, legacyErr.Error())
+			return inspection
+		}
+		legacyInfo, legacyErr := os.Lstat(legacyPath)
+		if os.IsNotExist(legacyErr) {
+			inspection.State = "not-recorded"
+			return inspection
+		}
+		path = legacyPath
+		info = legacyInfo
+		err = legacyErr
+		legacyPathSelected = true
+		inspection.Path = localValidationReceiptDisplayPath(repo, path)
 	}
 	inspection.Present = true
 	if err != nil {
@@ -233,14 +318,19 @@ func InspectLocalValidationReceipt(repo string, latest ReleaseHandoffLatestBatch
 		return inspection
 	}
 	inspection.SHA256 = localValidationHash(data)
-	var receipt LocalValidationReceipt
-	if err := strictCanonicalLocalValidationReceipt(data, &receipt); err != nil {
+	receipt, err := decodeLocalValidationReceipt(data)
+	if err != nil {
 		inspection.State = "invalid-contract"
 		inspection.Warnings = append(inspection.Warnings, err.Error())
 		return inspection
 	}
+	if legacyPathSelected && receipt.SchemaVersion != localValidationReceiptLegacySchemaVersion || !legacyPathSelected && receipt.SchemaVersion != localValidationReceiptSchemaVersion {
+		inspection.State = "invalid-contract"
+		inspection.Warnings = append(inspection.Warnings, "local validation receipt schema does not match its versioned Git metadata path")
+		return inspection
+	}
 	inspection.Receipt = &receipt
-	if err := validateLocalValidationReceiptContract(repo, receipt, latest); err != nil {
+	if err := validateLocalValidationReceiptContract(repo, receipt, expectedSubject); err != nil {
 		inspection.State = "stale-or-invalid"
 		inspection.Warnings = append(inspection.Warnings, err.Error())
 		return inspection
@@ -249,6 +339,20 @@ func InspectLocalValidationReceipt(repo string, latest ReleaseHandoffLatestBatch
 	if err != nil || !validLocalValidationCommit(head) {
 		inspection.State = "git-state-unavailable"
 		inspection.Warnings = append(inspection.Warnings, fmt.Sprintf("read current HEAD: %v", err))
+		return inspection
+	}
+	if strings.EqualFold(head, receipt.BaselineHead) {
+		current, err := CaptureLocalValidationSnapshot(repo)
+		if err != nil || !strings.EqualFold(current.BaselineHead, receipt.BaselineHead) || !slices.Equal(current.Artifacts, receipt.Artifacts) {
+			inspection.State = "artifact-content-mismatch"
+			inspection.Warnings = append(inspection.Warnings, "validated working-tree artifact snapshot changed before the implementation commit")
+			return inspection
+		}
+		inspection.State = "recorded-for-implementation-commit"
+		inspection.Evidence = append([]string{
+			"machine-readable local release-run receipt recorded for the exact current working-tree snapshot",
+			"create one direct implementation commit from the validated artifact set before post-push inspection",
+		}, localValidationReceiptStepEvidence(receipt.Steps)...)
 		return inspection
 	}
 	parents, err := localValidationGit(repo, "rev-list", "--parents", "-n", "1", head)
@@ -345,9 +449,33 @@ func localValidationReceiptInspectionBase() LocalValidationReceiptInspection {
 	}
 }
 
-func validateLocalValidationReceiptContract(repo string, receipt LocalValidationReceipt, latest ReleaseHandoffLatestBatch) error {
-	if receipt.SchemaVersion != localValidationReceiptSchemaVersion || receipt.Kind != localValidationReceiptKind || receipt.BatchID == "" || receipt.BatchID != latest.BatchID || !validLocalValidationCommit(receipt.BaselineHead) || receipt.GateProfile == "" || !receipt.ReleaseCheckReady || receipt.StepCount < 1 || receipt.StepCount != len(receipt.Steps) || receipt.Passed != receipt.StepCount || receipt.Failed != 0 || receipt.Skipped != 0 || len(receipt.Artifacts) == 0 {
+func localValidationReceiptSubjectForReceipt(receipt LocalValidationReceipt) (LocalValidationReceiptSubject, error) {
+	switch receipt.SchemaVersion {
+	case localValidationReceiptLegacySchemaVersion:
+		if receipt.Subject != nil {
+			return LocalValidationReceiptSubject{}, fmt.Errorf("legacy local validation receipt must not carry a typed subject")
+		}
+		return normalizeLocalValidationReceiptSubject(LocalValidationReceiptSubject{
+			Kind:    LocalValidationReceiptSubjectNumberedBatch,
+			BatchID: receipt.BatchID,
+		})
+	case localValidationReceiptSchemaVersion:
+		if receipt.BatchID != "" || receipt.Subject == nil {
+			return LocalValidationReceiptSubject{}, fmt.Errorf("typed local validation receipt has an invalid subject envelope")
+		}
+		return normalizeLocalValidationReceiptSubject(*receipt.Subject)
+	default:
+		return LocalValidationReceiptSubject{}, fmt.Errorf("unsupported local validation receipt schema version: %d", receipt.SchemaVersion)
+	}
+}
+
+func validateLocalValidationReceiptContract(repo string, receipt LocalValidationReceipt, expectedSubject LocalValidationReceiptSubject) error {
+	if receipt.Kind != localValidationReceiptKind || !validLocalValidationCommit(receipt.BaselineHead) || receipt.GateProfile == "" || !receipt.ReleaseCheckReady || receipt.StepCount < 1 || receipt.StepCount != len(receipt.Steps) || receipt.Passed != receipt.StepCount || receipt.Failed != 0 || receipt.Skipped != 0 || len(receipt.Artifacts) == 0 {
 		return fmt.Errorf("local validation receipt identity or success summary is invalid")
+	}
+	actualSubject, err := localValidationReceiptSubjectForReceipt(receipt)
+	if err != nil || actualSubject != expectedSubject {
+		return fmt.Errorf("local validation receipt subject does not match the current validation subject")
 	}
 	created, err := time.Parse(time.RFC3339Nano, receipt.CreatedAt)
 	if err != nil || created.Format(time.RFC3339Nano) != receipt.CreatedAt {
@@ -675,7 +803,15 @@ func localValidationFileMode(mode os.FileMode) string {
 }
 
 func localValidationReceiptPath(repo string) (string, error) {
-	value, err := localValidationGit(repo, "rev-parse", "--git-path", "rekit/local-validation-v2.json")
+	return localValidationReceiptPathFor(repo, "rekit/local-validation-v3.json")
+}
+
+func localValidationLegacyReceiptPath(repo string) (string, error) {
+	return localValidationReceiptPathFor(repo, "rekit/local-validation-v2.json")
+}
+
+func localValidationReceiptPathFor(repo, gitPath string) (string, error) {
+	value, err := localValidationGit(repo, "rev-parse", "--git-path", gitPath)
 	if err != nil {
 		return "", err
 	}
@@ -801,20 +937,72 @@ func canonicalLocalValidationReceipt(receipt LocalValidationReceipt) ([]byte, er
 	return append(data, '\n'), nil
 }
 
-func strictCanonicalLocalValidationReceipt(data []byte, receipt *LocalValidationReceipt) error {
+type localValidationReceiptVersion struct {
+	SchemaVersion int `json:"schemaVersion"`
+}
+
+type localValidationReceiptV2 struct {
+	SchemaVersion     int                              `json:"schemaVersion"`
+	Kind              string                           `json:"kind"`
+	BatchID           string                           `json:"batchId"`
+	BaselineHead      string                           `json:"baselineHead"`
+	GateProfile       string                           `json:"gateProfile"`
+	StepCount         int                              `json:"stepCount"`
+	Passed            int                              `json:"passed"`
+	Failed            int                              `json:"failed"`
+	Skipped           int                              `json:"skipped"`
+	ReleaseCheckReady bool                             `json:"releaseCheckReady"`
+	CreatedAt         string                           `json:"createdAt"`
+	Steps             []LocalValidationReceiptStep     `json:"steps"`
+	Artifacts         []LocalValidationReceiptArtifact `json:"artifacts"`
+	Boundary          []string                         `json:"boundary"`
+}
+
+func decodeLocalValidationReceipt(data []byte) (LocalValidationReceipt, error) {
+	var version localValidationReceiptVersion
+	if err := json.Unmarshal(data, &version); err != nil {
+		return LocalValidationReceipt{}, err
+	}
+	switch version.SchemaVersion {
+	case localValidationReceiptLegacySchemaVersion:
+		var legacy localValidationReceiptV2
+		if err := strictCanonicalLocalValidationJSON(data, &legacy); err != nil {
+			return LocalValidationReceipt{}, err
+		}
+		return LocalValidationReceipt{
+			SchemaVersion: legacy.SchemaVersion, Kind: legacy.Kind, BatchID: legacy.BatchID,
+			BaselineHead: legacy.BaselineHead, GateProfile: legacy.GateProfile,
+			StepCount: legacy.StepCount, Passed: legacy.Passed, Failed: legacy.Failed,
+			Skipped: legacy.Skipped, ReleaseCheckReady: legacy.ReleaseCheckReady,
+			CreatedAt: legacy.CreatedAt, Steps: legacy.Steps, Artifacts: legacy.Artifacts,
+			Boundary: legacy.Boundary,
+		}, nil
+	case localValidationReceiptSchemaVersion:
+		var receipt LocalValidationReceipt
+		if err := strictCanonicalLocalValidationJSON(data, &receipt); err != nil {
+			return LocalValidationReceipt{}, err
+		}
+		return receipt, nil
+	default:
+		return LocalValidationReceipt{}, fmt.Errorf("unsupported local validation receipt schema version: %d", version.SchemaVersion)
+	}
+}
+
+func strictCanonicalLocalValidationJSON(data []byte, destination any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(receipt); err != nil {
+	if err := dec.Decode(destination); err != nil {
 		return err
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
 		return fmt.Errorf("local validation receipt must contain exactly one JSON object")
 	}
-	canonical, err := canonicalLocalValidationReceipt(*receipt)
+	canonical, err := json.MarshalIndent(destination, "", "  ")
 	if err != nil {
 		return err
 	}
+	canonical = append(canonical, '\n')
 	if !bytes.Equal(data, canonical) {
 		return fmt.Errorf("local validation receipt is not canonical JSON")
 	}

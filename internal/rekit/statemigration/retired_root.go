@@ -278,11 +278,11 @@ func replaceRetiredManagedBlock(host []byte, sourcePack string, canonicalBlock [
 		return nil, fmt.Errorf("retired migration managed block source pack is invalid: %s", sourcePack)
 	}
 	text := string(sourceartifact.SemanticText(host))
-	if strings.Count(text, "<!-- BEGIN ") != 1 || strings.Count(text, "<!-- END ") != 1 || strings.Contains(text, "<!-- BEGIN binary-re-template:router") {
-		return nil, fmt.Errorf("retired migration managed block host contains duplicate or unknown generations")
-	}
 	beginMarker := "<!-- BEGIN " + blockID
 	endMarker := "<!-- END " + blockID + " -->"
+	if strings.Count(text, beginMarker) != 1 || strings.Count(text, endMarker) != 1 || strings.Contains(text, "<!-- BEGIN binary-re-template:router") {
+		return nil, fmt.Errorf("retired migration managed block host contains duplicate or unknown generations")
+	}
 	begin := strings.Index(text, beginMarker)
 	end := strings.Index(text, endMarker)
 	if begin < 0 || end < begin {

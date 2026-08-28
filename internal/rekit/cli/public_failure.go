@@ -75,8 +75,30 @@ func wrapPublicUsageError(err error) error {
 // STeamAI public surface. Public status and continue are zero-write routes, so
 // failures rendered here have not crossed a mutation boundary.
 func RenderPublicFailure(args []string, err error, source string, stdout, stderr io.Writer) int {
-	failure := classifyPublicFailure(args, err, source)
-	if PublicDiagnosticsRequested(args) {
+	return renderPublicFailure(
+		classifyPublicFailure(args, err, source),
+		PublicDiagnosticsRequested(args),
+		stdout,
+		stderr,
+	)
+}
+
+// RenderRuntimePlanFailure shares the public typed failure envelope with the
+// explicit runtime surface without converting ordinary maintenance failures.
+func RenderRuntimePlanFailure(args []string, err error, stdout, stderr io.Writer) (int, bool) {
+	if _, ok := plancontract.FromError(err); !ok {
+		return 0, false
+	}
+	return renderPublicFailure(
+		classifyPublicFailure(args, err, PublicFailureSourceRuntime),
+		runtimeJSONRequested(args),
+		stdout,
+		stderr,
+	), true
+}
+
+func renderPublicFailure(failure publicFailureEnvelope, diagnostics bool, stdout, stderr io.Writer) int {
+	if diagnostics {
 		if stdout == nil {
 			stdout = io.Discard
 		}
@@ -99,13 +121,24 @@ func RenderPublicFailure(args []string, err error, source string, stdout, stderr
 }
 
 func PublicDiagnosticsRequested(args []string) bool {
-	for index := 1; index < len(args); index++ {
+	return diagnosticsRequested(args, 1, false)
+}
+
+func runtimeJSONRequested(args []string) bool {
+	return diagnosticsRequested(args, 0, true)
+}
+
+func diagnosticsRequested(args []string, start int, runtimeFormat bool) bool {
+	for index := start; index < len(args); index++ {
 		argument := strings.TrimSpace(args[index])
 		name, value, assigned := strings.Cut(argument, "=")
 		switch strings.ToLower(name) {
 		case "--diagnostics":
 			return true
-		case "--format":
+		case "--format", "-format":
+			if !runtimeFormat && !strings.EqualFold(name, "--format") {
+				continue
+			}
 			if !assigned && index+1 < len(args) {
 				value = args[index+1]
 			}
@@ -214,9 +247,20 @@ func publicFailureCommand(args []string) string {
 		return "help"
 	case "help", "status", "continue":
 		return command
-	default:
-		return "unknown"
 	}
+	for index, argument := range args {
+		name, value, assigned := strings.Cut(strings.TrimSpace(argument), "=")
+		if !strings.EqualFold(name, "-Command") && !strings.EqualFold(name, "--command") {
+			continue
+		}
+		if !assigned && index+1 < len(args) {
+			value = args[index+1]
+		}
+		if command := strings.ToLower(strings.TrimSpace(value)); command != "" {
+			return command
+		}
+	}
+	return "unknown"
 }
 
 func publicFailureDetail(err error) string {

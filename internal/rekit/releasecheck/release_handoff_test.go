@@ -73,7 +73,7 @@ func TestPostPushReceiptClosesImplementationPendingCadence(t *testing.T) {
 		"show abc7940:docs/batch-plan.md":                 "### Batch 794：post-push closure\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n",
 		"diff-tree --no-commit-id --name-only -r abc7940": "CHANGELOG.md\ndocs/batch-plan.md\ninternal/rekit/releasecheck/release_handoff.go\n",
 	})
-	receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, executor)
+	receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, ReleaseHandoffActiveRoute{}, executor)
 	if !receipt.Ready || receipt.State != "post-push-complete" || !receipt.WorkingTreeClean || !receipt.Synchronized || receipt.ParentBatchID != "Batch 793" || receipt.HeadBatchID != "Batch 794" {
 		t.Fatalf("post-push receipt did not close the implementation commit: %+v", receipt)
 	}
@@ -94,7 +94,7 @@ func TestLatestBatchPostPushReceiptPromotesNextBatchSelection(t *testing.T) {
 		"show abc7940:docs/batch-plan.md":                 "### Batch 794：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n",
 		"diff-tree --no-commit-id --name-only -r abc7940": "CHANGELOG.md\ndocs/batch-plan.md\ninternal/rekit/releasecheck/release_handoff.go\n",
 	}
-	updated := releaseHandoffLatestBatchWithPostPushReceiptUsing(t.TempDir(), latest, postPushGitFixture(values))
+	updated := releaseHandoffLatestBatchWithPostPushReceiptUsing(t.TempDir(), latest, ReleaseHandoffActiveRoute{}, postPushGitFixture(values))
 	if updated.Handoff.PostPushReceipt == nil || !updated.Handoff.PostPushReceipt.Ready || updated.Handoff.ReleaseInspectionCadence.State != "complete" || !updated.Handoff.ReleaseInspectionCadence.ImplementationCommitReady || updated.Handoff.NextAction == "" || !strings.Contains(updated.Handoff.NextAction, "select the next") || !slices.Contains(updated.Handoff.CommitRefs, "abc7940") {
 		t.Fatalf("post-push wrapper did not promote next-batch handoff: %+v", updated.Handoff)
 	}
@@ -129,7 +129,7 @@ func TestPostPushReceiptFailsClosed(t *testing.T) {
 			values := map[string]string{}
 			maps.Copy(values, base)
 			fixture.change(values)
-			receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, postPushGitFixture(values))
+			receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, ReleaseHandoffActiveRoute{}, postPushGitFixture(values))
 			if receipt.Ready || receipt.State != fixture.state {
 				t.Fatalf("post-push receipt should fail closed: %+v", receipt)
 			}
@@ -161,7 +161,7 @@ func TestPostPushReceiptRejectsMovingRepositorySnapshot(t *testing.T) {
 		}
 		return 0, value, nil
 	}
-	receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, executor)
+	receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, ReleaseHandoffActiveRoute{}, executor)
 	if receipt.Ready || receipt.State != "stale-repository-snapshot" {
 		t.Fatalf("moving repository snapshot should fail closed: %+v", receipt)
 	}
@@ -231,13 +231,13 @@ func TestPostPushReceiptUsesRealLocalGitRepository(t *testing.T) {
 	latest.Handoff.ReleaseCheckReady = true
 	latest.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
 	latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = false
-	updated := releaseHandoffLatestBatchWithPostPushReceipt(repo, latest)
+	updated := releaseHandoffLatestBatchWithPostPushReceipt(repo, latest, ReleaseHandoffActiveRoute{})
 	if updated.Handoff.PostPushReceipt == nil || !updated.Handoff.PostPushReceipt.Ready || updated.Handoff.PostPushReceipt.Head != head || updated.Handoff.ReleaseInspectionCadence.State != "complete" {
 		t.Fatalf("real local git repository did not produce a ready post-push receipt: %+v", updated.Handoff)
 	}
 
 	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 795\n")
-	dirty := releaseHandoffPostPushReceiptFor(repo, latest, defaultReleaseHandoffGitCommand)
+	dirty := releaseHandoffPostPushReceiptFor(repo, latest, ReleaseHandoffActiveRoute{}, defaultReleaseHandoffGitCommand)
 	if dirty.Ready || dirty.State != "dirty" {
 		t.Fatalf("dirty real repository should remain implementation-pending: %+v", dirty)
 	}
@@ -399,10 +399,13 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 		t.Fatalf("unexpected latest batch summary: %+v", handoff.LatestBatch)
 	}
 	latestHandoff := handoff.LatestBatch.Handoff
-	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || latestHandoff.RemoteReleaseGateDetail == nil || strings.TrimSpace(latestHandoff.RemoteReleaseGateDetail.State) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" {
+	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || latestHandoff.RemoteReleaseGateDetail == nil || strings.TrimSpace(latestHandoff.RemoteReleaseGateDetail.State) == "" {
 		t.Fatalf("unexpected latest batch handoff: %+v", latestHandoff)
 	}
-	if cadence := latestHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 1 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed || len(cadence.Boundary) == 0 || !releaseHandoffStringsContain(cadence.Boundary, "asynchronous and non-blocking") {
+	if handoff.ActiveRoute.Present && (latestHandoff.NextAction != "" || latestHandoff.ReleaseInspectionCadence.NextAction != "") {
+		t.Fatalf("active route did not suppress latest-batch current guidance: %+v", latestHandoff)
+	}
+	if cadence := latestHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 1 || cadence.State == "" || cadence.ThirdInspectionAllowed || len(cadence.Boundary) == 0 || !releaseHandoffStringsContain(cadence.Boundary, "asynchronous and non-blocking") {
 		t.Fatalf("latest batch Windows-first release cadence drifted: %+v", cadence)
 	}
 	if latestHandoff.RemoteReleaseGateDetail.State != latestHandoff.RemoteReleaseGate {
@@ -449,6 +452,7 @@ func TestReleaseHandoffCompletedRouteWithDeferredNextDoesNotUnlockSelection(t *t
 	repo := cleanReleaseRepoRoot(t)
 	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "无；当前路线已按用户指定完成", "无；RH-10 已按用户决定保持 deferred，当前不实施 Linux/macOS product path")
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	publishCompletedActiveRouteReceiptFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -570,6 +574,7 @@ func TestReleaseHandoffCompletedRouteUnlocksPunctuatedExactNextBatch(t *testing.
 	repo := cleanReleaseRepoRoot(t)
 	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "DPC-02", "DPC-02，only after acceptance")
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	publishCompletedActiveRouteReceiptFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -584,6 +589,7 @@ func TestReleaseHandoffBuildsExactActiveRouteNextBatchPackage(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
 	unlockReleaseHandoffActiveRouteFixture(t, repo)
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	publishCompletedActiveRouteReceiptFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -599,6 +605,7 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryCloses
 	repo := cleanReleaseRepoRoot(t)
 	unlockReleaseHandoffActiveRouteFixture(t, repo)
 	writeStaleReleaseCheckNarrativeLatestBatchFixture(t, repo)
+	publishCompletedActiveRouteReceiptFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -610,8 +617,8 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryCloses
 	if cadence := latest.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed {
 		t.Fatalf("stale release-check narrative should not reopen completed cadence: %+v", cadence)
 	}
-	if strings.Contains(latest.NextAction, "local release minimum") || !strings.Contains(latest.NextAction, "select the next Windows-verifiable product-path batch") {
-		t.Fatalf("completed cadence should hand off to next-batch selection, got %q", latest.NextAction)
+	if latest.NextAction != "" || latest.ReleaseInspectionCadence.NextAction != "" {
+		t.Fatalf("active route should suppress latest-batch current guidance: latest=%q cadence=%q", latest.NextAction, latest.ReleaseInspectionCadence.NextAction)
 	}
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
 	assertExactActiveRouteNextBatchPackage(t, pkg, "fixture-next-batch")
@@ -621,6 +628,7 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEv
 	repo := cleanReleaseRepoRoot(t)
 	unlockReleaseHandoffActiveRouteFixture(t, repo)
 	writeShortLocalValidationEvidenceLatestBatchFixture(t, repo)
+	publishCompletedActiveRouteReceiptFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -637,8 +645,8 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEv
 	if cadence := latest.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed {
 		t.Fatalf("short local validation evidence should keep completed cadence: %+v", cadence)
 	}
-	if strings.Contains(latest.NextAction, "local release minimum") || !strings.Contains(latest.NextAction, "select the next Windows-verifiable product-path batch") {
-		t.Fatalf("short local validation evidence should hand off to next-batch selection, got %q", latest.NextAction)
+	if latest.NextAction != "" || latest.ReleaseInspectionCadence.NextAction != "" {
+		t.Fatalf("active route should suppress latest-batch current guidance: latest=%q cadence=%q", latest.NextAction, latest.ReleaseInspectionCadence.NextAction)
 	}
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
 	assertExactActiveRouteNextBatchPackage(t, pkg, "fixture-next-batch")
@@ -657,6 +665,7 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 验证结果：`+longValidationPrefix+`完成态 `+"`"+`release-check -Format json`+"`"+` 返回 `+"`"+`ready=true`+"`"+`；统一 `+"`"+`release-run -Format json`+"`"+` 以 7/7 通过。Implementation commit `+"`"+`abc999d`+"`"+` 已推送；未轮询或等待远程 workflow。
 
 `, "- Batch 816 fixture note.\n\n")
+	publishCompletedActiveRouteReceiptFixture(t, repo)
 
 	result, err := Build(repo)
 	if err != nil {
@@ -671,13 +680,13 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 		t.Fatalf("canonical 7/7 pushed batch should be locally ready with remote not recorded: ready=%t warnings=%+v latest=%+v", result.Ready, result.Warnings, latest)
 	}
 	cadence := latest.ReleaseInspectionCadence
-	if cadence.MaxPushes != 1 || cadence.State != "complete" || !cadence.ImplementationCommitReady || cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed || !strings.Contains(cadence.NextAction, "without polling or waiting for remote CI") {
-		t.Fatalf("canonical 7/7 pushed batch should complete Windows-first cadence: %+v", cadence)
+	if cadence.MaxPushes != 1 || cadence.State != "complete" || !cadence.ImplementationCommitReady || cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed || cadence.NextAction != "" {
+		t.Fatalf("canonical 7/7 pushed route should retain historical cadence without latest-batch guidance: %+v", cadence)
 	}
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
 	assertExactActiveRouteNextBatchPackage(t, pkg, "fixture-next-batch")
-	if !strings.Contains(latest.NextAction, "without waiting for remote CI") {
-		t.Fatalf("canonical 7/7 pushed batch should not route to remote inspection: %q", latest.NextAction)
+	if latest.NextAction != "" {
+		t.Fatalf("canonical 7/7 pushed route should not expose latest-batch guidance: %q", latest.NextAction)
 	}
 }
 
@@ -731,6 +740,42 @@ func setReleaseHandoffActiveRouteFixture(t *testing.T, repo, state, claim, next 
 func unlockReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
 	t.Helper()
 	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "fixture-next-batch", "fixture-next-batch")
+}
+
+func publishCompletedActiveRouteReceiptFixture(t *testing.T, repo string) {
+	t.Helper()
+	runPostPushGit(t, repo, "init", "-b", "main")
+	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
+	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Baseline completed route fixture")
+
+	for _, rel := range []string{"docs/batch-plan.md", "docs/real-usage-hardening-roadmap.md", "CHANGELOG.md"} {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(data, []byte("\n<!-- typed active-route receipt fixture -->\n")...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePostPushTestFile(t, repo, "internal/rekit/active_route_receipt_fixture.go", "package rekit\n\nconst activeRouteReceiptFixture = true\n")
+	activeRoute := releaseHandoffActiveRoute(repo)
+	subject, ok := LocalValidationReceiptSubjectFor(ReleaseHandoff{
+		ActiveRoute: activeRoute,
+		LatestBatch: latestBatchSummary(repo),
+	})
+	if !ok {
+		t.Fatalf("completed route fixture did not select a receipt subject: %+v", activeRoute)
+	}
+	if _, err := PublishLocalValidationReceipt(repo, readyLocalValidationReceiptSubjectInput(t, repo, subject)); err != nil {
+		t.Fatal(err)
+	}
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Complete active route fixture")
+	head := strings.TrimSpace(runPostPushGit(t, repo, "rev-parse", "HEAD"))
+	runPostPushGit(t, repo, "update-ref", "refs/remotes/origin/main", head)
 }
 
 func assertExactActiveRouteNextBatchPackage(t *testing.T, pkg *ReleaseHandoffNextBatchSelectionPackage, next string) {

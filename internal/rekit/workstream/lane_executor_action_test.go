@@ -371,7 +371,7 @@ func TestStartMissionCommanderNextActionsRequireReviewBeforeApply(t *testing.T) 
 	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit continue login -WhatIf -Format json", true, true) {
 		t.Fatalf("start preview follow-up should remain blocked until apply succeeds: %+v", items)
 	}
-	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login", true, true) {
+	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login -WhatIf -Format json", true, true) {
 		t.Fatalf("start preview handoff follow-up should remain blocked until apply succeeds: %+v", items)
 	}
 }
@@ -444,8 +444,8 @@ func TestStartMissionCommanderNextActionsKeepReadyApplyConsumable(t *testing.T) 
 	if !hasStartCommanderNextAction(items, "missionCommanderActions", "/rekit continue login -WhatIf -Format json", false, true) {
 		t.Fatalf("ready start apply should expose consumable continue action: %+v", items)
 	}
-	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
-		t.Fatalf("ready start apply should expose consumable handoff follow-up: %+v", items)
+	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login -WhatIf -Format json", false, true) {
+		t.Fatalf("ready start apply should expose review-first handoff preview follow-up: %+v", items)
 	}
 }
 

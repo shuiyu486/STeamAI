@@ -74,10 +74,10 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction == nil || result.WouldExecutorAction.Blocked || !result.WouldExecutorAction.Ready {
 		t.Fatalf("verification what-if should not change executor readiness: %+v", result)
 	}
-	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main -WhatIf -Format json", false, true) {
 		t.Fatalf("current commander projection drifted: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
-	if result.WouldMissionCommanderAction == nil || result.WouldMissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+	if result.WouldMissionCommanderAction == nil || result.WouldMissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -WhatIf -Format json", false, true) || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main -WhatIf -Format json", false, true) {
 		t.Fatalf("would commander projection drifted: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
@@ -239,13 +239,17 @@ func TestAppendWhatIfProjectsBlockerKinds(t *testing.T) {
 				t.Fatalf("current commander next action missing ready continue: %+v", result.MissionCommanderNextActions)
 			}
 			wantPrimaryBlocked := !strings.Contains(result.WouldMissionCommanderAction.PrimaryCommand, " -WhatIf")
-			if !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", result.WouldMissionCommanderAction.PrimaryCommand, wantPrimaryBlocked, true) {
+			primaryCommand := result.WouldMissionCommanderAction.PrimaryCommand
+			if primaryCommand == "/rekit handoff main" {
+				primaryCommand += " -WhatIf -Format json"
+			}
+			if !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", primaryCommand, wantPrimaryBlocked, true) {
 				t.Fatalf("would commander next action missing primary: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
 			}
 			if tc.name == "intervention" && !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", strings.Replace(result.WouldMissionCommanderAction.PrimaryCommand, " -WhatIf", " -Apply", 1), true, true) {
 				t.Fatalf("would commander next action missing blocked reconcile apply follow-up: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
 			}
-			if !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+			if !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf -Format json", true, true) {
 				t.Fatalf("would commander next action missing blocked continue what-if follow-up: %+v", result.WouldMissionCommanderNextActions)
 			}
 		})
@@ -297,13 +301,17 @@ func TestAppendReturnsPostActionForAppliedBlockerKinds(t *testing.T) {
 				t.Fatalf("applied blocker note should expose post commander action only: action=%+v would=%+v", result.MissionCommanderAction, result.WouldMissionCommanderAction)
 			}
 			wantPrimaryBlocked := !strings.Contains(result.MissionCommanderAction.PrimaryCommand, " -WhatIf")
-			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", result.MissionCommanderAction.PrimaryCommand, wantPrimaryBlocked, true) {
+			primaryCommand := result.MissionCommanderAction.PrimaryCommand
+			if primaryCommand == "/rekit handoff main" {
+				primaryCommand += " -WhatIf -Format json"
+			}
+			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", primaryCommand, wantPrimaryBlocked, true) {
 				t.Fatalf("post commander next action missing primary: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 			}
 			if tc.name == "intervention" && !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", strings.Replace(result.MissionCommanderAction.PrimaryCommand, " -WhatIf", " -Apply", 1), true, true) {
 				t.Fatalf("post commander next action missing blocked reconcile apply follow-up: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 			}
-			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf -Format json", true, true) {
 				t.Fatalf("post commander next action missing blocked continue what-if follow-up: %+v", result.MissionCommanderNextActions)
 			}
 		})

@@ -190,9 +190,9 @@ func ValidateMissionCommanderDriverRequest(request MissionCommanderDriverRequest
 		}
 		return validateMissionCommanderDriverRequestRefresh(request)
 	}
-	if request.Invocation.Command == commands.Continue {
-		if err := commands.ValidateExecutableContinueInvocation(*request.Invocation); err != nil {
-			return fmt.Errorf("mission commander executable continue request: %w", err)
+	if contract, ok := commands.MutationContractFor(request.Invocation.Command, ""); ok && contract.ExecutablePlanValidation {
+		if err := commands.ValidateExecutablePlanInvocation(*request.Invocation); err != nil {
+			return fmt.Errorf("mission commander executable plan request: %w", err)
 		}
 	}
 	if request.Blocked {
@@ -1307,7 +1307,7 @@ func normalizeMissionCommanderNextAction(item MissionCommanderNextActionItem) Mi
 			item.Command = command
 			if qualified {
 				item.RequiresReview = true
-				item.Boundary = UniqueStrings(append(item.Boundary, "public continue next actions default to a WhatIf JSON preview; only an exact returned Apply request may mutate state"))
+				item.Boundary = UniqueStrings(append(item.Boundary, "public strict-plan next actions default to a WhatIf JSON preview; only an exact returned Apply request may mutate state"))
 			}
 			return item
 		}

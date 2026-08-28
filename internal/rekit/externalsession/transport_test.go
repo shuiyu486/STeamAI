@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,6 +85,27 @@ func TestRemoteControlTransportVerticalSlicePublishesSelfContainedBundle(t *test
 		bundle.Prompt.Content == "" || bundle.NoFileTransfer != true || bundle.NoHeavyTool != true ||
 		bundle.NoAuthority != true || bundle.NoConfirmed != true {
 		t.Fatalf("bundle=%+v", bundle)
+	}
+	taskArtifactIndex := slices.IndexFunc(bundle.Closures[0].Artifacts, func(artifact TransportEvidenceArtifact) bool {
+		return artifact.Role == "member-task-context"
+	})
+	if taskArtifactIndex < 0 {
+		t.Fatalf("bundle omitted member task context: %+v", bundle.Closures[0])
+	}
+	taskArtifact := bundle.Closures[0].Artifacts[taskArtifactIndex]
+	taskSource := readTestFile(t, fixture.job.CaseRoot, taskArtifact.Path)
+	var transportedTask memberexecution.TaskContext
+	if err := json.Unmarshal([]byte(taskArtifact.Content), &transportedTask); err != nil {
+		t.Fatalf("compacted member task context did not decode: %v\n%s", err, taskArtifact.Content)
+	}
+	if !taskArtifact.Compacted || taskArtifact.SourceSHA256 != hash(taskSource) || taskArtifact.SourceBytes != int64(len(taskSource)) ||
+		taskArtifact.TransportedSHA256 != hash([]byte(taskArtifact.Content)) || taskArtifact.TransportedBytes != int64(len(taskArtifact.Content)) ||
+		taskArtifact.SourceSHA256 == taskArtifact.TransportedSHA256 || taskArtifact.SourceBytes <= taskArtifact.TransportedBytes ||
+		transportedTask.Resume.Content != "" || transportedTask.Checkpoint.Content != "" || transportedTask.Resume.Path == "" || transportedTask.Resume.SHA256 == "" || transportedTask.Checkpoint.Path == "" || transportedTask.Checkpoint.SHA256 == "" {
+		t.Fatalf("member task-context transport binding drifted: artifact=%+v task=%+v", taskArtifact, transportedTask)
+	}
+	if current := readTestFile(t, fixture.job.CaseRoot, taskArtifact.Path); !bytes.Equal(current, taskSource) {
+		t.Fatal("transport compaction rewrote the durable member task context")
 	}
 
 	delivery, err := PreviewTransportDelivery(
@@ -520,6 +542,27 @@ func TestRemoteControlTransportBundleIsDeterministicAndBounded(t *testing.T) {
 		"2026-08-12T04:02:00Z",
 	); err == nil || !strings.Contains(err.Error(), "canonical evidence bundle") {
 		t.Fatalf("oversized canonical transport bundle error=%v", err)
+	}
+}
+
+func TestCompactTransportTaskContextRejectsNonCanonicalSource(t *testing.T) {
+	fixture := newRemoteControlFixture(t)
+	closure, err := memberexecution.SnapshotReviewerEvidenceClosure(fixture.job.CaseRoot, fixture.job.Pack, fixture.item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(closure.Artifacts, func(artifact memberexecution.ReviewerEvidenceArtifact) bool {
+		return artifact.Role == "member-task-context"
+	})
+	if index < 0 {
+		t.Fatalf("closure omitted member task context: %+v", closure)
+	}
+	source := []byte(closure.Artifacts[index].Content)
+	if _, err := compactTransportTaskContext(append([]byte(" "), source...)); err == nil || !strings.Contains(err.Error(), "not canonical") {
+		t.Fatalf("non-canonical member task-context compaction error=%v", err)
+	}
+	if _, err := compactTransportTaskContext(append(source, []byte("{}\n")...)); err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("trailing member task-context compaction error=%v", err)
 	}
 }
 

@@ -182,37 +182,42 @@ func QualifyPublicNextAction(invocation PublicInvocation) (PublicInvocation, boo
 	}
 	qualified := invocation
 	qualified.Arguments = append([]string{}, invocation.Arguments...)
-	if qualified.Command != Continue {
+	contract, ok := MutationContractFor(qualified.Command, "")
+	if !ok || !contract.ExecutablePlanValidation {
 		return qualified, false, nil
 	}
 	hasWhatIf := qualified.HasFlag("-WhatIf") || qualified.HasFlag("--what-if")
 	hasApply := qualified.HasFlag("-Apply") || qualified.HasFlag("--apply")
 	if hasWhatIf && hasApply {
-		return PublicInvocation{}, false, fmt.Errorf("public continue next action must use exactly one WhatIf or Apply phase")
+		return PublicInvocation{}, false, fmt.Errorf("public %s next action must use exactly one WhatIf or Apply phase", qualified.Command)
 	}
-	_, formatPresent, formatValid := qualified.FlagValue("-Format", "--format")
+	format, formatPresent, formatValid := qualified.FlagValue("-Format", "--format")
 	if formatPresent && !formatValid {
 		return PublicInvocation{}, false, fmt.Errorf("public next action contains an invalid or duplicate format binding")
 	}
+	if formatPresent && !strings.EqualFold(strings.TrimSpace(format), "json") {
+		return PublicInvocation{}, false, fmt.Errorf("public executable plan next action requires -Format json")
+	}
+	changed := false
 	if !hasWhatIf && !hasApply {
 		qualified.Arguments = append(qualified.Arguments, "-WhatIf")
-		if !formatPresent {
-			qualified.Arguments = append(qualified.Arguments, "-Format", "json")
-		}
+		changed = true
+	}
+	if !formatPresent {
+		qualified.Arguments = append(qualified.Arguments, "-Format", "json")
+		changed = true
+	}
+	if changed {
 		var err error
 		qualified, err = NewPublicInvocation(qualified.Command, qualified.Arguments...)
 		if err != nil {
 			return PublicInvocation{}, false, err
 		}
-		if err := ValidateExecutableContinueInvocation(qualified); err != nil {
-			return PublicInvocation{}, false, err
-		}
-		return qualified, true, nil
 	}
-	if err := ValidateExecutableContinueInvocation(qualified); err != nil {
+	if err := ValidateExecutablePlanInvocation(qualified); err != nil {
 		return PublicInvocation{}, false, err
 	}
-	return qualified, false, nil
+	return qualified, changed, nil
 }
 
 // ValidateExecutableContinueInvocation enforces the public review/apply phase
@@ -230,6 +235,10 @@ func ValidateExecutablePlanInvocation(invocation PublicInvocation) error {
 	flag, aliases, ok := publicPlanBinding(invocation.Command)
 	if !ok {
 		return fmt.Errorf("executable plan validation is unsupported for %s", invocation.Command)
+	}
+	format, formatPresent, formatValid := invocation.FlagValue("-Format", "--format")
+	if !formatPresent || !formatValid || !strings.EqualFold(strings.TrimSpace(format), "json") {
+		return fmt.Errorf("executable plan invocation requires a unique -Format json binding")
 	}
 	hasWhatIf := invocation.HasFlag("-WhatIf") || invocation.HasFlag("--what-if")
 	hasApply := invocation.HasFlag("-Apply") || invocation.HasFlag("--apply")

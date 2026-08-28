@@ -2,7 +2,9 @@ package externalsession
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -45,19 +47,37 @@ type TransportPromptArtifact struct {
 	CaseRootTokenized bool   `json:"caseRootTokenized"`
 }
 
+type TransportEvidenceArtifact struct {
+	Path              string `json:"path"`
+	Role              string `json:"role"`
+	SourceSHA256      string `json:"sourceSha256"`
+	SourceBytes       int64  `json:"sourceBytes"`
+	TransportedSHA256 string `json:"transportedSha256"`
+	TransportedBytes  int64  `json:"transportedBytes"`
+	Content           string `json:"content"`
+	Compacted         bool   `json:"compacted"`
+}
+
+type TransportEvidenceClosure struct {
+	Item      string                      `json:"item"`
+	AttemptID string                      `json:"attemptId"`
+	Owner     memberexecution.Owner       `json:"owner"`
+	Artifacts []TransportEvidenceArtifact `json:"artifacts"`
+}
+
 type TransportEvidenceBundle struct {
-	SchemaVersion  int                                       `json:"schemaVersion"`
-	Kind           string                                    `json:"kind"`
-	Binding        TransportBinding                          `json:"binding"`
-	Reviewer       TransportReviewerBinding                  `json:"reviewer"`
-	Prompt         TransportPromptArtifact                   `json:"prompt"`
-	Closures       []memberexecution.ReviewerEvidenceClosure `json:"closures"`
-	ArtifactCount  int                                       `json:"artifactCount"`
-	RawBytes       int                                       `json:"rawBytes"`
-	NoFileTransfer bool                                      `json:"noFileTransfer"`
-	NoHeavyTool    bool                                      `json:"noHeavyTool"`
-	NoAuthority    bool                                      `json:"noAuthority"`
-	NoConfirmed    bool                                      `json:"noConfirmed"`
+	SchemaVersion  int                        `json:"schemaVersion"`
+	Kind           string                     `json:"kind"`
+	Binding        TransportBinding           `json:"binding"`
+	Reviewer       TransportReviewerBinding   `json:"reviewer"`
+	Prompt         TransportPromptArtifact    `json:"prompt"`
+	Closures       []TransportEvidenceClosure `json:"closures"`
+	ArtifactCount  int                        `json:"artifactCount"`
+	RawBytes       int                        `json:"rawBytes"`
+	NoFileTransfer bool                       `json:"noFileTransfer"`
+	NoHeavyTool    bool                       `json:"noHeavyTool"`
+	NoAuthority    bool                       `json:"noAuthority"`
+	NoConfirmed    bool                       `json:"noConfirmed"`
 }
 
 func buildTransportEvidenceBundle(job Job, ticket DispatchTicket, binding TransportBinding) (TransportEvidenceBundle, []byte, error) {
@@ -143,24 +163,43 @@ func buildTransportEvidenceBundle(job Job, ticket DispatchTicket, binding Transp
 			return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer evidence item is duplicated: %s", item)
 		}
 		seenItems[key] = true
-		closure, err := memberexecution.SnapshotReviewerEvidenceClosure(job.CaseRoot, job.Pack, item)
+		sourceClosure, err := memberexecution.SnapshotReviewerEvidenceClosure(job.CaseRoot, job.Pack, item)
 		if err != nil {
 			return TransportEvidenceBundle{}, nil, err
 		}
-		for _, artifact := range closure.Artifacts {
-			artifactKey := strings.ToLower(artifact.Path)
+		closure := TransportEvidenceClosure{
+			Item: sourceClosure.Item, AttemptID: sourceClosure.AttemptID, Owner: sourceClosure.Owner,
+			Artifacts: make([]TransportEvidenceArtifact, 0, len(sourceClosure.Artifacts)),
+		}
+		for _, sourceArtifact := range sourceClosure.Artifacts {
+			artifactKey := strings.ToLower(sourceArtifact.Path)
 			if seenArtifacts[artifactKey] {
-				return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer evidence artifact path is duplicated: %s", artifact.Path)
+				return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer evidence artifact path is duplicated: %s", sourceArtifact.Path)
 			}
 			seenArtifacts[artifactKey] = true
-			content := []byte(artifact.Content)
-			if int64(len(content)) != artifact.Bytes || !strings.EqualFold(hash(content), artifact.SHA256) {
-				return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer evidence artifact binding drift: %s", artifact.Path)
+			source := []byte(sourceArtifact.Content)
+			if int64(len(source)) != sourceArtifact.Bytes || !strings.EqualFold(hash(source), sourceArtifact.SHA256) {
+				return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer evidence artifact binding drift: %s", sourceArtifact.Path)
 			}
-			if transportContainsCaseRoot(content, job.CaseRoot) {
-				return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer evidence contains the local case root: %s", artifact.Path)
+			transported := source
+			compacted := false
+			if sourceArtifact.Role == "member-task-context" {
+				transported, err = compactTransportTaskContext(source)
+				if err != nil {
+					return TransportEvidenceBundle{}, nil, fmt.Errorf("compact Remote Control member task context: %w", err)
+				}
+				compacted = !bytes.Equal(transported, source)
 			}
-			rawBytes += len(content)
+			if transportContainsCaseRoot(transported, job.CaseRoot) {
+				return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control reviewer evidence contains the local case root: %s", sourceArtifact.Path)
+			}
+			closure.Artifacts = append(closure.Artifacts, TransportEvidenceArtifact{
+				Path: sourceArtifact.Path, Role: sourceArtifact.Role,
+				SourceSHA256: sourceArtifact.SHA256, SourceBytes: sourceArtifact.Bytes,
+				TransportedSHA256: hash(transported), TransportedBytes: int64(len(transported)),
+				Content: string(transported), Compacted: compacted,
+			})
+			rawBytes += len(transported)
 			artifactCount++
 		}
 		bundle.Closures = append(bundle.Closures, closure)
@@ -184,6 +223,26 @@ func buildTransportEvidenceBundle(job Job, ticket DispatchTicket, binding Transp
 		return TransportEvidenceBundle{}, nil, fmt.Errorf("Remote Control canonical evidence bundle contains the local case root")
 	}
 	return bundle, data, nil
+}
+
+func compactTransportTaskContext(source []byte) ([]byte, error) {
+	var task memberexecution.TaskContext
+	decoder := json.NewDecoder(bytes.NewReader(source))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&task); err != nil {
+		return nil, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, fmt.Errorf("member task context must contain exactly one JSON object")
+	}
+	canonicalSource, err := canonical(task)
+	if err != nil || !bytes.Equal(canonicalSource, source) {
+		return nil, fmt.Errorf("member task context is not canonical")
+	}
+	task.Resume.Content = ""
+	task.Checkpoint.Content = ""
+	return canonical(task)
 }
 
 func validateTransportEvidenceBundle(job Job, ticket DispatchTicket, binding TransportBinding, data []byte) (TransportEvidenceBundle, error) {

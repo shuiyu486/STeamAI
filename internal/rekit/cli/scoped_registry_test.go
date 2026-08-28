@@ -200,6 +200,12 @@ func TestScopedCommandValidatorsRejectBoundaryDriftBeforeHandlers(t *testing.T) 
 	if err := validateMigrateStateCommand(runtime.Context{TargetProvided: true}, migration); err == nil || !strings.Contains(err.Error(), "requires -ExpectedMigrationPlanSha256") {
 		t.Fatalf("migration Apply without exact hash was accepted: %v", err)
 	}
+	listedMigration := migration
+	listedMigration.Options.Apply = false
+	listedMigration.Options.List = true
+	if err := validateMigrateStateCommand(runtime.Context{TargetProvided: true}, listedMigration); err == nil || !strings.Contains(err.Error(), "supports only") {
+		t.Fatalf("migration -List was accepted: %v", err)
+	}
 
 	nextBatch, err := bindNextBatchCommand(
 		Options{Command: commands.NextBatch},

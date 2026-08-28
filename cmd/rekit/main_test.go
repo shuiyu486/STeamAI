@@ -529,6 +529,46 @@ func TestProjectLocalExecutablePublicHelpStatusAndDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRuntimePlanFailureJSONMatchesProcessExitCode(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRoot := filepath.Join(t.TempDir(), "fresh-project")
+	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, runErr := runRekitExecutable(
+		t,
+		executable,
+		"runtime",
+		"-Command", "init",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Format", "json",
+	)
+	var exitErr *exec.ExitError
+	if !errors.As(runErr, &exitErr) || stderr != "" {
+		t.Fatalf("runtime plan failure did not use a clean process exit: err=%v stderr=%q stdout=%s", runErr, stderr, stdout)
+	}
+	var failure struct {
+		Kind        string `json:"kind"`
+		Command     string `json:"command"`
+		ExitCode    int    `json:"exitCode"`
+		Diagnostics struct {
+			Code            string `json:"code"`
+			MutationApplied bool   `json:"mutationApplied"`
+		} `json:"diagnostics"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &failure); err != nil {
+		t.Fatalf("decode runtime plan failure: %v\n%s", err, stdout)
+	}
+	if failure.Kind != "steamai-public-failure" || failure.Command != "init" || failure.ExitCode != exitErr.ExitCode() || failure.ExitCode != 2 || failure.Diagnostics.Code != "plan-binding-missing" || failure.Diagnostics.MutationApplied {
+		t.Fatalf("runtime process exit and typed failure drifted: exit=%d failure=%+v", exitErr.ExitCode(), failure)
+	}
+}
+
 func TestProjectLocalExecutableWithoutRecoveryFailsClosed(t *testing.T) {
 	repoRoot := rekitTestRepoRoot(t)
 	caseRoot := filepath.Join(t.TempDir(), "project")

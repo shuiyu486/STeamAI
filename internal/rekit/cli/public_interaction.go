@@ -28,7 +28,15 @@ type publicStatusMissionInput struct {
 }
 
 type publicStatusOnboardingInput struct {
-	State string `json:"state"`
+	State       string                        `json:"state"`
+	PackChoices []publicStatusPackChoiceInput `json:"packChoices"`
+}
+
+type publicStatusPackChoiceInput struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Recommended bool   `json:"recommended"`
+	Selectable  bool   `json:"selectable"`
 }
 
 type publicStatusRunbookInput struct {
@@ -87,10 +95,14 @@ func reducePublicStatusInteraction(input publicStatusInteractionInput) publicInt
 		onboardingState = strings.TrimSpace(input.Onboarding.State)
 	}
 	if current == nil && (strings.TrimSpace(input.Mode) == "case-onboarding-required" || onboardingState == "absent") {
+		next := "告诉主 Agent 你的目标并选择一个 pack；status 不会自动写入项目"
+		if choices := publicOnboardingPackChoices(input.Onboarding); choices != "" {
+			next = "告诉主 Agent 你的目标并选择一个 pack（" + choices + "）；status 不会自动写入项目"
+		}
 		return publicInteraction{
 			Now:    summary,
 			Reason: "项目尚未完成首次接入",
-			Next:   "告诉主 Agent 你的目标并选择一个 pack；status 不会自动写入项目",
+			Next:   next,
 		}
 	}
 
@@ -104,6 +116,30 @@ func reducePublicStatusInteraction(input publicStatusInteractionInput) publicInt
 	}
 	reason, next := publicStatusGuidance(state, current != nil, executable, blocked)
 	return publicInteraction{Now: summary, Reason: reason, Next: next}
+}
+
+func publicOnboardingPackChoices(onboarding *publicStatusOnboardingInput) string {
+	if onboarding == nil {
+		return ""
+	}
+	choices := []string{}
+	for _, choice := range onboarding.PackChoices {
+		if !choice.Selectable {
+			continue
+		}
+		name := strings.TrimSpace(choice.Name)
+		if name == "" {
+			name = strings.TrimSpace(choice.ID)
+		}
+		if name == "" {
+			continue
+		}
+		if choice.Recommended {
+			name += "，推荐"
+		}
+		choices = append(choices, name)
+	}
+	return strings.Join(choices, "；")
 }
 
 func reducePublicContinueInteraction(input publicContinueInteractionInput) publicInteraction {

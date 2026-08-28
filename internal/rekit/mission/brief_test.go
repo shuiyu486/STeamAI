@@ -59,16 +59,18 @@ func TestMissionCommanderActionQueueQualifiesContinueAtTypedOwner(t *testing.T) 
 }
 
 func TestMissionCommanderActionQueuePreservesExactContinuePhase(t *testing.T) {
-	for _, command := range []string{
-		"/rekit continue main -WhatIf -Format text",
-		"/rekit continue main -Apply -ExpectedContinuePlanSha256 " + strings.Repeat("a", 64),
-	} {
-		t.Run(command, func(t *testing.T) {
-			queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{State: "ready-to-continue", Source: "test", Lane: "main", Command: command}})
-			if queue.CurrentAction == nil || queue.CurrentAction.Command != command || queue.CurrentAction.Invocation == nil {
-				t.Fatalf("exact continue phase changed: %+v", queue.CurrentAction)
-			}
-		})
+	command := "/rekit continue main -Apply -ExpectedContinuePlanSha256 " + strings.Repeat("a", 64) + " -Format json"
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{State: "ready-to-continue", Source: "test", Lane: "main", Command: command}})
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != command || queue.CurrentAction.Invocation == nil {
+		t.Fatalf("exact continue phase changed: %+v", queue.CurrentAction)
+	}
+}
+
+func TestMissionCommanderActionQueueRejectsNonJSONExecutablePlan(t *testing.T) {
+	command := "/rekit continue main -WhatIf -Format text"
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{State: "ready-to-continue", Source: "test", Lane: "main", Command: command}})
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != command || queue.CurrentAction.Invocation != nil || !queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview || queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.CommandExecutable {
+		t.Fatalf("non-JSON executable plan was not downgraded to guidance: action=%+v request=%+v", queue.CurrentAction, queue.CurrentDriverRequest)
 	}
 }
 
@@ -579,7 +581,7 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 		t.Fatalf("unexpected primary action ordering: %+v", items)
 	}
 	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
-		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit handoff main" && !item.Blocked && !item.RequiresReview && containsSubstring(item.Reasons, "follow Mission Commander handoff after primary action")
+		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit handoff main -WhatIf -Format json" && !item.Blocked && item.RequiresReview && containsSubstring(item.Reasons, "follow Mission Commander handoff after primary action")
 	}) {
 		t.Fatalf("ready lane follow-up handoff missing: %+v", items)
 	}
@@ -589,12 +591,12 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 		t.Fatalf("blocked lane reconcile apply follow-up should remain blocked until preview is reviewed: %+v", items)
 	}
 	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
-		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit continue login -WhatIf" && item.Blocked && item.RequiresReview && containsSubstring(item.Reasons, "run as -WhatIf first") && containsSubstring(item.Boundary, "do not run continue")
+		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit continue login -WhatIf -Format json" && item.Blocked && item.RequiresReview && containsSubstring(item.Reasons, "run as -WhatIf first") && containsSubstring(item.Boundary, "do not run continue")
 	}) {
 		t.Fatalf("blocked lane continue follow-up should remain blocked with reason/boundary: %+v", items)
 	}
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.Summary != "total=6 unblocked=3 blocked=3 requiresReview=5 followUp=4 current=/rekit reconcile login -InterventionId evt-open -WhatIf" || queue.Counts.Total != 6 || queue.Counts.Unblocked != 3 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 5 || queue.Counts.FollowUp != 4 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || len(queue.UnblockedActions) != 3 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 5 || len(queue.FollowUpActions) != 4 {
+	if queue.Summary != "total=6 unblocked=3 blocked=3 requiresReview=6 followUp=4 current=/rekit reconcile login -InterventionId evt-open -WhatIf" || queue.Counts.Total != 6 || queue.Counts.Unblocked != 3 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 6 || queue.Counts.FollowUp != 4 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || len(queue.UnblockedActions) != 3 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 6 || len(queue.FollowUpActions) != 4 {
 		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
 	}
 }
@@ -606,7 +608,7 @@ func TestMissionCommanderActionQueuePromotesReviewBlockerOverFollowUp(t *testing
 	}
 
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.CurrentAction == nil || queue.CurrentAction.Command != "dispatch read-only reviewer for shard-02" || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || queue.Summary != "total=2 unblocked=1 blocked=1 requiresReview=1 followUp=1 current=dispatch read-only reviewer for shard-02" {
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "dispatch read-only reviewer for shard-02" || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || queue.Summary != "total=2 unblocked=1 blocked=1 requiresReview=2 followUp=1 current=dispatch read-only reviewer for shard-02" {
 		t.Fatalf("Mission Commander action queue did not promote reviewer blocker over ordinary follow-up: %+v", queue)
 	}
 }
@@ -662,7 +664,7 @@ func TestMissionCommanderActionQueueDefersIdleNextBatchGuidance(t *testing.T) {
 	}
 
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit handoff main" || queue.CurrentAction.Source != "executionEvidenceReview" || queue.Summary != "total=3 unblocked=3 blocked=0 requiresReview=1 followUp=1 current=/rekit handoff main" {
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit handoff main -WhatIf -Format json" || queue.CurrentAction.Source != "executionEvidenceReview" || queue.Summary != "total=3 unblocked=3 blocked=0 requiresReview=1 followUp=1 current=/rekit handoff main -WhatIf -Format json" {
 		t.Fatalf("Mission Commander action queue should defer idle next-batch guidance behind active evidence review: %+v", queue)
 	}
 }
@@ -705,7 +707,7 @@ func TestMissionCommanderActionQueueAddsCurrentActionRunLoop(t *testing.T) {
 		t.Fatalf("ready current action run loop drifted: %+v", queue)
 	}
 	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "preview-current", "refresh-state", "follow-up-after-refresh"})
-	if queue.CurrentActionRunLoop[1].Command != "/rekit continue main -WhatIf -Format json" || queue.CurrentActionRunLoop[3].Command != "/rekit handoff main" {
+	if queue.CurrentActionRunLoop[1].Command != "/rekit continue main -WhatIf -Format json" || queue.CurrentActionRunLoop[3].Command != "/rekit handoff main -WhatIf -Format json" {
 		t.Fatalf("run loop did not bind current command and matching follow-up: %+v", queue.CurrentActionRunLoop)
 	}
 	if !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "Go runtime does not auto-run queued actions") || !containsSubstring(queue.CurrentActionRunLoop[3].Boundary, "remain candidates until refreshed state") {
@@ -752,21 +754,53 @@ func TestMissionCommanderActionQueueBuildsReadOnlyDriverRequestForExecutableComm
 	}
 }
 
-func TestMissionCommanderDriverRequestRejectsUnphasedExecutableContinue(t *testing.T) {
-	invocation, err := commands.NewPublicInvocation(commands.Continue, "main")
-	if err != nil {
-		t.Fatal(err)
+func TestMissionCommanderDriverRequestValidatesEveryExecutablePlanContract(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	seen := map[string]bool{}
+	for _, listed := range commands.MutationContracts() {
+		if !listed.ExecutablePlanValidation || seen[listed.Command] {
+			continue
+		}
+		seen[listed.Command] = true
+		contract, ok := commands.MutationContractFor(listed.Command, "")
+		if !ok || !contract.ExecutablePlanValidation {
+			t.Fatalf("executable plan contract %s is not available at command scope: %+v", listed.Command, contract)
+		}
+		t.Run(listed.Command, func(t *testing.T) {
+			validate := func(arguments ...string) error {
+				invocation, err := commands.NewPublicInvocation(listed.Command, arguments...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				command, err := invocation.Render()
+				if err != nil {
+					t.Fatal(err)
+				}
+				return ValidateMissionCommanderDriverRequest(MissionCommanderDriverRequest{
+					Kind:              "execute-command",
+					RunLoopStepID:     "apply-or-run-current",
+					Invocation:        &invocation,
+					Command:           command,
+					CommandExecutable: true,
+					ExpectedReceipt:   MissionCommanderDriverReceiptExpectation{Command: command},
+				})
+			}
+			if err := validate(); err == nil {
+				t.Fatal("unphased executable plan request was accepted")
+			}
+			if err := validate("-Apply"); err == nil {
+				t.Fatal("Apply without expected plan hash was accepted")
+			}
+			if err := validate("-WhatIf", "-Format", "json"); err != nil {
+				t.Fatalf("valid preview request was rejected: %v", err)
+			}
+			if err := validate("-Apply", contract.ExpectedFlag, hash, "-Format", "json"); err != nil {
+				t.Fatalf("valid hash-bound Apply request was rejected: %v", err)
+			}
+		})
 	}
-	request := MissionCommanderDriverRequest{
-		Kind:              "execute-command",
-		RunLoopStepID:     "apply-or-run-current",
-		Invocation:        &invocation,
-		Command:           "/rekit continue main",
-		CommandExecutable: true,
-		ExpectedReceipt:   MissionCommanderDriverReceiptExpectation{Command: "/rekit continue main"},
-	}
-	if err := ValidateMissionCommanderDriverRequest(request); err == nil || !strings.Contains(err.Error(), "requires exactly one of preview or Apply") {
-		t.Fatalf("unphased executable continue error=%v", err)
+	if len(seen) == 0 {
+		t.Fatal("no executable plan contracts were validated")
 	}
 }
 
@@ -874,7 +908,7 @@ func TestMissionCommanderNextActionsKeepGateSpecificEvidenceActions(t *testing.T
 	}
 	for _, gateEventID := range []string{"gate-a", "gate-b"} {
 		if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
-			return item.GateEventID == gateEventID && item.Source == "executionEvidenceReview" && item.Command == "/rekit handoff main"
+			return item.GateEventID == gateEventID && item.Source == "executionEvidenceReview" && item.Command == "/rekit handoff main -WhatIf -Format json"
 		}) {
 			t.Fatalf("missing evidence action for %s: %+v", gateEventID, items)
 		}

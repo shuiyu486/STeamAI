@@ -167,6 +167,23 @@ func TestRunRetiredMigrationRejectsCrossCommandFlagsBeforeOutputOrWrite(t *testi
 	}
 }
 
+func TestRunRetiredMigrationRejectsListBeforeOutputOrWrite(t *testing.T) {
+	caseRoot := retiredLegacyMigrationCase(t, packidentity.RetiredVMP)
+	before := snapshotFiles(t, caseRoot)
+	var out bytes.Buffer
+	err := Run([]string{
+		"-Command", "migrate-state",
+		"-Target", caseRoot,
+		"-Pack", packidentity.RetiredVMP,
+		"-List",
+		"-Format", "json",
+	}, &out)
+	if err == nil || !strings.Contains(err.Error(), "supports only") || out.Len() != 0 {
+		t.Fatalf("retired migration -List was not rejected before output: err=%v out=%q", err, out.String())
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
 func TestRunRetiredMigrationFallbackRejectsBrokenLegacySourceWithoutOutput(t *testing.T) {
 	caseRoot := retiredLegacyMigrationCase(t, packidentity.RetiredVMP)
 	metadataPath := filepath.Join(caseRoot, ".re-template.yml")

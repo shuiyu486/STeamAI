@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	maxHandoffRows                     = 5
-	handoffPublicationPlanSHA256Marker = "<handoff-publication-plan-sha256>"
+	maxHandoffRows                           = 5
+	handoffPublicationPlanSHA256Marker       = "<handoff-publication-plan-sha256>"
+	handoffPublicationPlanSHA256Construction = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 )
 
 var (
@@ -938,10 +939,13 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 		return handoffPublicationPlan{}, err
 	}
 	publicationContext := ctx
-	publicationContext.publicationPlanSHA256 = handoffPublicationPlanSHA256Marker
+	publicationContext.publicationPlanSHA256 = handoffPublicationPlanSHA256Construction
 	markdown, writes, err := publicationContext.renderPublication(false)
 	if err != nil {
 		return handoffPublicationPlan{}, err
+	}
+	if strings.Contains(markdown, handoffPublicationPlanSHA256Marker) {
+		return handoffPublicationPlan{}, fmt.Errorf("handoff publication content contains the reserved plan sha256 marker")
 	}
 	stampPath, latestPath, err := ctx.projectHandoffPaths()
 	if !ctx.project && ctx.lane != nil {
@@ -958,11 +962,12 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 		StartWrite{Path: relativePath(ctx.inst.CaseRoot, stampPath), Kind: "handoff", Action: "would-write-" + scope + "-handoff", TargetPath: stampPath},
 		StartWrite{Path: relativePath(ctx.inst.CaseRoot, latestPath), Kind: "handoff", Action: "would-write-latest-" + scope + "-handoff", TargetPath: latestPath},
 	)
-	preview, err := ctx.result(false, false, true, writes)
+	preview, err := publicationContext.result(false, false, true, writes)
 	if err != nil {
 		return handoffPublicationPlan{}, err
 	}
-	bindHandoffApplyRoute(&preview, handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), handoffPublicationPlanSHA256Marker, ctx.stamp))
+	constructionCommand := handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), handoffPublicationPlanSHA256Construction, ctx.stamp)
+	bindHandoffApplyRoute(&preview, constructionCommand)
 	takeoverWrites, err := ctx.replacementExecutorTakeoverPackageArtifactWrites(false, preview.ReplacementExecutorTakeoverPackage)
 	if err != nil {
 		return handoffPublicationPlan{}, err
@@ -971,12 +976,19 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 
 	publications := make([]handoffPublicationWrite, 0, len(resumeArtifacts)*2+4)
 	for _, artifact := range resumeArtifacts {
+		if bytes.Contains(artifact.ResumeBytes, []byte(handoffPublicationPlanSHA256Marker)) || bytes.Contains(artifact.CheckpointBytes, []byte(handoffPublicationPlanSHA256Marker)) {
+			return handoffPublicationPlan{}, fmt.Errorf("handoff resume publication contains the reserved plan sha256 marker")
+		}
 		publications = append(publications,
 			handoffPublicationWrite{Path: artifact.ResumePath, Bytes: artifact.ResumeBytes, Role: HandoffPublicationRoleResume},
 			handoffPublicationWrite{Path: artifact.CheckpointPath, Bytes: artifact.CheckpointBytes, Role: HandoffPublicationRoleCheckpoint},
 		)
 	}
-	markerMarkdown := []byte(ctx.bindHandoffPublicationMarkdown(markdown, handoffPublicationPlanSHA256Marker))
+	boundMarkdown, err := ctx.bindHandoffPublicationMarkdown(markdown, constructionCommand)
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	markerMarkdown := []byte(boundMarkdown)
 	publications = append(publications,
 		handoffPublicationWrite{Path: stampPath, Bytes: markerMarkdown, Role: HandoffPublicationRoleHandoffStamped},
 		handoffPublicationWrite{Path: latestPath, Bytes: markerMarkdown, Role: HandoffPublicationRoleHandoffLatest},
@@ -987,6 +999,9 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 			return handoffPublicationPlan{}, err
 		}
 		takeoverJSON = append(takeoverJSON, '\n')
+		if bytes.Contains(takeoverJSON, []byte(handoffPublicationPlanSHA256Marker)) {
+			return handoffPublicationPlan{}, fmt.Errorf("handoff takeover publication contains the reserved plan sha256 marker")
+		}
 		takeoverStamp, takeoverLatest, err := ctx.replacementExecutorTakeoverPackagePaths()
 		if err != nil {
 			return handoffPublicationPlan{}, err
@@ -1457,16 +1472,17 @@ func readStableHandoffPublicationInput(path string, before os.FileInfo) ([]byte,
 	return data, nil
 }
 
-func (ctx handoffContext) bindHandoffPublicationMarkdown(markdown, publicationPlanSHA256 string) string {
-	generic := handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector())
-	bound := handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), publicationPlanSHA256, ctx.stamp)
-	markdown = strings.ReplaceAll(markdown, generic, bound)
-	if !strings.Contains(markdown, bound) {
-		markdown += "\n## Handoff publication plan\n\n"
-		markdown += "- sha256: " + strings.TrimSpace(publicationPlanSHA256) + "\n"
-		markdown += "- exact apply: `" + bound + "`\n"
+func (ctx handoffContext) bindHandoffPublicationMarkdown(markdown, constructionCommand string) (string, error) {
+	markerCommand := handoffApplyCommand(ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.canonicalSelector(), handoffPublicationPlanSHA256Marker, ctx.stamp)
+	occurrences := strings.Count(markdown, constructionCommand)
+	if occurrences == 0 {
+		return "", fmt.Errorf("handoff publication omitted the exact construction apply route")
 	}
-	return markdown
+	markdown = strings.ReplaceAll(markdown, constructionCommand, markerCommand)
+	if strings.Count(markdown, handoffPublicationPlanSHA256Marker) != occurrences {
+		return "", fmt.Errorf("handoff publication plan marker escaped its exact apply route")
+	}
+	return markdown, nil
 }
 
 func bindHandoffApplyRoute(result *HandoffResult, command string) {
@@ -1474,14 +1490,15 @@ func bindHandoffApplyRoute(result *HandoffResult, command string) {
 		return
 	}
 	runbook := result.DailyMissionControlRunbook
+	_, executable := dailyMissionControlExecutableHandoffInvocation(command, true)
 	runbook.HandoffApplyCommand = command
 	for idx := range runbook.RunLoop {
 		if runbook.RunLoop[idx].StepID == "write-handoff-for-takeover" {
 			runbook.RunLoop[idx].Command = command
-			runbook.RunLoop[idx].CommandExecutable = true
+			runbook.RunLoop[idx].CommandExecutable = executable
 		}
 	}
-	runbook.HandoffApplyDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "write-handoff-for-takeover", command, true, true)
+	runbook.HandoffApplyDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "write-handoff-for-takeover", command, true, executable)
 }
 
 func handoffRunbookScope(project bool, selector string) string {

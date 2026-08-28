@@ -668,9 +668,21 @@ func TestDailyMissionControlRunbookHandoffDriverRequestsGateApply(t *testing.T) 
 		Source:  "missionCommanderActions",
 		Command: "/rekit continue triage",
 	}})
-	statusRunbook := DailyMissionControlRunbookFor("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, `/rekit handoff -Target "C:/case" -Apply -Format json`)
+	const handoffPlanSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	unboundApply := `/rekit handoff -Target "C:/case" -Apply -Format json`
+	statusRunbook := DailyMissionControlRunbookFor("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, unboundApply)
 	if statusRunbook.HandoffPreviewDriverRequest == nil || statusRunbook.HandoffPreviewDriverRequest.Kind != "preview-command" || !statusRunbook.HandoffPreviewDriverRequest.CommandExecutable || statusRunbook.HandoffPreviewDriverRequest.Command != statusRunbook.HandoffPreviewCommand || statusRunbook.HandoffPreviewDriverRequest.ExpectedReceipt.RefreshStatusCommand != statusRunbook.RefreshStatusCommand {
 		t.Fatalf("status runbook should expose executable typed handoff preview request: %+v", statusRunbook.HandoffPreviewDriverRequest)
+	}
+	wrongPreview := DailyMissionControlRunbookFor("C:/case", "case", queue, `/rekit continue -Lane main -WhatIf -Format json`, unboundApply)
+	wrongPreviewStep := findStep(wrongPreview.RunLoop, "preview-handoff")
+	if wrongPreview.HandoffPreviewDriverRequest == nil || wrongPreview.HandoffPreviewDriverRequest.CommandExecutable || wrongPreviewStep == nil || wrongPreviewStep.CommandExecutable {
+		t.Fatalf("non-handoff strict preview must not become an executable handoff route: request=%+v step=%+v", wrongPreview.HandoffPreviewDriverRequest, wrongPreviewStep)
+	}
+	bindHandoffApplyRoute(&HandoffResult{DailyMissionControlRunbook: wrongPreview}, unboundApply)
+	wrongApplyStep := findStep(wrongPreview.RunLoop, "write-handoff-for-takeover")
+	if wrongPreview.HandoffApplyDriverRequest == nil || wrongPreview.HandoffApplyDriverRequest.CommandExecutable || wrongApplyStep == nil || wrongApplyStep.CommandExecutable {
+		t.Fatalf("apply route binder must keep an unbound handoff Apply non-executable: request=%+v step=%+v", wrongPreview.HandoffApplyDriverRequest, wrongApplyStep)
 	}
 	if statusRunbook.HandoffApplyDriverRequest == nil || statusRunbook.HandoffApplyDriverRequest.Kind != "review-guidance" || statusRunbook.HandoffApplyDriverRequest.CommandExecutable || statusRunbook.HandoffApplyDriverRequest.Command != "" || !strings.Contains(statusRunbook.HandoffApplyDriverRequest.Guidance, statusRunbook.HandoffApplyCommand) || statusRunbook.HandoffApplyDriverRequest.ExpectedReceipt.Command != "" || !contains(statusRunbook.HandoffApplyDriverRequest.Boundary, "review guidance until a handoff preview/apply result marks it executable") {
 		t.Fatalf("status runbook should gate handoff apply as review guidance: %+v", statusRunbook.HandoffApplyDriverRequest)
@@ -680,7 +692,14 @@ func TestDailyMissionControlRunbookHandoffDriverRequestsGateApply(t *testing.T) 
 		t.Fatalf("status run loop should gate handoff apply as review guidance: %+v", statusApplyStep)
 	}
 
-	handoffRunbook := DailyMissionControlRunbookForWithHandoffApplyReady("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, `/rekit handoff -Target "C:/case" -Apply -Format json`, true)
+	misclassifiedRunbook := DailyMissionControlRunbookForWithHandoffApplyReady("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, unboundApply, true)
+	misclassifiedApplyStep := findStep(misclassifiedRunbook.RunLoop, "write-handoff-for-takeover")
+	if misclassifiedRunbook.HandoffApplyDriverRequest == nil || misclassifiedRunbook.HandoffApplyDriverRequest.CommandExecutable || misclassifiedApplyStep == nil || misclassifiedApplyStep.CommandExecutable {
+		t.Fatalf("external readiness must not make an unbound handoff Apply executable: request=%+v step=%+v", misclassifiedRunbook.HandoffApplyDriverRequest, misclassifiedApplyStep)
+	}
+
+	exactApply := `/rekit handoff -Target "C:/case" -Apply -ExpectedHandoffPlanSha256 ` + handoffPlanSHA256 + ` -HandoffPublicationStamp 20260828-010203000 -Format json`
+	handoffRunbook := DailyMissionControlRunbookForWithHandoffApplyReady("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, exactApply, true)
 	if handoffRunbook.HandoffApplyDriverRequest == nil || handoffRunbook.HandoffApplyDriverRequest.Kind != "preview-command" || !handoffRunbook.HandoffApplyDriverRequest.CommandExecutable || handoffRunbook.HandoffApplyDriverRequest.Command != handoffRunbook.HandoffApplyCommand || handoffRunbook.HandoffApplyDriverRequest.ExpectedReceipt.Command != handoffRunbook.HandoffApplyCommand || handoffRunbook.HandoffApplyDriverRequest.ExpectedReceipt.RefreshStatusCommand != handoffRunbook.RefreshStatusCommand || !contains(handoffRunbook.HandoffApplyDriverRequest.Boundary, "handoff apply writes case-local handoff/resume/checkpoint files only") {
 		t.Fatalf("handoff result runbook should expose executable typed handoff apply request: %+v", handoffRunbook.HandoffApplyDriverRequest)
 	}
@@ -884,6 +903,23 @@ func assertPersistedExecutableHandoffRunbook(
 	exact string,
 ) {
 	t.Helper()
+	invocation, err := commands.ParsePublicInvocation(exact)
+	if err != nil {
+		t.Fatalf("parse exact persisted handoff command: %v\n%s", err, exact)
+	}
+	if err := commands.ValidateExecutablePlanInvocation(invocation); err != nil {
+		t.Fatalf("validate exact persisted handoff invocation: %v\n%+v", err, invocation)
+	}
+	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{{
+		State:          "handoff-apply-available",
+		Source:         "handoff-test",
+		Invocation:     &invocation,
+		Command:        exact,
+		RequiresReview: true,
+	}})
+	if queue.CurrentDriverRequest == nil || !queue.CurrentDriverRequest.CommandExecutable || queue.CurrentDriverRequest.Command != exact {
+		t.Fatalf("exact persisted handoff did not produce an executable request: %+v", queue.CurrentDriverRequest)
+	}
 	if strings.Contains(markdown, handoffPublicationPlanSHA256Marker) ||
 		!strings.Contains(markdown, "handoff apply: `"+exact+"`") ||
 		!strings.Contains(markdown, "handoff apply driver request: kind=preview-command executable=true") ||
@@ -892,6 +928,21 @@ func assertPersistedExecutableHandoffRunbook(
 		!strings.Contains(markdown, "executable=true") ||
 		!strings.Contains(markdown, "command=`"+exact+"`") {
 		t.Fatalf("persisted handoff route is not exact and executable:\n%s", markdown)
+	}
+}
+
+func TestProjectHandoffPreviewRejectsReservedPlanMarkerInBusinessText(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	_, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{
+		ProjectMissionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
+			State:   "review-guidance",
+			Source:  "test",
+			Command: "review marker isolation",
+			Reasons: []string{"literal " + handoffPublicationPlanSHA256Marker},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "reserved plan sha256 marker") {
+		t.Fatalf("reserved marker in business text error=%v", err)
 	}
 }
 

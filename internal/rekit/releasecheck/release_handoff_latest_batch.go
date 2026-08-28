@@ -53,21 +53,22 @@ type ReleaseHandoffReleaseInspectionCadence struct {
 }
 
 type ReleaseHandoffPostPushReceipt struct {
-	Ready               bool     `json:"ready"`
-	State               string   `json:"state"`
-	Branch              string   `json:"branch,omitempty"`
-	Head                string   `json:"head,omitempty"`
-	OriginMain          string   `json:"originMain,omitempty"`
-	WorkingTreeClean    bool     `json:"workingTreeClean"`
-	Synchronized        bool     `json:"synchronized"`
-	ParentBatchID       string   `json:"parentBatchId,omitempty"`
-	ParentBatchComplete bool     `json:"parentBatchComplete"`
-	HeadBatchID         string   `json:"headBatchId,omitempty"`
-	HeadBatchComplete   bool     `json:"headBatchComplete"`
-	ChangedPaths        []string `json:"changedPaths,omitempty"`
-	Evidence            []string `json:"evidence,omitempty"`
-	Boundary            []string `json:"boundary,omitempty"`
-	Warnings            []string `json:"warnings,omitempty"`
+	Ready               bool                           `json:"ready"`
+	State               string                         `json:"state"`
+	Subject             *LocalValidationReceiptSubject `json:"subject,omitempty"`
+	Branch              string                         `json:"branch,omitempty"`
+	Head                string                         `json:"head,omitempty"`
+	OriginMain          string                         `json:"originMain,omitempty"`
+	WorkingTreeClean    bool                           `json:"workingTreeClean"`
+	Synchronized        bool                           `json:"synchronized"`
+	ParentBatchID       string                         `json:"parentBatchId,omitempty"`
+	ParentBatchComplete bool                           `json:"parentBatchComplete"`
+	HeadBatchID         string                         `json:"headBatchId,omitempty"`
+	HeadBatchComplete   bool                           `json:"headBatchComplete"`
+	ChangedPaths        []string                       `json:"changedPaths,omitempty"`
+	Evidence            []string                       `json:"evidence,omitempty"`
+	Boundary            []string                       `json:"boundary,omitempty"`
+	Warnings            []string                       `json:"warnings,omitempty"`
 }
 
 type ReleaseHandoffRemoteReleaseGateDetail struct {
@@ -113,47 +114,77 @@ func releaseHandoffCurrentInventoryCanCloseLatestBatch(latest ReleaseHandoffLate
 
 type releaseHandoffGitCommandExecutor func(string, ...string) (int, string, error)
 
-func releaseHandoffLatestBatchWithPostPushReceipt(repo string, latest ReleaseHandoffLatestBatch) ReleaseHandoffLatestBatch {
-	return releaseHandoffLatestBatchWithPostPushReceiptUsing(repo, latest, defaultReleaseHandoffGitCommand)
+func releaseHandoffWithValidationReceipt(repo string, latest ReleaseHandoffLatestBatch, activeRoute ReleaseHandoffActiveRoute) (ReleaseHandoffLatestBatch, ReleaseHandoffActiveRoute) {
+	return releaseHandoffWithValidationReceiptUsing(repo, latest, activeRoute, defaultReleaseHandoffGitCommand)
 }
 
-func releaseHandoffLatestBatchWithPostPushReceiptUsing(repo string, latest ReleaseHandoffLatestBatch, executor releaseHandoffGitCommandExecutor) ReleaseHandoffLatestBatch {
-	cadence := latest.Handoff.ReleaseInspectionCadence
+func releaseHandoffWithValidationReceiptUsing(repo string, latest ReleaseHandoffLatestBatch, activeRoute ReleaseHandoffActiveRoute, executor releaseHandoffGitCommandExecutor) (ReleaseHandoffLatestBatch, ReleaseHandoffActiveRoute) {
 	if !latest.Handoff.Completed {
-		return latest
+		return latest, activeRoute
 	}
+	subject, receiptRequired := LocalValidationReceiptSubjectFor(ReleaseHandoff{ActiveRoute: activeRoute, LatestBatch: latest})
 	machineReceiptRequired := latestBatchIDNumber(latest.BatchID) >= 817
-	if cadence.State != "implementation-pending" && !machineReceiptRequired {
-		return latest
+	if !receiptRequired {
+		if activeRoute.Present {
+			return latest, activeRoute
+		}
+		if !machineReceiptRequired {
+			if latest.Handoff.LocalValidationReady && latest.Handoff.ReleaseCheckReady && latest.Handoff.ReleaseInspectionCadence.State == "implementation-pending" {
+				receipt := releaseHandoffPostPushReceiptFor(repo, latest, activeRoute, executor)
+				return releaseHandoffLatestBatchWithReadyPostPushReceipt(latest, receipt), activeRoute
+			}
+			return latest, activeRoute
+		}
+		subject = LocalValidationReceiptSubject{Kind: LocalValidationReceiptSubjectNumberedBatch, BatchID: latest.BatchID}
+		receiptRequired = true
 	}
-	validation := InspectLocalValidationReceipt(repo, latest)
-	latest.Handoff.LocalValidationReceipt = &validation
-	if validation.Ready {
-		latest.Handoff.LocalValidationReady = true
-		latest.Handoff.ReleaseCheckReady = true
+	validation := InspectLocalValidationReceipt(repo, subject)
+	if subject.Kind == LocalValidationReceiptSubjectActiveRoute {
+		activeRoute.LocalValidationReceipt = &validation
+		activeRoute.LocalValidationReady = validation.Ready
+		activeRoute.ReleaseCheckReady = validation.Ready
+		activeRoute.Evidence = mission.UniqueStrings(append(activeRoute.Evidence, validation.Evidence...))
+	} else {
+		latest.Handoff.LocalValidationReceipt = &validation
+		latest.Handoff.LocalValidationReady = validation.Ready
+		latest.Handoff.ReleaseCheckReady = validation.Ready
 		latest.Handoff.Evidence = mission.UniqueStrings(append(latest.Handoff.Evidence, validation.Evidence...))
-		if machineReceiptRequired {
-			cadence.State = "implementation-pending"
-			cadence.ImplementationCommitReady = false
-			latest.Handoff.ReleaseInspectionCadence = cadence
-		}
-	} else if machineReceiptRequired {
-		latest.Handoff.LocalValidationReady = false
-		latest.Handoff.ReleaseCheckReady = false
-		latest.Handoff.PostPushReceipt = nil
-		if cadence.State == "complete" {
-			cadence.State = "implementation-pending"
-			cadence.ImplementationCommitReady = false
-			cadence.NextAction = "rerun the full Windows local release minimum and publish a machine validation receipt before next-batch selection"
-			latest.Handoff.ReleaseInspectionCadence = cadence
-			latest.Handoff.NextAction = cadence.NextAction
-		}
-		return latest
 	}
-	if !latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady {
-		return latest
+	if !validation.Ready {
+		if validation.State == "recorded-for-implementation-commit" {
+			if subject.Kind == LocalValidationReceiptSubjectNumberedBatch {
+				latest.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
+				latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = false
+				latest.Handoff.ReleaseInspectionCadence.NextAction = "create and push the one direct implementation commit bound by the numbered-batch validation receipt, then refresh status"
+				latest.Handoff.NextAction = latest.Handoff.ReleaseInspectionCadence.NextAction
+			}
+			return latest, activeRoute
+		}
+		if subject.Kind == LocalValidationReceiptSubjectNumberedBatch && receiptRequired {
+			latest.Handoff.PostPushReceipt = nil
+			if latest.Handoff.ReleaseInspectionCadence.State == "complete" {
+				latest.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
+				latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = false
+				latest.Handoff.ReleaseInspectionCadence.NextAction = "rerun the full Windows local release minimum and publish a machine validation receipt before next-batch selection"
+				latest.Handoff.NextAction = latest.Handoff.ReleaseInspectionCadence.NextAction
+			}
+		}
+		return latest, activeRoute
 	}
-	receipt := releaseHandoffPostPushReceiptFor(repo, latest, executor)
+	receipt := releaseHandoffPostPushReceiptFor(repo, latest, activeRoute, executor)
+	if subject.Kind == LocalValidationReceiptSubjectActiveRoute {
+		activeRoute.PostPushReceipt = &receipt
+		if !receipt.Ready {
+			return latest, activeRoute
+		}
+		activeRoute.CommitRefs = mission.UniqueStrings(append(activeRoute.CommitRefs, receipt.Head))
+		activeRoute.Evidence = mission.UniqueStrings(append(activeRoute.Evidence, receipt.Evidence...))
+		return latest, activeRoute
+	}
+	return releaseHandoffLatestBatchWithReadyPostPushReceipt(latest, receipt), activeRoute
+}
+
+func releaseHandoffLatestBatchWithReadyPostPushReceipt(latest ReleaseHandoffLatestBatch, receipt ReleaseHandoffPostPushReceipt) ReleaseHandoffLatestBatch {
 	latest.Handoff.PostPushReceipt = &receipt
 	if !receipt.Ready {
 		return latest
@@ -170,7 +201,17 @@ func releaseHandoffLatestBatchWithPostPushReceiptUsing(repo string, latest Relea
 	return latest
 }
 
-func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBatch, executor releaseHandoffGitCommandExecutor) ReleaseHandoffPostPushReceipt {
+func releaseHandoffLatestBatchWithPostPushReceipt(repo string, latest ReleaseHandoffLatestBatch, activeRoute ReleaseHandoffActiveRoute) ReleaseHandoffLatestBatch {
+	latest, _ = releaseHandoffWithValidationReceipt(repo, latest, activeRoute)
+	return latest
+}
+
+func releaseHandoffLatestBatchWithPostPushReceiptUsing(repo string, latest ReleaseHandoffLatestBatch, activeRoute ReleaseHandoffActiveRoute, executor releaseHandoffGitCommandExecutor) ReleaseHandoffLatestBatch {
+	latest, _ = releaseHandoffWithValidationReceiptUsing(repo, latest, activeRoute, executor)
+	return latest
+}
+
+func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBatch, activeRoute ReleaseHandoffActiveRoute, executor releaseHandoffGitCommandExecutor) ReleaseHandoffPostPushReceipt {
 	receipt := ReleaseHandoffPostPushReceipt{
 		State: "unavailable",
 		Boundary: []string{
@@ -239,16 +280,39 @@ func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBa
 		receipt.State = "unsynchronized"
 		return receipt
 	}
-	machineReceiptRequired := latestBatchIDNumber(latest.BatchID) >= 817
-	validatedHead := latest.Handoff.LocalValidationReceipt != nil && latest.Handoff.LocalValidationReceipt.Ready && strings.EqualFold(latest.Handoff.LocalValidationReceipt.ValidatedHead, receipt.Head)
-	nextBatchTransition := parent.BatchID != "" && releaseHandoffNextBatchID(parent.BatchID) == latest.BatchID
-	validatedSameBatchRepair := machineReceiptRequired && validatedHead && parent.BatchID == latest.BatchID && head.BatchID == latest.BatchID
-	if machineReceiptRequired && !validatedHead || (!nextBatchTransition && !validatedSameBatchRepair) || head.BatchID != latest.BatchID || !parent.Handoff.Completed || !head.Handoff.Completed {
-		receipt.State = "ambiguous-batch-transition"
-		return receipt
+	activeRouteReceipt := activeRoute.Present
+	validation := latest.Handoff.LocalValidationReceipt
+	if activeRouteReceipt {
+		validation = activeRoute.LocalValidationReceipt
+	}
+	validatedHead := validation != nil && validation.Ready && strings.EqualFold(validation.ValidatedHead, receipt.Head)
+	if activeRouteReceipt {
+		subject, subjectOK := LocalValidationReceiptSubjectFor(ReleaseHandoff{ActiveRoute: activeRoute, LatestBatch: latest})
+		if !subjectOK || !validatedHead || validation == nil || validation.Receipt == nil {
+			receipt.State = "ambiguous-route-transition"
+			return receipt
+		}
+		actualSubject, err := localValidationReceiptSubjectForReceipt(*validation.Receipt)
+		if err != nil || actualSubject != subject {
+			receipt.State = "ambiguous-route-transition"
+			return receipt
+		}
+		receipt.Subject = &subject
+	} else {
+		machineReceiptRequired := latestBatchIDNumber(latest.BatchID) >= 817
+		nextBatchTransition := parent.BatchID != "" && releaseHandoffNextBatchID(parent.BatchID) == latest.BatchID
+		validatedSameBatchRepair := machineReceiptRequired && validatedHead && parent.BatchID == latest.BatchID && head.BatchID == latest.BatchID
+		if machineReceiptRequired && !validatedHead || (!nextBatchTransition && !validatedSameBatchRepair) || head.BatchID != latest.BatchID || !parent.Handoff.Completed || !head.Handoff.Completed {
+			receipt.State = "ambiguous-batch-transition"
+			return receipt
+		}
 	}
 	if !slices.Contains(receipt.ChangedPaths, "docs/batch-plan.md") || !slices.Contains(receipt.ChangedPaths, "CHANGELOG.md") || !releaseHandoffHasImplementationPath(receipt.ChangedPaths) {
 		receipt.State = "incomplete-implementation-commit"
+		return receipt
+	}
+	if activeRouteReceipt && !slices.Contains(receipt.ChangedPaths, "docs/real-usage-hardening-roadmap.md") {
+		receipt.State = "incomplete-route-implementation-commit"
 		return receipt
 	}
 	receipt.Ready = true
@@ -256,7 +320,7 @@ func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBa
 	receipt.Evidence = []string{
 		"post-push implementation receipt validated",
 		"main HEAD equals the locally known origin/main ref",
-		"implementation commit introduced the next completed batch or an exact machine-validated repair for that completed batch",
+		"implementation commit matches the exact typed validation subject",
 		"implementation commit includes batch plan, changelog, and product implementation paths",
 	}
 	return receipt

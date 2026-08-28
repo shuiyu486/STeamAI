@@ -3,6 +3,7 @@ package workstream
 import (
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -120,9 +121,14 @@ func dailyMissionControlRunbookForWithRefresh(caseRoot, scope string, queue miss
 		runbook.CurrentCommand = strings.TrimSpace(request.Command)
 		runbook.RefreshStatusCommand = strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand)
 	}
-	runbook.RunLoop = dailyMissionControlRunLoop(runbook, handoffApplyReady)
-	runbook.HandoffPreviewDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "preview-handoff", runbook.HandoffPreviewCommand, false, true)
-	runbook.HandoffApplyDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "write-handoff-for-takeover", runbook.HandoffApplyCommand, true, handoffApplyReady)
+	_, handoffPreviewExecutable := dailyMissionControlExecutableHandoffInvocation(runbook.HandoffPreviewCommand, false)
+	handoffApplyExecutable := handoffApplyReady
+	if _, ok := dailyMissionControlExecutableHandoffInvocation(runbook.HandoffApplyCommand, true); !ok {
+		handoffApplyExecutable = false
+	}
+	runbook.RunLoop = dailyMissionControlRunLoop(runbook, handoffPreviewExecutable, handoffApplyExecutable)
+	runbook.HandoffPreviewDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "preview-handoff", runbook.HandoffPreviewCommand, false, handoffPreviewExecutable)
+	runbook.HandoffApplyDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "write-handoff-for-takeover", runbook.HandoffApplyCommand, true, handoffApplyExecutable)
 	return runbook
 }
 
@@ -152,6 +158,13 @@ func dailyMissionControlHandoffDriverRequest(runbook *DailyMissionControlRunbook
 			"run handoff apply only after reviewing the current status and handoff preview",
 		)
 	}
+	if executable {
+		if invocation, ok := dailyMissionControlExecutableHandoffInvocation(action.Command, apply); ok {
+			action.Invocation = &invocation
+		} else {
+			executable = false
+		}
+	}
 	if !executable {
 		action.Command = "review handoff preview before running " + strings.TrimSpace(command)
 		action.Boundary = append(action.Boundary, "this handoff apply request is review guidance until a handoff preview/apply result marks it executable")
@@ -166,6 +179,19 @@ func dailyMissionControlHandoffDriverRequest(runbook *DailyMissionControlRunbook
 	}
 	refreshed.Boundary = mission.UniqueStrings(append(refreshed.Boundary, action.Boundary...))
 	return &refreshed
+}
+
+func dailyMissionControlExecutableHandoffInvocation(command string, apply bool) (commands.PublicInvocation, bool) {
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil || invocation.Command != commands.Handoff || commands.ValidateExecutablePlanInvocation(invocation) != nil {
+		return commands.PublicInvocation{}, false
+	}
+	hasWhatIf := invocation.HasFlag("-WhatIf") || invocation.HasFlag("--what-if")
+	hasApply := invocation.HasFlag("-Apply") || invocation.HasFlag("--apply")
+	if apply != hasApply || apply == hasWhatIf {
+		return commands.PublicInvocation{}, false
+	}
+	return invocation, true
 }
 
 func dailyMissionControlMissionRunLoop(steps []DailyMissionControlRunbookStep) []mission.MissionCommanderRunLoopStep {
@@ -197,7 +223,7 @@ func quoteCommandArgAlways(arg string) string {
 	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
 }
 
-func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook, handoffApplyReady bool) []DailyMissionControlRunbookStep {
+func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook, handoffPreviewReady, handoffApplyReady bool) []DailyMissionControlRunbookStep {
 	steps := []DailyMissionControlRunbookStep{
 		{
 			StepID:            "inspect-status",
@@ -267,7 +293,7 @@ func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook, handoffAppl
 			State:             "handoff-preview-available",
 			Source:            "dailyMissionControlRunbook.handoffPreview",
 			Command:           runbook.HandoffPreviewCommand,
-			CommandExecutable: true,
+			CommandExecutable: handoffPreviewReady,
 			Boundary: []string{
 				"preview handoff before writing durable handoff artifacts when the next session must take over",
 				"handoff preview is read-only",

@@ -70,11 +70,12 @@ type statusCompactOnboarding struct {
 }
 
 type statusCompactPackChoice struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Maturity   string `json:"maturity"`
-	Selected   bool   `json:"selected"`
-	Selectable bool   `json:"selectable"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Maturity    string `json:"maturity"`
+	Recommended bool   `json:"recommended"`
+	Selected    bool   `json:"selected"`
+	Selectable  bool   `json:"selectable"`
 }
 
 type statusCompactExecutionControl struct {
@@ -180,11 +181,12 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 		}
 		for _, choice := range status.Onboarding.PackChoices {
 			compact.Onboarding.PackChoices = append(compact.Onboarding.PackChoices, statusCompactPackChoice{
-				ID:         choice.ID,
-				Name:       choice.Name,
-				Maturity:   choice.Maturity,
-				Selected:   choice.Selected,
-				Selectable: choice.Selectable,
+				ID:          choice.ID,
+				Name:        choice.Name,
+				Maturity:    choice.Maturity,
+				Recommended: choice.Recommended,
+				Selected:    choice.Selected,
+				Selectable:  choice.Selectable,
 			})
 		}
 	}

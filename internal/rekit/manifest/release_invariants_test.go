@@ -195,23 +195,24 @@ func TestGoRuntimeDefaultPackInvariants(t *testing.T) {
 	}
 }
 
-func TestReleaseSkeletonPackSmokeDiscoveryInvariants(t *testing.T) {
+func TestReleaseLegacyPowerShellPackSmokeDiscoveryInvariants(t *testing.T) {
 	repo := repoRoot(t)
 	catalog := loadTestCatalog(t, repo)
-	skeletonPacks := schemaValidSkeletonPacks(t, repo)
-	productionPacks := schemaValidProductionPackSmokePacks(t, repo)
-	expectedSmokePacks := mergeStringSets(skeletonPacks, productionPacks)
+	expectedSmokePacks := mergeStringSets(
+		schemaValidSkeletonPacks(t, repo),
+		schemaValidLegacyProductionPackSmokePacks(t, repo),
+	)
 	catalogPacks := packSmokeCatalogPacks(catalog)
 	wrapperPacks := packSmokeWrapperPacks(t, filepath.Join(repo, "rekit", "tests"))
 	matrixPacks := packSmokeMatrixPacks(t, filepath.Join(repo, "rekit", "tests", "pack-smoke-matrix.ps1"))
 
-	assertSameStringSet(t, "expected pack smoke manifests", expectedSmokePacks, "catalog pack-smoke entries", catalogPacks)
-	assertSameStringSet(t, "expected pack smoke manifests", expectedSmokePacks, "pack smoke wrappers", wrapperPacks)
-	assertSameStringSet(t, "expected pack smoke manifests", expectedSmokePacks, "pack smoke matrix entries", matrixPacks)
+	assertSameStringSet(t, "expected legacy PowerShell pack smoke manifests", expectedSmokePacks, "catalog pack-smoke entries", catalogPacks)
+	assertSameStringSet(t, "expected legacy PowerShell pack smoke manifests", expectedSmokePacks, "pack smoke wrappers", wrapperPacks)
+	assertSameStringSet(t, "expected legacy PowerShell pack smoke manifests", expectedSmokePacks, "pack smoke matrix entries", matrixPacks)
 
-	for _, nonSmoke := range []string{"_template", "binary-re", "generic-binary-re", "vmp-re"} {
+	for _, nonSmoke := range []string{"_template", "generic-binary-re", "vmp-re"} {
 		if catalogPacks[nonSmoke] || wrapperPacks[nonSmoke] || matrixPacks[nonSmoke] {
-			t.Fatalf("non-smoke pack %s must not be in pack smoke sets: catalog=%v wrappers=%v matrix=%v", nonSmoke, catalogPacks[nonSmoke], wrapperPacks[nonSmoke], matrixPacks[nonSmoke])
+			t.Fatalf("non-smoke pack %s must not be in legacy PowerShell pack smoke sets: catalog=%v wrappers=%v matrix=%v", nonSmoke, catalogPacks[nonSmoke], wrapperPacks[nonSmoke], matrixPacks[nonSmoke])
 		}
 	}
 }
@@ -925,7 +926,7 @@ func catalogScriptLeaf(command string) string {
 	return fields[0]
 }
 
-func schemaValidProductionPackSmokePacks(t *testing.T, repo string) map[string]bool {
+func schemaValidLegacyProductionPackSmokePacks(t *testing.T, repo string) map[string]bool {
 	t.Helper()
 	const productionPack = "web-security"
 	packs, err := List(repo)

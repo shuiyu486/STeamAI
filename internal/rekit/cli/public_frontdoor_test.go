@@ -131,15 +131,36 @@ func TestPublicSummaryKeepsDiagnosticsOutOfDefaultOutput(t *testing.T) {
 	}
 }
 
-func TestPublicStatusSummaryExplainsFreshOnboardingWithoutInternalChoices(t *testing.T) {
+func TestRunPublicStatusShowsFreshOnboardingChoices(t *testing.T) {
+	caseRoot := t.TempDir()
+	var out bytes.Buffer
+	if err := RunPublic([]string{"status", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"项目尚未完成首次接入", "binary-re，推荐", "web-security"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("fresh public status omitted %q: %s", expected, text)
+		}
+	}
+	for _, internal := range []string{"packChoices", "selectedPack", `"runtimeRoot"`, "recommended", "selectable"} {
+		if strings.Contains(text, internal) {
+			t.Fatalf("fresh public status leaked internal field %q: %s", internal, text)
+		}
+	}
+}
+
+func TestPublicStatusSummaryExplainsFreshOnboardingChoices(t *testing.T) {
 	var out bytes.Buffer
 	raw := json.RawMessage(`{
 		"mode":"case-onboarding-required",
 		"caseMission":{"summary":"project onboarding requires a goal and pack selection"},
 		"onboarding":{
 			"state":"absent",
-			"selectedPack":"binary-re",
-			"packChoices":[{"id":"binary-re","name":"binary-re","maturity":"mature"}]
+			"packChoices":[
+				{"id":"binary-re","name":"binary-re","maturity":"mature","recommended":true,"selectable":true},
+				{"id":"web-security","name":"web-security","maturity":"mature","selectable":true}
+			]
 		},
 		"missionControlRunbook":{}
 	}`)
@@ -147,10 +168,12 @@ func TestPublicStatusSummaryExplainsFreshOnboardingWithoutInternalChoices(t *tes
 		t.Fatal(err)
 	}
 	text := out.String()
-	if !strings.Contains(text, "项目尚未完成首次接入") || !strings.Contains(text, "告诉主 Agent 你的目标并选择一个 pack") {
-		t.Fatalf("fresh onboarding summary omitted user action: %s", text)
+	for _, expected := range []string{"项目尚未完成首次接入", "告诉主 Agent 你的目标并选择一个 pack", "binary-re，推荐", "web-security"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("fresh onboarding summary omitted %q: %s", expected, text)
+		}
 	}
-	for _, internal := range []string{"binary-re", "packChoices", "selectedPack", "mature"} {
+	for _, internal := range []string{"packChoices", "selectedPack", "mature", "recommended", "selectable"} {
 		if strings.Contains(text, internal) {
 			t.Fatalf("fresh onboarding summary leaked internal choice detail %q: %s", internal, text)
 		}
@@ -224,6 +247,36 @@ func TestRenderPublicFailureSeparatesDefaultAndDiagnostics(t *testing.T) {
 	}
 	if envelope.Kind != "steamai-public-failure" || envelope.Diagnostics.Code != plancontract.CodePlanMismatch || envelope.Diagnostics.Expected != strings.Repeat("a", 64) || envelope.Diagnostics.Actual != strings.Repeat("b", 64) || envelope.Diagnostics.MutationApplied {
 		t.Fatalf("unexpected diagnostics envelope: %+v", envelope)
+	}
+}
+
+func TestRenderRuntimePlanFailureUsesRuntimeJSONAndTypedCommand(t *testing.T) {
+	_, err := plancontract.ValidatePhase(
+		"init",
+		"-ExpectedInitPlanSha256",
+		false,
+		true,
+		"",
+	)
+	if err == nil {
+		t.Fatal("plancontract.ValidatePhase returned nil error")
+	}
+	var stdout, stderr bytes.Buffer
+	code, handled := RenderRuntimePlanFailure(
+		[]string{"-Command", "init", "-Apply", "-Format", "json"},
+		err,
+		&stdout,
+		&stderr,
+	)
+	var envelope publicFailureEnvelope
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &envelope); !handled || code != 2 || stderr.Len() != 0 || decodeErr != nil || envelope.Command != "init" || envelope.ExitCode != code || envelope.Diagnostics.Code != plancontract.CodePlanMissing {
+		t.Fatalf("runtime plan failure handled=%t code=%d envelope=%+v stderr=%q decodeErr=%v", handled, code, envelope, stderr.String(), decodeErr)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code, handled := RenderRuntimePlanFailure([]string{"-Command", "status"}, errors.New("ordinary maintenance failure"), &stdout, &stderr); handled || code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("ordinary runtime failure was publicized: handled=%t code=%d stdout=%q stderr=%q", handled, code, stdout.String(), stderr.String())
 	}
 }
 

@@ -37,53 +37,129 @@ func TestPublicInvocationRoundTripAndCLIArgs(t *testing.T) {
 	}
 }
 
-func TestQualifyPublicNextActionDefaultsContinueToJSONPreview(t *testing.T) {
-	original, err := NewPublicInvocation(Continue, "feature-mission", "-Executor", "session-one", "-ExpectedExecutorGeneration", "2")
-	if err != nil {
-		t.Fatal(err)
+func TestQualifyPublicNextActionDefaultsExecutablePlansToJSONPreview(t *testing.T) {
+	seen := map[string]bool{}
+	for _, listed := range MutationContracts() {
+		if !listed.ExecutablePlanValidation || seen[listed.Command] {
+			continue
+		}
+		seen[listed.Command] = true
+		t.Run("contract/"+listed.Command, func(t *testing.T) {
+			original, err := NewPublicInvocation(listed.Command)
+			if err != nil {
+				t.Fatal(err)
+			}
+			qualified, changed, err := QualifyPublicNextAction(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !changed || !slices.Equal(qualified.Arguments, []string{"-WhatIf", "-Format", "json"}) {
+				t.Fatalf("qualified next action = %+v changed=%t", qualified, changed)
+			}
+			if original.Arguments != nil {
+				t.Fatalf("qualification mutated its input: %+v", original)
+			}
+		})
 	}
-	qualified, changed, err := QualifyPublicNextAction(original)
-	if err != nil {
-		t.Fatal(err)
+	if len(seen) == 0 {
+		t.Fatal("no executable plan contracts were qualified")
 	}
-	if !changed || !qualified.HasFlag("-WhatIf") || !slices.Equal(qualified.Arguments, []string{"feature-mission", "-Executor", "session-one", "-ExpectedExecutorGeneration", "2", "-WhatIf", "-Format", "json"}) {
-		t.Fatalf("qualified next action = %+v changed=%t", qualified, changed)
-	}
-	if original.HasFlag("-WhatIf") || len(original.Arguments) != 5 {
-		t.Fatalf("qualification mutated its input: %+v", original)
+
+	for _, test := range []struct {
+		command string
+		args    []string
+		want    []string
+	}{
+		{
+			command: Continue,
+			args:    []string{"feature-mission", "-Executor", "session-one", "-ExpectedExecutorGeneration", "2"},
+			want:    []string{"feature-mission", "-Executor", "session-one", "-ExpectedExecutorGeneration", "2", "-WhatIf", "-Format", "json"},
+		},
+		{
+			command: Handoff,
+			args:    []string{"feature-mission"},
+			want:    []string{"feature-mission", "-WhatIf", "-Format", "json"},
+		},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			original, err := NewPublicInvocation(test.command, test.args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			qualified, changed, err := QualifyPublicNextAction(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !changed || !qualified.HasFlag("-WhatIf") || !slices.Equal(qualified.Arguments, test.want) {
+				t.Fatalf("qualified next action = %+v changed=%t", qualified, changed)
+			}
+			if original.HasFlag("-WhatIf") || !slices.Equal(original.Arguments, test.args) {
+				t.Fatalf("qualification mutated its input: %+v", original)
+			}
+		})
 	}
 
 	withFormat, err := NewPublicInvocation(Continue, "feature-mission", "-Format", "text")
 	if err != nil {
 		t.Fatal(err)
 	}
-	withFormat, changed, err = QualifyPublicNextAction(withFormat)
-	if err != nil || !changed || !withFormat.HasFlag("-WhatIf") || !slices.Equal(withFormat.Arguments, []string{"feature-mission", "-Format", "text", "-WhatIf"}) {
-		t.Fatalf("existing format was not preserved: %+v changed=%t err=%v", withFormat, changed, err)
+	if _, _, err := QualifyPublicNextAction(withFormat); err == nil || !strings.Contains(err.Error(), "requires -Format json") {
+		t.Fatalf("non-JSON executable plan next action was not rejected: %v", err)
 	}
 }
 
 func TestQualifyPublicNextActionPreservesExactPhase(t *testing.T) {
 	for _, fixture := range []struct {
-		name string
-		args []string
+		name    string
+		command string
+		args    []string
 	}{
-		{name: "preview", args: []string{"main", "-WhatIf", "-Format", "json"}},
-		{name: "apply", args: []string{"main", "-Apply", "-ExpectedContinuePlanSha256", strings.Repeat("a", 64)}},
-		{name: "other command", args: []string{"-Format", "json"}},
+		{name: "preview", command: Continue, args: []string{"main", "-WhatIf", "-Format", "json"}},
+		{name: "apply", command: Continue, args: []string{"main", "-Apply", "-ExpectedContinuePlanSha256", strings.Repeat("a", 64), "-Format", "json"}},
+		{name: "other command", command: Status, args: []string{"-Format", "json"}},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			command := Continue
-			if fixture.name == "other command" {
-				command = Status
-			}
-			invocation, err := NewPublicInvocation(command, fixture.args...)
+			invocation, err := NewPublicInvocation(fixture.command, fixture.args...)
 			if err != nil {
 				t.Fatal(err)
 			}
 			qualified, changed, err := QualifyPublicNextAction(invocation)
 			if err != nil || changed || !qualified.Equivalent(invocation) {
 				t.Fatalf("exact phase changed: got=%+v want=%+v changed=%t err=%v", qualified, invocation, changed, err)
+			}
+		})
+	}
+}
+
+func TestQualifyPublicNextActionAddsJSONToExistingPhase(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	for _, fixture := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "preview",
+			args: []string{"-Lane", "main", "-WhatIf"},
+			want: []string{"-Lane", "main", "-WhatIf", "-Format", "json"},
+		},
+		{
+			name: "apply",
+			args: []string{"-Lane", "main", "-Apply", "-ExpectedContinuePlanSha256", hash},
+			want: []string{"-Lane", "main", "-Apply", "-ExpectedContinuePlanSha256", hash, "-Format", "json"},
+		},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			invocation, err := NewPublicInvocation(Continue, fixture.args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			qualified, changed, err := QualifyPublicNextAction(invocation)
+			if err != nil || !changed || !slices.Equal(qualified.Arguments, fixture.want) {
+				t.Fatalf("qualified phase: got=%+v want=%+v changed=%t err=%v", qualified.Arguments, fixture.want, changed, err)
+			}
+			if !slices.Equal(invocation.Arguments, fixture.args) {
+				t.Fatalf("qualification mutated its input: %+v", invocation)
 			}
 		})
 	}
@@ -190,6 +266,22 @@ func TestValidateExecutablePlanInvocationSupportsStableBindings(t *testing.T) {
 	}
 }
 
+func TestValidateExecutablePlanInvocationRejectsNonJSONMachineFormat(t *testing.T) {
+	for _, args := range [][]string{
+		{"main", "-WhatIf"},
+		{"main", "-WhatIf", "-Format", "text"},
+		{"main", "-Apply", "-ExpectedContinuePlanSha256", strings.Repeat("a", 64), "--format", "text"},
+	} {
+		invocation, err := NewPublicInvocation(Continue, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateExecutablePlanInvocation(invocation); err == nil || !strings.Contains(err.Error(), "-Format json") {
+			t.Fatalf("non-JSON executable plan invocation error=%v args=%v", err, args)
+		}
+	}
+}
+
 func TestValidateExecutablePlanInvocationReturnsTypedFailures(t *testing.T) {
 	hash := strings.Repeat("a", 64)
 	for _, fixture := range []struct {
@@ -198,12 +290,12 @@ func TestValidateExecutablePlanInvocationReturnsTypedFailures(t *testing.T) {
 		args    []string
 		code    string
 	}{
-		{name: "missing phase", command: Continue, code: plancontract.CodePhaseConflict},
-		{name: "both phases", command: Continue, args: []string{"-WhatIf", "-Apply", "-ExpectedContinuePlanSha256", hash}, code: plancontract.CodePhaseConflict},
-		{name: "preview binding", command: Continue, args: []string{"-WhatIf", "-ExpectedContinuePlanSha256", hash}, code: plancontract.CodePhaseConflict},
-		{name: "Apply binding missing", command: Continue, args: []string{"-Apply"}, code: plancontract.CodePlanMissing},
-		{name: "Apply binding invalid", command: Continue, args: []string{"-Apply", "-ExpectedContinuePlanSha256", "bad"}, code: plancontract.CodePlanInvalid},
-		{name: "duplicate binding", command: Continue, args: []string{"-Apply", "-ExpectedContinuePlanSha256", hash, "--expected-continue-plan-sha256", hash}, code: plancontract.CodePlanInvalid},
+		{name: "missing phase", command: Continue, args: []string{"-Format", "json"}, code: plancontract.CodePhaseConflict},
+		{name: "both phases", command: Continue, args: []string{"-WhatIf", "-Apply", "-ExpectedContinuePlanSha256", hash, "-Format", "json"}, code: plancontract.CodePhaseConflict},
+		{name: "preview binding", command: Continue, args: []string{"-WhatIf", "-ExpectedContinuePlanSha256", hash, "-Format", "json"}, code: plancontract.CodePhaseConflict},
+		{name: "Apply binding missing", command: Continue, args: []string{"-Apply", "-Format", "json"}, code: plancontract.CodePlanMissing},
+		{name: "Apply binding invalid", command: Continue, args: []string{"-Apply", "-ExpectedContinuePlanSha256", "bad", "-Format", "json"}, code: plancontract.CodePlanInvalid},
+		{name: "duplicate binding", command: Continue, args: []string{"-Apply", "-ExpectedContinuePlanSha256", hash, "--expected-continue-plan-sha256", hash, "-Format", "json"}, code: plancontract.CodePlanInvalid},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			invocation, err := NewPublicInvocation(fixture.command, fixture.args...)
@@ -220,7 +312,7 @@ func TestValidateExecutablePlanInvocationReturnsTypedFailures(t *testing.T) {
 }
 
 func TestValidateExecutablePlanInvocationRejectsUnsupportedCommand(t *testing.T) {
-	invocation, err := NewPublicInvocation(Status, "-WhatIf")
+	invocation, err := NewPublicInvocation(Status, "-WhatIf", "-Format", "json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure。`P0P3-C1`～`P0P3-C4`、retired pack identity migration与binary-re专项验收校准已完成，当前只执行完整P0～P3验证。Batch 830～833与validation repair仍只是各自局部证据；不创建Batch 834、不自选新功能。
+当前路线是 `steamai-product-optimization-v1` 的获批 P0～P3 residual closure，现已完成：`P0P3-C1`～`P0P3-C4`、retired pack identity migration、binary-re专项验收校准与完整总验证均有对应实现和证据。当前没有已批准下一路线，不创建Batch 834、不自选新功能；Git-local v3 receipt、唯一direct commit与post-push ref独立证明machine publication truth。
 
 ## 执行清单
 
@@ -17,10 +17,10 @@
 | 路线 | `steamai-product-optimization-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
 | 当前批次 | `路线收口 完整 P0～P3 验证` |
-| 状态 | `in_progress` |
-| 唯一允许领取 | 路线收口 |
-| 上一批 | binary-re 专项验收校准已完成并通过 review/focused/package/document validation |
-| 下一批 | 无；仅在全部未取消项有证据后关闭路线 |
+| 状态 | `completed` |
+| 唯一允许领取 | 无；当前路线已完成，等待显式用户路线变更 |
+| 上一批 | 路线收口完整 P0～P3 验证已通过 |
+| 下一批 | 无；当前路线已完成，等待显式用户路线变更 |
 
 ### Current batch state
 
@@ -30,7 +30,7 @@
 
 结果：`skillcontractgen -check` 已零写入并进入三平台 CI；bundle/init/current-sync 使用同一份 exact validated skill bytes，late pair drift fail-closed；handoff stamped publication 使用 immutable preflight 与 atomic no-replace exact replay，旧 stamp 不能覆盖历史 identity。DTO/public boundary 与 session owner 只做有界证据审计，未发现可复现缺陷；没有新增 schema、session 状态机或 provider。
 
-验证结果：skillcontract、runtimebundle、sync、fs、workstream、releasecheck、CLI handoff/release-check focused tests及受影响完整 package tests通过；完整 P0～P3 验证仍未完成。
+验证结果：skillcontract、runtimebundle、sync、fs、workstream、releasecheck、CLI handoff/release-check focused tests及受影响完整 package tests通过；其结论已纳入完成的完整 P0～P3总验证。
 
 ### binary-re 专项验收校准
 
@@ -42,11 +42,11 @@
 
 ### 完整 P0～P3 验证
 
-状态：in_progress；当前唯一允许领取。
+状态：completed；当前没有已批准下一路线。
 
-目标：逐项复核全部未取消的原P0～P3要求，运行产品/focused/full gates，并核对真实用户路径、fresh machine receipt、direct commit与本地tracking ref。
+目标：逐项复核全部未取消的原P0～P3要求，运行产品/focused/full gates，并核对真实用户路径；fresh machine receipt、direct commit与本地tracking ref由completed projection后的machine publication独立证明。
 
-验证结果：待完整矩阵与全仓门禁；任何缺口保持open，局部green不提升为总体完成。
+验证结果：原未取消项、focused/affected/full tests、vet、module verify、skill contract、public release/status/packs/doctor、diff/façade、fresh installed project-local real-Claude binary-re/web-security产品路径及最终定向反证均通过；未把remote workflow定义、synthetic fixture或cross-compile冒充更强证据。
 
 ### Batch 833：binary-re actual analysis
 
@@ -66,8 +66,8 @@
 | `P0P3-C4` runtime ownership | 已完成并解锁retired migration |
 | retired pack identity migration | 已完成并解锁binary-re专项验收校准 |
 | binary-re 专项验收校准 | 已完成并解锁总验证 |
-| 完整P0～P3验证 | 当前唯一允许领取 |
-| 路线总体完成 | 原P0～P3全部未取消项逐项验收通过 |
+| 完整P0～P3验证 | 已完成 |
+| 路线总体完成 | 已完成；等待显式用户路线变更 |
 
 ## 验证标准
 

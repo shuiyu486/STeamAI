@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -2020,6 +2021,7 @@ type releaseRunInspectionHandoff struct {
 	Summary                            string                                      `json:"summary"`
 	LocalReleaseRunReady               bool                                        `json:"localReleaseRunReady"`
 	Git                                releaseRunInspectionGitState                `json:"git"`
+	ActiveRoute                        releasecheck.ReleaseHandoffActiveRoute      `json:"activeRoute"`
 	LatestBatch                        releasecheck.ReleaseHandoffLatestBatch      `json:"latestBatch"`
 	NextActions                        []string                                    `json:"nextActions"`
 	MissionCommanderActionQueue        mission.MissionCommanderActionQueue         `json:"missionCommanderActionQueue"`
@@ -2064,9 +2066,7 @@ var releaseRunExecuteCommand releaseRunCommandExecutor = executeReleaseRunComman
 var releaseRunExecuteGitCommand releaseRunGitCommandExecutor = executeReleaseRunGitCommand
 var releaseRunCaptureLocalValidationSnapshot = releasecheck.CaptureLocalValidationSnapshot
 var releaseRunPublishLocalValidationReceipt = releasecheck.PublishLocalValidationReceipt
-var releaseRunReceiptRequired = func(latest releasecheck.ReleaseHandoffLatestBatch) bool {
-	return latest.Handoff.Completed && latest.Handoff.ReleaseInspectionCadence.State == "implementation-pending"
-}
+var releaseRunReceiptSubject = releasecheck.LocalValidationReceiptSubjectFor
 
 func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 	if ctx.TargetProvided {
@@ -2079,8 +2079,7 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	latest := inventory.ReleaseHandoff.LatestBatch
-	receiptRequired := releaseRunReceiptRequired(latest)
+	receiptSubject, receiptRequired := releaseRunReceiptSubject(inventory.ReleaseHandoff)
 	var snapshot releasecheck.LocalValidationSnapshot
 	if receiptRequired {
 		snapshot, err = releaseRunCaptureLocalValidationSnapshot(ctx.RepoRoot)
@@ -2106,7 +2105,7 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 			})
 		}
 		receipt, receiptErr := releaseRunPublishLocalValidationReceipt(ctx.RepoRoot, releasecheck.LocalValidationReceiptInput{
-			BatchID: inventory.ReleaseHandoff.LatestBatch.BatchID, GateProfile: result.GateProfile.Name,
+			Subject: receiptSubject, GateProfile: result.GateProfile.Name,
 			Passed: result.Passed, Failed: result.Failed, Skipped: result.Skipped,
 			ReleaseCheckReady: inventory.Ready, Steps: steps, Snapshot: snapshot,
 		})
@@ -2120,6 +2119,16 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 			result.ReleaseInspection.Warnings = append(result.ReleaseInspection.Warnings, receiptErr.Error())
 		}
 		result.LocalValidationReceipt = &receipt
+		if receiptErr == nil {
+			refreshedInventory, refreshErr := releaseCheckBuild(ctx.RepoRoot)
+			if refreshErr != nil {
+				result.Ready = false
+				result.Summary = "local validation receipt refresh failed"
+				result.ReleaseInspection.Warnings = append(result.ReleaseInspection.Warnings, refreshErr.Error())
+			} else {
+				result.ReleaseInspection = releaseRunInspectionHandoffFor(ctx.RepoRoot, refreshedInventory, true, releaseRunExecuteGitCommand)
+			}
+		}
 	}
 	format := strings.ToLower(strings.TrimSpace(opt.Format))
 	if format == "" {
@@ -2355,16 +2364,24 @@ func releaseRunInspectionHandoffFor(repoRoot string, inventory releasecheck.Resu
 	if !latest.Present {
 		warnings = append(warnings, "latest batch handoff is missing from docs/batch-plan.md")
 	}
+	activeRoute := inventory.ReleaseHandoff.ActiveRoute
+	preCommitReceipt := activeRoute.LocalValidationReceipt != nil && activeRoute.LocalValidationReceipt.State == "recorded-for-implementation-commit"
+	if preCommitReceipt {
+		warnings = slices.DeleteFunc(warnings, func(warning string) bool {
+			return warning == "release inspection needs a clean working tree before commit/push handoff" || warning == "release inspection needs local main and origin/main synchronized before declaring handoff complete"
+		})
+	}
 	ready := len(warnings) == 0
-	queue := releaseRunInspectionMissionCommanderActionQueue(git, latest, localReady, ready)
+	queue := releaseRunInspectionMissionCommanderActionQueue(git, inventory.ReleaseHandoff, localReady, ready)
 	receipt := releaseRunMissionCommanderDriverReceipt(queue, localReady, ready)
 	return releaseRunInspectionHandoff{
 		Ready:                              ready,
 		Summary:                            releaseRunInspectionSummary(ready, latest),
 		LocalReleaseRunReady:               localReady,
 		Git:                                git,
+		ActiveRoute:                        inventory.ReleaseHandoff.ActiveRoute,
 		LatestBatch:                        latest,
-		NextActions:                        releaseRunInspectionNextActions(git, latest, localReady),
+		NextActions:                        releaseRunInspectionNextActions(git, inventory.ReleaseHandoff, localReady),
 		MissionCommanderActionQueue:        queue,
 		MissionCommanderDriverReceipt:      receipt,
 		ReplacementExecutorTakeoverPackage: releaseRunReplacementExecutorTakeoverPackage(queue),
@@ -2378,7 +2395,8 @@ func releaseRunInspectionHandoffFor(repoRoot string, inventory releasecheck.Resu
 	}
 }
 
-func releaseRunInspectionMissionCommanderActionQueue(git releaseRunInspectionGitState, latest releasecheck.ReleaseHandoffLatestBatch, localReady, inspectionReady bool) mission.MissionCommanderActionQueue {
+func releaseRunInspectionMissionCommanderActionQueue(git releaseRunInspectionGitState, handoff releasecheck.ReleaseHandoff, localReady, inspectionReady bool) mission.MissionCommanderActionQueue {
+	latest := handoff.LatestBatch
 	actions := []mission.MissionCommanderNextActionItem{}
 	add := func(command, actionID, state string, requiresReview bool, reasons, boundary []string) {
 		command = strings.TrimSpace(command)
@@ -2407,6 +2425,13 @@ func releaseRunInspectionMissionCommanderActionQueue(git releaseRunInspectionGit
 	}
 	if !localReady {
 		add("/rekit release-run -Format json", "release-run-local-validation-retry", "local-release-run-not-ready", true, []string{"local release-run did not pass", "inspect failed step output before retrying"}, append(baseBoundary, "fix the failed local release minimum step before release inspection"))
+		return mission.MissionCommanderActionQueueFor(actions)
+	}
+	if pkg := handoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready && pkg.MissionCommanderActionQueue.CurrentAction != nil {
+		return pkg.MissionCommanderActionQueue
+	}
+	if action := handoff.ActiveRoute.CurrentAction; handoff.ActiveRoute.Present && action != nil {
+		return mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{*action})
 	}
 	if localReady && !releasecheck.LatestBatchDocumentsRecordLocalValidation(latest) {
 		add("record this release-run result in docs/batch-plan.md before final release handoff", "release-run-local-validation-record", "local-release-run-record-required", true, []string{"local release-run passed", "latest batch docs have not recorded local release validation yet"}, append(baseBoundary, "update CHANGELOG.md alongside docs/batch-plan.md when the user-visible batch result changes"))
@@ -2553,8 +2578,26 @@ func releaseRunInspectionSummary(ready bool, latest releasecheck.ReleaseHandoffL
 	return "release inspection handoff ok"
 }
 
-func releaseRunInspectionNextActions(git releaseRunInspectionGitState, latest releasecheck.ReleaseHandoffLatestBatch, localReady bool) []string {
+func releaseRunInspectionNextActions(git releaseRunInspectionGitState, handoff releasecheck.ReleaseHandoff, localReady bool) []string {
+	latest := handoff.LatestBatch
+	if !localReady {
+		return []string{"/rekit release-run -Format json"}
+	}
 	actions := []string{}
+	if pkg := handoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready && pkg.MissionCommanderActionQueue.CurrentAction != nil {
+		actions = append(actions, pkg.MissionCommanderActionQueue.CurrentAction.Command)
+		if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+			actions = append(actions, "keep remote CI status truthful: inventory ready is not remote green")
+		}
+		return uniqueNonEmptyStrings(actions)
+	}
+	if action := handoff.ActiveRoute.CurrentAction; handoff.ActiveRoute.Present && action != nil {
+		actions = append(actions, action.Command)
+		if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+			actions = append(actions, "keep remote CI status truthful: inventory ready is not remote green")
+		}
+		return uniqueNonEmptyStrings(actions)
+	}
 	if strings.TrimSpace(git.Branch) != "main" {
 		actions = append(actions, "switch to main before release inspection handoff")
 	}
@@ -2564,9 +2607,7 @@ func releaseRunInspectionNextActions(git releaseRunInspectionGitState, latest re
 	if !git.Synchronized {
 		actions = append(actions, "fetch/pull/push until local main and origin/main point at the same commit")
 	}
-	if !localReady {
-		actions = append(actions, "run go run ./cmd/rekit -- -Command release-run -Format text and record the local release minimum result before handoff")
-	} else if !releasecheck.LatestBatchDocumentsRecordLocalValidation(latest) {
+	if !releasecheck.LatestBatchDocumentsRecordLocalValidation(latest) {
 		actions = append(actions, "record this release-run result in docs/batch-plan.md before final release handoff")
 	}
 	cadence := latest.Handoff.ReleaseInspectionCadence
@@ -3754,6 +3795,7 @@ type statusOnboardingPackChoice struct {
 	Name        string `json:"name"`
 	Maturity    string `json:"maturity"`
 	Description string `json:"description,omitempty"`
+	Recommended bool   `json:"recommended"`
 	Selected    bool   `json:"selected"`
 	Selectable  bool   `json:"selectable"`
 }
@@ -7605,11 +7647,9 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		current := *pkg.MissionCommanderActionQueue.CurrentAction
 		return &current
 	}
-	if action := projectHandoff.ActiveRoute.CurrentAction; action != nil && projectHandoff.ActiveRoute.Present && !projectHandoff.ActiveRoute.NextBatchUnlocked {
-		if action.ActionID != "active-route-completed" || !statusProjectHandoffNeedsImplementationRepair(projectHandoff) {
-			current := *action
-			return &current
-		}
+	if action := projectHandoff.ActiveRoute.CurrentAction; action != nil && projectHandoff.ActiveRoute.Present {
+		current := *action
+		return &current
 	}
 	command := strings.TrimSpace(projectHandoff.LatestNextAction)
 	if command == "" {
@@ -7670,15 +7710,6 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		Reasons:        mission.UniqueStrings(reasons),
 		Boundary:       boundary,
 	}
-}
-
-func statusProjectHandoffNeedsImplementationRepair(projectHandoff *statusProjectHandoff) bool {
-	if projectHandoff == nil ||
-		!strings.EqualFold(strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.State), "implementation-pending") {
-		return false
-	}
-	return strings.TrimSpace(projectHandoff.LatestNextAction) != "" ||
-		strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.NextAction) != ""
 }
 
 func writeStatusMissionCommanderLaneChoicesText(out io.Writer, queues ...mission.MissionCommanderActionQueue) error {
@@ -8819,6 +8850,21 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 	if _, err := fmt.Fprintf(out, "status project handoff：summary=%s ready=%t latestBatch=%s latestStatus=%s localValidationReady=%t releaseCheckReady=%t remoteReleaseGate=%s readFirst=%d knownGaps=%d validationCommands=%d nextActions=%d\n", handoff.Summary, handoff.Ready, handoff.LatestBatch, handoff.LatestBatchStatus, handoff.LatestLocalValidationReady, handoff.LatestReleaseCheckReady, handoff.LatestRemoteReleaseGate, len(handoff.ReadFirst), len(handoff.KnownGaps), len(handoff.ValidationCommands), len(handoff.NextActions)); err != nil {
 		return err
 	}
+	if route := handoff.ActiveRoute; route.Present {
+		if _, err := fmt.Fprintf(out, "status active route validation：route=%s currentBatch=%s state=%s subjectReady=%t releaseCheckReady=%t commits=%s\n", route.Route, route.CurrentBatch, route.State, route.LocalValidationReady, route.ReleaseCheckReady, strings.Join(route.CommitRefs, ",")); err != nil {
+			return err
+		}
+		if receipt := route.LocalValidationReceipt; receipt != nil {
+			if _, err := fmt.Fprintf(out, "status active route local validation receipt：ready=%t state=%s path=%s sha256=%s validatedHead=%s\n", receipt.Ready, receipt.State, receipt.Path, receipt.SHA256, receipt.ValidatedHead); err != nil {
+				return err
+			}
+		}
+		if receipt := route.PostPushReceipt; receipt != nil {
+			if _, err := fmt.Fprintf(out, "status active route post-push receipt：ready=%t state=%s branch=%s head=%s originMain=%s clean=%t synchronized=%t\n", receipt.Ready, receipt.State, receipt.Branch, receipt.Head, receipt.OriginMain, receipt.WorkingTreeClean, receipt.Synchronized); err != nil {
+				return err
+			}
+		}
+	}
 	if detail := handoff.LatestRemoteReleaseGateDetail; detail != nil {
 		if _, err := fmt.Fprintf(out, "status latest batch remote gate：state=%s emptySteps=%t completedFailure=%t canClaimGreen=%t runs=%s jobs=%s\n", detail.State, detail.EmptySteps, detail.CompletedFailure, detail.CanClaimGreen, strings.Join(detail.RunRefs, ","), strings.Join(detail.Jobs, ",")); err != nil {
 			return err
@@ -9003,7 +9049,13 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 		inspection, inspectErr := missionintent.Inspect(ctx.Target)
 		if inspectErr == nil && inspection.State == "absent" && ctx.TargetProvided {
 			status.Mode = "case-onboarding-required"
-			onboardingStatus, statusErr := buildStatusOnboarding(ctx.RepoRoot, ctx.Pack, inspection, true)
+			onboardingStatus, statusErr := buildStatusOnboarding(
+				ctx.RepoRoot,
+				ctx.Pack,
+				inspection,
+				true,
+				strings.EqualFold(strings.TrimSpace(packSource), "explicit"),
+			)
 			if statusErr != nil {
 				return statusInventory{}, statusErr
 			}
@@ -9017,7 +9069,7 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 				inspection.ApplyArgs = onboardingApplyArgs(ctx.Target, inspection.Identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
 			}
 			status.Mode = "case-onboarding-pending"
-			onboardingStatus, err := buildStatusOnboarding(ctx.RepoRoot, statusFirstText(inspection.Identity.Pack, ctx.Pack), inspection, false)
+			onboardingStatus, err := buildStatusOnboarding(ctx.RepoRoot, statusFirstText(inspection.Identity.Pack, ctx.Pack), inspection, false, false)
 			if err != nil {
 				return statusInventory{}, err
 			}
@@ -9081,7 +9133,7 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 		if onboardingInspection.State == "pending" {
 			onboardingInspection.ApplyArgs = onboardingApplyArgs(inst.CaseRoot, onboardingInspection.Identity, onboardingInspection.PublicationStamp, onboardingInspection.OnboardingPlanSHA256)
 		}
-		status.Onboarding, err = buildStatusOnboarding(ctx.RepoRoot, statusFirstText(onboardingInspection.Identity.Pack, ctx.Pack), onboardingInspection, false)
+		status.Onboarding, err = buildStatusOnboarding(ctx.RepoRoot, statusFirstText(onboardingInspection.Identity.Pack, ctx.Pack), onboardingInspection, false, false)
 		if err != nil {
 			return statusInventory{}, err
 		}
@@ -9161,9 +9213,9 @@ func onboardingApplyArgs(caseRoot string, identity missionintent.Identity, stamp
 	return append(args, "-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor, "-Executor", identity.Executor, "-InitialLane", identity.InitialLane, "-OnboardingPublicationStamp", stamp, "-ExpectedOnboardingPlanSha256", hash, "-Apply", "-Format", "json")
 }
 
-func buildStatusOnboarding(repoRoot, selectedPack string, inspection missionintent.Inspection, includePackChoices bool) (*statusOnboarding, error) {
+func buildStatusOnboarding(repoRoot, selectedPack string, inspection missionintent.Inspection, includePackChoices, selectionExplicit bool) (*statusOnboarding, error) {
 	status := &statusOnboarding{Inspection: inspection}
-	if inspection.State == "pending" || includePackChoices {
+	if inspection.State == "pending" || includePackChoices && selectionExplicit {
 		status.SelectedPack = strings.TrimSpace(selectedPack)
 	}
 	if !includePackChoices {
@@ -9182,7 +9234,8 @@ func buildStatusOnboarding(repoRoot, selectedPack string, inspection missioninte
 			Name:        pack.Name,
 			Maturity:    pack.Maturity,
 			Description: pack.Description,
-			Selected:    strings.EqualFold(pack.ID, selectedPack),
+			Recommended: strings.EqualFold(pack.ID, defaults.DefaultPack),
+			Selected:    selectionExplicit && strings.EqualFold(pack.ID, selectedPack),
 			Selectable:  true,
 		})
 	}

@@ -68,7 +68,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" {
 		t.Fatalf("unexpected reviewer intake event previews: verification=%+v decision=%+v", preview.Verification, preview.Decision)
 	}
-	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff -Lane main", false, true) {
+	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff -Lane main -WhatIf -Format json", false, true) {
 		t.Fatalf("preview omitted reviewer intake Mission Commander guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
 	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 2, 2, 0, 2, 1, preview.MissionCommanderAction.PrimaryCommand)
@@ -2557,7 +2557,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	if applied.MissionCommanderAction.State != "reviewer-batch-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || !strings.HasPrefix(applied.MissionCommanderNextActions[0].Source, "reviewerBatchIntake.reviewerIntake.postValidation.") || applied.MissionCommanderActionQueue.CurrentAction == nil {
 		t.Fatalf("case-local reviewer batch apply omitted post-validation handoff: action=%+v next=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions, applied.MissionCommanderActionQueue)
 	}
-	assertCLIActionQueue(t, applied.MissionCommanderActionQueue, 2, 2, 0, 1, 1, applied.MissionCommanderActionQueue.CurrentAction.Command)
+	assertCLIActionQueue(t, applied.MissionCommanderActionQueue, 2, 2, 0, 2, 1, applied.MissionCommanderActionQueue.CurrentAction.Command)
 	if got := strings.Count(readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"), `"shardId"`); got != 2 {
 		t.Fatalf("reviewer batch verification count = %d, want 2", got)
 	}
