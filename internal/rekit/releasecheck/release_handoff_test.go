@@ -204,40 +204,58 @@ func postPushGitFixture(values map[string]string) releaseHandoffGitCommandExecut
 }
 
 func TestPostPushReceiptUsesRealLocalGitRepository(t *testing.T) {
+	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "outside.git"))
+	t.Setenv("GIT_WORK_TREE", t.TempDir())
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.bare")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
+
+	gitHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(gitHome, ".gitconfig"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitEnv := hermeticGitTestEnv(gitHome)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runPostPushGit(t, repo, "init", "-b", "main")
-	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
-	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
+	runPostPushGitWithEnv(t, gitEnv, repo, "init", "-b", "main")
+	runPostPushGitWithEnv(t, gitEnv, repo, "config", "user.name", "rekit-test")
+	runPostPushGitWithEnv(t, gitEnv, repo, "config", "user.email", "rekit-test@example.invalid")
+	assertPostPushGitRepositoryRoot(t, gitEnv, repo)
+	if global := strings.TrimSpace(runPostPushGitWithEnv(t, gitEnv, repo, "config", "--global", "--list")); global != "" {
+		t.Fatalf("hermetic git fixture inherited global config: %q", global)
+	}
 
 	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 793：previous\n\n状态：已完成 previous。\n\n目标：previous。\n\n验证结果：release-run 以 7/7 通过。\n")
 	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 793 completed.\n")
 	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n")
-	runPostPushGit(t, repo, "add", ".")
-	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 793")
+	runPostPushGitWithEnv(t, gitEnv, repo, "add", ".")
+	runPostPushGitWithEnv(t, gitEnv, repo, "commit", "-m", "Complete Batch 793")
 
 	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 794：post-push closure\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n")
 	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 794 completed.\n")
 	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 794\n")
-	runPostPushGit(t, repo, "add", ".")
-	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 794")
-	head := strings.TrimSpace(runPostPushGit(t, repo, "rev-parse", "HEAD"))
-	runPostPushGit(t, repo, "update-ref", "refs/remotes/origin/main", head)
+	runPostPushGitWithEnv(t, gitEnv, repo, "add", ".")
+	runPostPushGitWithEnv(t, gitEnv, repo, "commit", "-m", "Complete Batch 794")
+	head := strings.TrimSpace(runPostPushGitWithEnv(t, gitEnv, repo, "rev-parse", "HEAD"))
+	runPostPushGitWithEnv(t, gitEnv, repo, "update-ref", "refs/remotes/origin/main", head)
 
 	latest := latestBatchSummary(repo)
 	latest.Handoff.LocalValidationReady = true
 	latest.Handoff.ReleaseCheckReady = true
 	latest.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
 	latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = false
-	updated := releaseHandoffLatestBatchWithPostPushReceipt(repo, latest, ReleaseHandoffActiveRoute{})
+	hermeticExecutor := func(repo string, args ...string) (int, string, error) {
+		return releaseHandoffGitCommandWithEnv(repo, gitEnv, args...)
+	}
+	updated := releaseHandoffLatestBatchWithPostPushReceiptUsing(repo, latest, ReleaseHandoffActiveRoute{}, hermeticExecutor)
 	if updated.Handoff.PostPushReceipt == nil || !updated.Handoff.PostPushReceipt.Ready || updated.Handoff.PostPushReceipt.Head != head || updated.Handoff.ReleaseInspectionCadence.State != "complete" {
 		t.Fatalf("real local git repository did not produce a ready post-push receipt: %+v", updated.Handoff)
 	}
 
 	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 795\n")
-	dirty := releaseHandoffPostPushReceiptFor(repo, latest, ReleaseHandoffActiveRoute{}, defaultReleaseHandoffGitCommand)
+	dirty := releaseHandoffPostPushReceiptFor(repo, latest, ReleaseHandoffActiveRoute{}, hermeticExecutor)
 	if dirty.Ready || dirty.State != "dirty" {
 		t.Fatalf("dirty real repository should remain implementation-pending: %+v", dirty)
 	}
@@ -245,13 +263,63 @@ func TestPostPushReceiptUsesRealLocalGitRepository(t *testing.T) {
 
 func runPostPushGit(t *testing.T, repo string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	return runPostPushGitWithEnv(t, hermeticGitTestEnv(t.TempDir()), repo, args...)
+}
+
+func runPostPushGitWithEnv(t *testing.T, env []string, repo string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{
+		"-c", "commit.gpgSign=false",
+		"-c", "core.hooksPath=",
+	}, args...)...)
 	cmd.Dir = repo
+	cmd.Env = env
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
 	}
 	return string(output)
+}
+
+func assertPostPushGitRepositoryRoot(t *testing.T, env []string, repo string) {
+	t.Helper()
+	wantRoot, err := filepath.Abs(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotRoot := strings.TrimSpace(runPostPushGitWithEnv(t, env, repo, "rev-parse", "--show-toplevel"))
+	gotRoot, err = filepath.Abs(gotRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.EqualFold(filepath.Clean(gotRoot), filepath.Clean(wantRoot)) {
+		t.Fatalf("git fixture routed to work tree %q, want %q", gotRoot, wantRoot)
+	}
+	gitDir := strings.TrimSpace(runPostPushGitWithEnv(t, env, repo, "rev-parse", "--absolute-git-dir"))
+	wantGitDir := filepath.Join(wantRoot, ".git")
+	if !strings.EqualFold(filepath.Clean(gitDir), filepath.Clean(wantGitDir)) {
+		t.Fatalf("git fixture routed to git dir %q, want %q", gitDir, wantGitDir)
+	}
+}
+
+func hermeticGitTestEnv(home string) []string {
+	env := make([]string, 0, len(os.Environ())+5)
+	for _, item := range os.Environ() {
+		key, _, _ := strings.Cut(item, "=")
+		key = strings.ToUpper(strings.TrimSpace(key))
+		if key == "HOME" || key == "USERPROFILE" || key == "XDG_CONFIG_HOME" ||
+			strings.HasPrefix(key, "GIT_") {
+			continue
+		}
+		env = append(env, item)
+	}
+	return append(env,
+		"HOME="+home,
+		"USERPROFILE="+home,
+		"XDG_CONFIG_HOME="+filepath.Join(home, "xdg"),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_TERMINAL_PROMPT=0",
+	)
 }
 
 func writePostPushTestFile(t *testing.T, repo, rel, content string) {
@@ -299,7 +367,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=32 handlers=32 exactRuntimeOwners=69 symbols=32 profiles=32 boundaries=8 alternative=go run ./cmd/rekit -- -Command <command>")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=32 handlers=32 exactRuntimeOwners=68 symbols=32 profiles=32 boundaries=8 alternative=go run ./cmd/rekit -- -Command <command>")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=32 readOnly=5 mutating=27 writesCase=24 writesKit=2 reviewFirst=14 applyRequired=24 heavyTool=0 authorityConfirmed=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=complete,control,migrate-state,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKit=next-batch,promote")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=8 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=complete,control,migrate-state,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update kitReviewFirst=next-batch,promote readOnly=doctor,packs,release-check,status,validate")
@@ -744,11 +812,12 @@ func unlockReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
 
 func publishCompletedActiveRouteReceiptFixture(t *testing.T, repo string) {
 	t.Helper()
-	runPostPushGit(t, repo, "init", "-b", "main")
-	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
-	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
-	runPostPushGit(t, repo, "add", ".")
-	runPostPushGit(t, repo, "commit", "-m", "Baseline completed route fixture")
+	gitEnv := hermeticGitTestEnv(t.TempDir())
+	runPostPushGitWithEnv(t, gitEnv, repo, "init", "-b", "main")
+	runPostPushGitWithEnv(t, gitEnv, repo, "config", "user.name", "rekit-test")
+	runPostPushGitWithEnv(t, gitEnv, repo, "config", "user.email", "rekit-test@example.invalid")
+	runPostPushGitWithEnv(t, gitEnv, repo, "add", ".")
+	runPostPushGitWithEnv(t, gitEnv, repo, "commit", "-m", "Baseline completed route fixture")
 
 	for _, rel := range []string{"docs/batch-plan.md", "docs/real-usage-hardening-roadmap.md", "CHANGELOG.md"} {
 		path := filepath.Join(repo, filepath.FromSlash(rel))
@@ -772,10 +841,10 @@ func publishCompletedActiveRouteReceiptFixture(t *testing.T, repo string) {
 	if _, err := PublishLocalValidationReceipt(repo, readyLocalValidationReceiptSubjectInput(t, repo, subject)); err != nil {
 		t.Fatal(err)
 	}
-	runPostPushGit(t, repo, "add", ".")
-	runPostPushGit(t, repo, "commit", "-m", "Complete active route fixture")
-	head := strings.TrimSpace(runPostPushGit(t, repo, "rev-parse", "HEAD"))
-	runPostPushGit(t, repo, "update-ref", "refs/remotes/origin/main", head)
+	runPostPushGitWithEnv(t, gitEnv, repo, "add", ".")
+	runPostPushGitWithEnv(t, gitEnv, repo, "commit", "-m", "Complete active route fixture")
+	head := strings.TrimSpace(runPostPushGitWithEnv(t, gitEnv, repo, "rev-parse", "HEAD"))
+	runPostPushGitWithEnv(t, gitEnv, repo, "update-ref", "refs/remotes/origin/main", head)
 }
 
 func assertExactActiveRouteNextBatchPackage(t *testing.T, pkg *ReleaseHandoffNextBatchSelectionPackage, next string) {

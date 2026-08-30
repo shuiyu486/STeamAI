@@ -194,7 +194,11 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 		if strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" {
 			return fmt.Errorf("run-current-loop -WhatIf does not accept -ExpectedCurrentLoopPlanSha256")
 		}
-		return writeJSON(out, plan)
+		diagnostics, err := buildCurrentLoopDiagnosticsDTO(plan, ctx.Target)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, diagnostics)
 	}
 	if plan.ExpectedCurrentLoopPlanSHA256 == "" {
 		return fmt.Errorf("run-current-loop current route requires an external or reviewed action before Apply")
@@ -257,7 +261,11 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(out, plan)
+	diagnostics, err := buildCurrentLoopDiagnosticsDTO(plan, ctx.Target)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, diagnostics)
 }
 
 func applyBuiltCurrentLoop(ctx runtime.Context, opt Options, plan currentLoopPlan, status statusInventory) (currentLoopPlan, error) {
@@ -1095,7 +1103,7 @@ func currentLoopContinuationFor(ctx runtime.Context, selectedLane string, segmen
 		observation := mission.CurrentLoopObservationContract{Boundary: append([]string{}, stop.ExternalHandoff.ObservationContract.Boundary...)}
 		previewRequest := &mission.MissionCommanderDriverRequest{Command: continuation.WhatIfCommand}
 		for _, source := range stop.ExternalHandoff.ObservationContract.Alternatives {
-			alternative := mission.CurrentLoopObservationAlternative{Kind: source.Kind, RequiredFlags: append([]string{}, source.RequiredFlags...), Constraints: append([]string{}, source.Constraints...)}
+			alternative := mission.CurrentLoopObservationAlternative{Kind: source.Kind, RequiredFlags: append([]string{}, source.RequiredFlags...), ExpectedReviewerAttemptSHA256: stop.ExpectedReviewerAttemptSHA256, Constraints: append([]string{}, source.Constraints...)}
 			if strings.TrimSpace(stop.ExpectedReviewerAttemptSHA256) != "" && alternative.Kind != "reviewer-result-direct-write" {
 				alternative.RequiredFlags = append([]string{"-ExpectedCurrentLoopReviewerAttemptSha256"}, alternative.RequiredFlags...)
 			}
@@ -1284,11 +1292,12 @@ func currentLoopCheckpointContinuation(source *currentLoopContinuationRequest) *
 		}
 		for _, alternative := range source.ObservationContract.Alternatives {
 			observation.Alternatives = append(observation.Alternatives, currentloop.ObservationAlternative{
-				Kind:                   alternative.Kind,
-				RequiredFlags:          append([]string{}, alternative.RequiredFlags...),
-				PreviewCommandTemplate: alternative.PreviewCommandTemplate,
-				Transition:             alternative.Transition,
-				Constraints:            append([]string{}, alternative.Constraints...),
+				Kind:                          alternative.Kind,
+				RequiredFlags:                 append([]string{}, alternative.RequiredFlags...),
+				ExpectedReviewerAttemptSHA256: alternative.ExpectedReviewerAttemptSHA256,
+				PreviewCommandTemplate:        alternative.PreviewCommandTemplate,
+				Transition:                    alternative.Transition,
+				Constraints:                   append([]string{}, alternative.Constraints...),
 			})
 		}
 		continuation.ObservationContract = observation

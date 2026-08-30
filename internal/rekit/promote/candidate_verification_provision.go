@@ -677,7 +677,9 @@ func candidateVerificationProvisionReceiptMatches(left, right candidateVerificat
 	}
 	for i := range left.Cases {
 		leftCase, rightCase := left.Cases[i], right.Cases[i]
-		if leftCase.Role != rightCase.Role || leftCase.ProjectName != rightCase.ProjectName || !sameCandidateDecisionPath(leftCase.CaseRoot, rightCase.CaseRoot) || !reflect.DeepEqual(leftCase.Writes, rightCase.Writes) {
+		leftWrites, leftErr := json.Marshal(leftCase.Writes)
+		rightWrites, rightErr := json.Marshal(rightCase.Writes)
+		if leftCase.Role != rightCase.Role || leftCase.ProjectName != rightCase.ProjectName || !sameCandidateDecisionPath(leftCase.CaseRoot, rightCase.CaseRoot) || leftErr != nil || rightErr != nil || !bytes.Equal(leftWrites, rightWrites) {
 			return false
 		}
 	}

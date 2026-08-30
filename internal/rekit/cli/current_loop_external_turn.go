@@ -96,7 +96,11 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 			externalSessionTurnApplyCommand(plan),
 			opt.SelectedCurrentLane,
 		)
-		return writeJSON(out, plan)
+		diagnostics, err := buildCurrentLoopExternalSessionTurnDiagnosticsDTO(plan, ctx.Target)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, diagnostics)
 	}
 	if expected := strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256); expected == "" || !strings.EqualFold(expected, plan.ExpectedPlanSHA256) {
 		return fmt.Errorf("external session turn plan sha256 mismatch: got %s want %s", expected, plan.ExpectedPlanSHA256)
@@ -104,13 +108,21 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 	plan, err = applyCurrentLoopExternalSessionTurn(ctx, opt, plan, resumeOpt, resumeStatus)
 	if err != nil {
 		if plan.Applied {
-			if writeErr := writeJSON(out, plan); writeErr != nil {
+			diagnostics, diagnosticsErr := buildCurrentLoopExternalSessionTurnDiagnosticsDTO(plan, ctx.Target)
+			if diagnosticsErr != nil {
+				return errors.Join(err, diagnosticsErr)
+			}
+			if writeErr := writeJSON(out, diagnostics); writeErr != nil {
 				return errors.Join(err, writeErr)
 			}
 		}
 		return err
 	}
-	return writeJSON(out, plan)
+	diagnostics, err := buildCurrentLoopExternalSessionTurnDiagnosticsDTO(plan, ctx.Target)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, diagnostics)
 }
 
 func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan currentLoopExternalSessionTurnPlan, resumeOpt Options, resumeStatus statusInventory) (currentLoopExternalSessionTurnPlan, error) {

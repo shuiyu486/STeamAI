@@ -20,7 +20,7 @@ func TestParseProjectVisibleInvocationSupportsCurrentAndLegacy(t *testing.T) {
 		`/steamai start -Target "C:\case root" -Name triage -WhatIf -Format json`,
 		`/rekit start -Target "C:\case root" -Name triage -WhatIf -Format json`,
 	} {
-		invocation, err := parseProjectVisibleInvocation(command)
+		invocation, err := commands.ParsePublicInvocation(command)
 		if err != nil {
 			t.Fatalf("parse %q: %v", command, err)
 		}
@@ -39,7 +39,7 @@ func TestParseProjectVisibleInvocationRejectsUnsafeCommands(t *testing.T) {
 		`/steamai status "unterminated`,
 		`/steamai status -Command start`,
 	} {
-		if invocation, err := parseProjectVisibleInvocation(command); err == nil {
+		if invocation, err := commands.ParsePublicInvocation(command); err == nil {
 			t.Fatalf("unsafe command parsed as %+v: %s", invocation, command)
 		}
 	}
@@ -579,17 +579,25 @@ func TestRunDriverStepRejectsOnboardingAndUnsupportedNestedRequests(t *testing.T
 		{name: "handoff outside MVP", command: `/rekit handoff -Target "` + caseRoot + `" -WhatIf -Format json`, want: "outside the run-driver-step allowlist"},
 		{name: "unknown flag", command: `/rekit continue -Target "` + caseRoot + `" main -WhatIf -Format json -Unexpected value`, want: "unsupported flag"},
 		{name: "cross command actor", command: `/rekit continue -Target "` + caseRoot + `" main -Actor other -WhatIf -Format json`, want: "unsupported flag"},
-		{name: "duplicate start selector", command: `/rekit start -Target "` + caseRoot + `" triage -Name triage -Lane feature-triage -WhatIf -Format json`, want: "exactly one lane selector"},
+		{name: "duplicate start selector", command: `/rekit start -Target "` + caseRoot + `" triage -Name triage -Lane feature-triage -WhatIf -Format json`, want: "both positional and -Lane selectors"},
 		{name: "start actor without executor", command: `/rekit start -Target "` + caseRoot + `" -Name triage -Actor other -WhatIf -Format json`, want: "outside its bounded contract"},
 		{name: "start reason without executor", command: `/rekit start -Target "` + caseRoot + `" -Name triage -Reason other -WhatIf -Format json`, want: "outside its bounded contract"},
-		{name: "duplicate selector", command: `/rekit continue -Target "` + caseRoot + `" main -Lane other -WhatIf -Format json`, want: "exactly one lane selector"},
-		{name: "duplicate matching selector", command: `/rekit complete -Target "` + caseRoot + `" main -Lane main -Actor main-agent -Reason done -EvidenceRefs evidence.md -WhatIf -Format json`, want: "exactly one lane selector"},
+		{name: "duplicate selector", command: `/rekit continue -Target "` + caseRoot + `" main -Lane other -WhatIf -Format json`, want: "both positional and -Lane selectors"},
+		{name: "duplicate matching selector", command: `/rekit complete -Target "` + caseRoot + `" main -Lane main -Actor main-agent -Reason done -EvidenceRefs evidence.md -WhatIf -Format json`, want: "both positional and -Lane selectors"},
 		{name: "duplicate phase", command: `/rekit continue -Target "` + caseRoot + `" main -WhatIf -WhatIf -Format json`, want: "repeats flag"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			invocation, parseErr := commands.ParsePublicInvocation(test.command)
+			if parseErr != nil {
+				if !strings.Contains(parseErr.Error(), test.want) {
+					t.Fatalf("typed request should fail closed with %q: err=%v", test.want, parseErr)
+				}
+				return
+			}
 			request := mission.MissionCommanderDriverRequest{
 				Kind:              "preview-command",
 				RunLoopStepID:     "preview-current",
+				Invocation:        &invocation,
 				Command:           test.command,
 				CommandExecutable: true,
 				RequiresReview:    true,

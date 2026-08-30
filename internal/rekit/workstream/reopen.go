@@ -68,6 +68,7 @@ type ReopenResult struct {
 	PublicationStamp            string                                   `json:"publicationStamp,omitempty"`
 	Replay                      bool                                     `json:"replay,omitempty"`
 	ApplyCommand                string                                   `json:"applyCommand,omitempty"`
+	ApplyArgs                   []string                                 `json:"applyArgs,omitempty"`
 	OperationCommit             *lanecompletion.OperationCommit          `json:"operationCommit,omitempty"`
 	MissionBrief                mission.Brief                            `json:"missionBrief"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
@@ -145,7 +146,8 @@ func ReopenPreview(repoRoot, caseRoot, pack string, opt ReopenOptions) (ReopenRe
 		return ReopenResult{}, err
 	}
 	result.ReopenPlanSHA256 = ctx.exactPublicationSHA256
-	result.ApplyCommand = reopenApplyCommand(ctx, ctx.exactPublicationSHA256)
+	result.ApplyArgs = reopenApplyArgs(ctx, ctx.exactPublicationSHA256)
+	result.ApplyCommand = reopenApplyCommandForArgs(result.ApplyArgs)
 	result.NextSteps = []string{"review every effective target, superseded completion receipt, evidence identity, publication stamp, and exact write set, then run applyCommand", "after Apply, refresh status and begin only a fresh post-reopen lane campaign"}
 	return result, nil
 }
@@ -870,13 +872,29 @@ func publicationByRole(items []lanecompletion.OperationPublication, role string)
 	return lanecompletion.OperationPublication{}, false
 }
 
-func reopenApplyCommand(ctx reopenContext, hash string) string {
-	args := []string{"/rekit", "reopen", ctx.selector, "-Actor", ctx.actor, "-Reason", ctx.reason, "-EvidenceRefs", strings.Join(ctx.evidenceRefs, ","), "-ReopenPublicationStamp", ctx.publicationStamp, "-ExpectedReopenPlanSha256", hash, "-Apply", "-Format", "json"}
-	for i := range args {
-		args[i] = quoteCompleteCommandArg(args[i])
+func reopenApplyArgs(ctx reopenContext, hash string) []string {
+	return []string{
+		"-Command", commands.Reopen,
+		ctx.selector,
+		"-Target", ctx.inst.CaseRoot,
+		"-Pack", ctx.manifest.Pack,
+		"-Actor", ctx.actor,
+		"-Reason", ctx.reason,
+		"-EvidenceRefs", strings.Join(ctx.evidenceRefs, ","),
+		"-ReopenPublicationStamp", ctx.publicationStamp,
+		"-ExpectedReopenPlanSha256", hash,
+		"-Apply", "-Format", "json",
 	}
-	return strings.Join(args, " ")
 }
+
+func reopenApplyCommandForArgs(args []string) string {
+	parts := append([]string{"/rekit", commands.Reopen}, args[2:]...)
+	for index := range parts {
+		parts[index] = quoteCompleteCommandArg(parts[index])
+	}
+	return strings.Join(parts, " ")
+}
+
 func toLifecycleEvidence(items []CompletionEvidence) []lanecompletion.Evidence {
 	out := make([]lanecompletion.Evidence, 0, len(items))
 	for _, item := range items {

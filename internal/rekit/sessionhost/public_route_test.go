@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
@@ -73,6 +75,49 @@ func TestRunPublicNotePreviewApplyRechecksStaleDuplicateControl(t *testing.T) {
 	_, _, err = runPublicNotePreviewApply(caseRoot, liveAcceptancePack, eventArgs, binding)
 	if err == nil || !strings.Contains(err.Error(), "lane execution is paused") {
 		t.Fatalf("stale duplicate public note error = %v", err)
+	}
+}
+
+func TestRunPublicDriverRequestRejectsCommandInvocationDrift(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(commands.Status, "-Format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := mission.MissionCommanderDriverRequest{
+		Kind:              "execute-command",
+		RunLoopStepID:     "status",
+		Invocation:        &invocation,
+		Command:           "/rekit overview -Format json",
+		CommandExecutable: true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State:   "refreshed",
+			Command: "/rekit overview -Format json",
+		},
+	}
+	if err := runPublicDriverRequest(request, nil); err == nil || !strings.Contains(err.Error(), "differs from its typed invocation") {
+		t.Fatalf("display command drift was not rejected: %v", err)
+	}
+}
+
+func TestApplyMemberReviewerPlanRejectsTypedIdentityDrift(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(commands.PlanSubagents,
+		"-Target", t.TempDir(), "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "facts/member.json", "-Lane", "main", "-Format", "json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := statusPlan{
+		MissionControlRunbook: &publicMissionControlRunbook{Scope: "case"},
+		MemberExecution: &memberExecutionStatus{
+			State:                  "intake-ready",
+			Lane:                   "main",
+			ReviewerPlanCommand:    "/rekit status -Format json",
+			ReviewerPlanInvocation: &invocation,
+		},
+	}
+	applied, err := applyMemberReviewerPlanFromStatus(Options{SelectedLane: "main"}, status)
+	if err == nil || !strings.Contains(err.Error(), "differs from its typed invocation") || applied {
+		t.Fatalf("member reviewer typed identity drift was not rejected: applied=%t err=%v", applied, err)
 	}
 }
 

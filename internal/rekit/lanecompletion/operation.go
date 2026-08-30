@@ -103,12 +103,12 @@ type OperationInspection struct {
 
 func InspectOperations(caseRoot string) (OperationInspection, error) {
 	out := OperationInspection{Ready: true}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return out, err
 	}
-	rootPath := filepath.Join(stateRoot.Path, OperationsDir)
-	root, err := openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, OperationsDir}, false)
+	rootPath := filepath.Join(view.Path, OperationsDir)
+	root, err := openMissionNamespaceRoot(caseRoot, view, []string{OperationsDir}, false)
 	if os.IsNotExist(err) {
 		return out, nil
 	}
@@ -407,7 +407,7 @@ func safeOperationTargetPath(caseRoot, rel string) (string, error) {
 	if filepath.IsAbs(rel) {
 		return "", fmt.Errorf("reopen operation target path must be case-relative: %s", rel)
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return "", err
 	}
@@ -417,9 +417,9 @@ func safeOperationTargetPath(caseRoot, rel string) (string, error) {
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("reopen operation target escapes case root: %s", rel)
 	}
-	stateRelative, err := filepath.Rel(stateRoot.Path, path)
+	stateRelative, err := filepath.Rel(view.Path, path)
 	if err != nil || stateRelative == "." || stateRelative == ".." || strings.HasPrefix(stateRelative, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("reopen operation target is outside selected state root %s: %s", stateRoot.Dir, rel)
+		return "", fmt.Errorf("reopen operation target is outside selected mission root %s: %s", view.Path, rel)
 	}
 	return path, nil
 }

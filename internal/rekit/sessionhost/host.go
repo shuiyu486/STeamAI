@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -118,9 +119,10 @@ type Session struct {
 }
 
 type memberExecutionStatus struct {
-	State               string `json:"state,omitempty"`
-	Lane                string `json:"lane,omitempty"`
-	ReviewerPlanCommand string `json:"reviewerPlanCommand,omitempty"`
+	State                  string                     `json:"state,omitempty"`
+	Lane                   string                     `json:"lane,omitempty"`
+	ReviewerPlanCommand    string                     `json:"reviewerPlanCommand,omitempty"`
+	ReviewerPlanInvocation *commands.PublicInvocation `json:"reviewerPlanInvocation,omitempty"`
 }
 
 type statusPlan struct {
@@ -895,19 +897,39 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 }
 
 func applyMemberReviewerPlanFromStatus(opt Options, status statusPlan) (bool, error) {
-	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Scope != "case" || status.MemberExecution == nil || status.MemberExecution.State != "intake-ready" || strings.TrimSpace(status.MemberExecution.ReviewerPlanCommand) == "" {
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Scope != "case" || status.MemberExecution == nil || status.MemberExecution.State != "intake-ready" {
 		return false, nil
 	}
 	selected := strings.TrimSpace(opt.SelectedLane)
 	if selected != "" && strings.TrimSpace(status.MemberExecution.Lane) != selected {
 		return false, fmt.Errorf("selected lane %q cannot apply member reviewer plan for lane %q", selected, status.MemberExecution.Lane)
 	}
-	args, err := cli.SplitPublicCommand(status.MemberExecution.ReviewerPlanCommand)
+	var invocation commands.PublicInvocation
+	if status.MemberExecution.ReviewerPlanInvocation != nil {
+		invocation = *status.MemberExecution.ReviewerPlanInvocation
+		invocation.Arguments = append([]string{}, status.MemberExecution.ReviewerPlanInvocation.Arguments...)
+	} else if strings.TrimSpace(status.MemberExecution.ReviewerPlanCommand) != "" {
+		parsed, err := commands.ParsePublicInvocation(status.MemberExecution.ReviewerPlanCommand)
+		if err != nil {
+			return false, fmt.Errorf("qualify legacy member reviewer plan command: %w", err)
+		}
+		invocation = parsed
+	} else {
+		return false, nil
+	}
+	if invocation.Command != commands.PlanSubagents {
+		return false, fmt.Errorf("member reviewer plan invocation must use plan-subagents")
+	}
+	projected, err := commands.ParsePublicInvocation(status.MemberExecution.ReviewerPlanCommand)
+	if err != nil || !invocation.Equivalent(projected) {
+		return false, fmt.Errorf("member reviewer plan command differs from its typed invocation")
+	}
+	args, err := invocation.CLIArgs()
 	if err != nil {
-		return false, fmt.Errorf("decode member reviewer plan command: %w", err)
+		return false, fmt.Errorf("decode member reviewer plan invocation: %w", err)
 	}
 	if selected != "" && !publicArgsSelectExactLane(args, selected) {
-		return false, fmt.Errorf("selected lane %q member reviewer plan command changed lane", selected)
+		return false, fmt.Errorf("selected lane %q member reviewer plan invocation changed lane", selected)
 	}
 	var out bytes.Buffer
 	if err := cli.Run(args, &out); err != nil {

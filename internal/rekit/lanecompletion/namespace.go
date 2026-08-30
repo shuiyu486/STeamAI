@@ -8,7 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
+
+func openMissionNamespaceRoot(caseRoot string, view projectstate.MissionView, components []string, create bool) (*os.Root, error) {
+	stateRel, err := filepath.Rel(caseRoot, view.Path)
+	if err != nil || filepath.IsAbs(stateRel) || stateRel == "." || stateRel == ".." || strings.HasPrefix(stateRel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("lane completion mission namespace escapes case root: %s", view.Path)
+	}
+	parts := strings.Split(filepath.Clean(stateRel), string(filepath.Separator))
+	return openCaseNamespaceRoot(caseRoot, append(parts, components...), create)
+}
 
 func openCaseNamespaceRoot(caseRoot string, components []string, create bool) (*os.Root, error) {
 	caseRoot, err := filepath.Abs(caseRoot)

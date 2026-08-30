@@ -951,7 +951,14 @@ func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType
 }
 
 func plannedLane(caseRoot string, laneType manifest.LaneType, id, name, now string) (Lane, error) {
+	view, err := projectstate.ResolveMissionView(caseRoot)
+	if err != nil {
+		return Lane{}, err
+	}
 	workspaceRel := relJoin(laneType.WorkspaceRoot, id)
+	if view.Generation > 1 {
+		workspaceRel = relJoin(laneType.WorkspaceRoot, "missions", fmt.Sprintf("g%06d", view.Generation), id)
+	}
 	workspace, err := refsf.SafeJoin(caseRoot, workspaceRel)
 	if err != nil {
 		return Lane{}, err
@@ -988,25 +995,34 @@ func plannedLane(caseRoot string, laneType manifest.LaneType, id, name, now stri
 }
 
 func projectStatePaths(caseRoot string, paths []string) ([]string, error) {
-	root, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return nil, err
 	}
+	return projectStatePathsInMissionView(view, paths), nil
+}
+
+func projectStatePathsInMissionView(view projectstate.MissionView, paths []string) []string {
 	projected := make([]string, len(paths))
 	for index, path := range paths {
-		projected[index] = path
-		for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
-			if path == stateDir || strings.HasPrefix(path, stateDir+"/") {
-				projected[index] = root.Dir + strings.TrimPrefix(path, stateDir)
-				break
-			}
-		}
+		projected[index] = view.ProjectStatePath(path)
 	}
-	return projected, nil
+	return projected
 }
 
 func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (string, error) {
-	lanesRoot, err := projectstate.Join(caseRoot, "lanes")
+	view, err := projectstate.ResolveMissionView(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	return saveBoardInMissionView(caseRoot, view, m, updatedAt...)
+}
+
+func saveBoardInMissionView(caseRoot string, view projectstate.MissionView, m *manifest.Manifest, updatedAt ...string) (string, error) {
+	if err := view.ValidateCurrent(caseRoot); err != nil {
+		return "", err
+	}
+	lanesRoot, err := view.Join("lanes")
 	if err != nil {
 		return "", err
 	}
@@ -1029,11 +1045,11 @@ func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (stri
 		lanes = append(lanes, boardLane{ID: lane.ID, Type: lane.Type, Title: lane.Title, Status: lane.Status, Authority: lane.Authority, Workspace: lane.Workspace, CurrentExecutor: lane.CurrentExecutor, ExecutorGeneration: lane.ExecutorGeneration, LastTakeoverAt: lane.LastTakeoverAt, LastTakeoverBy: lane.LastTakeoverBy, LastTakeoverReason: lane.LastTakeoverReason, LastReconciledIntervention: lane.LastReconciledIntervention, LastReconcileAt: lane.LastReconcileAt, UpdatedAt: lane.UpdatedAt})
 	}
 	sort.SliceStable(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
-	path, err := projectstate.Join(caseRoot, "board.json")
+	path, err := view.Join("board.json")
 	if err != nil {
 		return "", err
 	}
-	factsRoot, err := projectstate.Rel(caseRoot, "facts")
+	factsRoot, err := view.Rel("facts")
 	if err != nil {
 		return "", err
 	}
@@ -1041,7 +1057,10 @@ func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (stri
 	if len(updatedAt) > 0 && strings.TrimSpace(updatedAt[0]) != "" {
 		boardUpdatedAt = strings.TrimSpace(updatedAt[0])
 	}
-	b := board{SchemaVersion: 1, CaseRoot: caseRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, AutomationMode: readAutomationMode(caseRoot), DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"], Lanes: lanes, FactsRoot: factsRoot, UpdatedAt: boardUpdatedAt}
+	b := board{SchemaVersion: 1, CaseRoot: caseRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, AutomationMode: readAutomationModeFromMissionView(view), DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"], Lanes: lanes, FactsRoot: factsRoot, UpdatedAt: boardUpdatedAt}
+	if err := view.ValidateCurrent(caseRoot); err != nil {
+		return "", err
+	}
 	return path, writeJSON(path, b)
 }
 
@@ -1731,8 +1750,8 @@ func objectText(value any) string {
 	}
 }
 
-func readAutomationMode(caseRoot string) string {
-	path, err := projectstate.Join(caseRoot, "policy.yml")
+func readAutomationModeFromMissionView(view projectstate.MissionView) string {
+	path, err := view.Join("policy.yml")
 	if err != nil {
 		return "assisted-autopilot"
 	}
@@ -1781,13 +1800,16 @@ func boardRelPath(caseRoot string) (string, error) {
 }
 
 func selectedMissionCommanderSurface(caseRoot string) (boardPath, entrypoint string, err error) {
-	root, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return "", "", err
 	}
-	boardPath = filepath.ToSlash(filepath.Join(root.Dir, "board.json"))
+	boardPath, err = view.Rel("board.json")
+	if err != nil {
+		return "", "", err
+	}
 	entrypoint = "/steamai"
-	if root.Legacy {
+	if view.Root.Legacy {
 		entrypoint = "/rekit"
 	}
 	return boardPath, entrypoint, nil

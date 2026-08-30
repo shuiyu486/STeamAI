@@ -32,6 +32,7 @@ type Lease struct {
 	externalLaneFile    *os.File
 	instanceFile        *os.File
 	canonicalLaneFile   *os.File
+	casePath            string
 	metadataPath        string
 	stableCasePath      string
 	externalProjectPath string
@@ -44,6 +45,9 @@ type Lease struct {
 	externalLaneInfo    os.FileInfo
 	instanceInfo        os.FileInfo
 	canonicalLaneInfo   os.FileInfo
+	missionGeneration   int
+	missionID           string
+	activePointerSHA256 string
 	unlockFile          func(uintptr) error
 }
 
@@ -169,11 +173,11 @@ func acquire(caseRoot, laneID string, pinInstance bool) (*Lease, error) {
 	if err != nil {
 		return nil, err
 	}
-	stateRoot, err := projectstate.Resolve(casePath)
+	view, err := projectstate.ResolveMissionView(casePath)
 	if err != nil {
 		return nil, err
 	}
-	metadataPath := stateRoot.Path
+	metadataPath := view.Path
 	if st, err := os.Lstat(metadataPath); err != nil {
 		return nil, err
 	} else if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
@@ -187,7 +191,17 @@ func acquire(caseRoot, laneID string, pinInstance bool) (*Lease, error) {
 	if err != nil {
 		return nil, errors.Join(err, metadataRoot.Close())
 	}
-	lease := &Lease{metadataRoot: metadataRoot, laneID: laneID, metadataPath: metadataPath, metadataInfo: metadataInfo, unlockFile: projectlock.Unlock}
+	lease := &Lease{
+		metadataRoot:        metadataRoot,
+		laneID:              laneID,
+		casePath:            casePath,
+		metadataPath:        metadataPath,
+		metadataInfo:        metadataInfo,
+		missionGeneration:   view.Generation,
+		missionID:           view.MissionID,
+		activePointerSHA256: view.ActivePointerSHA256,
+		unlockFile:          projectlock.Unlock,
+	}
 	casePathRoot, err := os.OpenRoot(casePath)
 	if err != nil {
 		return nil, errors.Join(err, metadataRoot.Close())
@@ -303,33 +317,32 @@ func acquire(caseRoot, laneID string, pinInstance bool) (*Lease, error) {
 	}
 	if pinInstance {
 		instanceRel := "instance.yml"
-		instanceRoot := metadataRoot
-		instanceBase := metadataPath
-		var legacyInstanceRoot *os.Root
-		instanceBefore, err := metadataRoot.Lstat(instanceRel)
-		if os.IsNotExist(err) {
-			instanceRel = ".re-template.yml"
-			instanceBase = casePath
-			legacyInstanceRoot, err = os.OpenRoot(casePath)
-			if err != nil {
-				return fail(err)
-			}
-			instanceRoot = legacyInstanceRoot
-			instanceBefore, err = instanceRoot.Lstat(instanceRel)
-		}
+		instanceBase := view.Root.Path
+		instanceRoot, err := os.OpenRoot(view.Root.Path)
 		if err != nil {
 			return fail(err)
 		}
-		if instanceBefore.Mode()&os.ModeSymlink != 0 || !instanceBefore.Mode().IsRegular() {
-			if legacyInstanceRoot != nil {
-				_ = legacyInstanceRoot.Close()
+		instanceBefore, err := instanceRoot.Lstat(instanceRel)
+		if os.IsNotExist(err) {
+			_ = instanceRoot.Close()
+			instanceRel = ".re-template.yml"
+			instanceBase = casePath
+			instanceRoot, err = os.OpenRoot(casePath)
+			if err != nil {
+				return fail(err)
 			}
+			instanceBefore, err = instanceRoot.Lstat(instanceRel)
+		}
+		if err != nil {
+			_ = instanceRoot.Close()
+			return fail(err)
+		}
+		if instanceBefore.Mode()&os.ModeSymlink != 0 || !instanceBefore.Mode().IsRegular() {
+			_ = instanceRoot.Close()
 			return fail(fmt.Errorf("canonical workstream instance must be a regular file and not a symlink: %s", filepath.Join(instanceBase, instanceRel)))
 		}
 		lease.instanceFile, err = instanceRoot.Open(instanceRel)
-		if legacyInstanceRoot != nil {
-			err = errors.Join(err, legacyInstanceRoot.Close())
-		}
+		err = errors.Join(err, instanceRoot.Close())
 		if err != nil {
 			return fail(err)
 		}
@@ -386,6 +399,10 @@ func acquire(caseRoot, laneID string, pinInstance bool) (*Lease, error) {
 }
 
 func (lease *Lease) validateIdentity() error {
+	view, err := projectstate.ResolveMissionView(lease.casePath)
+	if err != nil || view.Generation != lease.missionGeneration || view.MissionID != lease.missionID || view.ActivePointerSHA256 != lease.activePointerSHA256 || filepath.Clean(view.Path) != filepath.Clean(lease.metadataPath) {
+		return fmt.Errorf("workstream active mission namespace changed while mutation lease is held: %s", lease.metadataPath)
+	}
 	if lease.stableCaseFile != nil {
 		currentStable, err := os.Lstat(lease.stableCasePath)
 		if err != nil || !os.SameFile(lease.stableCaseInfo, currentStable) {
@@ -454,13 +471,13 @@ func (lease *Lease) ValidateFor(caseRoot string) error {
 	if err := lease.Validate(); err != nil {
 		return err
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return err
 	}
-	current, err := os.Stat(stateRoot.Path)
-	if err != nil || !os.SameFile(lease.metadataInfo, current) {
-		return errors.Join(err, fmt.Errorf("workstream mutation lease belongs to a different metadata namespace: %s", stateRoot.Path))
+	current, err := os.Stat(view.Path)
+	if err != nil || !os.SameFile(lease.metadataInfo, current) || view.Generation != lease.missionGeneration || view.MissionID != lease.missionID || view.ActivePointerSHA256 != lease.activePointerSHA256 {
+		return errors.Join(err, fmt.Errorf("workstream mutation lease belongs to a different active mission namespace: %s", view.Path))
 	}
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -145,70 +146,47 @@ type batchSummary struct {
 type factSet = mission.LedgerFacts
 
 func Render(repoRoot, caseRoot, pack string) (string, error) {
-	data, err := loadOverviewData(repoRoot, caseRoot, pack)
+	inventory, err := BuildInventory(repoRoot, caseRoot, pack)
 	if err != nil {
 		return "", err
 	}
-	facts := data.facts
+	return RenderInventory(inventory)
+}
 
+func RenderInventory(inventory Inventory) (string, error) {
 	var out bytes.Buffer
-	fmt.Fprintf(&out, "项目概览：%s\n", data.inst.CaseRoot)
-	fmt.Fprintf(&out, "自动化模式：%s\n", stringValue(data.board, "automationMode"))
+	fmt.Fprintf(&out, "项目概览：%s\n", inventory.CaseRoot)
+	fmt.Fprintf(&out, "自动化模式：%s\n", inventory.AutomationMode)
 	fmt.Fprintln(&out, "当前是项目总览，还没有为本会话选择具体工作线。")
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "工作线：")
-	for _, lane := range data.lanes {
+	for _, lane := range inventory.Lanes {
 		kind := "功能/工具支线"
-		if boolValue(lane, "authority") {
+		if lane.Authority {
 			kind = "主线"
 		}
-		autonomySummary := autonomy.ReadSummary(data.inst.CaseRoot, stringValue(lane, "id"), data.manifest)
-		fmt.Fprintf(&out, "- %s：%s，选择名=%s，状态=%s，工作区=%s，executor=%s generation=%d，autonomy=%s ready=%t\n", kind, stringValue(lane, "id"), workstreamLabel(lane), stringValue(lane, "status"), stringValue(lane, "workspace"), firstText(stringValue(lane, "currentExecutor"), "unassigned"), intValue(lane, "executorGeneration"), autonomySummary.Mode, autonomySummary.Ready)
+		fmt.Fprintf(&out, "- %s：%s，选择名=%s，状态=%s，工作区=%s，executor=%s generation=%d，autonomy=%s ready=%t\n", kind, lane.ID, lane.Label, lane.Status, lane.Workspace, firstText(lane.CurrentExecutor, "unassigned"), lane.ExecutorGeneration, lane.AutonomyMode, lane.AutonomyReady)
 	}
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "共享事实：")
-	fmt.Fprintf(&out, "- observation: %d\n", len(facts.Observations))
-	fmt.Fprintf(&out, "- request: %d\n", len(facts.Requests))
-	fmt.Fprintf(&out, "- candidate: %d\n", len(facts.Candidates))
-	fmt.Fprintf(&out, "- publication: %d\n", len(facts.Publications))
-	fmt.Fprintf(&out, "- 需要确认: %d\n", data.pending)
+	fmt.Fprintf(&out, "- observation: %d\n", inventory.Counts.Observations)
+	fmt.Fprintf(&out, "- request: %d\n", inventory.Counts.Requests)
+	fmt.Fprintf(&out, "- candidate: %d\n", inventory.Counts.Candidates)
+	fmt.Fprintf(&out, "- publication: %d\n", inventory.Counts.Publications)
+	fmt.Fprintf(&out, "- 需要确认: %d\n", inventory.Counts.PendingDecisions)
 	fmt.Fprintln(&out)
 
-	board := boardLanes(data.lanes)
-	brief := workstream.BindMissionBriefAuthorityContinueCommands(buildMissionBrief(data.lanes, facts), board)
-	actions := buildLaneExecutorActions(data.lanes, facts, brief)
-	evidenceReview := workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(overviewExecutionEvidenceReview(data.lanes, facts), board)
-	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffsWithAcknowledgements(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "", workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
-	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(data.inst.CaseRoot, facts, "")
-	if err != nil {
-		return "", err
-	}
-	reviewerPacketRetirementHandoffs, err := workstream.ReviewerPacketRetirementHandoffs(data.inst.CaseRoot, "")
-	if err != nil {
-		return "", err
-	}
-	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
-	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(nextActions, authorizedGateAdapterHandoffs, workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
-	nextActions = workstream.MissionCommanderNextActionsWithReviewerDispatches(nextActions, reviewerDispatchIntakeHandoffs)
-	actionQueue := missionCommanderActionQueue(nextActions)
-	writeMissionBrief(&out, brief)
-	writeLaneExecutorActions(&out, actions)
-	writeMissionCommanderActionIndex(&out, missionCommanderActionIndex(actions))
-	writeMissionCommanderActionQueue(&out, actionQueue)
-	writeMissionCommanderNextActions(&out, nextActions)
-	writeExecutionEvidenceReview(&out, evidenceReview, workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue))
-	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", authorizedGateAdapterHandoffs)
-	workstream.WriteReviewerDispatchIntakeHandoffSection(&out, "Reviewer dispatch intake handoff：", reviewerDispatchIntakeHandoffs)
-	workstream.WriteReviewerPacketRetirementHandoffSection(&out, "Reviewer packet retirement handoff：", reviewerPacketRetirementHandoffs)
-	writeOpenCandidates(&out, mission.EffectiveOpenCandidates(facts.Facts))
-	writePendingGates(&out, facts.Requests)
-	writeAuthorizedGates(&out, facts.Requests)
-	writeVerifications(&out, facts.Verifications)
-	writeDecisions(&out, facts.Decisions)
-	writeBatches(&out, facts.AllBatchEvents)
-	writeInterventions(&out, facts.Interventions)
-	writeRollbacks(&out, facts.Rollbacks)
-	writeNextSteps(&out, overviewNextSteps(brief, evidenceReview, actionQueue))
+	writeMissionBrief(&out, inventory.MissionBrief)
+	writeLaneExecutorActions(&out, inventory.LaneExecutorActions)
+	writeMissionCommanderActionIndex(&out, inventory.MissionCommanderActions)
+	writeMissionCommanderActionQueue(&out, inventory.MissionCommanderActionQueue)
+	writeMissionCommanderNextActions(&out, inventory.MissionCommanderNextActions)
+	writeExecutionEvidenceReview(&out, inventory.ExecutionEvidenceReview, inventory.ExecutionEvidenceReviewSummary)
+	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", inventory.AuthorizedGateAdapterHandoffs)
+	workstream.WriteReviewerDispatchIntakeHandoffSection(&out, "Reviewer dispatch intake handoff：", inventory.ReviewerDispatchIntakeHandoffs)
+	workstream.WriteReviewerPacketRetirementHandoffSection(&out, "Reviewer packet retirement handoff：", inventory.ReviewerPacketRetirementHandoffs)
+	writeOverviewSections(&out, inventory.Sections)
+	writeNextSteps(&out, inventory.NextSteps)
 	return out.String(), nil
 }
 
@@ -298,6 +276,10 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	if err != nil {
 		return overviewData{}, err
 	}
+	view, err := projectstate.ResolveMissionView(inst.CaseRoot)
+	if err != nil {
+		return overviewData{}, err
+	}
 	m, err := manifest.Load(repoRoot, pack)
 	if err != nil {
 		return overviewData{}, err
@@ -317,6 +299,9 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	facts, err := readFacts(inst.CaseRoot)
 	if err != nil {
 		return overviewData{}, err
+	}
+	if err := view.ValidateCurrent(inst.CaseRoot); err != nil {
+		return overviewData{}, fmt.Errorf("active mission changed while building overview: %w", err)
 	}
 	return overviewData{
 		inst:        inst,
@@ -791,242 +776,204 @@ func readFacts(caseRoot string) (factSet, error) {
 	return mission.ReadStrictLedgerFacts(caseRoot)
 }
 
-func writeOpenCandidates(out *bytes.Buffer, candidates []event) {
-	terminal := map[string]bool{"confirmed": true, "accepted": true, "rejected": true, "superseded": true, "resolved": true}
-	open := []event{}
-	counts := map[string]int{}
-	for _, c := range candidates {
-		status := strings.ToLower(strings.TrimSpace(stringValue(c, "status")))
-		if status == "" || !terminal[status] {
-			open = append(open, c)
-			counts[stringValue(c, "subject")]++
-		}
-	}
-	if len(open) == 0 {
-		return
-	}
-	fmt.Fprintln(out, "未决 candidate：")
-	shown := lastEvents(open, maxRows)
-	for _, c := range shown {
-		mark := ""
-		if counts[stringValue(c, "subject")] > 1 {
-			mark = " [冲突]"
-		}
-		fmt.Fprintf(out, "- %s | %s | confidence=%s%s\n", stringValue(c, "subject"), stringValue(c, "summary"), stringValue(c, "confidence"), mark)
-	}
-	if rest := len(open) - len(shown); rest > 0 {
-		fmt.Fprintf(out, "- 另有 %d 条未决 candidate\n", rest)
-	}
-	fmt.Fprintln(out)
+func writeOverviewSections(out *bytes.Buffer, sections OverviewSections) {
+	writeOpenCandidates(out, sections.OpenCandidates)
+	writePendingGates(out, sections.PendingGates)
+	writeAuthorizedGates(out, sections.AuthorizedGates)
+	writeVerifications(out, sections.Verifications)
+	writeDecisions(out, sections.Decisions)
+	writeBatchSection(out, sections.Batches)
+	writeInterventions(out, sections.Interventions, sections.OpenInterventions)
+	writeRollbacks(out, sections.Rollbacks)
 }
 
-func writePendingGates(out *bytes.Buffer, requests []event) {
-	pending := []event{}
-	for _, r := range requests {
-		if mission.IsPendingGateRequest(r) {
-			pending = append(pending, r)
-		}
+func eventSectionEvents(section EventSection) []event {
+	out := make([]event, 0, len(section.Events))
+	for _, item := range section.Events {
+		out = append(out, event(item))
 	}
-	if len(pending) == 0 {
-		return
-	}
-	fmt.Fprintln(out, "pending-gate（heavy-tool 待确认）：")
-	shown := lastEvents(pending, maxRows)
-	for _, g := range shown {
-		fmt.Fprintf(out, "- %s | %s%s\n", stringValue(g, "subject"), stringValue(g, "summary"), gateDetail(g, true, false))
-	}
-	if rest := len(pending) - len(shown); rest > 0 {
-		fmt.Fprintf(out, "- 另有 %d 条 pending-gate\n", rest)
-	}
-	fmt.Fprintln(out)
+	return out
 }
 
-func writeAuthorizedGates(out *bytes.Buffer, requests []event) {
-	authorized := []event{}
-	for _, r := range requests {
-		if mission.IsAuthorizedGateRequest(r) {
-			authorized = append(authorized, r)
-		}
-	}
-	if len(authorized) == 0 {
+func writeBatchSection(out *bytes.Buffer, section BatchSection) {
+	if section.Total == 0 {
 		return
-	}
-	fmt.Fprintln(out, "authorized-gate（durable autonomy 已授权，非阻塞）：")
-	shown := lastEvents(authorized, maxRows)
-	for _, g := range shown {
-		fmt.Fprintf(out, "- %s | %s%s\n", stringValue(g, "subject"), stringValue(g, "summary"), gateDetail(g, true, false))
-	}
-	if rest := len(authorized) - len(shown); rest > 0 {
-		fmt.Fprintf(out, "- 另有 %d 条 authorized-gate\n", rest)
-	}
-	fmt.Fprintln(out)
-}
-
-func writeVerifications(out *bytes.Buffer, verifications []event) {
-	if len(verifications) == 0 {
-		return
-	}
-	fmt.Fprintln(out, "最近 verification：")
-	shown := lastEvents(verifications, maxRows)
-	for _, v := range shown {
-		subject := stringValue(v, "subject")
-		if strings.TrimSpace(subject) == "" {
-			subject = stringValue(v, "kind")
-		}
-		by := ""
-		if actor := stringValue(v, "actor"); strings.TrimSpace(actor) != "" {
-			by = " | by=" + actor
-		}
-		fmt.Fprintf(out, "- %s | lane=%s | verifier=%s | verdict=%s | target=%s%s%s\n", subject, stringValue(v, "lane"), stringValue(v, "verifier"), stringValue(v, "verdict"), stringValue(v, "target"), by, batchTag(v))
-	}
-	if rest := len(verifications) - len(shown); rest > 0 {
-		fmt.Fprintf(out, "- 另有 %d 条 verification\n", rest)
-	}
-	fmt.Fprintln(out)
-}
-
-func writeDecisions(out *bytes.Buffer, decisions []event) {
-	if len(decisions) == 0 {
-		return
-	}
-	fmt.Fprintln(out, "最近 decision：")
-	shown := lastEvents(decisions, maxRows)
-	for _, d := range shown {
-		subject := stringValue(d, "subject")
-		if strings.TrimSpace(subject) == "" {
-			subject = stringValue(d, "kind")
-		}
-		decision := stringValue(d, "decision")
-		if strings.TrimSpace(decision) == "" {
-			decision = stringValue(d, "action")
-		}
-		actor := stringValue(d, "actor")
-		if strings.TrimSpace(actor) == "" {
-			actor = stringValue(d, "confirmedBy")
-		}
-		extra := ""
-		if strings.TrimSpace(actor) != "" {
-			extra = " | by=" + actor
-		}
-		fmt.Fprintf(out, "- %s | lane=%s | decision=%s%s | reason=%s\n", subject, stringValue(d, "lane"), decision, extra, stringValue(d, "reason"))
-	}
-	if rest := len(decisions) - len(shown); rest > 0 {
-		fmt.Fprintf(out, "- 另有 %d 条 decision\n", rest)
-	}
-	fmt.Fprintln(out)
-}
-
-func writeBatches(out *bytes.Buffer, events []event) {
-	if len(events) == 0 {
-		return
-	}
-	type batch struct {
-		id       string
-		events   []event
-		lastTime string
-		lastIdx  int
-	}
-	byID := map[string]*batch{}
-	order := []*batch{}
-	for idx, e := range events {
-		id := stringValue(e, "batchId")
-		if id == "" {
-			continue
-		}
-		b := byID[id]
-		if b == nil {
-			b = &batch{id: id}
-			byID[id] = b
-			order = append(order, b)
-		}
-		b.events = append(b.events, e)
-		b.lastIdx = idx
-		b.lastTime = stringValue(e, "time")
-		if b.lastTime == "" {
-			b.lastTime = stringValue(e, "createdAt")
-		}
-	}
-	sort.SliceStable(order, func(i, j int) bool {
-		if order[i].lastTime == order[j].lastTime {
-			return order[i].lastIdx < order[j].lastIdx
-		}
-		return order[i].lastTime < order[j].lastTime
-	})
-	shown := order
-	if len(shown) > maxRows {
-		shown = shown[len(shown)-maxRows:]
 	}
 	fmt.Fprintln(out, "最近 batch：")
-	for _, b := range shown {
-		fmt.Fprintf(out, "- %s | events=%d | kinds=%s | last=%s\n", b.id, len(b.events), kindSummary(b.events), b.lastTime)
+	for _, batch := range section.Batches {
+		kinds := make([]string, 0, len(batch.Kinds))
+		for kind, count := range batch.Kinds {
+			kinds = append(kinds, fmt.Sprintf("%s=%d", kind, count))
+		}
+		sort.Strings(kinds)
+		fmt.Fprintf(out, "- %s | events=%d | kinds=%s | last=%s\n", batch.ID, batch.Events, strings.Join(kinds, ","), batch.Last)
 	}
-	if rest := len(order) - len(shown); rest > 0 {
+	if rest := section.Total - section.Shown; rest > 0 {
 		fmt.Fprintf(out, "- 另有 %d 个 batch\n", rest)
 	}
 	fmt.Fprintln(out)
 }
 
-func writeInterventions(out *bytes.Buffer, interventions []event) {
-	terminal := map[string]bool{"confirmed": true, "accepted": true, "rejected": true, "superseded": true, "resolved": true}
-	open := []event{}
-	for _, i := range interventions {
-		status := strings.ToLower(strings.TrimSpace(stringValue(i, "status")))
-		if status == "" || !terminal[status] {
-			open = append(open, i)
-		}
+func writeOpenCandidates(out *bytes.Buffer, section EventSection) {
+	candidates := eventSectionEvents(section)
+	if len(candidates) == 0 {
+		return
 	}
+	counts := map[string]int{}
+	for _, candidate := range candidates {
+		counts[stringValue(candidate, "subject")]++
+	}
+	fmt.Fprintln(out, "未决 candidate：")
+	for _, candidate := range candidates {
+		mark := ""
+		if counts[stringValue(candidate, "subject")] > 1 {
+			mark = " [冲突]"
+		}
+		fmt.Fprintf(out, "- %s | %s | confidence=%s%s\n", stringValue(candidate, "subject"), stringValue(candidate, "summary"), stringValue(candidate, "confidence"), mark)
+	}
+	if rest := section.Total - section.Shown; rest > 0 {
+		fmt.Fprintf(out, "- 另有 %d 条未决 candidate\n", rest)
+	}
+	fmt.Fprintln(out)
+}
+
+func writePendingGates(out *bytes.Buffer, section EventSection) {
+	pending := eventSectionEvents(section)
+	if len(pending) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "pending-gate（heavy-tool 待确认）：")
+	for _, gate := range pending {
+		fmt.Fprintf(out, "- %s | %s%s\n", stringValue(gate, "subject"), stringValue(gate, "summary"), gateDetail(gate, true, false))
+	}
+	if rest := section.Total - section.Shown; rest > 0 {
+		fmt.Fprintf(out, "- 另有 %d 条 pending-gate\n", rest)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeAuthorizedGates(out *bytes.Buffer, section EventSection) {
+	authorized := eventSectionEvents(section)
+	if len(authorized) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "authorized-gate（durable autonomy 已授权，非阻塞）：")
+	for _, gate := range authorized {
+		fmt.Fprintf(out, "- %s | %s%s\n", stringValue(gate, "subject"), stringValue(gate, "summary"), gateDetail(gate, true, false))
+	}
+	if rest := section.Total - section.Shown; rest > 0 {
+		fmt.Fprintf(out, "- 另有 %d 条 authorized-gate\n", rest)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeVerifications(out *bytes.Buffer, section EventSection) {
+	verifications := eventSectionEvents(section)
+	if len(verifications) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "最近 verification：")
+	for _, verification := range verifications {
+		subject := stringValue(verification, "subject")
+		if strings.TrimSpace(subject) == "" {
+			subject = stringValue(verification, "kind")
+		}
+		by := ""
+		if actor := stringValue(verification, "actor"); strings.TrimSpace(actor) != "" {
+			by = " | by=" + actor
+		}
+		fmt.Fprintf(out, "- %s | lane=%s | verifier=%s | verdict=%s | target=%s%s%s\n", subject, stringValue(verification, "lane"), stringValue(verification, "verifier"), stringValue(verification, "verdict"), stringValue(verification, "target"), by, batchTag(verification))
+	}
+	if rest := section.Total - section.Shown; rest > 0 {
+		fmt.Fprintf(out, "- 另有 %d 条 verification\n", rest)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeDecisions(out *bytes.Buffer, section EventSection) {
+	decisions := eventSectionEvents(section)
+	if len(decisions) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "最近 decision：")
+	for _, decisionEvent := range decisions {
+		subject := stringValue(decisionEvent, "subject")
+		if strings.TrimSpace(subject) == "" {
+			subject = stringValue(decisionEvent, "kind")
+		}
+		decision := stringValue(decisionEvent, "decision")
+		if strings.TrimSpace(decision) == "" {
+			decision = stringValue(decisionEvent, "action")
+		}
+		actor := stringValue(decisionEvent, "actor")
+		if strings.TrimSpace(actor) == "" {
+			actor = stringValue(decisionEvent, "confirmedBy")
+		}
+		extra := ""
+		if strings.TrimSpace(actor) != "" {
+			extra = " | by=" + actor
+		}
+		fmt.Fprintf(out, "- %s | lane=%s | decision=%s%s | reason=%s\n", subject, stringValue(decisionEvent, "lane"), decision, extra, stringValue(decisionEvent, "reason"))
+	}
+	if rest := section.Total - section.Shown; rest > 0 {
+		fmt.Fprintf(out, "- 另有 %d 条 decision\n", rest)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeInterventions(out *bytes.Buffer, section, openSection EventSection) {
+	open := eventSectionEvents(openSection)
 	if len(open) > 0 {
 		fmt.Fprintln(out, "未解决 intervention：")
-		shown := lastEvents(open, maxRows)
-		for _, i := range shown {
-			subject := stringValue(i, "subject")
+		for _, intervention := range open {
+			subject := stringValue(intervention, "subject")
 			if strings.TrimSpace(subject) == "" {
-				subject = stringValue(i, "action")
+				subject = stringValue(intervention, "action")
 			}
-			status := stringValue(i, "status")
+			status := stringValue(intervention, "status")
 			if strings.TrimSpace(status) == "" {
 				status = "open"
 			}
-			batch := batchTag(i)
-			fmt.Fprintf(out, "- %s | action=%s | target=%s | status=%s%s | summary=%s\n", subject, stringValue(i, "action"), stringValue(i, "target"), status, batch, stringValue(i, "summary"))
+			batch := batchTag(intervention)
+			fmt.Fprintf(out, "- %s | action=%s | target=%s | status=%s%s | summary=%s\n", subject, stringValue(intervention, "action"), stringValue(intervention, "target"), status, batch, stringValue(intervention, "summary"))
 		}
-		if rest := len(open) - len(shown); rest > 0 {
+		if rest := openSection.Total - openSection.Shown; rest > 0 {
 			fmt.Fprintf(out, "- 另有 %d 条未解决 intervention\n", rest)
 		}
 		fmt.Fprintln(out)
 	}
+	interventions := eventSectionEvents(section)
 	if len(interventions) == 0 {
 		return
 	}
 	fmt.Fprintln(out, "最近 intervention：")
-	shown := lastEvents(interventions, maxRows)
-	for _, i := range shown {
-		subject := stringValue(i, "subject")
+	for _, intervention := range interventions {
+		subject := stringValue(intervention, "subject")
 		if strings.TrimSpace(subject) == "" {
-			subject = stringValue(i, "action")
+			subject = stringValue(intervention, "action")
 		}
-		fmt.Fprintf(out, "- %s | action=%s | target=%s | approvedBy=%s | scope=%s%s\n", subject, stringValue(i, "action"), stringValue(i, "target"), stringValue(i, "approvedBy"), stringValue(i, "scope"), batchTag(i))
+		fmt.Fprintf(out, "- %s | action=%s | target=%s | approvedBy=%s | scope=%s%s\n", subject, stringValue(intervention, "action"), stringValue(intervention, "target"), stringValue(intervention, "approvedBy"), stringValue(intervention, "scope"), batchTag(intervention))
 	}
-	if rest := len(interventions) - len(shown); rest > 0 {
+	if rest := section.Total - section.Shown; rest > 0 {
 		fmt.Fprintf(out, "- 另有 %d 条 intervention\n", rest)
 	}
 	fmt.Fprintln(out)
 }
 
-func writeRollbacks(out *bytes.Buffer, rollbacks []event) {
+func writeRollbacks(out *bytes.Buffer, section EventSection) {
+	rollbacks := eventSectionEvents(section)
 	if len(rollbacks) == 0 {
 		return
 	}
 	fmt.Fprintln(out, "最近 rollback：")
-	shown := lastEvents(rollbacks, maxRows)
-	for _, r := range shown {
-		subject := stringValue(r, "subject")
+	for _, rollback := range rollbacks {
+		subject := stringValue(rollback, "subject")
 		if strings.TrimSpace(subject) == "" {
-			subject = stringValue(r, "kind")
+			subject = stringValue(rollback, "kind")
 		}
-		fmt.Fprintf(out, "- %s | target=%s | status=%s%s | reason=%s\n", subject, stringValue(r, "target"), stringValue(r, "status"), batchTag(r), stringValue(r, "reason"))
+		fmt.Fprintf(out, "- %s | target=%s | status=%s%s | reason=%s\n", subject, stringValue(rollback, "target"), stringValue(rollback, "status"), batchTag(rollback), stringValue(rollback, "reason"))
 	}
-	if rest := len(rollbacks) - len(shown); rest > 0 {
+	if rest := section.Total - section.Shown; rest > 0 {
 		fmt.Fprintf(out, "- 另有 %d 条 rollback\n", rest)
 	}
 	fmt.Fprintln(out)
@@ -1078,27 +1025,6 @@ func lastEvents(items []event, n int) []event {
 		return items
 	}
 	return items[len(items)-n:]
-}
-
-func kindSummary(events []event) string {
-	counts := map[string]int{}
-	keys := []string{}
-	for _, e := range events {
-		kind := stringValue(e, "kind")
-		if kind == "" {
-			kind = "unknown"
-		}
-		if _, ok := counts[kind]; !ok {
-			keys = append(keys, kind)
-		}
-		counts[kind]++
-	}
-	sort.Strings(keys)
-	parts := []string{}
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
-	}
-	return strings.Join(parts, ",")
 }
 
 func gateDetail(e event, omitStatus, omitBatch bool) string {

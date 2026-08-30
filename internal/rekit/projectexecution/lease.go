@@ -22,6 +22,7 @@ type Lease struct {
 	stateInfo os.FileInfo
 	lockInfo  os.FileInfo
 	locked    bool
+	exclusive bool
 }
 
 func AcquireShared(caseRoot string) (*Lease, error) {
@@ -108,6 +109,7 @@ func acquire(caseRoot string, exclusive bool) (*Lease, error) {
 		return fail(err)
 	}
 	lease.locked = true
+	lease.exclusive = exclusive
 	if err := lease.ValidateFor(casePath); err != nil {
 		return fail(err)
 	}
@@ -127,6 +129,16 @@ func (lease *Lease) Validate() error {
 		return fmt.Errorf("project execution lease is not held")
 	}
 	return lease.ValidateFor(lease.casePath)
+}
+
+func (lease *Lease) ValidateExclusiveFor(caseRoot string) error {
+	if err := lease.ValidateFor(caseRoot); err != nil {
+		return err
+	}
+	if !lease.exclusive {
+		return fmt.Errorf("exclusive project execution lease is required")
+	}
+	return nil
 }
 
 func (lease *Lease) ValidateFor(caseRoot string) error {
@@ -168,6 +180,7 @@ func (lease *Lease) Unlock() error {
 		if lease.locked {
 			errs = append(errs, projectlock.Unlock(lease.lockFile.Fd()))
 			lease.locked = false
+			lease.exclusive = false
 		}
 		errs = append(errs, lease.lockFile.Close())
 		lease.lockFile = nil

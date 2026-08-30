@@ -79,7 +79,14 @@ func runCurrentLoopExternalSessionDispatch(ctx runtime.Context, opt Options, out
 			externalSessionDispatchApplyCommand(plan),
 			opt.SelectedCurrentLane,
 		)
-		return writeJSON(out, plan)
+		diagnostics, err := buildCurrentLoopExternalSessionDispatchDiagnosticsDTO(
+			currentLoopExternalSessionDispatchResult{DispatchPlan: plan},
+			ctx.Target,
+		)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, diagnostics)
 	}
 	applied, err := externalsession.ApplyDispatchTransitionCurrent(
 		plan, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionDispatchSHA256,
@@ -93,7 +100,11 @@ func runCurrentLoopExternalSessionDispatch(ctx runtime.Context, opt Options, out
 	if fresh, refreshErr := buildInvocationStatusInventory(ctx, opt); refreshErr == nil {
 		result.RefreshedStatus = &fresh
 	}
-	return writeJSON(out, result)
+	diagnostics, err := buildCurrentLoopExternalSessionDispatchDiagnosticsDTO(result, ctx.Target)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, diagnostics)
 }
 
 func externalSessionDispatcherPackage(job externalsession.Job, attemptSHA256 string, inspection externalsession.DispatchInspection) (*mission.CurrentLoopExternalSessionDispatcher, error) {

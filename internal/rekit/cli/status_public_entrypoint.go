@@ -58,6 +58,11 @@ func projectStatusPublicEntrypoint(status *statusInventory) error {
 			MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(nil),
 		}
 	}
+	if status.Case != nil {
+		if err := projectPublicCommandListPublicEntrypoint("case.nextSteps", status.Case.NextSteps, entrypoint); err != nil {
+			return err
+		}
+	}
 	if err := projectStatusCaseShimPublicEntrypoint(&status.CaseShim, entrypoint); err != nil {
 		return fmt.Errorf("project case shim public entrypoint: %w", err)
 	}
@@ -133,14 +138,31 @@ func projectMemberExecutionStatusPublicEntrypoint(status *memberExecutionStatus,
 	}
 	var err error
 	for label, field := range map[string]*string{
-		"previewCommand":      &status.PreviewCommand,
-		"observationCommand":  &status.ObservationCommand,
-		"reviewerPlanCommand": &status.ReviewerPlanCommand,
+		"previewCommand":     &status.PreviewCommand,
+		"observationCommand": &status.ObservationCommand,
 	} {
 		*field, err = projectPublicCommandForEntrypoint(*field, entrypoint)
 		if err != nil {
 			return fmt.Errorf("%s: %w", label, err)
 		}
+	}
+	if status.ReviewerPlanInvocation != nil {
+		if err := status.ReviewerPlanInvocation.Validate(); err != nil {
+			return fmt.Errorf("reviewerPlanInvocation: %w", err)
+		}
+		projected, err := commands.ParsePublicInvocation(status.ReviewerPlanCommand)
+		if err != nil || !status.ReviewerPlanInvocation.Equivalent(projected) {
+			return fmt.Errorf("reviewerPlanCommand differs from its typed invocation")
+		}
+		status.ReviewerPlanCommand, err = status.ReviewerPlanInvocation.RenderForEntrypoint(entrypoint)
+		if err != nil {
+			return fmt.Errorf("reviewerPlanCommand: %w", err)
+		}
+		return nil
+	}
+	status.ReviewerPlanCommand, err = projectPublicCommandForEntrypoint(status.ReviewerPlanCommand, entrypoint)
+	if err != nil {
+		return fmt.Errorf("reviewerPlanCommand: %w", err)
 	}
 	return nil
 }

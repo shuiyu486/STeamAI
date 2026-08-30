@@ -35,6 +35,7 @@ func ClassifyDailyRequest(opt DailyOptions) DailyRequest {
 		strings.TrimSpace(opt.Control.PublicationStamp) != "" ||
 		strings.TrimSpace(opt.Control.ExpectedPlanSHA256) != ""
 	adoptionRequested := strings.TrimSpace(opt.DirectoryAdoptionAction) != "" ||
+		strings.TrimSpace(opt.DirectoryAdoptionPack) != "" ||
 		strings.TrimSpace(opt.ExpectedInitPlanSHA256) != "" ||
 		strings.TrimSpace(opt.InitializationRepoRoot) != ""
 

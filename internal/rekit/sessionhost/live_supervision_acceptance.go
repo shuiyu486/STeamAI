@@ -15,14 +15,15 @@ import (
 )
 
 type LiveSupervisionAcceptanceOptions struct {
-	CaseRoot    string
-	Goal        string
-	Model       string
-	Actor       string
-	Timeout     time.Duration
-	MaxAttempts int
-	KeepCase    bool
-	ReceiptPath string
+	CaseRoot                       string
+	Goal                           string
+	Model                          string
+	Actor                          string
+	Timeout                        time.Duration
+	MaxAttempts                    int
+	KeepCase                       bool
+	ReceiptPath                    string
+	InitializationSourceExecutable string
 }
 
 type LiveSupervisionAcceptanceReceipt struct {
@@ -115,7 +116,8 @@ func RunLiveSupervisionAcceptance(parent context.Context, opt LiveSupervisionAcc
 	dailyOpt := DailyOptions{
 		Target: caseRoot, Goal: goal, Actor: actor, ClaudePath: claude.Path,
 		ExpectedClaudeExecutableSHA256: claude.SHA256, ExpectedClaudeExecutablePublisher: claude.Publisher,
-		Model: opt.Model, Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts,
+		InitializationSourceExecutable: opt.InitializationSourceExecutable,
+		Model:                          opt.Model, Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts,
 		stopAfterMemberSegment: true,
 		onCaseReady: func(root string) error {
 			if err := captureLiveAcceptanceCaseRoot(root, &identity); err != nil {

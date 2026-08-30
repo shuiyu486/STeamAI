@@ -77,7 +77,13 @@ func runPackMemoryLiveAcceptanceLifecycle(
 		"Do not write authority, confirmed state, pack sources, or heavy-tool output.",
 	}, " ")
 	consumerOnboarding := DailyResult{}
-	consumerIntent, err := applyDailyOnboarding(consumerCase, consumerGoal, spec.Actor, &consumerOnboarding)
+	consumerIntent, err := applyDailyOnboarding(
+		consumerCase,
+		consumerGoal,
+		spec.Actor,
+		&consumerOnboarding,
+		spec.InitializationSourceExecutable,
+	)
 	if err != nil || !consumerIntent.Committed || !consumerOnboarding.OnboardingApplied {
 		return result, fmt.Errorf("pre-onboard fresh pack-memory consumer before promoted generation: %w", err)
 	}
@@ -95,6 +101,7 @@ func runPackMemoryLiveAcceptanceLifecycle(
 		Target:                            producerCase,
 		Goal:                              producerGoal,
 		Actor:                             spec.Actor,
+		InitializationSourceExecutable:    spec.InitializationSourceExecutable,
 		ClaudePath:                        spec.ClaudePath,
 		ExpectedClaudeExecutableSHA256:    spec.ClaudeSHA256,
 		ExpectedClaudeExecutablePublisher: spec.ClaudePublisher,
@@ -447,7 +454,8 @@ func runPackMemoryLiveAcceptanceLifecycle(
 	var consumptionPlanSHA256, consumptionReceiptSHA256, consumerBindingSHA256 string
 	consumerDaily, err := RunDaily(parent, DailyOptions{
 		Target: consumerCase, Goal: consumerGoal, Actor: spec.Actor,
-		ClaudePath: spec.ClaudePath, ExpectedClaudeExecutableSHA256: spec.ClaudeSHA256,
+		InitializationSourceExecutable: spec.InitializationSourceExecutable,
+		ClaudePath:                     spec.ClaudePath, ExpectedClaudeExecutableSHA256: spec.ClaudeSHA256,
 		ExpectedClaudeExecutablePublisher: spec.ClaudePublisher, Model: spec.Model,
 		Timeout: time.Duration(spec.TimeoutNanos), MaxAttempts: spec.MaxAttempts,
 		stopAfterMemberSegment: true,

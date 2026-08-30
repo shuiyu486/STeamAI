@@ -21,6 +21,58 @@ func TestResolveUsesCurrentRootForNewProject(t *testing.T) {
 	}
 }
 
+func TestMissionScopedNameOwnsGenerationProjection(t *testing.T) {
+	missionScoped := []string{
+		"mission-intent.json", "board.json", "policy.yml", "lanes", "facts", "runs", "reviews",
+		"reviewer-adoptions", "handovers", "verifications", "external-session-attempts",
+		"external-session-attempt-inputs", "external-session-dispatch", "external-session-jobs",
+		"external-session-relays", "external-session-observations", "external-session-transport",
+		"reopen-operations",
+	}
+	view := MissionView{
+		Root:       Root{Dir: CurrentDir},
+		Generation: 2,
+	}
+	for _, name := range missionScoped {
+		if !MissionScopedName(name) {
+			t.Fatalf("mission namespace owner omitted %q", name)
+		}
+		got := view.ProjectStatePath(filepath.ToSlash(filepath.Join(CurrentDir, name, "item.json")))
+		want := filepath.ToSlash(filepath.Join(CurrentDir, MissionsDir, "g000002", name, "item.json"))
+		if got != want {
+			t.Fatalf("ProjectStatePath(%q) = %q, want %q", name, got, want)
+		}
+	}
+	for _, name := range []string{"instance.yml", "project-binding.json", "runtime", "packs", "onboarding", "transitions"} {
+		if MissionScopedName(name) {
+			t.Fatalf("project-scoped namespace %q was classified mission-scoped", name)
+		}
+		got := view.ProjectStatePath(filepath.ToSlash(filepath.Join(CurrentDir, name)))
+		want := filepath.ToSlash(filepath.Join(CurrentDir, name))
+		if got != want {
+			t.Fatalf("project-scoped path %q projected to %q", name, got)
+		}
+	}
+}
+
+func TestMissionViewDefaultsToRootGenerationOne(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(caseRoot, CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	view, err := ResolveMissionView(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Generation != 1 || view.Path != filepath.Join(caseRoot, CurrentDir) || view.Active != nil {
+		t.Fatalf("default mission view = %+v", view)
+	}
+	board, err := Join(caseRoot, "board.json")
+	if err != nil || board != filepath.Join(caseRoot, CurrentDir, "board.json") {
+		t.Fatalf("default board path = %q err=%v", board, err)
+	}
+}
+
 func TestResolveKeepsLegacyProjectOnSingleRoot(t *testing.T) {
 	caseRoot := t.TempDir()
 	if err := os.Mkdir(filepath.Join(caseRoot, LegacyDir), 0o755); err != nil {

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -13,18 +14,19 @@ import (
 )
 
 type memberExecutionStatus struct {
-	Ready               bool                                `json:"ready"`
-	State               string                              `json:"state"`
-	Lane                string                              `json:"lane,omitempty"`
-	AttemptID           string                              `json:"attemptId,omitempty"`
-	Inspection          *memberexecution.Inspection         `json:"inspection,omitempty"`
-	ReviewerRejection   *workstream.MemberReviewerRejection `json:"reviewerRejection,omitempty"`
-	PreviewCommand      string                              `json:"previewCommand,omitempty"`
-	ObservationCommand  string                              `json:"observationCommand,omitempty"`
-	ReviewerPlanCommand string                              `json:"reviewerPlanCommand,omitempty"`
-	CorrectionCommand   string                              `json:"correctionCommand,omitempty"`
-	CompletionEvidence  []string                            `json:"completionEvidenceRefs,omitempty"`
-	Boundary            []string                            `json:"boundary"`
+	Ready                  bool                                `json:"ready"`
+	State                  string                              `json:"state"`
+	Lane                   string                              `json:"lane,omitempty"`
+	AttemptID              string                              `json:"attemptId,omitempty"`
+	Inspection             *memberexecution.Inspection         `json:"inspection,omitempty"`
+	ReviewerRejection      *workstream.MemberReviewerRejection `json:"reviewerRejection,omitempty"`
+	PreviewCommand         string                              `json:"previewCommand,omitempty"`
+	ObservationCommand     string                              `json:"observationCommand,omitempty"`
+	ReviewerPlanCommand    string                              `json:"reviewerPlanCommand,omitempty"`
+	ReviewerPlanInvocation *commands.PublicInvocation          `json:"reviewerPlanInvocation,omitempty"`
+	CorrectionCommand      string                              `json:"correctionCommand,omitempty"`
+	CompletionEvidence     []string                            `json:"completionEvidenceRefs,omitempty"`
+	Boundary               []string                            `json:"boundary"`
 }
 
 func bindStatusMemberExecution(status *statusInventory) {
@@ -130,10 +132,24 @@ func bindStatusMemberExecution(status *statusInventory) {
 			status.MemberExecution.Boundary = append(base, "the current member manifest already has a strictly validated accepted reviewer lineage")
 			return
 		}
-		args := []string{"/rekit", "plan-subagents", "-Target", status.Target, "-Pack", status.Pack, "-TaskType", "feature-analysis"}
+		args := []string{"-Target", status.Target, "-Pack", status.Pack, "-TaskType", "feature-analysis"}
 		args = append(args, memberReviewerItemsArgs(manifestRef)...)
 		args = append(args, "-Lane", lane, "-Format", "json")
-		status.MemberExecution.ReviewerPlanCommand = joinDriverCommand(args)
+		invocation, err := commands.NewPublicInvocation(commands.PlanSubagents, args...)
+		if err != nil {
+			status.MemberExecution.Ready = false
+			status.MemberExecution.State = "corrupt"
+			status.MemberExecution.Boundary = []string{err.Error(), "status remains read-only and does not repair reviewer planning state"}
+			return
+		}
+		status.MemberExecution.ReviewerPlanInvocation = &invocation
+		status.MemberExecution.ReviewerPlanCommand, err = invocation.Render()
+		if err != nil {
+			status.MemberExecution.ReviewerPlanInvocation = nil
+			status.MemberExecution.Ready = false
+			status.MemberExecution.State = "corrupt"
+			status.MemberExecution.Boundary = []string{err.Error(), "status remains read-only and does not repair reviewer planning state"}
+		}
 	}
 }
 

@@ -25,11 +25,11 @@ func CanonicalCollectionNamespace(caseRoot, packetPath string) (CollectionNamesp
 	if err != nil {
 		return CollectionNamespace{}, false
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return CollectionNamespace{}, false
 	}
-	reviewsRoot := filepath.Join(stateRoot.Path, "reviews")
+	reviewsRoot := filepath.Join(view.Path, "reviews")
 	rel, err := filepath.Rel(reviewsRoot, packetPath)
 	if err != nil || filepath.IsAbs(rel) {
 		return CollectionNamespace{}, false
@@ -55,11 +55,11 @@ func PlannedResultSnapshotPath(caseRoot, dispatchID string) (string, error) {
 	if !validPathSegment(dispatchID) || strings.ContainsAny(dispatchID, `/\`) {
 		return "", fmt.Errorf("planned reviewer result snapshot requires an exact dispatch ID")
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(stateRoot.Path, "reviews", "planned-snapshots", dispatchID+".json"), nil
+	return filepath.Join(view.Path, "reviews", "planned-snapshots", dispatchID+".json"), nil
 }
 
 func CollectionNamespacePathSafe(caseRoot, path string, allowMissingLeaf bool) bool {
@@ -67,7 +67,7 @@ func CollectionNamespacePathSafe(caseRoot, path string, allowMissingLeaf bool) b
 	if err != nil {
 		return false
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return false
 	}
@@ -75,7 +75,7 @@ func CollectionNamespacePathSafe(caseRoot, path string, allowMissingLeaf bool) b
 	if err != nil {
 		return false
 	}
-	reviewsRoot := filepath.Join(stateRoot.Path, "reviews")
+	reviewsRoot := filepath.Join(view.Path, "reviews")
 	reviewsRel, err := filepath.Rel(reviewsRoot, path)
 	if err != nil || filepath.IsAbs(reviewsRel) || reviewsRel == ".." || strings.HasPrefix(reviewsRel, ".."+string(filepath.Separator)) {
 		return false

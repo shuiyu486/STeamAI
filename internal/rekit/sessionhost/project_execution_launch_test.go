@@ -21,6 +21,8 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectlock"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
 func requireDurableHandoffForSessionhostTest(t *testing.T) {
@@ -61,7 +63,17 @@ func TestMain(m *testing.M) {
 	if os.Getenv(projectExecutionHelperRoleEnv) == "claude" {
 		os.Exit(runProjectExecutionClaudeHelper())
 	}
-	os.Exit(m.Run())
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	restoreExecutableSource := runtimebundle.SetExecutableSourceForTest(executable)
+	restoreRuntimeBuilders := syncreview.SetRuntimeBundleBuildersForTest(runtimebundle.BuildWithExecutable)
+	code := m.Run()
+	restoreRuntimeBuilders()
+	restoreExecutableSource()
+	os.Exit(code)
 }
 
 func mustMarshalProjectExecutionTest(t *testing.T, value any) []byte {

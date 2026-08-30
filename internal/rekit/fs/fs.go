@@ -166,6 +166,14 @@ func SafeJoin(root, rel string) (string, error) {
 }
 
 func ReadStableRegularFileAnchored(caseRoot, path, label string, limit int64) ([]byte, error) {
+	return readStableRegularFileAnchored(caseRoot, path, label, limit, false)
+}
+
+func ReadStableRegularFileAllowEmptyAnchored(caseRoot, path, label string, limit int64) ([]byte, error) {
+	return readStableRegularFileAnchored(caseRoot, path, label, limit, true)
+}
+
+func readStableRegularFileAnchored(caseRoot, path, label string, limit int64, allowEmpty bool) ([]byte, error) {
 	rootPath, err := filepath.Abs(caseRoot)
 	if err != nil {
 		return nil, err
@@ -207,8 +215,14 @@ func ReadStableRegularFileAnchored(caseRoot, path, label string, limit int64) ([
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", label, err)
 	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Size() < 1 || before.Size() > limit {
-		return nil, fmt.Errorf("%s must be a bounded non-empty regular file: %s", label, path)
+	minimumSize := int64(1)
+	fileDescription := "bounded non-empty regular file"
+	if allowEmpty {
+		minimumSize = 0
+		fileDescription = "bounded regular file"
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Size() < minimumSize || before.Size() > limit {
+		return nil, fmt.Errorf("%s must be a %s: %s", label, fileDescription, path)
 	}
 	if err := rejectReparsePath(path); err != nil {
 		return nil, err

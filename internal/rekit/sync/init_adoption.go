@@ -60,7 +60,7 @@ func applyOrdinaryInit(plan InitPlan, lease mutationLease) (result ApplyResult, 
 		}
 	}
 	fresh, err := InitPreview(plan.RepoRoot, plan.CaseRoot, plan.Pack, ApplyOptions{
-		ProjectName: plan.ProjectName, CreateLocalFiles: true, Command: plan.Command,
+		ProjectName: plan.ProjectName, CreateLocalFiles: true, Command: plan.Command, SourceExecutable: plan.sourceExecutable,
 	})
 	if err != nil {
 		return ApplyResult{}, err
@@ -85,7 +85,7 @@ func applyOrdinaryInit(plan InitPlan, lease mutationLease) (result ApplyResult, 
 		return ApplyResult{}, err
 	}
 	current, err := InitPreview(fresh.RepoRoot, fresh.CaseRoot, fresh.Pack, ApplyOptions{
-		ProjectName: fresh.ProjectName, CreateLocalFiles: true, Command: fresh.Command,
+		ProjectName: fresh.ProjectName, CreateLocalFiles: true, Command: fresh.Command, SourceExecutable: fresh.sourceExecutable,
 	})
 	if err != nil {
 		return ApplyResult{}, err

@@ -5,7 +5,10 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -41,10 +44,15 @@ func optionsWithEffectiveSelectedCurrentLane(opt Options, reviewedLane string) (
 }
 
 func buildInvocationStatusInventory(ctx runtime.Context, opt Options) (statusInventory, error) {
-	return buildInvocationStatusInventoryWithExecutableRequirement(
+	return buildInvocationStatusInventoryWithLease(ctx, opt, nil)
+}
+
+func buildInvocationStatusInventoryWithLease(ctx runtime.Context, opt Options, lease *projectexecution.Lease) (statusInventory, error) {
+	return buildInvocationStatusInventoryWithExecutableRequirementAndLease(
 		ctx,
 		opt,
 		selectedCurrentLaneRequiresExecutable(opt.Command),
+		lease,
 	)
 }
 
@@ -53,11 +61,27 @@ func buildInvocationStatusInventoryAfterMutation(ctx runtime.Context, opt Option
 }
 
 func buildControlBoundResultRecoveryStatusInventory(ctx runtime.Context, opt Options) (statusInventory, error) {
+	if !instance.LooksLikeCase(ctx.Target) {
+		return statusInventory{}, fmt.Errorf("control-bound result recovery requires one current project")
+	}
+	root, err := projectstate.Resolve(ctx.Target)
+	if err != nil {
+		return statusInventory{}, err
+	}
+	if !root.Existing || root.Legacy || root.Dir != projectstate.CurrentDir {
+		return statusInventory{}, fmt.Errorf("control-bound result recovery requires one current .steamai project")
+	}
+	lease, err := projectexecution.AcquireShared(ctx.Target)
+	if err != nil {
+		return statusInventory{}, err
+	}
+	defer lease.Unlock()
+
 	selected := strings.TrimSpace(opt.SelectedCurrentLane)
 	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
 		return statusInventory{}, fmt.Errorf("control-bound result recovery requires one selected current lane")
 	}
-	source, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
+	source, err := buildStatusInventoryBaseWithLease(ctx, statusPackSource(ctx, opt), lease)
 	if err != nil {
 		return statusInventory{}, err
 	}
@@ -73,15 +97,45 @@ func buildControlBoundResultRecoveryStatusInventory(ctx runtime.Context, opt Opt
 }
 
 func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context, opt Options, requireExecutable bool) (statusInventory, error) {
+	return buildInvocationStatusInventoryWithExecutableRequirementAndLease(ctx, opt, requireExecutable, nil)
+}
+
+func buildInvocationStatusInventoryWithExecutableRequirementAndLease(ctx runtime.Context, opt Options, requireExecutable bool, lease *projectexecution.Lease) (statusInventory, error) {
+	if lease == nil && instance.LooksLikeCase(ctx.Target) {
+		root, err := projectstate.Resolve(ctx.Target)
+		if err != nil {
+			return statusInventory{}, err
+		}
+		if root.Existing && !root.Legacy && root.Dir == projectstate.CurrentDir {
+			acquired, err := projectexecution.AcquireShared(ctx.Target)
+			if err != nil {
+				return statusInventory{}, err
+			}
+			defer acquired.Unlock()
+			return buildInvocationStatusInventoryWithExecutableRequirementAndLease(
+				ctx,
+				opt,
+				requireExecutable,
+				acquired,
+			)
+		}
+	}
+
 	selected := strings.TrimSpace(opt.SelectedCurrentLane)
 	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
-		source, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+		var source statusInventory
+		var err error
+		if lease == nil {
+			source, err = buildStatusInventory(ctx, statusPackSource(ctx, opt))
+		} else {
+			source, err = buildStatusInventoryWithLease(ctx, statusPackSource(ctx, opt), lease)
+		}
 		if err != nil {
 			return statusInventory{}, err
 		}
 		return finalizeStatusDiagnostics(source, "", false)
 	}
-	source, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
+	source, err := buildStatusInventoryBaseWithLease(ctx, statusPackSource(ctx, opt), lease)
 	if err != nil {
 		return statusInventory{}, err
 	}
@@ -169,8 +223,36 @@ func selectedLaneActions(items []mission.MissionCommanderNextActionItem, selecte
 		if strings.TrimSpace(item.Lane) != selected {
 			continue
 		}
-		item.Command = selectedLaneCommand(item.Command, selected)
-		item.Invocation = nil
+		if item.Invocation != nil {
+			invocation := *item.Invocation
+			invocation.Arguments = append([]string{}, item.Invocation.Arguments...)
+			projected, err := commands.ParsePublicInvocation(item.Command)
+			if err != nil || !invocation.Equivalent(projected) {
+				item.Command = ""
+				item.Invocation = nil
+				continue
+			}
+			bound, err := commands.BindExactLane(invocation, selected, item.Label)
+			if err != nil {
+				item.Command = ""
+				item.Invocation = nil
+				continue
+			}
+			item.Command = selectedLaneCommand(item.Command, selected)
+			if item.Command == "" {
+				item.Invocation = nil
+				continue
+			}
+			projected, err = commands.ParsePublicInvocation(item.Command)
+			if err != nil || !bound.Equivalent(projected) {
+				item.Command = ""
+				item.Invocation = nil
+				continue
+			}
+			item.Invocation = &bound
+		} else {
+			item.Command = selectedLaneCommand(item.Command, selected)
+		}
 		out = append(out, item)
 	}
 	return mission.UniqueCommanderNextActions(out)
@@ -456,14 +538,61 @@ func bindSelectedLaneDriverRequest(request *mission.MissionCommanderDriverReques
 	if request == nil {
 		return
 	}
-	request.Command = selectedLaneCommand(request.Command, selected)
+	if request.Invocation == nil {
+		request.Command = selectedLaneCommand(request.Command, selected)
+	} else {
+		invocation := *request.Invocation
+		invocation.Arguments = append([]string{}, request.Invocation.Arguments...)
+		aliases := selectedLaneCommandAliases(request.Command)
+		projected, err := commands.ParsePublicInvocation(request.Command)
+		if err != nil || !invocation.Equivalent(projected) {
+			selectedLaneDriverRequestProjectionFailed(request, "typed invocation differs from its command projection")
+			return
+		}
+		bound, err := commands.BindExactLane(invocation, selected, aliases...)
+		if err != nil {
+			selectedLaneDriverRequestProjectionFailed(request, err.Error())
+			return
+		}
+		request.Command = selectedLaneCommand(request.Command, selected)
+		if request.Command == "" {
+			selectedLaneDriverRequestProjectionFailed(request, "exact lane rendering failed")
+			return
+		}
+		projected, err = commands.ParsePublicInvocation(request.Command)
+		if err != nil || !bound.Equivalent(projected) {
+			selectedLaneDriverRequestProjectionFailed(request, "exact lane command differs from its typed invocation")
+			return
+		}
+		request.Invocation = &bound
+	}
 	request.ExpectedReceipt.Command = selectedLaneCommand(request.ExpectedReceipt.Command, selected)
 	request.ExpectedReceipt.RefreshStatusCommand = selectedLaneCommand(request.ExpectedReceipt.RefreshStatusCommand, selected)
-	if request.Invocation != nil && request.Command != "" {
-		if invocation, err := commands.ParsePublicInvocation(request.Command); err == nil {
-			request.Invocation = &invocation
-		}
+}
+
+func selectedLaneCommandAliases(command string) []string {
+	fields, err := splitDriverCommand(command)
+	if err != nil {
+		return nil
 	}
+	index, ok := selectedLaneCommandPositionalIndex(fields)
+	if !ok || index >= len(fields) {
+		return nil
+	}
+	return []string{fields[index]}
+}
+
+func selectedLaneDriverRequestProjectionFailed(request *mission.MissionCommanderDriverRequest, reason string) {
+	request.Invocation = nil
+	request.Command = ""
+	request.ExpectedReceipt.Command = ""
+	request.Blocked = true
+	request.RequiresReview = true
+	request.Kind = "blocked-review"
+	request.Guidance = strings.TrimSpace(reason)
+	request.Boundary = mission.UniqueStrings(append(request.Boundary,
+		"selected lane typed command projection failed closed: "+strings.TrimSpace(reason),
+	))
 }
 
 func selectedLaneCommand(command, selected string) string {

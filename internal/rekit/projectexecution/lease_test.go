@@ -38,6 +38,30 @@ func TestSharedLeasesCanCoexist(t *testing.T) {
 	}
 }
 
+func TestValidateExclusiveForRejectsSharedLease(t *testing.T) {
+	caseRoot := currentProjectFixture(t)
+	shared, err := AcquireShared(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shared.Unlock()
+	if err := shared.ValidateExclusiveFor(caseRoot); err == nil || !strings.Contains(err.Error(), "exclusive project execution lease is required") {
+		t.Fatalf("shared lease exclusive validation error = %v", err)
+	}
+}
+
+func TestValidateExclusiveForAcceptsExclusiveLease(t *testing.T) {
+	caseRoot := currentProjectFixture(t)
+	exclusive, err := AcquireExclusive(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exclusive.Unlock()
+	if err := exclusive.ValidateExclusiveFor(caseRoot); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSharedLeaseBlocksExclusive(t *testing.T) {
 	caseRoot := currentProjectFixture(t)
 	shared, err := AcquireShared(caseRoot)

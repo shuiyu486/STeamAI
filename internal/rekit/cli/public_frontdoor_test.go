@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 func TestParsePublicOptions(t *testing.T) {
@@ -120,7 +125,7 @@ func TestPublicSummaryKeepsDiagnosticsOutOfDefaultOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	continueText := continuation.String()
-	if !strings.Contains(continueText, "fresh continue 预览") || !strings.Contains(continueText, "不会自动 Apply") {
+	if !strings.Contains(continueText, "已完成继续前的检查") || !strings.Contains(continueText, "不会自动更改项目") {
 		t.Fatalf("continue summary omitted safety contract: %s", continueText)
 	}
 	if !strings.Contains(continueText, "\n原因：") || !strings.Contains(continueText, "\n下一步：") {
@@ -138,7 +143,7 @@ func TestRunPublicStatusShowsFreshOnboardingChoices(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目尚未完成首次接入", "binary-re，推荐", "web-security"} {
+	for _, expected := range []string{"项目尚未完成首次接入", "binary-re，可直接使用，推荐", "web-security，可直接使用", "ctf，功能骨架，不可直接选择"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("fresh public status omitted %q: %s", expected, text)
 		}
@@ -147,6 +152,197 @@ func TestRunPublicStatusShowsFreshOnboardingChoices(t *testing.T) {
 		if strings.Contains(text, internal) {
 			t.Fatalf("fresh public status leaked internal field %q: %s", internal, text)
 		}
+	}
+
+	out.Reset()
+	if err := RunPublic([]string{"status", "--diagnostics", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	var diagnostics struct {
+		Onboarding struct {
+			PackChoices []struct {
+				ID         string `json:"id"`
+				Maturity   string `json:"maturity"`
+				Selectable bool   `json:"selectable"`
+			} `json:"packChoices"`
+		} `json:"onboarding"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &diagnostics); err != nil {
+		t.Fatal(err)
+	}
+	selectable := map[string]bool{}
+	for _, choice := range diagnostics.Onboarding.PackChoices {
+		selectable[choice.ID] = choice.Selectable
+		if choice.Maturity != "mature" && choice.Selectable {
+			t.Fatalf("non-mature pack is selectable during onboarding: %+v", choice)
+		}
+	}
+	if !selectable["binary-re"] || !selectable["web-security"] || selectable["ctf"] {
+		t.Fatalf("unexpected public onboarding selection policy: %+v", diagnostics.Onboarding.PackChoices)
+	}
+}
+
+func TestRunPublicStatusRequiresGoalForInitializedCurrentProject(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var out bytes.Buffer
+	runInitApplyFromPreview(
+		t,
+		&out,
+		"-Command", "init",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-ProjectName", "public-goal-required",
+	)
+	stateRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	before := snapshotFiles(t, stateRoot)
+
+	out.Reset()
+	if err := RunPublic([]string{"status", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"项目已接入", "缺少当前任务目标", "这个任务的目标", "已固定使用 _template pack", "status 不会自动写入项目"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("initialized current status omitted %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"选择一个 pack", "任务面板", "overview", "-Apply", "/rekit", caseRoot} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("initialized current status leaked or suggested %q: %s", forbidden, text)
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, stateRoot))
+	if _, err := os.Stat(filepath.Join(stateRoot, "board.json")); !os.IsNotExist(err) {
+		t.Fatalf("read-only current status initialized board: %v", err)
+	}
+
+	out.Reset()
+	if err := RunPublic([]string{"status", "--diagnostics", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	var diagnostics struct {
+		Mode       string `json:"mode"`
+		Onboarding struct {
+			State        string `json:"state"`
+			SelectedPack string `json:"selectedPack"`
+			PackChoices  []any  `json:"packChoices"`
+		} `json:"onboarding"`
+		MissionControlRunbook struct {
+			CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+		} `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &diagnostics); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics.Mode != "case-onboarding-required" || diagnostics.Onboarding.State != "absent" || diagnostics.Onboarding.SelectedPack != "_template" || len(diagnostics.Onboarding.PackChoices) != 0 || diagnostics.MissionControlRunbook.CurrentDriverRequest != nil {
+		t.Fatalf("initialized current diagnostics reopened selection or bootstrap: %+v", diagnostics)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, stateRoot))
+}
+
+func TestRunPublicStatusFailsClosedWhenCurrentMissionIntentIsMissingWithBoard(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var out bytes.Buffer
+	runInitApplyFromPreview(
+		t,
+		&out,
+		"-Command", "init",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-ProjectName", "public-intent-conflict",
+	)
+	stateRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	if err := os.WriteFile(filepath.Join(stateRoot, "board.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotFiles(t, stateRoot)
+
+	out.Reset()
+	if err := RunPublic([]string{"status", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"任务信息缺失", "已经有任务面板", "完整状态"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("current lifecycle conflict omitted %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"选择一个 pack", "已固定使用", "可以继续推进", "-Apply", "/rekit", caseRoot} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("current lifecycle conflict leaked or suggested %q: %s", forbidden, text)
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, stateRoot))
+
+	out.Reset()
+	if err := RunPublic([]string{"status", "--diagnostics", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	var diagnostics struct {
+		Mode       string `json:"mode"`
+		Onboarding struct {
+			State        string `json:"state"`
+			SelectedPack string `json:"selectedPack"`
+			PackChoices  []any  `json:"packChoices"`
+		} `json:"onboarding"`
+		MissionControlRunbook struct {
+			CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+		} `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &diagnostics); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics.Mode != "case-onboarding-conflict" || diagnostics.Onboarding.State != "absent" || diagnostics.Onboarding.SelectedPack != "_template" || len(diagnostics.Onboarding.PackChoices) != 0 || diagnostics.MissionControlRunbook.CurrentDriverRequest != nil {
+		t.Fatalf("current lifecycle conflict published a route: %+v", diagnostics)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, stateRoot))
+}
+
+func TestRunPublicStatusExplainsCommittedMissingBoard(t *testing.T) {
+	fixture := publicEntrypointProductFixtures()[0]
+	caseRoot := publicEntrypointProductCase(t, fixture, "public-missing-board")
+	stateRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	before := snapshotFiles(t, stateRoot)
+
+	var out bytes.Buffer
+	if err := RunPublic([]string{"status", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"任务面板尚未建立", "当前项目需要先建立任务面板", "唯一的初始化步骤", "查看状态本身不会写入项目"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing-board public status omitted %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"case-board-missing", "start -Apply", "-Expected", "/rekit", caseRoot} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("missing-board public status leaked %q: %s", forbidden, text)
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, stateRoot))
+	if _, err := os.Stat(filepath.Join(stateRoot, "board.json")); !os.IsNotExist(err) {
+		t.Fatalf("public status initialized missing board: %v", err)
+	}
+
+	out.Reset()
+	if err := RunPublic([]string{"status", "--diagnostics", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	var diagnostics struct {
+		Onboarding struct {
+			State       string `json:"state"`
+			PackChoices []any  `json:"packChoices"`
+		} `json:"onboarding"`
+		MissionControlRunbook struct {
+			CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+		} `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &diagnostics); err != nil {
+		t.Fatal(err)
+	}
+	request := diagnostics.MissionControlRunbook.CurrentDriverRequest
+	if request == nil || request.State != "case-board-missing" || !request.CommandExecutable || request.Blocked || request.Invocation == nil || request.Invocation.Command != commands.Overview || !strings.HasPrefix(request.Command, commands.CurrentPublicEntrypoint+" overview ") || len(diagnostics.Onboarding.PackChoices) != 0 {
+		t.Fatalf("missing-board diagnostics omitted its unique typed bootstrap: onboarding=%+v request=%+v", diagnostics.Onboarding, request)
 	}
 }
 
@@ -159,7 +355,8 @@ func TestPublicStatusSummaryExplainsFreshOnboardingChoices(t *testing.T) {
 			"state":"absent",
 			"packChoices":[
 				{"id":"binary-re","name":"binary-re","maturity":"mature","recommended":true,"selectable":true},
-				{"id":"web-security","name":"web-security","maturity":"mature","selectable":true}
+				{"id":"web-security","name":"web-security","maturity":"mature","selectable":true},
+				{"id":"ctf","name":"ctf","maturity":"skeleton","selectable":false}
 			]
 		},
 		"missionControlRunbook":{}
@@ -168,7 +365,7 @@ func TestPublicStatusSummaryExplainsFreshOnboardingChoices(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目尚未完成首次接入", "告诉主 Agent 你的目标并选择一个 pack", "binary-re，推荐", "web-security"} {
+	for _, expected := range []string{"项目尚未完成首次接入", "告诉主 Agent 你的目标并选择一个 pack", "binary-re，可直接使用，推荐", "web-security，可直接使用", "ctf，功能骨架，不可直接选择"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("fresh onboarding summary omitted %q: %s", expected, text)
 		}
@@ -176,6 +373,33 @@ func TestPublicStatusSummaryExplainsFreshOnboardingChoices(t *testing.T) {
 	for _, internal := range []string{"packChoices", "selectedPack", "mature", "recommended", "selectable"} {
 		if strings.Contains(text, internal) {
 			t.Fatalf("fresh onboarding summary leaked internal choice detail %q: %s", internal, text)
+		}
+	}
+}
+
+func TestPublicStatusSummaryHandlesDetailsRequiredEnvelope(t *testing.T) {
+	var out bytes.Buffer
+	raw := json.RawMessage(`{
+		"command":"status",
+		"state":"details-required",
+		"blocked":true,
+		"detailsRequired":true,
+		"commandExecutable":false,
+		"reason":"compact-output-budget-exceeded",
+		"fullDiagnostics":{"command":"/steamai status -Format json","format":"json"}
+	}`)
+	if err := writePublicInteraction(&out, "status", raw); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"完整情况暂时无法", "当前下一步无法", "完整状态", "不要猜测"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("details-required summary omitted %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"compact-output-budget-exceeded", "-Format json", "commandExecutable", "fullDiagnostics"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("details-required summary leaked %q: %s", forbidden, text)
 		}
 	}
 }
@@ -203,11 +427,11 @@ func TestPublicStatusGuidanceFailsClosedForRefreshAndUnknownStates(t *testing.T)
 		want       string
 		notWant    string
 	}{
-		{name: "fresh ready", state: "ready-to-continue", executable: true, want: "fresh typed action 已就绪"},
-		{name: "needs apply", state: "needs-start-apply", executable: true, want: "fresh typed action 已就绪"},
+		{name: "fresh ready", state: "ready-to-continue", executable: true, want: "可以继续推进"},
+		{name: "needs apply", state: "needs-start-apply", executable: true, want: "可以继续推进"},
 		{name: "refresh", state: "refresh-required", executable: true, want: "先刷新", notWant: "已就绪"},
 		{name: "unknown", state: "future-opaque-state", executable: true, want: "无法安全归类", notWant: "已就绪"},
-		{name: "not executable", state: "ready-to-continue", executable: false, want: "尚未达到可执行状态", notWant: "已就绪"},
+		{name: "not executable", state: "ready-to-continue", executable: false, want: "还不能执行", notWant: "可以继续推进"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reason, next := publicStatusGuidance(test.state, true, test.executable, false)

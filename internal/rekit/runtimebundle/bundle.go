@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"bytes"
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -106,15 +107,53 @@ func SetExecutableSourceForTest(path string) func() {
 
 func SourceExecutable() (string, error) { return executableSource() }
 
+const unifiedExecutablePackage = "github.com/shuiyu486/re-context-kits/cmd/rekit"
+
+func ValidateUnifiedExecutableRole(executable string) error {
+	executable, err := filepath.Abs(strings.TrimSpace(executable))
+	if err != nil {
+		return err
+	}
+	data, err := readStableRegular(executable, "STeamAI unified runtime executable", maxExecutableBytes)
+	if err != nil {
+		return err
+	}
+	return validateUnifiedExecutableSnapshot(executable, data)
+}
+
+func validateUnifiedExecutableSnapshot(executable string, data []byte) error {
+	info, err := buildinfo.Read(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("validate unified runtime executable role for %s: %w", executable, err)
+	}
+	if strings.TrimSpace(info.Path) != unifiedExecutablePackage {
+		return fmt.Errorf(
+			"unified runtime executable role mismatch for %s: got package %q want %q",
+			executable,
+			strings.TrimSpace(info.Path),
+			unifiedExecutablePackage,
+		)
+	}
+	return nil
+}
+
 func Build(repoRoot, pack string) (Plan, error) {
 	executable, err := executableSource()
 	if err != nil {
 		return Plan{}, err
 	}
-	return BuildWithExecutable(repoRoot, pack, executable)
+	return BuildWithUnifiedExecutable(repoRoot, pack, executable)
+}
+
+func BuildWithUnifiedExecutable(repoRoot, pack, executable string) (Plan, error) {
+	return buildWithExecutableRole(repoRoot, pack, executable, true)
 }
 
 func BuildWithExecutable(repoRoot, pack, executable string) (Plan, error) {
+	return buildWithExecutableRole(repoRoot, pack, executable, false)
+}
+
+func buildWithExecutableRole(repoRoot, pack, executable string, requireUnified bool) (Plan, error) {
 	repoRoot, err := filepath.Abs(strings.TrimSpace(repoRoot))
 	if err != nil {
 		return Plan{}, err
@@ -210,6 +249,11 @@ func BuildWithExecutable(repoRoot, pack, executable string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	if requireUnified {
+		if err := validateUnifiedExecutableSnapshot(executable, executableData); err != nil {
+			return Plan{}, err
+		}
+	}
 	executableRel := filepath.ToSlash(filepath.Join("runtime", "bin", executableName()))
 	executableArtifact := artifactFor(executableRel, "runtime-executable", executableData)
 	manifest := Manifest{
@@ -230,7 +274,7 @@ func BuildWithExecutable(repoRoot, pack, executable string) (Plan, error) {
 	}
 	manifestSHA := hash(manifestData)
 	publications = append(publications,
-		Publication{Path: executableRel, Kind: "runtime-executable", SourcePath: executable},
+		Publication{Path: executableRel, Kind: "runtime-executable", Content: append([]byte(nil), executableData...)},
 		Publication{Path: ManifestRel, Kind: "runtime-bundle-manifest", Content: manifestData},
 	)
 	return Plan{Pack: pack, Manifest: manifest, ManifestData: manifestData, ManifestSHA256: manifestSHA, Publications: publications}, nil

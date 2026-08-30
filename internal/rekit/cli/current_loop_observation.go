@@ -197,7 +197,10 @@ func qualifyCurrentLoopObservation(observation *currentLoopObservationEnvelope, 
 		}
 		return nil
 	}
-	expectedReviewerAttempt := currentLoopObservationTemplateValue(matched.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+	expectedReviewerAttempt := strings.TrimSpace(matched.ExpectedReviewerAttemptSHA256)
+	if expectedReviewerAttempt == "" {
+		expectedReviewerAttempt = currentLoopObservationTemplateValue(matched.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+	}
 	if expectedReviewerAttempt == "" || !strings.EqualFold(observation.ReviewerAttemptSHA256, expectedReviewerAttempt) {
 		return fmt.Errorf("run-current-loop observation reviewer attempt does not match checkpoint continuation")
 	}
@@ -446,14 +449,23 @@ func materializeCurrentLoopObservationEnvelopes(caseRoot string, inspection curr
 				envelope.Reason = "<reason>"
 			}
 		case "reviewer-session-accepted":
-			envelope.ReviewerAttemptSHA256 = currentLoopObservationTemplateValue(alternative.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+			envelope.ReviewerAttemptSHA256 = alternative.ExpectedReviewerAttemptSHA256
+			if envelope.ReviewerAttemptSHA256 == "" {
+				envelope.ReviewerAttemptSHA256 = currentLoopObservationTemplateValue(alternative.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+			}
 			envelope.ReviewerHarness = "<harness>"
 			envelope.ReviewerSession = "<session-id>"
 		case "reviewer-result-returned":
-			envelope.ReviewerAttemptSHA256 = currentLoopObservationTemplateValue(alternative.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+			envelope.ReviewerAttemptSHA256 = alternative.ExpectedReviewerAttemptSHA256
+			if envelope.ReviewerAttemptSHA256 == "" {
+				envelope.ReviewerAttemptSHA256 = currentLoopObservationTemplateValue(alternative.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+			}
 			envelope.ReviewerResultSourcePath = "<reviewer-result-source-path>"
 		case "reviewer-session-failed":
-			envelope.ReviewerAttemptSHA256 = currentLoopObservationTemplateValue(alternative.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+			envelope.ReviewerAttemptSHA256 = alternative.ExpectedReviewerAttemptSHA256
+			if envelope.ReviewerAttemptSHA256 == "" {
+				envelope.ReviewerAttemptSHA256 = currentLoopObservationTemplateValue(alternative.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+			}
 			envelope.ReviewerExitStatus = "<exit-status>"
 		default:
 			continue

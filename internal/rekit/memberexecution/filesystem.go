@@ -11,12 +11,15 @@ import (
 )
 
 type anchoredCase struct {
-	path      string
-	root      *os.Root
-	info      os.FileInfo
-	stateDir  string
-	statePath string
-	stateInfo os.FileInfo
+	path                string
+	root                *os.Root
+	info                os.FileInfo
+	statePrefix         string
+	statePath           string
+	stateInfo           os.FileInfo
+	missionGeneration   int
+	missionID           string
+	activePointerSHA256 string
 }
 
 func openAnchoredCase(path string) (*anchoredCase, error) {
@@ -44,33 +47,38 @@ func openAnchoredCase(path string) (*anchoredCase, error) {
 		root.Close()
 		return nil, fmt.Errorf("member execution case root changed while opening: %s", absolute)
 	}
-	stateRoot, err := projectstate.Resolve(absolute)
+	view, err := projectstate.ResolveMissionView(absolute)
 	if err != nil {
 		root.Close()
 		return nil, err
 	}
-	stateBefore, err := root.Lstat(stateRoot.Dir)
+	statePrefix, err := filepath.Rel(absolute, view.Path)
+	if err != nil || filepath.IsAbs(statePrefix) || statePrefix == "." || statePrefix == ".." || strings.HasPrefix(statePrefix, ".."+string(filepath.Separator)) {
+		root.Close()
+		return nil, fmt.Errorf("member execution mission root escapes case root: %s", view.Path)
+	}
+	stateBefore, err := root.Lstat(statePrefix)
 	if err != nil || !stateBefore.IsDir() || stateBefore.Mode()&os.ModeSymlink != 0 {
 		root.Close()
-		return nil, fmt.Errorf("member execution state root must be a non-symlink directory: %s", stateRoot.Path)
+		return nil, fmt.Errorf("member execution mission root must be a non-symlink directory: %s", view.Path)
 	}
-	if err := rejectReparsePath(stateRoot.Path); err != nil {
+	if err := rejectReparsePath(view.Path); err != nil {
 		root.Close()
 		return nil, err
 	}
-	state, err := root.OpenRoot(stateRoot.Dir)
+	state, err := root.OpenRoot(statePrefix)
 	if err != nil {
 		root.Close()
 		return nil, err
 	}
 	stateOpened, stateErr := state.Lstat(".")
 	closeErr := state.Close()
-	stateAfter, afterErr := root.Lstat(stateRoot.Dir)
+	stateAfter, afterErr := root.Lstat(statePrefix)
 	if stateErr != nil || closeErr != nil || afterErr != nil || !os.SameFile(stateBefore, stateOpened) || !os.SameFile(stateOpened, stateAfter) {
 		root.Close()
-		return nil, fmt.Errorf("member execution state root changed while opening: %s", stateRoot.Path)
+		return nil, fmt.Errorf("member execution mission root changed while opening: %s", view.Path)
 	}
-	return &anchoredCase{path: absolute, root: root, info: opened, stateDir: stateRoot.Dir, statePath: stateRoot.Path, stateInfo: stateOpened}, nil
+	return &anchoredCase{path: absolute, root: root, info: opened, statePrefix: statePrefix, statePath: view.Path, stateInfo: stateOpened, missionGeneration: view.Generation, missionID: view.MissionID, activePointerSHA256: view.ActivePointerSHA256}, nil
 }
 
 func (a *anchoredCase) Close() error { return a.root.Close() }
@@ -83,13 +91,13 @@ func (a *anchoredCase) revalidate() error {
 	if err := rejectReparseAncestors(a.path); err != nil {
 		return err
 	}
-	stateRoot, err := projectstate.Resolve(a.path)
+	view, err := projectstate.ResolveMissionView(a.path)
 	if err != nil {
 		return err
 	}
 	stateAfter, err := os.Lstat(a.statePath)
-	if err != nil || stateRoot.Dir != a.stateDir || stateRoot.Path != a.statePath || !stateAfter.IsDir() || stateAfter.Mode()&os.ModeSymlink != 0 || !os.SameFile(a.stateInfo, stateAfter) {
-		return fmt.Errorf("member execution state root identity changed: %s", a.statePath)
+	if err != nil || view.Path != a.statePath || view.Generation != a.missionGeneration || view.MissionID != a.missionID || view.ActivePointerSHA256 != a.activePointerSHA256 || !stateAfter.IsDir() || stateAfter.Mode()&os.ModeSymlink != 0 || !os.SameFile(a.stateInfo, stateAfter) {
+		return fmt.Errorf("member execution active mission root identity changed: %s", a.statePath)
 	}
 	if err := rejectReparsePath(a.statePath); err != nil {
 		return err
@@ -98,7 +106,7 @@ func (a *anchoredCase) revalidate() error {
 }
 
 func (a *anchoredCase) stateRel(parts ...string) string {
-	clean := append([]string{a.stateDir}, parts...)
+	clean := append([]string{a.statePrefix}, parts...)
 	return filepath.Join(clean...)
 }
 

@@ -306,13 +306,14 @@ type CurrentLoopReviewerAgentToolRequest struct {
 }
 
 type CurrentLoopObservationAlternative struct {
-	Kind                        string   `json:"kind"`
-	RequiredFlags               []string `json:"requiredFlags"`
-	PreviewCommandTemplate      string   `json:"previewCommandTemplate"`
-	ObservationEnvelopeTemplate string   `json:"observationEnvelopeTemplate,omitempty"`
-	ObservationPathCommand      string   `json:"observationPathCommand,omitempty"`
-	Transition                  string   `json:"transition,omitempty"`
-	Constraints                 []string `json:"constraints"`
+	Kind                          string   `json:"kind"`
+	RequiredFlags                 []string `json:"requiredFlags"`
+	ExpectedReviewerAttemptSHA256 string   `json:"expectedReviewerAttemptSha256,omitempty"`
+	PreviewCommandTemplate        string   `json:"previewCommandTemplate"`
+	ObservationEnvelopeTemplate   string   `json:"observationEnvelopeTemplate,omitempty"`
+	ObservationPathCommand        string   `json:"observationPathCommand,omitempty"`
+	Transition                    string   `json:"transition,omitempty"`
+	Constraints                   []string `json:"constraints"`
 }
 
 type CurrentLoopObservationContract struct {

@@ -19,6 +19,7 @@ type reopenProductResult struct {
 	ReopenPlanSHA256            string                              `json:"reopenPlanSha256"`
 	PublicationStamp            string                              `json:"publicationStamp"`
 	ApplyCommand                string                              `json:"applyCommand"`
+	ApplyArgs                   []string                            `json:"applyArgs"`
 	OperationSequence           int                                 `json:"operationSequence"`
 	OperationCommit             *reopenProductOperationCommit       `json:"operationCommit"`
 	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
@@ -88,7 +89,7 @@ func TestRunLaneReopenProductPathSupersedesTerminalCompletion(t *testing.T) {
 	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	var preview reopenProductResult
 	runCompletionJSON(t, &out, []string{"-Command", "reopen", "verifier", "-Target", caseRoot, "-Pack", "_template", "-Actor", "main-agent", "-Reason", "post-completion review requires additional verifier evidence", "-EvidenceRefs", ".rekit/reopen-evidence.md", "-WhatIf", "-Format", "json"}, &preview)
-	if preview.Command != "reopen" || preview.Applied || preview.RequestedLane != "feature-verifier" || preview.OperationSequence != 1 || len(preview.ReopenPlanSHA256) != 64 || preview.PublicationStamp == "" || !strings.Contains(preview.ApplyCommand, "-ReopenPublicationStamp "+preview.PublicationStamp) || !strings.Contains(preview.ApplyCommand, "-ExpectedReopenPlanSha256 "+preview.ReopenPlanSHA256) {
+	if preview.Command != "reopen" || preview.Applied || preview.RequestedLane != "feature-verifier" || preview.OperationSequence != 1 || len(preview.ReopenPlanSHA256) != 64 || preview.PublicationStamp == "" || !strings.Contains(preview.ApplyCommand, "-ReopenPublicationStamp "+preview.PublicationStamp) || !strings.Contains(preview.ApplyCommand, "-ExpectedReopenPlanSha256 "+preview.ReopenPlanSHA256) || len(preview.ApplyArgs) == 0 {
 		t.Fatalf("compound reopen preview is not exact hash-bound: %+v", preview)
 	}
 	if len(preview.EffectiveTargets) != 2 || preview.EffectiveTargets[0].Lane.ID != "feature-verifier" || preview.EffectiveTargets[1].Lane.ID != "main" {
@@ -102,8 +103,7 @@ func TestRunLaneReopenProductPathSupersedesTerminalCompletion(t *testing.T) {
 	assertSnapshotEqual(t, beforePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
 	var applied reopenProductResult
-	args := append(rekitCommandCLIArgs(t, preview.ApplyCommand), "-Target", caseRoot, "-Pack", "_template")
-	runCompletionJSON(t, &out, args, &applied)
+	runCompletionJSON(t, &out, preview.ApplyArgs, &applied)
 	if !applied.Applied || applied.OperationCommit == nil || applied.OperationCommit.State != "committed" || applied.OperationCommit.Sequence != 1 || !applied.OperationCommit.NoAuthority || !applied.OperationCommit.NoConfirmed || !applied.OperationCommit.NoHeavyTool || !applied.OperationCommit.NoAutoResume {
 		t.Fatalf("compound reopen did not publish a truthful final operation commit: %+v", applied)
 	}

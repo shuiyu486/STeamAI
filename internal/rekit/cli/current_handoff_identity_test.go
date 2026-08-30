@@ -26,6 +26,25 @@ func TestRunCurrentHandoffPublishesFreshFinalDriverRequest(t *testing.T) {
 		"-ProjectName", "current-handoff-identity",
 	)
 
+	onboardArgs := []string{
+		"-Command", "onboard", "-Target", caseRoot, "-Pack", "_template",
+		"-ProjectName", "current-handoff-identity", "-Goal", "publish a fresh current handoff",
+		"-Actor", "mission-commander", "-Executor", "current-handoff-executor",
+		"-InitialLane", "feature-login", "-WhatIf", "-Format", "json",
+	}
+	out.Reset()
+	if err := Run(onboardArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var onboard onboardCLIPlan
+	if err := json.Unmarshal(out.Bytes(), &onboard); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(onboard.ApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+
 	out.Reset()
 	if err := Run([]string{
 		"-Command", "start",
@@ -185,6 +204,24 @@ func TestStatusProjectsCaseCommandsToSelectedEntrypoint(t *testing.T) {
 					"-Pack", "_template",
 					"-ProjectName", "current-command-projection",
 				)
+				onboardArgs := []string{
+					"-Command", "onboard", "-Target", caseRoot, "-Pack", "_template",
+					"-ProjectName", "current-command-projection", "-Goal", "project current commands",
+					"-Actor", "mission-commander", "-Executor", "current-command-projection-executor",
+					"-InitialLane", "feature-login", "-WhatIf", "-Format", "json",
+				}
+				out.Reset()
+				if err := Run(onboardArgs, &out); err != nil {
+					t.Fatal(err)
+				}
+				var onboard onboardCLIPlan
+				if err := json.Unmarshal(out.Bytes(), &onboard); err != nil {
+					t.Fatal(err)
+				}
+				out.Reset()
+				if err := Run(onboard.ApplyArgs, &out); err != nil {
+					t.Fatal(err)
+				}
 				return caseRoot
 			},
 		},

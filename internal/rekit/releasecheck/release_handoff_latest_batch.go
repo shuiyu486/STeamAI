@@ -327,10 +327,17 @@ func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBa
 }
 
 func defaultReleaseHandoffGitCommand(repo string, args ...string) (int, string, error) {
+	return releaseHandoffGitCommandWithEnv(repo, nil, args...)
+}
+
+func releaseHandoffGitCommandWithEnv(repo string, env []string, args ...string) (int, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repo
+	if env != nil {
+		cmd.Env = env
+	}
 	stdout, stderr, err := processguard.RunTreeOutputs(
 		ctx,
 		cmd,

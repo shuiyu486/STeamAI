@@ -2,11 +2,110 @@ package adapterhost
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 )
+
+func TestRunLiveAcceptanceRejectsAcceptanceOnlyRuntimeBeforeCaseCreation(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve adapterhost test source")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "adapter-acceptance-role-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	acceptanceOnly := filepath.Join(t.TempDir(), name)
+	build := exec.Command("go", "build", "-o", acceptanceOnly, "./cmd/rekit-adapter-acceptance")
+	build.Dir = repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build adapter acceptance-only image: %v\n%s", err, output)
+	}
+	receiptPath := filepath.Join(t.TempDir(), "receipt.json")
+	result, err := RunLiveAcceptance(LiveAcceptanceOptions{
+		RepoRoot: repoRoot, AdapterPath: acceptanceOnly,
+		RuntimePath: acceptanceOnly, ReceiptPath: receiptPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unified runtime executable role mismatch") {
+		t.Fatalf("acceptance-only runtime result=%+v err=%v", result, err)
+	}
+	if result.CaseRoot != "" || result.Cleanup != "pending" {
+		t.Fatalf("acceptance-only runtime crossed case creation: %+v", result)
+	}
+	if _, err := os.Lstat(receiptPath); !os.IsNotExist(err) {
+		t.Fatalf("acceptance-only runtime wrote receipt: %v", err)
+	}
+}
+
+func TestRunLiveAcceptancePublishesRunnableUnifiedRuntimeBeforeAdapterExecution(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve adapterhost test source")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "steamai-adapter-acceptance-runtime-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	runtimePath := filepath.Join(t.TempDir(), name)
+	build := exec.Command("go", "build", "-o", runtimePath, "./cmd/rekit")
+	build.Dir = repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build unified adapter acceptance runtime: %v\n%s", err, output)
+	}
+
+	stopAfterInit := "stop after verifying published adapter acceptance runtime"
+	result, err := RunLiveAcceptance(LiveAcceptanceOptions{
+		RepoRoot: repoRoot, AdapterPath: runtimePath,
+		RuntimePath: runtimePath, ReceiptPath: filepath.Join(t.TempDir(), "receipt.json"),
+		testHooks: &liveAcceptanceTestHooks{afterInit: func(caseRoot string) error {
+			projectExecutable := filepath.Join(
+				caseRoot, ".steamai", "runtime", "bin",
+				runtimebundle.ExecutableName(),
+			)
+			for _, command := range []string{"help", "status"} {
+				cmd := exec.Command(projectExecutable, command)
+				cmd.Dir = caseRoot
+				output, runErr := cmd.CombinedOutput()
+				if runErr != nil {
+					return fmt.Errorf("published adapter acceptance runtime %s: %w: %s", command, runErr, output)
+				}
+				want := "STeamAI public commands:"
+				if command == "status" {
+					want = "现在："
+				}
+				if !strings.Contains(string(output), want) {
+					return fmt.Errorf("published adapter acceptance runtime %s omitted %q: %s", command, want, output)
+				}
+			}
+			return errors.New(stopAfterInit)
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), stopAfterInit) {
+		t.Fatalf("adapter acceptance did not reach runtime verification hook: result=%+v err=%v", result, err)
+	}
+	if result.CaseRoot == "" || result.Cleanup != "removed" {
+		t.Fatalf("runtime verification fixture was not safely removed: %+v", result)
+	}
+	if _, err := os.Lstat(result.CaseRoot); !os.IsNotExist(err) {
+		t.Fatalf("runtime verification case still exists: %v", err)
+	}
+}
 
 func TestValidateLiveAdapterResultRejectsForgedProcessAndProvenance(t *testing.T) {
 	result := Result{
@@ -39,7 +138,7 @@ func TestRunLiveAcceptanceRejectsRepositoryReceiptBeforeCaseCreation(t *testing.
 		t.Fatal(err)
 	}
 	receiptPath := filepath.Join(repoRoot, "receipt.json")
-	result, err := RunLiveAcceptance(LiveAcceptanceOptions{RepoRoot: repoRoot, AdapterPath: adapterPath, ReceiptPath: receiptPath})
+	result, err := RunLiveAcceptance(LiveAcceptanceOptions{RepoRoot: repoRoot, AdapterPath: adapterPath, RuntimePath: adapterPath, ReceiptPath: receiptPath})
 	if err == nil || !strings.Contains(err.Error(), "outside the repository") {
 		t.Fatalf("repository receipt path should fail closed: result=%+v err=%v", result, err)
 	}

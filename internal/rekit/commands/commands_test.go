@@ -75,10 +75,6 @@ func TestPublicCommandProfiles(t *testing.T) {
 }
 
 func TestPublicCommandHandlerCoverageHelpers(t *testing.T) {
-	symbols := SymbolValues()
-	if len(symbols) != len(Public()) || symbols["Complete"] != "complete" || symbols["Control"] != "control" || symbols["MigrateState"] != "migrate-state" || symbols["PlanSubagents"] != "plan-subagents" || symbols["ReleaseCheck"] != "release-check" || symbols["RunCurrentLoop"] != "run-current-loop" || symbols["RunCurrentStep"] != "run-current-step" || symbols["RunDriverStep"] != "run-driver-step" || symbols["RunReviewerStep"] != "run-reviewer-step" || symbols["RunReviewerWave"] != "run-reviewer-wave" {
-		t.Fatalf("unexpected public command symbols: %+v", symbols)
-	}
 	if missing := MissingPublicHandlers([]string{"status", "packs", "unknown"}); !slices.Contains(missing, "release-check") || slices.Contains(missing, "unknown") {
 		t.Fatalf("unexpected missing handler coverage: %v", missing)
 	}

@@ -507,11 +507,11 @@ func validatedHandoffCurrentDriverRequest(caseRoot, expectedLane string, request
 	if err := mission.ValidateMissionCommanderDriverRequest(*clone); err != nil {
 		return nil, fmt.Errorf("handoff current driver request is invalid: %w", err)
 	}
-	target, present, valid := handoffInvocationFlagValue(*clone.Invocation, "-Target", "--target")
+	target, present, valid := clone.Invocation.FlagValue("-Target", "--target")
 	if !present || !valid || !refsf.SamePath(target, caseRoot) {
 		return nil, fmt.Errorf("handoff current driver request -Target must bind to the attached project")
 	}
-	invocationLane, present, valid := handoffInvocationFlagValue(*clone.Invocation, "-Lane", "--lane")
+	invocationLane, present, valid := clone.Invocation.FlagValue("-Lane", "--lane")
 	requestLane := strings.TrimSpace(clone.Lane)
 	if !present || !valid || requestLane == "" || invocationLane != requestLane {
 		return nil, fmt.Errorf("handoff current driver request must bind one exact -Lane to request.lane")
@@ -570,44 +570,21 @@ func cloneHandoffCurrentDriverRequest(request *mission.MissionCommanderDriverReq
 	return &clone
 }
 
-func handoffInvocationFlagValue(invocation commands.PublicInvocation, names ...string) (string, bool, bool) {
-	value := ""
-	present := false
-	for index, argument := range invocation.Arguments {
-		matched := false
-		for _, name := range names {
-			if strings.EqualFold(argument, name) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		if present || index+1 >= len(invocation.Arguments) || strings.TrimSpace(invocation.Arguments[index+1]) == "" || strings.HasPrefix(strings.TrimSpace(invocation.Arguments[index+1]), "-") {
-			return "", true, false
-		}
-		present = true
-		value = strings.TrimSpace(invocation.Arguments[index+1])
-	}
-	return value, present, true
-}
-
 func validateHandoffStatusRefreshCommand(caseRoot, expectedLane, command string) (string, error) {
 	command = strings.TrimSpace(command)
 	invocation, err := commands.ParsePublicInvocation(command)
 	if err != nil || invocation.Command != commands.Status {
 		return "", fmt.Errorf("handoff current driver request requires a typed status refresh command")
 	}
-	target, present, valid := handoffInvocationFlagValue(invocation, "-Target", "--target")
+	target, present, valid := invocation.FlagValue("-Target", "--target")
 	if !present || !valid || !refsf.SamePath(target, caseRoot) {
 		return "", fmt.Errorf("handoff status refresh command must bind -Target to the attached project")
 	}
-	lane, present, valid := handoffInvocationFlagValue(invocation, "-Lane", "--lane")
+	lane, present, valid := invocation.FlagValue("-Lane", "--lane")
 	if !present || !valid || lane != strings.TrimSpace(expectedLane) {
 		return "", fmt.Errorf("handoff status refresh command must bind the exact current driver request -Lane")
 	}
-	format, present, valid := handoffInvocationFlagValue(invocation, "-Format", "--format")
+	format, present, valid := invocation.FlagValue("-Format", "--format")
 	if !present || !valid || !strings.EqualFold(format, "compact-json") {
 		return "", fmt.Errorf("handoff status refresh command must use -Format compact-json")
 	}
@@ -1400,42 +1377,65 @@ func (ctx handoffContext) renderPublication(apply bool) (string, []StartWrite, e
 }
 
 func (ctx handoffContext) publicationInputIdentity() ([]handoffPublicationInputIdentity, error) {
-	stateRoot, err := projectstate.Resolve(ctx.inst.CaseRoot)
+	view, err := projectstate.ResolveMissionView(ctx.inst.CaseRoot)
 	if err != nil {
 		return nil, err
 	}
-	root := stateRoot.Path
 	inputs := []handoffPublicationInputIdentity{}
-	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if info.IsDir() {
-			if rel == "handovers" || rel == "locks" {
-				return filepath.SkipDir
+	appendTree := func(root, prefix string, skip map[string]bool) error {
+		return filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
 			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			rel = filepath.ToSlash(rel)
+			if info.IsDir() {
+				if rel != "." && skip[rel] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.HasSuffix(rel, "/prompts/RESUME.md") || strings.HasSuffix(rel, "/checkpoints/latest.json") {
+				return nil
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("handoff publication input is not a regular file: %s", rel)
+			}
+			data, err := readStableHandoffPublicationInput(path, info)
+			if err != nil {
+				return err
+			}
+			stored := filepath.ToSlash(filepath.Join(prefix, filepath.FromSlash(rel)))
+			sum := sha256.Sum256(data)
+			inputs = append(inputs, handoffPublicationInputIdentity{Path: stored, SHA256: hex.EncodeToString(sum[:]), Bytes: len(data)})
 			return nil
+		})
+	}
+	if err := appendTree(view.Path, "", map[string]bool{"handovers": true, "locks": true}); err != nil {
+		return nil, err
+	}
+	if view.Generation > 1 {
+		for _, name := range []string{"instance.yml", "project-binding.json"} {
+			path := filepath.Join(view.Root.Path, name)
+			info, statErr := os.Lstat(path)
+			if os.IsNotExist(statErr) {
+				continue
+			}
+			if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+				return nil, fmt.Errorf("handoff project identity input must be a regular file: %s: %w", path, statErr)
+			}
+			data, readErr := readStableHandoffPublicationInput(path, info)
+			if readErr != nil {
+				return nil, readErr
+			}
+			sum := sha256.Sum256(data)
+			inputs = append(inputs, handoffPublicationInputIdentity{Path: name, SHA256: hex.EncodeToString(sum[:]), Bytes: len(data)})
 		}
-		if strings.HasSuffix(rel, "/prompts/RESUME.md") || strings.HasSuffix(rel, "/checkpoints/latest.json") {
-			return nil
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("handoff publication input is not a regular file: %s", rel)
-		}
-		data, err := readStableHandoffPublicationInput(path, info)
-		if err != nil {
-			return err
-		}
-		sum := sha256.Sum256(data)
-		inputs = append(inputs, handoffPublicationInputIdentity{Path: rel, SHA256: hex.EncodeToString(sum[:]), Bytes: len(data)})
-		return nil
-	})
-	if err != nil {
+	}
+	if err := view.ValidateCurrent(ctx.inst.CaseRoot); err != nil {
 		return nil, err
 	}
 	sort.Slice(inputs, func(i, j int) bool { return inputs[i].Path < inputs[j].Path })
@@ -1443,7 +1443,7 @@ func (ctx handoffContext) publicationInputIdentity() ([]handoffPublicationInputI
 }
 
 func readStableHandoffPublicationInput(path string, before os.FileInfo) ([]byte, error) {
-	if before == nil || !before.Mode().IsRegular() {
+	if before == nil || !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("handoff publication input must be a regular file: %s", path)
 	}
 	file, err := os.Open(path)
@@ -1615,15 +1615,48 @@ func bindHandoffLaneDriverRequest(request *mission.MissionCommanderDriverRequest
 		return
 	}
 	request.Lane = laneID
-	request.Command = handoffLaneCommand(request.Command, laneID, laneLabel)
+	if request.Invocation != nil {
+		invocation := *request.Invocation
+		invocation.Arguments = append([]string{}, request.Invocation.Arguments...)
+		projected, err := commands.ParsePublicInvocation(request.Command)
+		if err != nil || !invocation.Equivalent(projected) {
+			handoffLaneDriverRequestProjectionFailed(request, "typed invocation differs from its command projection")
+			return
+		}
+		bound, err := commands.BindExactLane(invocation, laneID, laneLabel)
+		if err != nil {
+			handoffLaneDriverRequestProjectionFailed(request, err.Error())
+			return
+		}
+		request.Command = handoffLaneCommand(request.Command, laneID, laneLabel)
+		if request.Command == "" {
+			handoffLaneDriverRequestProjectionFailed(request, "exact lane rendering failed")
+			return
+		}
+		projected, err = commands.ParsePublicInvocation(request.Command)
+		if err != nil || !bound.Equivalent(projected) {
+			handoffLaneDriverRequestProjectionFailed(request, "exact lane command differs from its typed invocation")
+			return
+		}
+		request.Invocation = &bound
+	} else {
+		request.Command = handoffLaneCommand(request.Command, laneID, laneLabel)
+	}
 	request.ExpectedReceipt.Command = handoffLaneCommand(request.ExpectedReceipt.Command, laneID, laneLabel)
 	request.ExpectedReceipt.RefreshStatusCommand = handoffLaneStatusCommand(request.ExpectedReceipt.RefreshStatusCommand, laneID)
-	if request.Command != "" {
-		invocation, err := commands.ParsePublicInvocation(request.Command)
-		if err == nil {
-			request.Invocation = &invocation
-		}
-	}
+}
+
+func handoffLaneDriverRequestProjectionFailed(request *mission.MissionCommanderDriverRequest, reason string) {
+	request.Invocation = nil
+	request.Command = ""
+	request.ExpectedReceipt.Command = ""
+	request.Blocked = true
+	request.RequiresReview = true
+	request.Kind = "blocked-review"
+	request.Guidance = strings.TrimSpace(reason)
+	request.Boundary = mission.UniqueStrings(append(request.Boundary,
+		"handoff lane typed command projection failed closed: "+strings.TrimSpace(reason),
+	))
 }
 
 func handoffLaneStatusCommand(command, laneID string) string {
@@ -1653,13 +1686,48 @@ func handoffLaneStatusCommand(command, laneID string) string {
 
 func bindHandoffLaneActionQueue(queue mission.MissionCommanderActionQueue, laneID, laneLabel string) mission.MissionCommanderActionQueue {
 	bind := func(item mission.MissionCommanderNextActionItem) mission.MissionCommanderNextActionItem {
-		item.Command = handoffLaneCommand(item.Command, laneID, laneLabel)
-		if item.Command != "" {
-			invocation, err := commands.ParsePublicInvocation(item.Command)
-			if err == nil {
-				item.Invocation = &invocation
+		if item.Invocation != nil {
+			invocation := *item.Invocation
+			invocation.Arguments = append([]string{}, item.Invocation.Arguments...)
+			projected, err := commands.ParsePublicInvocation(item.Command)
+			if err != nil || !invocation.Equivalent(projected) {
+				item.Invocation = nil
+				item.Command = ""
+				item.Blocked = true
+				item.RequiresReview = true
+				item.Reasons = mission.UniqueStrings(append(item.Reasons, "typed invocation differs from its command projection"))
+				return item
 			}
+			bound, err := commands.BindExactLane(invocation, laneID, laneLabel)
+			if err != nil {
+				item.Invocation = nil
+				item.Command = ""
+				item.Blocked = true
+				item.RequiresReview = true
+				item.Reasons = mission.UniqueStrings(append(item.Reasons, err.Error()))
+				return item
+			}
+			item.Command = handoffLaneCommand(item.Command, laneID, laneLabel)
+			if item.Command == "" {
+				item.Invocation = nil
+				item.Blocked = true
+				item.RequiresReview = true
+				item.Reasons = mission.UniqueStrings(append(item.Reasons, "exact lane rendering failed"))
+				return item
+			}
+			projected, err = commands.ParsePublicInvocation(item.Command)
+			if err != nil || !bound.Equivalent(projected) {
+				item.Invocation = nil
+				item.Command = ""
+				item.Blocked = true
+				item.RequiresReview = true
+				item.Reasons = mission.UniqueStrings(append(item.Reasons, "exact lane command differs from its typed invocation"))
+				return item
+			}
+			item.Invocation = &bound
+			return item
 		}
+		item.Command = handoffLaneCommand(item.Command, laneID, laneLabel)
 		return item
 	}
 	items := make([]mission.MissionCommanderNextActionItem, 0, len(queue.UnblockedActions)+len(queue.BlockedActions))

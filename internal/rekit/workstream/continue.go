@@ -29,6 +29,8 @@ import (
 
 const continuePreviewRunID = "run-preview"
 
+var continueRequestAfterComponentHook func(string) error
+
 type ContinueOptions struct {
 	Selector                   string
 	ExactSelector              bool
@@ -246,6 +248,10 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	rawEvents, err = normalizeContinueRawEvents(ctx, rawEvents)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	return continuePreviewFromSnapshot(ctx, known, inputs, packets, rawEvents)
 }
 
@@ -304,6 +310,7 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 			"use /rekit as the Mission Commander entrypoint; JSON preview and explicit apply are Go-owned by default",
 		},
 	}
+	plannedRequestRoutes := map[string]string{}
 	for _, raw := range rawEvents {
 		event := copyEvent(raw)
 		event["lane"] = ctx.lane.ID
@@ -312,11 +319,24 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 			id = generatedEventID(ctx.lane.ID, event)
 			event["eventId"] = id
 		}
-		if known[id] {
+		requestState, err := ctx.requestState(event)
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		semanticKey := continueRequestSemanticKey(ctx, event)
+		if semanticKey != "" && requestState.RoutedExpected && !requestState.RouteSatisfied && !requestState.Task && !requestState.Inbox {
+			if routedBy := plannedRequestRoutes[semanticKey]; routedBy != "" && routedBy != id {
+				requestState.RouteSatisfied = true
+				requestState.RouteSatisfiedByEventID = routedBy
+			} else {
+				plannedRequestRoutes[semanticKey] = id
+			}
+		}
+		if known[id] && !requestState.incompleteRequest() {
 			result.Summary.Skipped++
 			continue
 		}
-		preview, err := ctx.previewEvent(event)
+		preview, err := ctx.previewEventWithRequestState(event, requestState)
 		if err != nil {
 			return ContinueResult{}, err
 		}
@@ -495,6 +515,10 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	rawEvents, err = normalizeContinueRawEvents(ctx, rawEvents)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	preview, err := continuePreviewFromSnapshot(ctx, known, inputs, packets, rawEvents)
 	if err != nil {
 		return ContinueResult{}, err
@@ -542,6 +566,12 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 	if err := os.MkdirAll(runRoot, 0o755); err != nil {
 		return ContinueResult{}, err
 	}
+	plannedRequestPreviews := map[string]ContinueEventPreview{}
+	for _, eventPreview := range preview.Events {
+		if eventPreview.Kind == "request" {
+			plannedRequestPreviews[eventPreview.EventID] = eventPreview
+		}
+	}
 	result = ContinueResult{
 		SchemaVersion:        1,
 		Command:              "continue",
@@ -577,7 +607,11 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 			id = generatedEventID(ctx.lane.ID, event)
 			event["eventId"] = id
 		}
-		if known[id] {
+		requestState, err := ctx.requestState(event)
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		if known[id] && !requestState.incompleteRequest() {
 			result.Summary.Skipped++
 			continue
 		}
@@ -587,9 +621,16 @@ func ContinueApplyValidated(repoRoot, caseRoot, pack string, opt ContinueOptions
 		if strings.TrimSpace(stringFrom(event, "batchId")) == "" {
 			event["batchId"] = batchID
 		}
-		preview, err := ctx.previewEvent(event)
+		preview, err := ctx.previewEventWithRequestState(event, requestState)
 		if err != nil {
 			return ContinueResult{}, err
+		}
+		if preview.Kind == "request" {
+			planned, ok := plannedRequestPreviews[id]
+			if !ok {
+				return ContinueResult{}, fmt.Errorf("continue request %s is missing from the validated preview", id)
+			}
+			preview = planned
 		}
 		if preview.AuthorityFile != "" && preview.Decision == "accept" {
 			preview.Decision = "defer"
@@ -1550,7 +1591,408 @@ func continueCommand(parts ...string) string {
 	return strings.Join(out, " ")
 }
 
+type continueRequestState struct {
+	Request                 bool
+	Task                    bool
+	Inbox                   bool
+	Decision                bool
+	RoutedExpected          bool
+	RouteSatisfied          bool
+	RouteSatisfiedByEventID string
+	SemanticTaskEventID     string
+	SemanticInboxEventID    string
+	IdentitySHA256          string
+	DurableContract         bool
+	RequestEvent            map[string]any
+}
+
+func (state continueRequestState) incompleteRequest() bool {
+	return (state.Request || state.Task || state.Inbox || state.Decision) && !state.complete()
+}
+
+func (state continueRequestState) complete() bool {
+	if !state.Request || !state.Decision {
+		return false
+	}
+	return !state.RoutedExpected || state.RouteSatisfied || (state.Task && state.Inbox)
+}
+
+func continueRequestTargetLane(ctx continueContext, event map[string]any) string {
+	targetLane := stringFrom(event, "targetLane")
+	if targetLane == "" {
+		targetLane = ctx.manifest.WorkstreamDefaults["requestDefaultTargetLane"]
+	}
+	return strings.TrimSpace(targetLane)
+}
+
+func continueRequestIdentity(event map[string]any) map[string]any {
+	return map[string]any{
+		"schemaVersion": event["schemaVersion"],
+		"eventId":       strings.TrimSpace(stringFrom(event, "eventId")),
+		"kind":          strings.ToLower(strings.TrimSpace(stringFrom(event, "kind"))),
+		"lane":          strings.TrimSpace(stringFrom(event, "lane")),
+		"requestId":     strings.TrimSpace(stringFrom(event, "requestId")),
+		"targetLane":    strings.TrimSpace(stringFrom(event, "targetLane")),
+		"subject":       strings.TrimSpace(stringFrom(event, "subject")),
+		"summary":       strings.TrimSpace(stringFrom(event, "summary")),
+	}
+}
+
+func continueRequestIdentitySHA256(event map[string]any) (string, error) {
+	data, err := json.Marshal(continueRequestIdentity(event))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func continueRequestSemanticKey(_ continueContext, event map[string]any) string {
+	requestID := strings.TrimSpace(stringFrom(event, "requestId"))
+	sourceLane := strings.TrimSpace(stringFrom(event, "lane"))
+	if requestID == "" || sourceLane == "" {
+		return ""
+	}
+	return sourceLane + "\x00" + requestID
+}
+
+func continueSemanticRoutedComponent(items []map[string]any, event map[string]any, component string) (string, map[string]any, error) {
+	requestID := strings.TrimSpace(stringFrom(event, "requestId"))
+	sourceLane := strings.TrimSpace(stringFrom(event, "lane"))
+	if requestID == "" || sourceLane == "" {
+		return "", nil, nil
+	}
+	var matched map[string]any
+	for _, item := range items {
+		if strings.TrimSpace(stringFrom(item, "requestId")) != requestID ||
+			strings.TrimSpace(stringFrom(item, "sourceLane")) != sourceLane {
+			continue
+		}
+		if matched != nil {
+			return "", nil, fmt.Errorf("request %s from lane %s has duplicate semantic %s records", requestID, sourceLane, component)
+		}
+		matched = item
+	}
+	if matched == nil {
+		return "", nil, nil
+	}
+	return strings.TrimSpace(stringFrom(matched, "eventId")), matched, nil
+}
+
+type continueSemanticRoute struct {
+	TargetLane string
+	EventID    string
+}
+
+func findContinueSemanticRoute(caseRoot string, event map[string]any) (continueSemanticRoute, error) {
+	if strings.TrimSpace(stringFrom(event, "requestId")) == "" || strings.TrimSpace(stringFrom(event, "lane")) == "" {
+		return continueSemanticRoute{}, nil
+	}
+	board, err := readBoard(caseRoot)
+	if err != nil {
+		return continueSemanticRoute{}, err
+	}
+	var found continueSemanticRoute
+	for _, boardLane := range board.Lanes {
+		lane, err := readLaneByID(caseRoot, boardLane.ID)
+		if err != nil {
+			return continueSemanticRoute{}, err
+		}
+		laneRoot, err := laneRootPath(caseRoot, lane)
+		if err != nil {
+			return continueSemanticRoute{}, err
+		}
+		tasks, err := mission.ReadJSONLineObjects(LaneTasksJSONLPath(laneRoot))
+		if err != nil {
+			return continueSemanticRoute{}, err
+		}
+		taskEventID, task, err := continueSemanticRoutedComponent(tasks, event, "target task")
+		if err != nil {
+			return continueSemanticRoute{}, err
+		}
+		inbox, err := mission.ReadJSONLineObjects(LaneInboxJSONLPath(laneRoot))
+		if err != nil {
+			return continueSemanticRoute{}, err
+		}
+		inboxEventID, inboxEvent, err := continueSemanticRoutedComponent(inbox, event, "target inbox")
+		if err != nil {
+			return continueSemanticRoute{}, err
+		}
+		if taskEventID == "" && inboxEventID == "" {
+			continue
+		}
+		if taskEventID == "" || inboxEventID == "" || taskEventID != inboxEventID {
+			partialEventID := firstText(taskEventID, inboxEventID)
+			if partialEventID != strings.TrimSpace(stringFrom(event, "eventId")) {
+				return continueSemanticRoute{}, fmt.Errorf("request %s from lane %s has an incomplete semantic route predecessor", stringFrom(event, "requestId"), stringFrom(event, "lane"))
+			}
+			if found.EventID != "" {
+				return continueSemanticRoute{}, fmt.Errorf("request %s from lane %s has multiple semantic routes", stringFrom(event, "requestId"), stringFrom(event, "lane"))
+			}
+			found = continueSemanticRoute{TargetLane: lane.ID, EventID: partialEventID}
+			continue
+		}
+		if err := validateContinueSemanticRoutePair(task, inboxEvent, lane.ID); err != nil {
+			return continueSemanticRoute{}, err
+		}
+		if found.EventID != "" {
+			return continueSemanticRoute{}, fmt.Errorf("request %s from lane %s has multiple semantic routes", stringFrom(event, "requestId"), stringFrom(event, "lane"))
+		}
+		found = continueSemanticRoute{TargetLane: lane.ID, EventID: taskEventID}
+	}
+	return found, nil
+}
+
+func continueSemanticRequestPredecessor(requestFacts, decisions []map[string]any, event map[string]any) (string, string, error) {
+	requestID := strings.TrimSpace(stringFrom(event, "requestId"))
+	sourceLane := strings.TrimSpace(stringFrom(event, "lane"))
+	currentEventID := strings.TrimSpace(stringFrom(event, "eventId"))
+	if requestID == "" || sourceLane == "" {
+		return "", "", nil
+	}
+	predecessorID := ""
+	predecessorTarget := ""
+	for _, fact := range requestFacts {
+		if strings.TrimSpace(stringFrom(fact, "requestId")) != requestID ||
+			strings.TrimSpace(stringFrom(fact, "lane")) != sourceLane ||
+			!boolFrom(fact, "routeExpected") {
+			continue
+		}
+		factEventID := strings.TrimSpace(stringFrom(fact, "eventId"))
+		if factEventID == "" || factEventID == currentEventID {
+			continue
+		}
+		decision, _, err := continueExactEventComponent(decisions, factEventID, "decision fact")
+		if err != nil {
+			return "", "", err
+		}
+		if decision {
+			continue
+		}
+		factTarget := strings.TrimSpace(stringFrom(fact, "targetLane"))
+		if predecessorID != "" && predecessorID != factEventID {
+			return "", "", fmt.Errorf("request %s from lane %s has multiple durable semantic route predecessors", requestID, sourceLane)
+		}
+		predecessorID = factEventID
+		predecessorTarget = factTarget
+	}
+	return predecessorID, predecessorTarget, nil
+}
+
+func validateContinueSemanticRoutePair(task, inbox map[string]any, targetLane string) error {
+	if task == nil || inbox == nil {
+		return nil
+	}
+	for _, key := range []string{"eventId", "requestId", "sourceLane", "summary"} {
+		if strings.TrimSpace(stringFrom(task, key)) != strings.TrimSpace(stringFrom(inbox, key)) {
+			return fmt.Errorf("semantic routed request task and inbox %s bindings differ", key)
+		}
+	}
+	for _, component := range []map[string]any{task, inbox} {
+		if componentTarget := strings.TrimSpace(stringFrom(component, "targetLane")); componentTarget != "" && componentTarget != targetLane {
+			return fmt.Errorf("semantic routed request component target does not match lane %s", targetLane)
+		}
+	}
+	return nil
+}
+
+func (ctx continueContext) requestState(event map[string]any) (continueRequestState, error) {
+	state := continueRequestState{}
+	if !strings.EqualFold(strings.TrimSpace(stringFrom(event, "kind")), "request") {
+		return state, nil
+	}
+	eventID := strings.TrimSpace(stringFrom(event, "eventId"))
+	if eventID == "" {
+		return state, nil
+	}
+	requestFacts, err := mission.ReadFact(ctx.inst.CaseRoot, "request")
+	if err != nil {
+		return state, err
+	}
+	state.Request, state.RequestEvent, err = continueExactEventComponent(requestFacts, eventID, "request fact")
+	if err != nil {
+		return continueRequestState{}, err
+	}
+	currentTarget := continueRequestTargetLane(ctx, event)
+	event["targetLane"] = currentTarget
+	currentIdentitySHA256, err := continueRequestIdentitySHA256(event)
+	if err != nil {
+		return continueRequestState{}, err
+	}
+	decisions, err := mission.ReadFact(ctx.inst.CaseRoot, "decision")
+	if err != nil {
+		return continueRequestState{}, err
+	}
+	state.Decision, _, err = continueExactEventComponent(decisions, eventID, "decision fact")
+	if err != nil {
+		return continueRequestState{}, err
+	}
+	if state.RequestEvent != nil {
+		durableTarget := continueRequestTargetLane(ctx, state.RequestEvent)
+		if durableTarget != currentTarget {
+			return continueRequestState{}, fmt.Errorf("routed request %s target changed after request fact: got %s want %s", eventID, currentTarget, durableTarget)
+		}
+		state.IdentitySHA256 = strings.TrimSpace(stringFrom(state.RequestEvent, "requestIdentitySha256"))
+		state.DurableContract = state.IdentitySHA256 != ""
+		if state.DurableContract {
+			state.RoutedExpected = boolFrom(state.RequestEvent, "routeExpected")
+			if !strings.EqualFold(state.IdentitySHA256, currentIdentitySHA256) {
+				return continueRequestState{}, fmt.Errorf("routed request %s identity changed after request fact", eventID)
+			}
+		}
+		for _, key := range []string{"time", "batchId"} {
+			if value := strings.TrimSpace(stringFrom(state.RequestEvent, key)); value != "" {
+				event[key] = value
+			}
+		}
+	} else {
+		state.RoutedExpected = ctx.policy.AutoRouteRequests && canRouteRequest(ctx.inst.CaseRoot, currentTarget) == nil
+		state.IdentitySHA256 = currentIdentitySHA256
+		state.DurableContract = true
+		event["routeExpected"] = state.RoutedExpected
+		event["requestIdentitySha256"] = state.IdentitySHA256
+	}
+
+	targetLane := continueRequestTargetLane(ctx, event)
+	semanticRequestEventID, semanticRequestTarget, err := continueSemanticRequestPredecessor(requestFacts, decisions, event)
+	if err != nil {
+		return continueRequestState{}, err
+	}
+	semanticRoute, err := findContinueSemanticRoute(ctx.inst.CaseRoot, event)
+	if err != nil {
+		return continueRequestState{}, err
+	}
+	if semanticRequestEventID != "" {
+		return continueRequestState{}, fmt.Errorf("request %s from lane %s has an incomplete semantic route predecessor %s bound to %s", stringFrom(event, "requestId"), stringFrom(event, "lane"), semanticRequestEventID, semanticRequestTarget)
+	}
+	if semanticRoute.EventID != "" && semanticRoute.TargetLane != targetLane {
+		return continueRequestState{}, fmt.Errorf("request %s from lane %s is already routed to %s and cannot target %s", stringFrom(event, "requestId"), stringFrom(event, "lane"), semanticRoute.TargetLane, targetLane)
+	}
+	if semanticRoute.EventID != "" && semanticRoute.EventID != eventID {
+		state.RouteSatisfied = true
+		state.RouteSatisfiedByEventID = semanticRoute.EventID
+	}
+	if targetLane != "" {
+		lane, laneErr := readLaneByID(ctx.inst.CaseRoot, targetLane)
+		if laneErr == nil {
+			laneRoot, err := laneRootPath(ctx.inst.CaseRoot, lane)
+			if err != nil {
+				return continueRequestState{}, err
+			}
+			tasks, err := mission.ReadJSONLineObjects(LaneTasksJSONLPath(laneRoot))
+			if err != nil {
+				return continueRequestState{}, err
+			}
+			var taskEvent map[string]any
+			state.Task, taskEvent, err = continueExactEventComponent(tasks, eventID, "target task")
+			if err != nil {
+				return continueRequestState{}, err
+			}
+			if state.Task && state.DurableContract {
+				if err := validateContinueRoutedComponent(state.RequestEvent, taskEvent, targetLane, "target task"); err != nil {
+					return continueRequestState{}, err
+				}
+			}
+			state.SemanticTaskEventID, _, err = continueSemanticRoutedComponent(tasks, event, "target task")
+			if err != nil {
+				return continueRequestState{}, err
+			}
+			inbox, err := mission.ReadJSONLineObjects(LaneInboxJSONLPath(laneRoot))
+			if err != nil {
+				return continueRequestState{}, err
+			}
+			var inboxEvent map[string]any
+			state.Inbox, inboxEvent, err = continueExactEventComponent(inbox, eventID, "target inbox")
+			if err != nil {
+				return continueRequestState{}, err
+			}
+			if state.Inbox && state.DurableContract {
+				if err := validateContinueRoutedComponent(state.RequestEvent, inboxEvent, targetLane, "target inbox"); err != nil {
+					return continueRequestState{}, err
+				}
+			}
+			state.SemanticInboxEventID, _, err = continueSemanticRoutedComponent(inbox, event, "target inbox")
+			if err != nil {
+				return continueRequestState{}, err
+			}
+			semanticPredecessor :=
+				(state.SemanticTaskEventID != "" && state.SemanticTaskEventID != eventID) ||
+					(state.SemanticInboxEventID != "" && state.SemanticInboxEventID != eventID)
+			if semanticPredecessor && !state.RouteSatisfied {
+				return continueRequestState{}, fmt.Errorf("request %s from lane %s has an inconsistent semantic route", stringFrom(event, "requestId"), stringFrom(event, "lane"))
+			}
+		}
+	}
+
+	if state.Request && !state.DurableContract {
+		state.RoutedExpected = state.Task || state.Inbox
+		if !state.RoutedExpected && !state.Decision {
+			return continueRequestState{}, fmt.Errorf("routed request %s partial prefix predates durable route binding", eventID)
+		}
+	}
+	if state.RoutedExpected && state.Request && !state.complete() {
+		if err := canRouteRequest(ctx.inst.CaseRoot, targetLane); err != nil {
+			return continueRequestState{}, fmt.Errorf("cannot recover routed request %s: %w", eventID, err)
+		}
+	}
+	if state.Task || state.Inbox {
+		if !state.RoutedExpected {
+			return continueRequestState{}, fmt.Errorf("routed request %s has target components despite a durable defer decision", eventID)
+		}
+	}
+	if (state.Task || state.Inbox || state.Decision) && !state.Request {
+		return continueRequestState{}, fmt.Errorf("routed request %s has a non-prefix component without its request fact", eventID)
+	}
+	if state.Inbox && !state.Task {
+		return continueRequestState{}, fmt.Errorf("routed request %s has an inbox entry without its target task", eventID)
+	}
+	if state.Decision && !state.complete() {
+		return continueRequestState{}, fmt.Errorf("routed request %s has a decision before all required components", eventID)
+	}
+	return state, nil
+}
+
+func validateContinueRoutedComponent(request, component map[string]any, targetLane, label string) error {
+	if request == nil || component == nil {
+		return nil
+	}
+	requestID := strings.TrimSpace(stringFrom(request, "requestId"))
+	sourceLane := strings.TrimSpace(stringFrom(request, "lane"))
+	summary := firstText(stringFrom(request, "summary"), stringFrom(request, "subject"), stringFrom(request, "eventId"))
+	if strings.TrimSpace(stringFrom(component, "requestId")) != requestID ||
+		strings.TrimSpace(stringFrom(component, "sourceLane")) != sourceLane ||
+		strings.TrimSpace(stringFrom(component, "summary")) != summary {
+		return fmt.Errorf("routed request %s %s identity does not match its durable request fact", stringFrom(request, "eventId"), label)
+	}
+	if componentTarget := strings.TrimSpace(stringFrom(component, "targetLane")); componentTarget != "" && componentTarget != targetLane {
+		return fmt.Errorf("routed request %s %s target does not match its durable request fact", stringFrom(request, "eventId"), label)
+	}
+	return nil
+}
+
+func continueExactEventComponent(items []map[string]any, eventID, component string) (bool, map[string]any, error) {
+	var matched map[string]any
+	for _, item := range items {
+		if strings.TrimSpace(stringFrom(item, "eventId")) != eventID {
+			continue
+		}
+		if matched != nil {
+			return false, nil, fmt.Errorf("routed request %s has duplicate %s records", eventID, component)
+		}
+		matched = item
+	}
+	return matched != nil, matched, nil
+}
+
 func (ctx continueContext) previewEvent(event map[string]any) (ContinueEventPreview, error) {
+	state, err := ctx.requestState(event)
+	if err != nil {
+		return ContinueEventPreview{}, err
+	}
+	return ctx.previewEventWithRequestState(event, state)
+}
+
+func (ctx continueContext) previewEventWithRequestState(event map[string]any, requestState continueRequestState) (ContinueEventPreview, error) {
 	kind := strings.ToLower(strings.TrimSpace(stringFrom(event, "kind")))
 	if kind == "" {
 		kind = "observation"
@@ -1576,30 +2018,41 @@ func (ctx continueContext) previewEvent(event map[string]any) (ContinueEventPrev
 	case "request":
 		preview.Decision = "accept"
 		preview.Reason = "would route request"
-		preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "request", "decision")
-		if ctx.policy.AutoRouteRequests {
-			targetLane := stringFrom(event, "targetLane")
-			if targetLane == "" {
-				targetLane = ctx.manifest.WorkstreamDefaults["requestDefaultTargetLane"]
-			}
+		factKinds := []string{}
+		if !requestState.Request {
+			factKinds = append(factKinds, "request")
+		}
+		if !requestState.Decision {
+			factKinds = append(factKinds, "decision")
+		}
+		preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, factKinds...)
+		if requestState.RoutedExpected {
+			targetLane := continueRequestTargetLane(ctx, event)
 			if err := canRouteRequest(ctx.inst.CaseRoot, targetLane); err != nil {
-				preview.Decision = "defer"
-				preview.Reason = err.Error()
-			} else if !requestAlreadyRouted(ctx.inst.CaseRoot, targetLane, event) {
+				return ContinueEventPreview{}, fmt.Errorf("cannot recover routed request %s: %w", preview.EventID, err)
+			} else {
 				preview.TargetLane = targetLane
-				taskWrite, err := wouldLane(ctx.inst.CaseRoot, targetLane, "tasks.jsonl")
-				if err != nil {
-					return ContinueEventPreview{}, err
+				if requestState.RouteSatisfied {
+					preview.Reason = "request route already satisfied by " + requestState.RouteSatisfiedByEventID
 				}
-				inboxWrite, err := wouldLane(ctx.inst.CaseRoot, targetLane, "inbox.jsonl")
-				if err != nil {
-					return ContinueEventPreview{}, err
+				if !requestState.RouteSatisfied && !requestState.Task {
+					taskWrite, err := wouldLane(ctx.inst.CaseRoot, targetLane, "tasks.jsonl")
+					if err != nil {
+						return ContinueEventPreview{}, err
+					}
+					preview.WouldWrites = append(preview.WouldWrites, taskWrite)
 				}
-				preview.WouldWrites = append(preview.WouldWrites, taskWrite, inboxWrite)
+				if !requestState.RouteSatisfied && !requestState.Inbox {
+					inboxWrite, err := wouldLane(ctx.inst.CaseRoot, targetLane, "inbox.jsonl")
+					if err != nil {
+						return ContinueEventPreview{}, err
+					}
+					preview.WouldWrites = append(preview.WouldWrites, inboxWrite)
+				}
 			}
 		} else {
 			preview.Decision = "defer"
-			preview.Reason = "autoRouteRequests disabled"
+			preview.Reason = "request route was not accepted at durable request publication"
 		}
 	case "candidate":
 		verification := verifyCandidate(ctx.inst.CaseRoot, ctx.policy, event)
@@ -1668,18 +2121,49 @@ func (ctx continueContext) applyContinueEvent(event map[string]any, preview Cont
 			}
 		}
 	case "request":
-		if err := ctx.appendContinueFact(&writes, "request", event); err != nil {
+		state, err := ctx.requestState(event)
+		if err != nil {
 			return nil, err
 		}
-		if preview.Decision == "accept" && preview.TargetLane != "" {
-			routeWrites, err := routeContinueRequest(ctx.inst.CaseRoot, preview.TargetLane, event)
+		if preview.Decision == "accept" && preview.TargetLane != "" && !state.RouteSatisfied {
+			if err := canRouteRequest(ctx.inst.CaseRoot, preview.TargetLane); err != nil {
+				return nil, err
+			}
+		}
+		if !state.Request {
+			event["routeExpected"] = state.RoutedExpected
+			event["requestIdentitySha256"] = state.IdentitySHA256
+			if err := ctx.appendContinueFact(&writes, "request", event); err != nil {
+				return nil, err
+			}
+			state.Request = true
+			if err := runContinueRequestComponentHook("request"); err != nil {
+				return nil, err
+			}
+		}
+		componentEvent := event
+		if state.RequestEvent != nil {
+			componentEvent = state.RequestEvent
+		}
+		if preview.Decision == "accept" && preview.TargetLane != "" && !state.RouteSatisfied {
+			routeWrites, err := routeContinueRequest(ctx.inst.CaseRoot, preview.TargetLane, componentEvent, state)
 			if err != nil {
 				return nil, err
 			}
 			writes = append(writes, routeWrites...)
+			state.Task = true
+			state.Inbox = true
 		}
-		if err := ctx.appendContinueFact(&writes, "decision", continueDecision(event, preview, runID, batchID)); err != nil {
-			return nil, err
+		if !state.Decision {
+			if state.RoutedExpected && !state.RouteSatisfied && (!state.Task || !state.Inbox) {
+				return nil, fmt.Errorf("routed request %s is incomplete before decision publication", stringFrom(event, "eventId"))
+			}
+			if err := ctx.appendContinueFact(&writes, "decision", continueDecision(componentEvent, preview, runID, batchID)); err != nil {
+				return nil, err
+			}
+			if err := runContinueRequestComponentHook("decision"); err != nil {
+				return nil, err
+			}
 		}
 	case "candidate":
 		if preview.Verification != nil {
@@ -1775,9 +2259,16 @@ func continueDecision(event map[string]any, preview ContinueEventPreview, runID,
 	return out
 }
 
-func routeContinueRequest(caseRoot, targetLane string, event map[string]any) ([]StartWrite, error) {
-	if requestAlreadyRouted(caseRoot, targetLane, event) {
-		return nil, nil
+func runContinueRequestComponentHook(component string) error {
+	if continueRequestAfterComponentHook == nil {
+		return nil
+	}
+	return continueRequestAfterComponentHook(component)
+}
+
+func routeContinueRequest(caseRoot, targetLane string, event map[string]any, state continueRequestState) ([]StartWrite, error) {
+	if err := canRouteRequest(caseRoot, targetLane); err != nil {
+		return nil, err
 	}
 	lane, err := readLaneByID(caseRoot, targetLane)
 	if err != nil {
@@ -1793,18 +2284,28 @@ func routeContinueRequest(caseRoot, targetLane string, event map[string]any) ([]
 	sourceLane := stringFrom(event, "lane")
 	requestID := stringFrom(event, "requestId")
 	summary := firstText(stringFrom(event, "summary"), stringFrom(event, "subject"), stringFrom(event, "eventId"))
-	task := map[string]any{"taskId": "task-" + strings.TrimPrefix(stringFrom(event, "eventId"), "evt-"), "eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": stringFrom(event, "kind"), "sourceLane": sourceLane, "summary": summary, "status": "open", "createdAt": now}
-	inbox := map[string]any{"eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": "routed-request", "sourceLane": sourceLane, "summary": summary, "time": now}
-	if err := mission.AppendJSONLine(taskPath, task); err != nil {
-		return nil, err
+	writes := []StartWrite{}
+	if !state.Task {
+		task := map[string]any{"taskId": "task-" + strings.TrimPrefix(stringFrom(event, "eventId"), "evt-"), "eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": stringFrom(event, "kind"), "sourceLane": sourceLane, "targetLane": targetLane, "summary": summary, "status": "open", "createdAt": now}
+		if err := mission.AppendJSONLine(taskPath, task); err != nil {
+			return nil, err
+		}
+		writes = append(writes, StartWrite{Path: relativePath(caseRoot, taskPath), Kind: "lane-jsonl", Action: "append", TargetPath: taskPath})
+		if err := runContinueRequestComponentHook("task"); err != nil {
+			return nil, err
+		}
 	}
-	if err := mission.AppendJSONLine(inboxPath, inbox); err != nil {
-		return nil, err
+	if !state.Inbox {
+		inbox := map[string]any{"eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": "routed-request", "sourceLane": sourceLane, "targetLane": targetLane, "summary": summary, "time": now}
+		if err := mission.AppendJSONLine(inboxPath, inbox); err != nil {
+			return nil, err
+		}
+		writes = append(writes, StartWrite{Path: relativePath(caseRoot, inboxPath), Kind: "lane-jsonl", Action: "append", TargetPath: inboxPath})
+		if err := runContinueRequestComponentHook("inbox"); err != nil {
+			return nil, err
+		}
 	}
-	return []StartWrite{
-		{Path: relativePath(caseRoot, taskPath), Kind: "lane-jsonl", Action: "append", TargetPath: taskPath},
-		{Path: relativePath(caseRoot, inboxPath), Kind: "lane-jsonl", Action: "append", TargetPath: inboxPath},
-	}, nil
+	return writes, nil
 }
 
 func newMissionCommanderDriverReceipt(result ContinueResult, statusRel, digestRel string) *MissionCommanderDriverReceipt {
@@ -2235,6 +2736,45 @@ func (ctx continueContext) authorityAppendReason(event map[string]any, verificat
 	return ""
 }
 
+func normalizeContinueRawEvents(ctx continueContext, rawEvents []map[string]any) ([]map[string]any, error) {
+	seenEvents := map[string][]byte{}
+	semanticTargets := map[string]string{}
+	out := make([]map[string]any, 0, len(rawEvents))
+	for _, raw := range rawEvents {
+		event := copyEvent(raw)
+		event["lane"] = ctx.lane.ID
+		id := strings.TrimSpace(stringFrom(event, "eventId"))
+		if id == "" {
+			id = generatedEventID(ctx.lane.ID, event)
+			event["eventId"] = id
+		}
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return nil, err
+		}
+		if previous, ok := seenEvents[id]; ok {
+			if !slices.Equal(previous, encoded) {
+				return nil, fmt.Errorf("continue event %s has conflicting payloads", id)
+			}
+			continue
+		}
+		seenEvents[id] = encoded
+		if strings.EqualFold(strings.TrimSpace(stringFrom(event, "kind")), "request") {
+			requestID := strings.TrimSpace(stringFrom(event, "requestId"))
+			if requestID != "" {
+				targetLane := continueRequestTargetLane(ctx, event)
+				semanticKey := ctx.lane.ID + "\x00" + requestID
+				if previousTarget := semanticTargets[semanticKey]; previousTarget != "" && previousTarget != targetLane {
+					return nil, fmt.Errorf("request %s from lane %s targets both %s and %s", requestID, ctx.lane.ID, previousTarget, targetLane)
+				}
+				semanticTargets[semanticKey] = targetLane
+			}
+		}
+		out = append(out, event)
+	}
+	return out, nil
+}
+
 func laneOutputEvents(caseRoot string, lane Lane, m *manifest.Manifest) ([]map[string]any, error) {
 	laneRoot, err := laneRootPath(caseRoot, lane)
 	if err != nil {
@@ -2640,43 +3180,13 @@ func candidateRowKey(row any, firstColumn string) string {
 }
 
 func canRouteRequest(caseRoot, laneID string) error {
-	lane, err := readLaneByID(caseRoot, laneID)
-	if err != nil {
+	if _, err := readLaneByID(caseRoot, laneID); err != nil {
 		return fmt.Errorf("target lane does not exist: %s", laneID)
 	}
-	status := strings.ToLower(strings.TrimSpace(lane.Status))
-	if status == "archived" || status == "paused" {
-		return fmt.Errorf("target lane is not open: %s", laneID)
+	if err := lanemutation.AssertLaneOpen(caseRoot, laneID, "continue request routing"); err != nil {
+		return fmt.Errorf("target lane is not open: %s: %w", laneID, err)
 	}
 	return nil
-}
-
-func requestAlreadyRouted(caseRoot, laneID string, event map[string]any) bool {
-	lane, err := readLaneByID(caseRoot, laneID)
-	if err != nil {
-		return false
-	}
-	laneRoot, err := laneRootPath(caseRoot, lane)
-	if err != nil {
-		return false
-	}
-	tasks, err := mission.ReadJSONLineObjects(LaneTasksJSONLPath(laneRoot))
-	if err != nil {
-		return false
-	}
-	sourceLane := stringFrom(event, "lane")
-	requestID := stringFrom(event, "requestId")
-	eventID := stringFrom(event, "eventId")
-	for _, task := range tasks {
-		if requestID != "" {
-			if stringFrom(task, "requestId") == requestID && stringFrom(task, "sourceLane") == sourceLane {
-				return true
-			}
-		} else if eventID != "" && stringFrom(task, "eventId") == eventID {
-			return true
-		}
-	}
-	return false
 }
 
 func readCSVRows(path string) ([]map[string]string, error) {

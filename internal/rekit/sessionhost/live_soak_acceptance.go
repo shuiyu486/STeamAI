@@ -18,14 +18,15 @@ var liveSoakAcceptancePacks = []string{
 }
 
 type LiveSoakAcceptanceOptions struct {
-	Goal        string
-	Correction  string
-	Model       string
-	Actor       string
-	Timeout     time.Duration
-	MaxAttempts int
-	ReceiptPath string
-	testHooks   *liveSoakAcceptanceTestHooks
+	Goal                           string
+	Correction                     string
+	Model                          string
+	Actor                          string
+	Timeout                        time.Duration
+	MaxAttempts                    int
+	ReceiptPath                    string
+	InitializationSourceExecutable string
+	testHooks                      *liveSoakAcceptanceTestHooks
 }
 
 type LiveSoakAcceptanceReceipt struct {
@@ -163,13 +164,14 @@ func RunLiveSoakAcceptance(parent context.Context, opt LiveSoakAcceptanceOptions
 		for attempt := 1; attempt <= 2; attempt++ {
 			taskStarted := now()
 			child, childErr := runTask(parent, LiveAcceptanceOptions{
-				Pack:        pack,
-				Goal:        fmt.Sprintf("%s This is bounded Windows soak task %d of %d for pack %s, fresh attempt %d.", goal, index+1, len(liveSoakAcceptancePacks), pack, attempt),
-				Correction:  fmt.Sprintf("%s Apply this correction only to Windows soak task %d of %d, fresh attempt %d.", correction, index+1, len(liveSoakAcceptancePacks), attempt),
-				Model:       opt.Model,
-				Actor:       opt.Actor,
-				Timeout:     opt.Timeout,
-				MaxAttempts: opt.MaxAttempts,
+				Pack:                           pack,
+				Goal:                           fmt.Sprintf("%s This is bounded Windows soak task %d of %d for pack %s, fresh attempt %d.", goal, index+1, len(liveSoakAcceptancePacks), pack, attempt),
+				Correction:                     fmt.Sprintf("%s Apply this correction only to Windows soak task %d of %d, fresh attempt %d.", correction, index+1, len(liveSoakAcceptancePacks), attempt),
+				Model:                          opt.Model,
+				Actor:                          opt.Actor,
+				Timeout:                        opt.Timeout,
+				MaxAttempts:                    opt.MaxAttempts,
+				InitializationSourceExecutable: opt.InitializationSourceExecutable,
 			})
 			task := summarizeLiveSoakTask(index+1, attempt, pack, child, childErr, now().Sub(taskStarted))
 			receipt.Tasks = append(receipt.Tasks, task)
@@ -184,11 +186,12 @@ func RunLiveSoakAcceptance(parent context.Context, opt LiveSoakAcceptanceOptions
 
 	recoveryStarted := now()
 	recoveryReceipt, recoveryErr := runRecovery(parent, LiveSupervisionAcceptanceOptions{
-		Goal:        goal + " Run the bounded Windows recovery exercise without external effects.",
-		Model:       opt.Model,
-		Actor:       opt.Actor,
-		Timeout:     opt.Timeout,
-		MaxAttempts: opt.MaxAttempts,
+		Goal:                           goal + " Run the bounded Windows recovery exercise without external effects.",
+		Model:                          opt.Model,
+		Actor:                          opt.Actor,
+		Timeout:                        opt.Timeout,
+		MaxAttempts:                    opt.MaxAttempts,
+		InitializationSourceExecutable: opt.InitializationSourceExecutable,
 	})
 	receipt.Recovery = summarizeLiveSoakRecovery(recoveryReceipt, recoveryErr, now().Sub(recoveryStarted))
 	addLiveSoakRecovery(&receipt, receipt.Recovery)

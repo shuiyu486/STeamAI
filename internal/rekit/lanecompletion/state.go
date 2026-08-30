@@ -174,13 +174,13 @@ type Inspection struct {
 }
 
 func Inspect(caseRoot, laneID string) (Inspection, error) {
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return Inspection{}, err
 	}
-	laneRootPath := filepath.Join(stateRoot.Path, "lanes", laneID)
+	laneRootPath := filepath.Join(view.Path, "lanes", laneID)
 	out := Inspection{State: StateNone}
-	laneRoot, err := openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, "lanes", laneID}, false)
+	laneRoot, err := openMissionNamespaceRoot(caseRoot, view, []string{"lanes", laneID}, false)
 	if os.IsNotExist(err) {
 		return out, nil
 	}

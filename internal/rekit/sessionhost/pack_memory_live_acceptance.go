@@ -28,14 +28,15 @@ const (
 )
 
 type PackMemoryLiveAcceptanceOptions struct {
-	Goal        string
-	ClaudePath  string
-	Model       string
-	Actor       string
-	Timeout     time.Duration
-	MaxAttempts int
-	KeepCase    bool
-	ReceiptPath string
+	Goal                           string
+	ClaudePath                     string
+	Model                          string
+	Actor                          string
+	Timeout                        time.Duration
+	MaxAttempts                    int
+	KeepCase                       bool
+	ReceiptPath                    string
+	InitializationSourceExecutable string
 }
 
 type PackMemoryLiveAcceptanceReceipt struct {
@@ -64,22 +65,23 @@ type PackMemoryLiveAcceptanceReceipt struct {
 }
 
 type PackMemoryLiveAcceptanceChildSpec struct {
-	SchemaVersion      int                              `json:"schemaVersion"`
-	Kind               string                           `json:"kind"`
-	IsolatedKitRoot    string                           `json:"isolatedKitRoot"`
-	Goal               string                           `json:"goal"`
-	ClaudePath         string                           `json:"claudePath"`
-	ClaudeSHA256       string                           `json:"claudeSha256"`
-	ClaudePublisher    string                           `json:"claudePublisher"`
-	Model              string                           `json:"model,omitempty"`
-	Actor              string                           `json:"actor"`
-	TimeoutNanos       int64                            `json:"timeoutNanos"`
-	MaxAttempts        int                              `json:"maxAttempts"`
-	KeepCase           bool                             `json:"keepCase"`
-	ChildHostPath      string                           `json:"childHostPath"`
-	ChildHostSHA256    string                           `json:"childHostSha256"`
-	CopyManifestSHA256 string                           `json:"copyManifestSha256"`
-	CopyManifest       packMemoryAcceptanceCopyManifest `json:"copyManifest"`
+	SchemaVersion                  int                              `json:"schemaVersion"`
+	Kind                           string                           `json:"kind"`
+	IsolatedKitRoot                string                           `json:"isolatedKitRoot"`
+	Goal                           string                           `json:"goal"`
+	ClaudePath                     string                           `json:"claudePath"`
+	ClaudeSHA256                   string                           `json:"claudeSha256"`
+	ClaudePublisher                string                           `json:"claudePublisher"`
+	Model                          string                           `json:"model,omitempty"`
+	Actor                          string                           `json:"actor"`
+	TimeoutNanos                   int64                            `json:"timeoutNanos"`
+	MaxAttempts                    int                              `json:"maxAttempts"`
+	KeepCase                       bool                             `json:"keepCase"`
+	ChildHostPath                  string                           `json:"childHostPath"`
+	ChildHostSHA256                string                           `json:"childHostSha256"`
+	InitializationSourceExecutable string                           `json:"initializationSourceExecutable"`
+	CopyManifestSHA256             string                           `json:"copyManifestSha256"`
+	CopyManifest                   packMemoryAcceptanceCopyManifest `json:"copyManifest"`
 }
 
 type packMemoryAcceptanceCopyManifest struct {
@@ -306,7 +308,8 @@ func RunPackMemoryLiveAcceptance(parent context.Context, opt PackMemoryLiveAccep
 		Model: strings.TrimSpace(opt.Model), Actor: actor,
 		TimeoutNanos: int64(opt.Timeout), MaxAttempts: opt.MaxAttempts, KeepCase: opt.KeepCase,
 		ChildHostPath: hostPath, ChildHostSHA256: receipt.ChildHostSHA256,
-		CopyManifestSHA256: receipt.CopyManifestSHA256, CopyManifest: copyManifest,
+		InitializationSourceExecutable: strings.TrimSpace(opt.InitializationSourceExecutable),
+		CopyManifestSHA256:             receipt.CopyManifestSHA256, CopyManifest: copyManifest,
 	}
 	specData, err := json.Marshal(spec)
 	if err != nil {

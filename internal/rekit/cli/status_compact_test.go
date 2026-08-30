@@ -416,7 +416,7 @@ func assertStatusCompactBlockedEnvelope(t *testing.T, data []byte, reason, entry
 	if envelope.Command != commands.Status || envelope.SchemaVersion != 1 || envelope.IsMutation || envelope.State != statusCompactStateDetailsRequired || !envelope.Blocked || !envelope.DetailsRequired || envelope.CommandExecutable || envelope.Reason != reason {
 		t.Fatalf("unexpected blocked compact envelope: %+v", envelope)
 	}
-	if envelope.FullDiagnostics.Command != entrypoint+" status -Format json" || envelope.FullDiagnostics.Format != statusCompactFullDiagnosticsFormat || !envelope.FullDiagnostics.OnDemand || !envelope.FullDiagnostics.ReuseOriginalSelectors {
+	if envelope.FullDiagnostics.Command != entrypoint+" status --diagnostics" || strings.Contains(envelope.FullDiagnostics.Command, "-Format") || envelope.FullDiagnostics.Format != statusCompactFullDiagnosticsFormat || !envelope.FullDiagnostics.OnDemand || !envelope.FullDiagnostics.ReuseOriginalSelectors {
 		t.Fatalf("blocked compact envelope omitted full diagnostics route: %+v", envelope.FullDiagnostics)
 	}
 	if len(envelope.Boundary) == 0 || !strings.Contains(strings.Join(envelope.Boundary, "\n"), "same status invocation") || bytes.Contains(data, []byte(`"currentDriverRequest"`)) || bytes.Contains(data, []byte(`"choices"`)) {

@@ -14,11 +14,12 @@
 
 `catalog.yml` 中的 `rekit-readonly-inspector` 是框架维护用的最小 Go-owned adapter：它只接受 `_template` 的 `inspect` action、strict durable preauthorization、current lane owner 和已落盘 immutable dispatch；读取 exact case-local bounded regular text fixture，并只在授权 output path 独占写入 `inspection.json` 与 `adapter-report.json`。它不访问网络，不执行 debug、patch、dump、hook 或目标修改，也不是领域分析工具。
 
-显式维护验收先构建 `rekit-adapter-host`，再运行 `rekit-adapter-acceptance` 并把 receipt 写到 disposable case 和模板仓库之外。Windows 验收器持有 adapter executable handle，`CREATE_SUSPENDED` 后验证 actual mapped image，再加入 kill-on-close Job Object并resume；timeout先关闭Job再有界回收进程树。验收链走 dispatch → adapter process → receipt → validation → observation → acknowledgement → Mission Commander resume；失败输出只按exact handle删除owned object，disposable case先no-replace quarantine并拒绝replacement/reparse后再清理。普通 `/rekit gate` 仍只记录授权、dispatch、receipt 或 observation evidence，不启动 adapter。
+显式维护验收分别构建 unified `cmd/rekit` runtime 与 `rekit-adapter-host`，再运行 `rekit-adapter-acceptance` 并把 receipt 写到 disposable case 和模板仓库之外。`-runtime` 只接受 unified `cmd/rekit` image；host-only、adapter-only 或 acceptance-only image 会在创建 disposable case 前 fail-closed。Windows 验收器持有 adapter executable handle，`CREATE_SUSPENDED` 后验证 actual mapped image，再加入 kill-on-close Job Object并resume；timeout先关闭Job再有界回收进程树。验收链走 verified project-local runtime publication → dispatch → adapter process → receipt → validation → observation → acknowledgement → Mission Commander resume；失败输出只按exact handle删除owned object，disposable case先no-replace quarantine并拒绝replacement/reparse后再清理。普通 `/rekit gate` 仍只记录授权、dispatch、receipt 或 observation evidence，不启动 adapter。
 
 ```text
+go build -o <temp>\steamai.exe ./cmd/rekit
 go build -o <temp>\rekit-adapter-host.exe ./cmd/rekit-adapter-host
-go run ./cmd/rekit-adapter-acceptance -repo . -adapter <temp>\rekit-adapter-host.exe -receipt <outside-case-receipt.json>
+go run ./cmd/rekit-adapter-acceptance -repo . -adapter <temp>\rekit-adapter-host.exe -runtime <temp>\steamai.exe -receipt <outside-case-receipt.json>
 ```
 
 receipt 路径与临时 executable 由维护者管理；已有 receipt 不覆盖，验收失败也返回 `passed=false` 的机器结果。普通测试不会自动运行此 live gate。

@@ -109,6 +109,13 @@ func Rel(caseRoot string, parts ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if missionScopedParts(parts) {
+		view, err := ResolveMissionView(caseRoot)
+		if err != nil {
+			return "", err
+		}
+		return view.Rel(parts...)
+	}
 	local, err := validateParts(parts)
 	if err != nil {
 		return "", err
@@ -132,6 +139,13 @@ func Join(caseRoot string, parts ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if missionScopedParts(parts) {
+		view, err := ResolveMissionView(caseRoot)
+		if err != nil {
+			return "", err
+		}
+		return view.Join(parts...)
+	}
 	local, err := validateParts(parts)
 	if err != nil {
 		return "", err
@@ -144,6 +158,17 @@ func Join(caseRoot string, parts ...string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func missionScopedParts(parts []string) bool {
+	if len(parts) == 0 {
+		return false
+	}
+	first := strings.TrimSpace(filepath.ToSlash(parts[0]))
+	if index := strings.IndexByte(first, '/'); index >= 0 {
+		first = first[:index]
+	}
+	return MissionScopedName(first)
 }
 
 // CurrentRel is only for compile-time constant, trusted path fragments. Dynamic

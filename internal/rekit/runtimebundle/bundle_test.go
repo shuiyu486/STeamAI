@@ -2,10 +2,53 @@ package runtimebundle
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestValidateUnifiedExecutableRoleRejectsHostOnlyImage(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unified := buildRuntimeRoleFixture(t, repoRoot, "./cmd/rekit", "steamai-unified")
+	if err := ValidateUnifiedExecutableRole(unified); err != nil {
+		t.Fatalf("unified runtime role rejected: %v", err)
+	}
+	hostOnly := buildRuntimeRoleFixture(t, repoRoot, "./cmd/rekit-host", "steamai-host")
+	if err := ValidateUnifiedExecutableRole(hostOnly); err == nil || !strings.Contains(err.Error(), "unified runtime executable") {
+		t.Fatalf("host-only image role error = %v", err)
+	}
+}
+
+func TestBuildAlwaysValidatesInjectedExecutableRole(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostOnly := buildRuntimeRoleFixture(t, repoRoot, "./cmd/rekit-host", "steamai-host-build")
+	restore := SetExecutableSourceForTest(hostOnly)
+	t.Cleanup(restore)
+	if _, err := Build(repoRoot, "_template"); err == nil || !strings.Contains(err.Error(), "unified runtime executable role mismatch") {
+		t.Fatalf("Build accepted injected host-only executable: %v", err)
+	}
+}
+
+func buildRuntimeRoleFixture(t *testing.T, repoRoot, packagePath, name string) string {
+	t.Helper()
+	if strings.EqualFold(filepath.Ext(os.Args[0]), ".exe") {
+		name += ".exe"
+	}
+	path := filepath.Join(t.TempDir(), name)
+	command := exec.Command("go", "build", "-o", path, packagePath)
+	command.Dir = repoRoot
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build %s: %v\n%s", packagePath, err, output)
+	}
+	return path
+}
 
 func TestBuildAndValidateStrictUnifiedLayout(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))

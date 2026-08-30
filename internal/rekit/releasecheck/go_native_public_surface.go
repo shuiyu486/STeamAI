@@ -2,9 +2,6 @@ package releasecheck
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -576,9 +573,9 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		CommandCatalogPath:           catalogPath,
 		DefaultCommand:               commands.DefaultCommand,
 		Commands:                     commands.Public(),
-		HandlerCommands:              goNativePublicHandlerCommands(repo),
-		RuntimeOwners:                goNativePublicRuntimeOwners(repo),
-		SymbolCommands:               commands.SymbolValues(),
+		HandlerCommands:              goNativePublicHandlerCommands(),
+		RuntimeOwners:                goNativePublicRuntimeOwners(),
+		SymbolCommands:               goNativePublicCommandIdentities(),
 		CommandProfiles:              commands.PublicProfiles(),
 		CommandProfileSummary:        commands.PublicProfileSummaryBaseline(),
 		CommandProfileGroups:         commands.PublicProfileGroupsBaseline(),
@@ -817,48 +814,28 @@ func GoNativePublicRuntimeOwnerWarningsFor(owners []GoNativePublicRuntimeOwner, 
 		expected[descriptor.Scope] = true
 	}
 	seen := map[commands.CommandScope]bool{}
-	interceptors := 0
 	for _, owner := range owners {
-		if owner.OwnerKind == "pre-runtime-interceptor-owner" {
-			interceptors++
-			if owner.Command != "*" || owner.Mode == "" || owner.Resolver == "" || owner.Validator == "" || owner.Handler == "" || owner.PublicationOwner != owner.Handler || owner.Binder != "" || owner.CallPath != "runWithOptions->runPreRuntimeCommand->"+owner.Handler {
-				warnings = append(warnings, "Go CLI pre-runtime interceptor owner inventory is incomplete")
-			}
-			continue
-		}
 		scope := commands.CommandScope{Command: owner.Command, Mode: owner.Mode}
 		if !commands.IsPublic(owner.Command) || !expected[scope] {
-			warnings = append(warnings, fmt.Sprintf("Go CLI runtime owner inventory exposes unknown scope: %s mode %s", owner.Command, owner.Mode))
+			warnings = append(warnings, fmt.Sprintf("Go CLI runtime scope inventory exposes unknown scope: %s mode %s", owner.Command, owner.Mode))
 			continue
 		}
 		if seen[scope] {
-			warnings = append(warnings, fmt.Sprintf("Go CLI runtime owner inventory duplicates scope: %s mode %s", owner.Command, owner.Mode))
+			warnings = append(warnings, fmt.Sprintf("Go CLI runtime scope inventory duplicates scope: %s mode %s", owner.Command, owner.Mode))
 			continue
 		}
 		seen[scope] = true
-		switch owner.OwnerKind {
-		case "scoped-runtime-owner":
-			if owner.Resolver == "" || owner.Binder == "" || owner.Validator == "" || owner.Handler == "" || owner.PublicationOwner != owner.Handler || owner.CallPath != "runWithOptions->runOwnedCommand->runScopedCommand->executeScopedCommandRoute->"+owner.Handler {
-				warnings = append(warnings, fmt.Sprintf("Go CLI scoped runtime owner inventory is incomplete for %s mode %s", owner.Command, owner.Mode))
-			}
-		case "pre-runtime-exclusive-owner":
-			if owner.Resolver == "" || owner.Binder != "" || owner.Validator == "" || owner.Handler == "" || owner.PublicationOwner != owner.Handler || owner.CallPath != "runWithOptions->runPreRuntimeCommand->"+owner.Handler {
-				warnings = append(warnings, fmt.Sprintf("Go CLI pre-runtime owner inventory is incomplete for %s mode %s", owner.Command, owner.Mode))
-			}
-		default:
-			warnings = append(warnings, fmt.Sprintf("Go CLI runtime owner inventory has unknown owner kind for %s mode %s: %s", owner.Command, owner.Mode, owner.OwnerKind))
+		if owner.OwnerKind != "descriptor-backed-runtime-scope" || owner.Resolver != "production-runtime-registry" || owner.Binder != "production-runtime-registry" || owner.Validator != "production-runtime-registry" || owner.Handler != "production-runtime-registry" || owner.PublicationOwner != "production-runtime-registry" || owner.CallPath != "runWithOptions->runOwnedCommand" {
+			warnings = append(warnings, fmt.Sprintf("Go CLI runtime scope inventory is incomplete for %s mode %s", owner.Command, owner.Mode))
 		}
 	}
 	for scope := range expected {
 		if !seen[scope] {
-			warnings = append(warnings, fmt.Sprintf("Go CLI runtime owner inventory is missing scope: %s mode %s", scope.Command, scope.Mode))
+			warnings = append(warnings, fmt.Sprintf("Go CLI runtime scope inventory is missing scope: %s mode %s", scope.Command, scope.Mode))
 		}
 	}
-	if interceptors != 1 {
-		warnings = append(warnings, fmt.Sprintf("Go CLI pre-runtime interceptor owner count drifted: %d", interceptors))
-	}
 	if len(publicCommands) == 0 {
-		warnings = append(warnings, "Go CLI runtime owner inventory has no public command catalog")
+		warnings = append(warnings, "Go CLI runtime scope inventory has no public command catalog")
 	}
 	return warnings
 }
@@ -908,14 +885,11 @@ func goNativePublicSurfacePrerequisitesReady(prerequisites []GoNativePublicSurfa
 	return counts.Rows > 0 && counts.NotReady == 0
 }
 
-func goNativePublicHandlerCommands(repo string) []string {
-	symbols := commands.SymbolValues()
+func goNativePublicHandlerCommands() []string {
 	seen := map[string]bool{}
-	goNativePublicScopedHandlerCommands(
-		filepath.Join(repo, filepath.FromSlash("internal/rekit/cli/scoped_registry.go")),
-		symbols,
-		seen,
-	)
+	for _, descriptor := range mustScopedCommandDescriptors() {
+		seen[descriptor.Scope.Command] = true
+	}
 	out := make([]string, 0, len(seen))
 	for command := range seen {
 		out = append(out, command)
@@ -924,388 +898,31 @@ func goNativePublicHandlerCommands(repo string) []string {
 	return out
 }
 
-func goNativePublicRuntimeOwners(repo string) []GoNativePublicRuntimeOwner {
-	path := filepath.Join(repo, filepath.FromSlash("internal/rekit/cli/scoped_registry.go"))
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		return nil
+func goNativePublicRuntimeOwners() []GoNativePublicRuntimeOwner {
+	descriptors := mustScopedCommandDescriptors()
+	owners := make([]GoNativePublicRuntimeOwner, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		owners = append(owners, GoNativePublicRuntimeOwner{
+			Command:          descriptor.Scope.Command,
+			Mode:             descriptor.Scope.Mode,
+			OwnerKind:        "descriptor-backed-runtime-scope",
+			Resolver:         "production-runtime-registry",
+			Binder:           "production-runtime-registry",
+			Validator:        "production-runtime-registry",
+			Handler:          "production-runtime-registry",
+			PublicationOwner: "production-runtime-registry",
+			CallPath:         "runWithOptions->runOwnedCommand",
+		})
 	}
-	variables := goNativePublicVariableValues(file)
-	symbols := commands.SymbolValues()
-	owners := goNativePublicScopedRuntimeOwnerRows(variables["scopedCommandRuntimeOwners"], symbols)
-	preRuntime := goNativePublicPreRuntimeOwnerRows(variables["preRuntimeCommandOwners"], symbols)
-	for _, row := range preRuntime {
-		if row.OwnerKind == "pre-runtime-exclusive-owner" {
-			for index := range owners {
-				if owners[index].Command == row.Command && owners[index].Mode == row.Mode {
-					owners = append(owners[:index], owners[index+1:]...)
-					break
-				}
-			}
-		}
-		owners = append(owners, row)
-	}
-	sort.Slice(owners, func(i, j int) bool {
-		if owners[i].Command != owners[j].Command {
-			return owners[i].Command < owners[j].Command
-		}
-		if owners[i].Mode != owners[j].Mode {
-			return owners[i].Mode < owners[j].Mode
-		}
-		return owners[i].OwnerKind < owners[j].OwnerKind
-	})
 	return owners
 }
 
-func goNativePublicVariableValues(file *ast.File) map[string]ast.Expr {
-	values := map[string]ast.Expr{}
-	for _, declaration := range file.Decls {
-		general, ok := declaration.(*ast.GenDecl)
-		if !ok || general.Tok != token.VAR {
-			continue
-		}
-		for _, specification := range general.Specs {
-			value, ok := specification.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for index, name := range value.Names {
-				if index < len(value.Values) {
-					values[name.Name] = value.Values[index]
-				}
-			}
-		}
+func goNativePublicCommandIdentities() map[string]string {
+	identities := map[string]string{}
+	for _, profile := range commands.PublicProfiles() {
+		identities[profile.Command] = profile.Command
 	}
-	return values
-}
-
-func goNativePublicScopedRuntimeOwnerRows(expression ast.Expr, symbols map[string]string) []GoNativePublicRuntimeOwner {
-	catalog, ok := expression.(*ast.CompositeLit)
-	if !ok {
-		return nil
-	}
-	rows := []GoNativePublicRuntimeOwner{}
-	for _, element := range catalog.Elts {
-		switch owner := element.(type) {
-		case *ast.CallExpr:
-			rows = append(rows, goNativePublicOwnerCallRows(owner, symbols)...)
-		case *ast.CompositeLit:
-			rows = append(rows, goNativePublicOwnerLiteralRows(owner, symbols)...)
-		}
-	}
-	return rows
-}
-
-func goNativePublicOwnerCallRows(call *ast.CallExpr, symbols map[string]string) []GoNativePublicRuntimeOwner {
-	function, ok := call.Fun.(*ast.Ident)
-	if !ok || len(call.Args) == 0 {
-		return nil
-	}
-	command, ok := goNativePublicCommandSymbol(call.Args[0], symbols)
-	if !ok {
-		return nil
-	}
-	var resolver, binder, validator, handler string
-	var modes []string
-	switch function.Name {
-	case "defaultScopedCommandRuntimeOwner":
-		if len(call.Args) != 4 {
-			return nil
-		}
-		resolver = "resolveDefaultCommandMode"
-		binder = goNativePublicCallbackSymbol(call.Args[1])
-		validator = goNativePublicCallbackSymbol(call.Args[2])
-		handler = goNativePublicCallbackSymbol(call.Args[3])
-		modes = []string{commands.MutationModeDefault}
-	case "descriptorScopedCommandRuntimeOwner":
-		if len(call.Args) != 5 {
-			return nil
-		}
-		resolver = goNativePublicCallbackSymbol(call.Args[1])
-		binder = goNativePublicCallbackSymbol(call.Args[2])
-		validator = goNativePublicCallbackSymbol(call.Args[3])
-		handler = goNativePublicCallbackSymbol(call.Args[4])
-		for _, descriptor := range commands.ScopedCommandDescriptorsFor(command) {
-			modes = append(modes, descriptor.Scope.Mode)
-		}
-	case "fixedScopedCommandRuntimeOwner":
-		if len(call.Args) != 3 {
-			return nil
-		}
-		mode, ok := goNativePublicModeSymbol(call.Args[1])
-		if !ok {
-			return nil
-		}
-		resolver = "fixedScopedCommandRuntimeOwner"
-		binder = "bindScopedCommand"
-		validator = "validateFixedScopedCommand"
-		handler = goNativePublicCallbackSymbol(call.Args[2])
-		modes = []string{mode}
-	default:
-		return nil
-	}
-	if resolver == "" || binder == "" || validator == "" || handler == "" {
-		return nil
-	}
-	rows := make([]GoNativePublicRuntimeOwner, 0, len(modes))
-	for _, mode := range modes {
-		rows = append(rows, scopedRuntimeOwnerRow(command, mode, resolver, binder, validator, handler))
-	}
-	return rows
-}
-
-func goNativePublicOwnerLiteralRows(owner *ast.CompositeLit, symbols map[string]string) []GoNativePublicRuntimeOwner {
-	var command, resolver string
-	var routes ast.Expr
-	for _, element := range owner.Elts {
-		field, ok := element.(*ast.KeyValueExpr)
-		if !ok {
-			continue
-		}
-		key, ok := field.Key.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		switch key.Name {
-		case "Command":
-			command, _ = goNativePublicCommandSymbol(field.Value, symbols)
-		case "ResolveMode":
-			resolver = goNativePublicCallbackSymbol(field.Value)
-		case "Routes":
-			routes = field.Value
-		}
-	}
-	catalog, ok := routes.(*ast.CompositeLit)
-	if !ok || command == "" || resolver == "" {
-		return nil
-	}
-	rows := []GoNativePublicRuntimeOwner{}
-	for _, element := range catalog.Elts {
-		route, ok := element.(*ast.CallExpr)
-		if !ok {
-			continue
-		}
-		function, ok := route.Fun.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		switch function.Name {
-		case "ownedScopedCommandRoute":
-			if len(route.Args) != 5 {
-				continue
-			}
-			mode, ok := goNativePublicModeSymbol(route.Args[1])
-			if !ok {
-				continue
-			}
-			binder := goNativePublicCallbackSymbol(route.Args[2])
-			validator := goNativePublicCallbackSymbol(route.Args[3])
-			handler := goNativePublicCallbackSymbol(route.Args[4])
-			if binder != "" && validator != "" && handler != "" {
-				rows = append(rows, scopedRuntimeOwnerRow(command, mode, resolver, binder, validator, handler))
-			}
-		case "gateScopedCommandRoute":
-			if len(route.Args) != 1 {
-				continue
-			}
-			mode, ok := goNativePublicModeSymbol(route.Args[0])
-			if ok {
-				rows = append(rows, scopedRuntimeOwnerRow(command, mode, resolver, "bindGateCommand", "validateGateCommand", "handleGateCommand"))
-			}
-		}
-	}
-	return rows
-}
-
-func scopedRuntimeOwnerRow(command, mode, resolver, binder, validator, handler string) GoNativePublicRuntimeOwner {
-	return GoNativePublicRuntimeOwner{
-		Command: command, Mode: mode, OwnerKind: "scoped-runtime-owner",
-		Resolver: resolver, Binder: binder, Validator: validator, Handler: handler,
-		PublicationOwner: handler,
-		CallPath:         "runWithOptions->runOwnedCommand->runScopedCommand->executeScopedCommandRoute->" + handler,
-	}
-}
-
-func goNativePublicPreRuntimeOwnerRows(expression ast.Expr, symbols map[string]string) []GoNativePublicRuntimeOwner {
-	catalog, ok := expression.(*ast.CompositeLit)
-	if !ok {
-		return nil
-	}
-	rows := []GoNativePublicRuntimeOwner{}
-	for _, element := range catalog.Elts {
-		owner, ok := element.(*ast.CompositeLit)
-		if !ok {
-			continue
-		}
-		var name, mode, selector, validator, handler string
-		var scopes ast.Expr
-		for _, element := range owner.Elts {
-			field, ok := element.(*ast.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			key, ok := field.Key.(*ast.Ident)
-			if !ok {
-				continue
-			}
-			switch key.Name {
-			case "Name":
-				name = goNativePublicStringLiteral(field.Value)
-			case "Mode":
-				mode, _ = goNativePublicModeSymbol(field.Value)
-				if mode == "" {
-					mode = goNativePublicStringLiteral(field.Value)
-				}
-			case "Scopes":
-				scopes = field.Value
-			case "Select":
-				selector = goNativePublicCallbackSymbol(field.Value)
-			case "Validate":
-				validator = goNativePublicCallbackSymbol(field.Value)
-			case "Handle":
-				handler = goNativePublicCallbackSymbol(field.Value)
-			}
-		}
-		if name == "" || mode == "" || selector == "" || validator == "" || handler == "" {
-			continue
-		}
-		if scopeRows := goNativePublicPreRuntimeScopes(scopes, symbols); len(scopeRows) > 0 {
-			for _, scope := range scopeRows {
-				rows = append(rows, GoNativePublicRuntimeOwner{
-					Command: scope.Command, Mode: scope.Mode, OwnerKind: "pre-runtime-exclusive-owner",
-					Resolver: selector, Validator: validator, Handler: handler,
-					PublicationOwner: handler,
-					CallPath:         "runWithOptions->runPreRuntimeCommand->" + handler,
-				})
-			}
-			continue
-		}
-		rows = append(rows, GoNativePublicRuntimeOwner{
-			Command: "*", Mode: mode, OwnerKind: "pre-runtime-interceptor-owner",
-			Resolver: selector, Validator: validator, Handler: handler,
-			PublicationOwner: handler,
-			CallPath:         "runWithOptions->runPreRuntimeCommand->" + handler,
-		})
-	}
-	return rows
-}
-
-func goNativePublicPreRuntimeScopes(expression ast.Expr, symbols map[string]string) []commands.CommandScope {
-	catalog, ok := expression.(*ast.CompositeLit)
-	if !ok {
-		return nil
-	}
-	rows := []commands.CommandScope{}
-	for _, element := range catalog.Elts {
-		scope, ok := element.(*ast.CompositeLit)
-		if !ok {
-			continue
-		}
-		var command, mode string
-		for _, element := range scope.Elts {
-			field, ok := element.(*ast.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			key, ok := field.Key.(*ast.Ident)
-			if !ok {
-				continue
-			}
-			switch key.Name {
-			case "Command":
-				command, _ = goNativePublicCommandSymbol(field.Value, symbols)
-			case "Mode":
-				mode, _ = goNativePublicModeSymbol(field.Value)
-			}
-		}
-		if command != "" && mode != "" {
-			rows = append(rows, commands.CommandScope{Command: command, Mode: mode})
-		}
-	}
-	return rows
-}
-
-func goNativePublicCallbackSymbol(expression ast.Expr) string {
-	switch value := expression.(type) {
-	case *ast.Ident:
-		if value.Name != "nil" {
-			return value.Name
-		}
-	case *ast.FuncLit:
-		return "inline-func"
-	}
-	return ""
-}
-
-func goNativePublicModeSymbol(expression ast.Expr) (string, bool) {
-	selector, ok := expression.(*ast.SelectorExpr)
-	if !ok {
-		return "", false
-	}
-	pkg, ok := selector.X.(*ast.Ident)
-	if !ok || pkg.Name != "commands" {
-		return "", false
-	}
-	mode, ok := goNativePublicModeSymbols()[selector.Sel.Name]
-	return mode, ok
-}
-
-func goNativePublicModeSymbols() map[string]string {
-	return map[string]string{
-		"MutationModeDefault":                        commands.MutationModeDefault,
-		"MutationModeOrdinaryOnboarding":             commands.MutationModeOrdinaryOnboarding,
-		"MutationModeAttachedAdoption":               commands.MutationModeAttachedAdoption,
-		"MutationModeDirectAppend":                   commands.MutationModeDirectAppend,
-		"MutationModeCurrentSync":                    commands.MutationModeCurrentSync,
-		"MutationModeSelectedPackMemorySync":         commands.MutationModeSelectedPackMemorySync,
-		"MutationModePackMemoryConsumerVerification": commands.MutationModePackMemoryConsumerVerification,
-		"MutationModeOrdinarySync":                   commands.MutationModeOrdinarySync,
-		"MutationModeMemberOutputStaging":            commands.MutationModeMemberOutputStaging,
-		"MutationModeCandidateRetirement":            commands.MutationModeCandidateRetirement,
-		"MutationModeCandidateProvision":             commands.MutationModeCandidateProvision,
-		"MutationModeCandidateVerification":          commands.MutationModeCandidateVerification,
-		"MutationModeReviewProofDraft":               commands.MutationModeReviewProofDraft,
-		"MutationModeCandidateDecisionDraft":         commands.MutationModeCandidateDecisionDraft,
-		"MutationModeCandidateDecisionApply":         commands.MutationModeCandidateDecisionApply,
-		"MutationModeOrdinaryPromote":                commands.MutationModeOrdinaryPromote,
-		"MutationModeCreateCandidates":               commands.MutationModeCreateCandidates,
-		"MutationModeRecordReviewerDispatch":         commands.MutationModeRecordReviewerDispatch,
-		"MutationModeRecordReviewerCompletion":       commands.MutationModeRecordReviewerCompletion,
-		"MutationModeSaveReviewerResultInput":        commands.MutationModeSaveReviewerResultInput,
-		"MutationModeCaptureReviewerResultSource":    commands.MutationModeCaptureReviewerResultSource,
-		"MutationModeStageReviewerResult":            commands.MutationModeStageReviewerResult,
-		"MutationModeCollectReviewerResult":          commands.MutationModeCollectReviewerResult,
-		"MutationModeRetireReviewerRecovery":         commands.MutationModeRetireReviewerRecovery,
-		"MutationModeRetireReviewerPacket":           commands.MutationModeRetireReviewerPacket,
-		"MutationModeRecoverReviewerResult":          commands.MutationModeRecoverReviewerResult,
-		"MutationModeRepairReviewerPrompt":           commands.MutationModeRepairReviewerPrompt,
-		"MutationModeAdoptReviewerPacket":            commands.MutationModeAdoptReviewerPacket,
-		"MutationModeReviewerBatchIntake":            commands.MutationModeReviewerBatchIntake,
-		"MutationModeReviewerIntake":                 commands.MutationModeReviewerIntake,
-		"MutationModePlanArtifacts":                  commands.MutationModePlanArtifacts,
-		"MutationModeProfile":                        commands.MutationModeProfile,
-		"MutationModeAdapterDispatch":                commands.MutationModeAdapterDispatch,
-		"MutationModeAdapterReceipt":                 commands.MutationModeAdapterReceipt,
-		"MutationModeReportScaffold":                 commands.MutationModeReportScaffold,
-		"MutationModeReportDraft":                    commands.MutationModeReportDraft,
-		"MutationModeDecision":                       commands.MutationModeDecision,
-		"MutationModeExecutionObservation":           commands.MutationModeExecutionObservation,
-		"MutationModeEventAppend":                    commands.MutationModeEventAppend,
-		"MutationModeBoardBootstrap":                 commands.MutationModeBoardBootstrap,
-		"MutationModeValidationReceipt":              commands.MutationModeValidationReceipt,
-		"MutationModeExternalAttempt":                commands.MutationModeExternalAttempt,
-		"MutationModeExternalDispatch":               commands.MutationModeExternalDispatch,
-		"MutationModeExternalTurn":                   commands.MutationModeExternalTurn,
-		"MutationModeExternalRelay":                  commands.MutationModeExternalRelay,
-	}
-}
-
-func goNativePublicStringLiteral(expression ast.Expr) string {
-	literal, ok := expression.(*ast.BasicLit)
-	if !ok || literal.Kind != token.STRING || len(literal.Value) < 2 {
-		return ""
-	}
-	return strings.Trim(literal.Value, "\"")
+	return identities
 }
 
 func mustScopedCommandDescriptors() []commands.ScopedCommandDescriptor {
@@ -1314,270 +931,6 @@ func mustScopedCommandDescriptors() []commands.ScopedCommandDescriptor {
 		return nil
 	}
 	return descriptors
-}
-
-func goNativePublicScopedHandlerCommands(path string, symbols map[string]string, seen map[string]bool) {
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		return
-	}
-	for _, declaration := range file.Decls {
-		general, ok := declaration.(*ast.GenDecl)
-		if !ok || general.Tok != token.VAR {
-			continue
-		}
-		for _, specification := range general.Specs {
-			value, ok := specification.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for index, name := range value.Names {
-				if index >= len(value.Values) {
-					continue
-				}
-				switch name.Name {
-				case "scopedCommandRoutes":
-					goNativePublicScopedRoutesValue(value.Values[index], symbols, seen)
-				case "scopedCommandRuntimeOwners":
-					goNativePublicScopedRuntimeOwnersValue(value.Values[index], symbols, seen)
-				case "directCommandRuntimeOwners":
-					goNativePublicDirectRuntimeOwnersValue(value.Values[index], symbols, seen)
-				}
-			}
-		}
-	}
-}
-
-func goNativePublicScopedRoutesValue(expression ast.Expr, symbols map[string]string, seen map[string]bool) {
-	catalog, ok := expression.(*ast.CompositeLit)
-	if !ok {
-		return
-	}
-	for _, element := range catalog.Elts {
-		route, ok := element.(*ast.CompositeLit)
-		if !ok {
-			continue
-		}
-		command, complete := goNativePublicScopedRouteCommand(route, symbols)
-		if complete {
-			seen[command] = true
-		}
-	}
-}
-
-func goNativePublicScopedRuntimeOwnersValue(expression ast.Expr, symbols map[string]string, seen map[string]bool) {
-	catalog, ok := expression.(*ast.CompositeLit)
-	if !ok {
-		return
-	}
-	for _, element := range catalog.Elts {
-		switch owner := element.(type) {
-		case *ast.CallExpr:
-			goNativePublicScopedDefaultOwnerCall(owner, symbols, seen)
-		case *ast.CompositeLit:
-			goNativePublicScopedOwnerLiteral(owner, symbols, seen)
-		}
-	}
-}
-
-func goNativePublicDirectRuntimeOwnersValue(expression ast.Expr, symbols map[string]string, seen map[string]bool) {
-	catalog, ok := expression.(*ast.CompositeLit)
-	if !ok {
-		return
-	}
-	for _, element := range catalog.Elts {
-		owner, ok := element.(*ast.CompositeLit)
-		if !ok {
-			continue
-		}
-		var command string
-		handlePresent := false
-		if len(owner.Elts) >= 2 {
-			command, _ = goNativePublicCommandSymbol(owner.Elts[0], symbols)
-			handlePresent = !goNativePublicNilExpression(owner.Elts[1])
-		}
-		for _, element := range owner.Elts {
-			field, ok := element.(*ast.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			key, ok := field.Key.(*ast.Ident)
-			if !ok {
-				continue
-			}
-			switch key.Name {
-			case "Command":
-				command, _ = goNativePublicCommandSymbol(field.Value, symbols)
-			case "Handle":
-				handlePresent = !goNativePublicNilExpression(field.Value)
-			}
-		}
-		if command != "" && handlePresent {
-			seen[command] = true
-		}
-	}
-}
-
-func goNativePublicScopedDefaultOwnerCall(call *ast.CallExpr, symbols map[string]string, seen map[string]bool) {
-	function, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return
-	}
-	var callbacks []ast.Expr
-	switch function.Name {
-	case "defaultScopedCommandRuntimeOwner":
-		if len(call.Args) < 4 {
-			return
-		}
-		callbacks = call.Args[1:4]
-	case "descriptorScopedCommandRuntimeOwner":
-		if len(call.Args) < 5 {
-			return
-		}
-		callbacks = call.Args[1:5]
-	case "fixedScopedCommandRuntimeOwner":
-		if len(call.Args) < 3 {
-			return
-		}
-		callbacks = call.Args[2:3]
-	default:
-		return
-	}
-	command, ok := goNativePublicCommandSymbol(call.Args[0], symbols)
-	if !ok {
-		return
-	}
-	for _, callback := range callbacks {
-		if goNativePublicNilExpression(callback) {
-			return
-		}
-	}
-	seen[command] = true
-}
-
-func goNativePublicScopedOwnerLiteral(owner *ast.CompositeLit, symbols map[string]string, seen map[string]bool) {
-	var command string
-	var resolver ast.Expr
-	var routes ast.Expr
-	for _, element := range owner.Elts {
-		field, ok := element.(*ast.KeyValueExpr)
-		if !ok {
-			continue
-		}
-		key, ok := field.Key.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		switch key.Name {
-		case "Command":
-			command, _ = goNativePublicCommandSymbol(field.Value, symbols)
-		case "ResolveMode":
-			resolver = field.Value
-		case "Routes":
-			routes = field.Value
-		}
-	}
-	if command != "" && !goNativePublicNilExpression(resolver) && goNativePublicScopedOwnerRoutesComplete(routes, symbols) {
-		seen[command] = true
-	}
-}
-
-func goNativePublicScopedOwnerRoutesComplete(expression ast.Expr, symbols map[string]string) bool {
-	catalog, ok := expression.(*ast.CompositeLit)
-	if !ok || len(catalog.Elts) == 0 {
-		return false
-	}
-	for _, element := range catalog.Elts {
-		switch route := element.(type) {
-		case *ast.CallExpr:
-			function, ok := route.Fun.(*ast.Ident)
-			if !ok {
-				return false
-			}
-			switch function.Name {
-			case "gateScopedCommandRoute":
-				if len(route.Args) != 1 {
-					return false
-				}
-			case "ownedScopedCommandRoute":
-				if len(route.Args) != 5 {
-					return false
-				}
-				for _, callback := range route.Args[2:] {
-					if goNativePublicNilExpression(callback) {
-						return false
-					}
-				}
-			default:
-				return false
-			}
-		case *ast.CompositeLit:
-			if _, complete := goNativePublicScopedRouteCommand(route, symbols); !complete {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func goNativePublicScopedRouteCommand(route *ast.CompositeLit, symbols map[string]string) (string, bool) {
-	var command string
-	required := map[string]bool{"Bind": false, "Validate": false, "Handle": false}
-	for _, element := range route.Elts {
-		field, ok := element.(*ast.KeyValueExpr)
-		if !ok {
-			continue
-		}
-		key, ok := field.Key.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		if _, ok := required[key.Name]; ok {
-			required[key.Name] = !goNativePublicNilExpression(field.Value)
-			continue
-		}
-		if key.Name != "Scope" {
-			continue
-		}
-		scope, ok := field.Value.(*ast.CompositeLit)
-		if !ok {
-			continue
-		}
-		for _, scopeElement := range scope.Elts {
-			scopeField, ok := scopeElement.(*ast.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			scopeKey, ok := scopeField.Key.(*ast.Ident)
-			if !ok || scopeKey.Name != "Command" {
-				continue
-			}
-			command, _ = goNativePublicCommandSymbol(scopeField.Value, symbols)
-		}
-	}
-	return command, command != "" && required["Bind"] && required["Validate"] && required["Handle"]
-}
-
-func goNativePublicNilExpression(expression ast.Expr) bool {
-	identifier, ok := expression.(*ast.Ident)
-	return ok && identifier.Name == "nil"
-}
-
-func goNativePublicCommandSymbol(expression ast.Expr, symbols map[string]string) (string, bool) {
-	selector, ok := expression.(*ast.SelectorExpr)
-	if !ok {
-		return "", false
-	}
-	pkg, ok := selector.X.(*ast.Ident)
-	if !ok || pkg.Name != "commands" {
-		return "", false
-	}
-	if command, ok := symbols[selector.Sel.Name]; ok {
-		return command, true
-	}
-	return selector.Sel.Name, selector.Sel.Name != ""
 }
 
 func goNativePublicSurfaceCrossWarnings(goSurface GoNativePublicSurface, facade PowerShellPublicFacade) []string {

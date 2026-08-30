@@ -19,7 +19,7 @@ import (
 const anchoredFileRenameInformation = 10
 
 type anchoredFileRenameInformationValue struct {
-	replaceIfExists bool
+	replaceIfExists byte
 	rootDirectory   windows.Handle
 	fileNameLength  uint32
 	fileName        [syscall.MAX_PATH]uint16

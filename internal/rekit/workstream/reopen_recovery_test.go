@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
@@ -34,6 +35,20 @@ func TestReopenApplyRecoversExactPendingOperationIntent(t *testing.T) {
 	}
 	if !strings.HasPrefix(preview.ApplyCommand, "/rekit reopen binary-analysis-bootstrap ") {
 		t.Fatalf("reopen Apply command changed the reviewed selector: %q", preview.ApplyCommand)
+	}
+	if len(preview.ApplyArgs) == 0 {
+		t.Fatal("reopen preview omitted exact Apply args")
+	}
+	fromArgs, err := commands.ExactActionFromCLIArgs(preview.ApplyArgs)
+	if err != nil {
+		t.Fatalf("parse reopen Apply args: %v", err)
+	}
+	fromCommand, err := commands.ExactActionFromCommand(preview.ApplyCommand)
+	if err != nil {
+		t.Fatalf("parse reopen Apply command: %v", err)
+	}
+	if !fromArgs.Equivalent(fromCommand) {
+		t.Fatalf("reopen Apply args and command drifted: args=%+v command=%+v", fromArgs, fromCommand)
 	}
 	if len(preview.EffectiveTargets) != 2 || len(preview.ReopenPlanSHA256) != 64 {
 		t.Fatalf("unexpected compound reopen preview: %+v", preview)

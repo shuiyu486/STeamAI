@@ -71,6 +71,7 @@ type Options struct {
 	InitialLane                  string
 	PublicationStamp             string
 	ExpectedOnboardingPlanSHA256 string
+	SourceExecutable             string
 }
 
 type Write struct {
@@ -173,7 +174,7 @@ func Apply(repoRoot string, opt Options) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		ordinary, err := ordinaryPlan(repoRoot, plan.CaseRoot, plan.Identity, plan.PublicationStamp, createdAt, true)
+		ordinary, err := ordinaryPlan(repoRoot, plan.CaseRoot, plan.Identity, plan.PublicationStamp, createdAt, true, opt.SourceExecutable)
 		if err != nil {
 			return Result{}, err
 		}
@@ -320,7 +321,7 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 	if err != nil {
 		return Plan{}, fmt.Errorf("invalid onboarding publication stamp: %s", stamp)
 	}
-	ordinary, err := ordinaryPlan(repoRoot, caseRoot, identity, stamp, createdAt, allowExisting)
+	ordinary, err := ordinaryPlan(repoRoot, caseRoot, identity, stamp, createdAt, allowExisting, opt.SourceExecutable)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -718,8 +719,8 @@ func onboardingStamp(value string) (string, time.Time, error) {
 	return stamp, createdAt, nil
 }
 
-func ordinaryPlan(repoRoot, caseRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, allowExisting bool) (syncreview.ExclusiveInitPlan, error) {
-	options := syncreview.ExclusiveInitOptions{ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + stamp, Role: "mission-onboarding", CreatedAt: createdAt, SkipVerificationMarker: true, DefaultPublicationPhase: 1}
+func ordinaryPlan(repoRoot, caseRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, allowExisting bool, sourceExecutable string) (syncreview.ExclusiveInitPlan, error) {
+	options := syncreview.ExclusiveInitOptions{ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + stamp, Role: "mission-onboarding", CreatedAt: createdAt, SkipVerificationMarker: true, DefaultPublicationPhase: 1, SourceExecutable: strings.TrimSpace(sourceExecutable)}
 	var (
 		plan syncreview.ExclusiveInitPlan
 		err  error
@@ -782,7 +783,10 @@ func ordinaryPlanFromRecovery(caseRoot string, identity missionintent.Identity, 
 			if err != nil || int64(len(data)) != write.Size || !strings.EqualFold(missionintent.SHA256(data), write.SHA256) {
 				return syncreview.ExclusiveInitPlan{}, fmt.Errorf("current STeamAI executable does not match onboarding recovery bundle binding")
 			}
-			planned.SourcePath = source
+			planned, err = syncreview.BindExclusiveInitWriteSnapshot(planned, data)
+			if err != nil {
+				return syncreview.ExclusiveInitPlan{}, err
+			}
 		}
 		plan.Writes = append(plan.Writes, planned)
 	}
@@ -800,6 +804,9 @@ func planFromOrdinary(ordinary syncreview.ExclusiveInitPlan, identity missionint
 	recovery := missionintent.RecoveryEnvelope{SchemaVersion: 1, RepoRoot: recoveryRepoRoot, CreatedAt: ordinary.CreatedAt}
 	for _, write := range ordinary.Writes {
 		content := append([]byte{}, write.Content...)
+		if write.Kind == "runtime-executable" {
+			content = nil
+		}
 		if strings.TrimSpace(write.SourcePath) != "" && write.Kind != "runtime-executable" {
 			var err error
 			content, err = refsf.ReadStableRegularFileAnchored(filepath.Dir(write.SourcePath), write.SourcePath, "onboarding recovery bundle asset", write.Size+1)

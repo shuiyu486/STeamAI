@@ -5,14 +5,133 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
+
+func buildUnifiedHostcmdFixture(t *testing.T) string {
+	t.Helper()
+	return buildHostcmdFixture(t, "./cmd/rekit", "steamai-hostcmd-test")
+}
+
+func buildHostOnlyHostcmdFixture(t *testing.T) string {
+	t.Helper()
+	return buildHostcmdFixture(t, "./cmd/rekit-host", "rekit-hostcmd-role-test")
+}
+
+func buildHostcmdFixture(t *testing.T, packagePath, name string) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve hostcmd test source")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(t.TempDir(), name)
+	command := exec.Command("go", "build", "-o", path, packagePath)
+	command.Dir = repoRoot
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build hostcmd fixture %s: %v\n%s", packagePath, err, output)
+	}
+	return path
+}
+
+func TestStandaloneHostRefusesOnboardingInsideInitializedProjectWithoutWrites(t *testing.T) {
+	unifiedExecutable := buildUnifiedHostcmdFixture(t)
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve hostcmd test source")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRoot := filepath.Join(t.TempDir(), "initialized-project")
+	preview, err := syncreview.InitPreview(repoRoot, caseRoot, "_template", syncreview.ApplyOptions{
+		ProjectName:      "initialized-project",
+		CreateLocalFiles: true,
+		Command:          "init",
+		SourceExecutable: unifiedExecutable,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.Apply(repoRoot, caseRoot, "_template", syncreview.ApplyOptions{
+		ProjectName:        "initialized-project",
+		CreateLocalFiles:   true,
+		Command:            "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+		SourceExecutable:   unifiedExecutable,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	projectExecutable := filepath.Join(caseRoot, ".steamai", "runtime", "bin", runtimebundle.ExecutableName())
+	if err := runtimebundle.ValidateUnifiedExecutableRole(unifiedExecutable); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(projectExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-daily", "-target", caseRoot, "-goal", "must not publish host image",
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "verified unified runtime executable source") {
+		t.Fatalf("standalone host initialized-project onboarding exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	after, err := os.ReadFile(projectExecutable)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("standalone host changed project executable: err=%v", err)
+	}
+}
+
+func TestRunWithUnifiedExecutableRejectsHostOnlyImageBeforeSideEffects(t *testing.T) {
+	hostOnly := buildHostOnlyHostcmdFixture(t)
+	caseRoot := filepath.Join(t.TempDir(), "project")
+	var stdout, stderr bytes.Buffer
+	code := RunWithUnifiedExecutable([]string{
+		"-daily", "-target", caseRoot, "-goal", "must not initialize",
+	}, &stdout, &stderr, hostOnly)
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unified runtime executable role mismatch") {
+		t.Fatalf("host-only source exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
+		t.Fatalf("host-only source created project: %v", err)
+	}
+}
+
+func TestStandaloneHostRefusesProjectInitializingAcceptanceBeforeSideEffects(t *testing.T) {
+	for name, args := range map[string][]string{
+		"live acceptance":             {"-live-acceptance", "-goal", "goal", "-correction", "correction", "-adapter", "missing-adapter"},
+		"live supervision acceptance": {"-live-supervision-acceptance", "-goal", "goal"},
+		"pack memory acceptance":      {"-live-pack-memory-acceptance", "-goal", "goal"},
+		"live soak acceptance":        {"-live-soak-acceptance", "-goal", "goal", "-correction", "correction", "-receipt", filepath.Join(t.TempDir(), "receipt.json")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := Run(args, &stdout, &stderr)
+			if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "verified unified runtime executable source") {
+				t.Fatalf("standalone acceptance exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
 
 func TestValidateAdapterFlagPackIdentityPolicy(t *testing.T) {
 	for _, retired := range []string{packidentity.RetiredGeneric, packidentity.RetiredVMP} {
@@ -121,7 +240,50 @@ func TestRunDailyDirectoryAdoptionEmitsTypedActionWithoutMutation(t *testing.T) 
 	}
 }
 
+func TestRunDailyDirectoryAdoptionRequiresUnifiedRuntimeSourceWithoutWrites(t *testing.T) {
+	caseRoot := t.TempDir()
+	userPath := filepath.Join(caseRoot, "user.txt")
+	original := []byte("keep\n")
+	if err := os.WriteFile(userPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-daily", "-target", caseRoot,
+		"-directory-adoption-action", "initialize-in-place",
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "verified unified runtime executable source") {
+		t.Fatalf("standalone host adoption exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if content, err := os.ReadFile(userPath); err != nil || !bytes.Equal(content, original) {
+		t.Fatalf("standalone host adoption changed user file: %q err=%v", content, err)
+	}
+	entries, err := os.ReadDir(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "user.txt" {
+		t.Fatalf("standalone host adoption wrote project state: %+v", entries)
+	}
+}
+
+func TestRunDailyDirectoryAdoptionPackAloneRoutesToAdoption(t *testing.T) {
+	caseRoot := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-daily", "-target", caseRoot,
+		"-directory-adoption-pack", "web-security",
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "requires initialize-in-place or confirm-exact-plan") {
+		t.Fatalf("standalone host pack-only adoption exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if entries, err := os.ReadDir(caseRoot); err != nil || len(entries) != 0 {
+		t.Fatalf("standalone host pack-only adoption wrote project state: entries=%+v err=%v", entries, err)
+	}
+}
+
 func TestRunDailyDirectoryAdoptionPreviewAndApplyBridge(t *testing.T) {
+	unifiedExecutable := buildUnifiedHostcmdFixture(t)
 	caseRoot := t.TempDir()
 	userPath := filepath.Join(caseRoot, "user.txt")
 	original := []byte("keep\n")
@@ -130,10 +292,10 @@ func TestRunDailyDirectoryAdoptionPreviewAndApplyBridge(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	previewCode := Run([]string{
+	previewCode := RunWithUnifiedExecutable([]string{
 		"-daily", "-target", caseRoot,
 		"-directory-adoption-action", "initialize-in-place",
-	}, &stdout, &stderr)
+	}, &stdout, &stderr, unifiedExecutable)
 	if previewCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("daily adoption preview exit=%d stderr=%q", previewCode, stderr.String())
 	}
@@ -150,11 +312,11 @@ func TestRunDailyDirectoryAdoptionPreviewAndApplyBridge(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	applyCode := Run([]string{
+	applyCode := RunWithUnifiedExecutable([]string{
 		"-daily", "-target", caseRoot,
 		"-directory-adoption-action", "confirm-exact-plan",
 		"-expected-init-plan-sha256", preview.DirectoryAdoption.Plan.ExpectedPlanSHA256,
-	}, &stdout, &stderr)
+	}, &stdout, &stderr, unifiedExecutable)
 	if applyCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("daily adoption Apply exit=%d stderr=%q", applyCode, stderr.String())
 	}
@@ -186,10 +348,12 @@ func TestRunProjectLocalRejectsOrdinaryDirectoryAdoptionControls(t *testing.T) {
 
 func TestRunDailyControlFlagBridgePreviewApplyWithoutClaude(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "daily-control")
+	unifiedExecutable := buildUnifiedHostcmdFixture(t)
 	bootstrap, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
 		Target:                            caseRoot,
 		Goal:                              "provision host control bridge fixture",
 		Actor:                             "host-control-test",
+		InitializationSourceExecutable:    unifiedExecutable,
 		ClaudePath:                        filepath.Join(caseRoot, "missing-claude.exe"),
 		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
 		ExpectedClaudeExecutablePublisher: "Anthropic, PBC",

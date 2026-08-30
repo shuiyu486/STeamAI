@@ -34,6 +34,49 @@ func TestReleaseCheckRequiresBatchHistory(t *testing.T) {
 	t.Fatalf("missing batch history was not reported: %+v", result.Documents)
 }
 
+func TestReleaseCheckCatalogCannotExpandExecutableGateProfile(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	catalogPath := filepath.Join(repo, "rekit", "tests", "catalog.json")
+	data, err := os.ReadFile(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	recommended, ok := raw["recommendedMinimum"].([]any)
+	if !ok {
+		t.Fatalf("catalog recommendedMinimum has unexpected shape: %T", raw["recommendedMinimum"])
+	}
+	recommended = append(recommended, "fixture-display-only --must-not-execute")
+	raw["recommendedMinimum"] = recommended
+	updated, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(catalogPath, append(updated, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.RecommendedMinimum) != len(requiredCommands)+1 || result.RecommendedMinimum[len(result.RecommendedMinimum)-1].Command != "fixture-display-only --must-not-execute" {
+		t.Fatalf("catalog navigation entry was not preserved: %+v", result.RecommendedMinimum)
+	}
+	if len(result.GateProfile.Steps) != len(requiredCommands) || len(result.RequiredCommands) != len(requiredCommands) {
+		t.Fatalf("catalog expanded executable gate profile: profile=%+v required=%+v", result.GateProfile, result.RequiredCommands)
+	}
+	for index, step := range result.GateProfile.Steps {
+		if step.Command != requiredCommands[index].Command || step.Executable != requiredCommands[index].Executable || !slices.Equal(step.Arguments, requiredCommands[index].Arguments) {
+			t.Fatalf("executable gate step %d drifted from canonical carrier: got=%+v want=%+v", index, step, requiredCommands[index])
+		}
+	}
+}
+
 func TestReleaseCheckIncludesCurrentAndLegacyEntrypointReadiness(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
@@ -526,18 +569,17 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 			t.Fatalf("Go-native public command %s missing from catalog or handler coverage: %+v", command, inventory)
 		}
 	}
-	if len(inventory.RuntimeOwners) != 69 {
-		t.Fatalf("Go-native exact runtime owner inventory=%d, want 69", len(inventory.RuntimeOwners))
+	if len(inventory.RuntimeOwners) != len(commands.MutationContracts())+5 {
+		t.Fatalf("Go-native descriptor-backed runtime scope inventory=%d, want mutation contracts plus read-only commands", len(inventory.RuntimeOwners))
 	}
 	if warnings := GoNativePublicRuntimeOwnerWarningsFor(inventory.RuntimeOwners, inventory.Commands); len(warnings) != 0 {
-		t.Fatalf("Go-native exact runtime owner inventory drifted: %v", warnings)
+		t.Fatalf("Go-native runtime scope inventory drifted: %v", warnings)
 	}
-	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "sync", commands.MutationModeCurrentSync, "pre-runtime-exclusive-owner", "wantsCurrentSyncMaintenance", "", "validateCurrentSyncMaintenanceOptions", "inline-func", "runWithOptions->runPreRuntimeCommand->inline-func")
-	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "sync", commands.MutationModeOrdinarySync, "scoped-runtime-owner", "resolveSyncCommandMode", "bindSyncCommand", "validateSyncCommand", "handleSyncCommand", "runWithOptions->runOwnedCommand->runScopedCommand->executeScopedCommandRoute->handleSyncCommand")
-	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "plan-subagents", commands.MutationModeReviewerIntake, "scoped-runtime-owner", "resolvePlanSubagentsCommandMode", "bindPlanSubagentsCommand", "validatePlanSubagentsCommand", "handlePlanSubagentsCommand", "runWithOptions->runOwnedCommand->runScopedCommand->executeScopedCommandRoute->handlePlanSubagentsCommand")
-	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "*", "pending-current-sync-recovery", "pre-runtime-interceptor-owner", "inline-func", "", "inline-func", "runCurrentSyncRecoveryFrontDoor", "runWithOptions->runPreRuntimeCommand->runCurrentSyncRecoveryFrontDoor")
-	if surfaceCounts.SymbolCatalog.Symbols != 32 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || inventory.SymbolCommands["Control"] != "control" || inventory.SymbolCommands["MigrateState"] != "migrate-state" || inventory.SymbolCommands["NextBatch"] != "next-batch" || inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["Reconcile"] != "reconcile" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" || inventory.SymbolCommands["ReleaseRun"] != "release-run" || inventory.SymbolCommands["RunCurrentLoop"] != "run-current-loop" || inventory.SymbolCommands["RunCurrentStep"] != "run-current-step" {
-		t.Fatalf("Go-native public symbol catalog drifted: %+v", inventory.SymbolCommands)
+	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "sync", commands.MutationModeCurrentSync)
+	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "sync", commands.MutationModeOrdinarySync)
+	assertGoNativeRuntimeOwner(t, inventory.RuntimeOwners, "plan-subagents", commands.MutationModeReviewerIntake)
+	if surfaceCounts.SymbolCatalog.Symbols != 32 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || inventory.SymbolCommands["control"] != "control" || inventory.SymbolCommands["migrate-state"] != "migrate-state" || inventory.SymbolCommands["next-batch"] != "next-batch" || inventory.SymbolCommands["plan-subagents"] != "plan-subagents" || inventory.SymbolCommands["reconcile"] != "reconcile" || inventory.SymbolCommands["release-check"] != "release-check" || inventory.SymbolCommands["release-run"] != "release-run" || inventory.SymbolCommands["run-current-loop"] != "run-current-loop" || inventory.SymbolCommands["run-current-step"] != "run-current-step" {
+		t.Fatalf("Go-native public command identity projection drifted: %+v", inventory.SymbolCommands)
 	}
 	profiles := map[string]commands.PublicProfile{}
 	for _, profile := range inventory.CommandProfiles {
@@ -566,17 +608,17 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	}
 }
 
-func assertGoNativeRuntimeOwner(t *testing.T, owners []GoNativePublicRuntimeOwner, command, mode, kind, resolver, binder, validator, handler, callPath string) {
+func assertGoNativeRuntimeOwner(t *testing.T, owners []GoNativePublicRuntimeOwner, command, mode string) {
 	t.Helper()
 	for _, owner := range owners {
 		if owner.Command == command && owner.Mode == mode {
-			if owner.OwnerKind != kind || owner.Resolver != resolver || owner.Binder != binder || owner.Validator != validator || owner.Handler != handler || owner.PublicationOwner != handler || owner.CallPath != callPath {
-				t.Fatalf("Go-native runtime owner %s mode %s drifted: %+v", command, mode, owner)
+			if owner.OwnerKind != "descriptor-backed-runtime-scope" || owner.Resolver != "production-runtime-registry" || owner.Binder != "production-runtime-registry" || owner.Validator != "production-runtime-registry" || owner.Handler != "production-runtime-registry" || owner.PublicationOwner != "production-runtime-registry" || owner.CallPath != "runWithOptions->runOwnedCommand" {
+				t.Fatalf("Go-native runtime scope %s mode %s drifted: %+v", command, mode, owner)
 			}
 			return
 		}
 	}
-	t.Fatalf("Go-native runtime owner missing: %s mode %s", command, mode)
+	t.Fatalf("Go-native runtime scope missing: %s mode %s", command, mode)
 }
 
 func TestGoNativePublicRuntimeOwnerWarningsFailClosed(t *testing.T) {
@@ -619,30 +661,12 @@ func TestGoNativePublicRuntimeOwnerWarningsFailClosed(t *testing.T) {
 			want: "missing scope",
 		},
 		{
-			name: "wrong pre-runtime call path",
+			name: "wrong runtime registry identity",
 			mutate: func(owners []GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner {
-				for index := range owners {
-					if owners[index].OwnerKind == "pre-runtime-exclusive-owner" {
-						owners[index].CallPath = "runWithOptions->runOwnedCommand"
-						break
-					}
-				}
+				owners[0].CallPath = "runWithOptions->synthetic-owner"
 				return owners
 			},
-			want: "pre-runtime owner inventory is incomplete",
-		},
-		{
-			name: "missing recovery interceptor",
-			mutate: func(owners []GoNativePublicRuntimeOwner) []GoNativePublicRuntimeOwner {
-				out := owners[:0]
-				for _, owner := range owners {
-					if owner.OwnerKind != "pre-runtime-interceptor-owner" {
-						out = append(out, owner)
-					}
-				}
-				return out
-			},
-			want: "interceptor owner count drifted",
+			want: "runtime scope inventory is incomplete",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -652,81 +676,6 @@ func TestGoNativePublicRuntimeOwnerWarningsFailClosed(t *testing.T) {
 				t.Fatalf("runtime owner warnings=%v, want containing %q", warnings, test.want)
 			}
 		})
-	}
-}
-
-func TestGoNativePublicSurfaceInventoryDetectsDispatcherDrift(t *testing.T) {
-	repo := t.TempDir()
-	writeFile(t, filepath.Join(repo, "cmd", "rekit", "main.go"), "package main\n")
-	writeFile(t, filepath.Join(repo, "internal", "rekit", "commands", "commands.go"), "package commands\n")
-	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "cli.go"), "package cli\n")
-	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "scoped_registry.go"), `package cli
-
-import "github.com/shuiyu486/re-context-kits/internal/rekit/commands"
-
-var directCommandRuntimeOwners = []directCommandRuntimeOwner{
-	{Command: commands.Status, Handle: runStatus},
-}
-
-func runOwnedCommand(opt Options) error {
-	return commands.UnsupportedError(opt.Command)
-}
-`)
-
-	inventory := goNativePublicSurface(repo)
-	if inventory.Ready {
-		t.Fatalf("Go-native public surface unexpectedly ready despite dispatcher drift: %+v", inventory)
-	}
-	assertWarningContains(t, inventory.Warnings, "Go CLI dispatcher missing public command handler: release-check")
-}
-
-func TestGoNativePublicHandlerCommandsCombinesDirectAndScopedOwners(t *testing.T) {
-	repo := t.TempDir()
-	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "scoped_registry.go"), `package cli
-
-import "github.com/shuiyu486/re-context-kits/internal/rekit/commands"
-
-var directCommandRuntimeOwners = []directCommandRuntimeOwner{
-	{Command: commands.Status, Handle: runStatus},
-}
-
-var scopedCommandRuntimeOwners = []scopedCommandRuntimeOwner{
-	defaultScopedCommandRuntimeOwner(commands.ReleaseCheck, bindReleaseCheckCommand, validateReleaseCheckCommand, handleReleaseCheckCommand),
-}
-`)
-
-	got := goNativePublicHandlerCommands(repo)
-	if strings.Join(got, ",") != "release-check,status" {
-		t.Fatalf("handler coverage did not combine direct and scoped runtime owners: %v", got)
-	}
-}
-
-func TestGoNativePublicHandlerCommandsRejectsIncompleteOrTextOnlyScopedRoutes(t *testing.T) {
-	repo := t.TempDir()
-	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "scoped_registry.go"), `package cli
-
-import "github.com/shuiyu486/re-context-kits/internal/rekit/commands"
-
-// Direct owner text must not count as an actual callback.
-const fakeDirectOwner = "{Command: commands.Status, Handle: runStatus}"
-
-var directCommandRuntimeOwners = []directCommandRuntimeOwner{
-	{Command: commands.Status, Handle: nil},
-}
-
-// Scope: commands.CommandScope{Command: commands.ReleaseCheck}
-var scopedCommandRoutes = []scopedCommandRoute{
-	{
-		Scope: commands.CommandScope{Command: commands.ReleaseCheck, Mode: commands.MutationModeDefault},
-		Bind: bindReleaseCheckCommand,
-		Validate: validateReleaseCheckCommand,
-		Handle: nil,
-	},
-}
-`)
-
-	if got := goNativePublicHandlerCommands(repo); len(got) != 0 {
-		t.Fatalf("incomplete or text-only routes counted as handlers: %v", got)
 	}
 }
 
@@ -1131,8 +1080,14 @@ func cleanReleaseRepoRoot(t *testing.T) string {
 		if rel == "." {
 			return os.MkdirAll(dst, 0o755)
 		}
+		if relSlash == ".git" || strings.HasPrefix(relSlash, ".git/") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
-			if relSlash == ".git" || relSlash == ".codegraph" || releaseCheckTestVolatileCandidateDir(relSlash) {
+			if relSlash == ".codegraph" || relSlash == ".claude/worktrees" || releaseCheckTestVolatileCandidateDir(relSlash) {
 				return filepath.SkipDir
 			}
 			info, err := d.Info()
@@ -1161,6 +1116,35 @@ func cleanReleaseRepoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dst
+}
+
+func TestCleanReleaseRepoRootExcludesGitFileIdentity(t *testing.T) {
+	src := t.TempDir()
+	writeFile(t, filepath.Join(src, "go.mod"), "module example.invalid/fixture\n")
+	writeFile(t, filepath.Join(src, ".git"), "gitdir: ../source.git/worktrees/fixture\n")
+	writeFile(t, filepath.Join(src, "tracked.txt"), "tracked\n")
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(src); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+
+	dst := cleanReleaseRepoRoot(t)
+	if _, err := os.Lstat(filepath.Join(dst, ".git")); !os.IsNotExist(err) {
+		t.Fatalf("clean release fixture copied linked-worktree gitfile: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "tracked.txt"))
+	if err != nil || string(data) != "tracked\n" {
+		t.Fatalf("clean release fixture omitted tracked file: data=%q err=%v", data, err)
+	}
 }
 
 func releaseCheckTestVolatileCandidateDir(relSlash string) bool {

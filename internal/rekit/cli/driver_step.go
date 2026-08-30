@@ -81,7 +81,11 @@ func runDriverStep(ctx runtime.Context, opt Options, out io.Writer) error {
 		if strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256) != "" {
 			return fmt.Errorf("run-driver-step -WhatIf does not accept -ExpectedDriverStepPlanSha256")
 		}
-		return writeJSON(out, plan)
+		diagnostics, err := buildDriverStepDiagnosticsDTO(plan, ctx.Target)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, diagnostics)
 	}
 	expected := strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256)
 	if expected == "" {
@@ -94,7 +98,11 @@ func runDriverStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(out, plan)
+	diagnostics, err := buildDriverStepDiagnosticsDTO(plan, ctx.Target)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, diagnostics)
 }
 
 func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) (driverStepPlan, error) {
@@ -291,46 +299,56 @@ func validateDriverStepOuterArgs(opt Options) error {
 }
 
 func qualifyDriverStepApplyRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (mission.MissionCommanderDriverRequest, error) {
-	command, err := projectVisibleCommand(ctx.Target, request.Command)
-	if err != nil {
+	if request.Invocation == nil {
+		command, err := projectVisibleCommand(ctx.Target, request.Command)
+		if err != nil {
+			return mission.MissionCommanderDriverRequest{}, err
+		}
+		request.Command = command
+		request, err = mission.MissionCommanderDriverRequestWithTypedCommand(request)
+		if err != nil {
+			return mission.MissionCommanderDriverRequest{}, err
+		}
+	} else if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
 		return mission.MissionCommanderDriverRequest{}, err
 	}
-	request.Command = command
-	fields, err := splitDriverCommand(request.Command)
-	if err != nil {
-		return mission.MissionCommanderDriverRequest{}, err
-	}
-	if len(fields) < 2 || !driverStepEntrypointMatches(ctx, fields[0]) || !boundedDriverStepCommand(fields[1]) {
+	if request.Invocation == nil || !boundedDriverStepCommand(request.Invocation.Command) {
 		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("returned Apply request is outside the bounded driver command allowlist")
 	}
-	args := fields[2:]
-	if fields[1] == commands.Continue {
+	projection, err := resolveProjectPublicProjection(ctx.Target)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	args := append([]string{}, request.Invocation.Arguments...)
+	if request.Invocation.Command == commands.Continue {
 		if driverCommandHasFlag(args, "-WhatIf", "--what-if") || !driverCommandHasFlag(args, "-Apply", "--apply") {
 			return mission.MissionCommanderDriverRequest{}, fmt.Errorf("continue Apply request must come from the exact workstream preview")
 		}
 	} else if driverCommandHasFlag(args, "-WhatIf", "--what-if") {
-		fields = driverStepReplacePhase(fields, "-Apply")
-		args = fields[2:]
+		args = driverStepReplacePhase(args, "-Apply")
 	} else if !driverCommandHasFlag(args, "-Apply", "--apply") {
-		fields = append(fields, "-Apply")
-		args = fields[2:]
+		args = append(args, "-Apply")
 	}
 	if !driverCommandHasFlag(args, "-Target", "--target") {
-		fields = append(fields, "-Target", ctx.Target)
+		args = append(args, "-Target", ctx.Target)
 	}
 	if !driverCommandHasFlag(args, "-Pack", "--pack") {
-		fields = append(fields, "-Pack", ctx.Pack)
+		args = append(args, "-Pack", ctx.Pack)
 	}
 	if !driverCommandHasFlag(args, "-Format", "--format") {
-		fields = append(fields, "-Format", "json")
+		args = append(args, "-Format", "json")
 	}
-	request.Command = joinDriverCommand(fields)
-	request.ExpectedReceipt.Command = request.Command
-	invocation, err := commands.ParsePublicInvocation(request.Command)
+	invocation, err := commands.NewPublicInvocation(request.Invocation.Command, args...)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	command, err := invocation.RenderForEntrypoint(projection.entrypoint)
 	if err != nil {
 		return mission.MissionCommanderDriverRequest{}, err
 	}
 	request.Invocation = &invocation
+	request.Command = command
+	request.ExpectedReceipt.Command = command
 	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
 		return mission.MissionCommanderDriverRequest{}, err
 	}
@@ -356,23 +374,31 @@ func parseBoundedDriverRequest(ctx runtime.Context, request mission.MissionComma
 	if !apply && !request.RequiresReview {
 		return Options{}, fmt.Errorf("current driver request is outside the review-first runner boundary")
 	}
-	fields, err := splitDriverCommand(request.Command)
-	if err != nil {
-		return Options{}, err
-	}
-	if len(fields) < 2 || !driverStepEntrypointMatches(ctx, fields[0]) {
-		return Options{}, fmt.Errorf("driver request command must use the canonical project entrypoint")
-	}
-	if !boundedDriverStepCommand(fields[1]) {
-		return Options{}, fmt.Errorf("driver request command %q is outside the run-driver-step allowlist", fields[1])
-	}
-	if err := validateBoundedDriverTokens(fields[1], fields[2:], apply); err != nil {
-		return Options{}, err
-	}
 	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
 		return Options{}, err
 	}
-	inner, err := Parse(append([]string{"-Command", fields[1]}, fields[2:]...))
+	if request.Invocation == nil {
+		return Options{}, fmt.Errorf("driver request command requires a typed invocation")
+	}
+	projection, err := resolveProjectPublicProjection(ctx.Target)
+	if err != nil {
+		return Options{}, err
+	}
+	fields, err := splitDriverCommand(request.Command)
+	if err != nil || len(fields) < 2 || fields[0] != projection.entrypoint {
+		return Options{}, fmt.Errorf("driver request command must use the canonical project entrypoint")
+	}
+	if !boundedDriverStepCommand(request.Invocation.Command) {
+		return Options{}, fmt.Errorf("driver request command %q is outside the run-driver-step allowlist", request.Invocation.Command)
+	}
+	if err := validateBoundedDriverTokens(request.Invocation.Command, request.Invocation.Arguments, apply); err != nil {
+		return Options{}, err
+	}
+	args, err := request.Invocation.CLIArgs()
+	if err != nil {
+		return Options{}, err
+	}
+	inner, err := Parse(args)
 	if err != nil {
 		return Options{}, err
 	}

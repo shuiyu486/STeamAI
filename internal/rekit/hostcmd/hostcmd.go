@@ -16,6 +16,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 )
 
@@ -90,16 +91,36 @@ func runRecovery(args []string, stdout, stderr io.Writer, projectRoot string) in
 // This lets the project-local steamai executable expose the same host surface
 // while the retained rekit-host binary remains a maintenance entrypoint.
 func Run(args []string, stdout, stderr io.Writer) int {
-	return run(args, stdout, stderr, "")
+	return run(args, stdout, stderr, "", "")
+}
+
+// RunWithUnifiedExecutable executes the external host surface while binding
+// every project initialization path to a verified unified STeamAI runtime image.
+func RunWithUnifiedExecutable(args []string, stdout, stderr io.Writer, executable string) int {
+	if err := runtimebundle.ValidateUnifiedExecutableRole(executable); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return run(args, stdout, stderr, "", executable)
 }
 
 // RunProjectLocal binds every host target, including an internal supervisor
 // spec target, to the executable owner project.
 func RunProjectLocal(args []string, stdout, stderr io.Writer, projectRoot string) int {
-	return run(args, stdout, stderr, projectRoot)
+	return run(args, stdout, stderr, projectRoot, "")
 }
 
-func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
+// RunProjectLocalWithUnifiedExecutable additionally binds project-local
+// onboarding to the executable that owns the current project process.
+func RunProjectLocalWithUnifiedExecutable(args []string, stdout, stderr io.Writer, projectRoot, executable string) int {
+	if err := runtimebundle.ValidateUnifiedExecutableRole(executable); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return run(args, stdout, stderr, projectRoot, executable)
+}
+
+func run(args []string, stdout, stderr io.Writer, projectRoot, initializationSourceExecutable string) int {
 	if stdout == nil {
 		stdout = io.Discard
 	}
@@ -131,7 +152,12 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 	flags.StringVar(&controlOpt.PublicationStamp, "control-publication-stamp", "", "exact lane control preview publication stamp")
 	flags.StringVar(&controlOpt.ExpectedPlanSHA256, "expected-control-plan-sha256", "", "exact reviewed lane control plan sha256")
 	directoryAdoptionAction := flags.String("directory-adoption-action", "", "typed ordinary-directory adoption choice")
+	directoryAdoptionPack := flags.String("directory-adoption-pack", "", "mature pack selected for ordinary-directory adoption")
 	expectedInitPlanSHA256 := flags.String("expected-init-plan-sha256", "", "exact ordinary-directory init preview sha256")
+	successorWhatIf := flags.Bool("successor-what-if", false, "preview a new mission after terminal completion")
+	successorApply := flags.Bool("successor-apply", false, "apply the exact reviewed successor mission plan")
+	successorPublicationStamp := flags.String("successor-publication-stamp", "", "exact successor mission preview publication stamp")
+	expectedSuccessorPlanSHA256 := flags.String("expected-successor-plan-sha256", "", "exact reviewed successor mission plan sha256")
 	flags.StringVar(&opt.ExpectedCurrentDriverRequestSHA256, "expected-current-driver-request-sha256", "", "exact fresh missionControlRunbook current driver request sha256")
 	flags.StringVar(&opt.Actor, "actor", "rekit-claude-host", "durable host actor")
 	flags.StringVar(&opt.ClaudePath, "claude", "", "Claude Code executable path")
@@ -147,14 +173,19 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		return 2
 	}
 	dailyRequest := sessionhost.ClassifyDailyRequest(sessionhost.DailyOptions{
-		Goal:                    liveOpt.Goal,
-		Correction:              liveOpt.Correction,
-		SelectedLane:            opt.SelectedLane,
-		Control:                 controlOpt,
-		ControlWhatIf:           *controlWhatIf,
-		ControlApply:            *controlApply,
-		DirectoryAdoptionAction: *directoryAdoptionAction,
-		ExpectedInitPlanSHA256:  *expectedInitPlanSHA256,
+		Goal:                        liveOpt.Goal,
+		Correction:                  liveOpt.Correction,
+		SelectedLane:                opt.SelectedLane,
+		Control:                     controlOpt,
+		ControlWhatIf:               *controlWhatIf,
+		ControlApply:                *controlApply,
+		DirectoryAdoptionAction:     *directoryAdoptionAction,
+		DirectoryAdoptionPack:       *directoryAdoptionPack,
+		ExpectedInitPlanSHA256:      *expectedInitPlanSHA256,
+		SuccessorWhatIf:             *successorWhatIf,
+		SuccessorApply:              *successorApply,
+		SuccessorPublicationStamp:   *successorPublicationStamp,
+		ExpectedSuccessorPlanSHA256: *expectedSuccessorPlanSHA256,
 	})
 	controlRequested := dailyRequest.ControlRequested
 	adoptionRequested := dailyRequest.AdoptionRequested
@@ -240,6 +271,12 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		return printResult(stdout, stderr, result, err)
 	}
 
+	acceptanceInitializesProject := *livePackMemoryAcceptance || *liveSupervisionAcceptance || *liveAcceptance || *liveSoakAcceptance
+	if acceptanceInitializesProject && strings.TrimSpace(initializationSourceExecutable) == "" {
+		fmt.Fprintln(stderr, "project-initializing acceptance requires a verified unified runtime executable source")
+		return 1
+	}
+
 	if *livePackMemoryAcceptance {
 		if *daily || *liveAcceptance || *liveSupervisionAcceptance || *liveSoakAcceptance {
 			fmt.Fprintln(stderr, "-live-pack-memory-acceptance, -live-supervision-acceptance, -live-soak-acceptance, -live-acceptance, and -daily are mutually exclusive")
@@ -252,6 +289,7 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		result, err := sessionhost.RunPackMemoryLiveAcceptance(context.Background(), sessionhost.PackMemoryLiveAcceptanceOptions{
 			Goal: liveOpt.Goal, ClaudePath: opt.ClaudePath, Model: opt.Model, Actor: opt.Actor,
 			Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts, KeepCase: liveOpt.KeepCase, ReceiptPath: liveOpt.ReceiptPath,
+			InitializationSourceExecutable: initializationSourceExecutable,
 		})
 		result, err = PublishPackMemoryLiveAcceptanceReceipt(liveOpt.ReceiptPath, result, err)
 		return printResult(stdout, stderr, result, err)
@@ -265,6 +303,7 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		result, err := sessionhost.RunLiveSupervisionAcceptance(context.Background(), sessionhost.LiveSupervisionAcceptanceOptions{
 			CaseRoot: opt.Target, Goal: liveOpt.Goal, Model: opt.Model, Actor: opt.Actor,
 			Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts, KeepCase: liveOpt.KeepCase, ReceiptPath: liveOpt.ReceiptPath,
+			InitializationSourceExecutable: initializationSourceExecutable,
 		})
 		if strings.TrimSpace(liveOpt.ReceiptPath) != "" {
 			result.ReceiptPublication = "published"
@@ -290,6 +329,7 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		liveOpt.Actor = opt.Actor
 		liveOpt.Timeout = opt.Timeout
 		liveOpt.MaxAttempts = opt.MaxAttempts
+		liveOpt.InitializationSourceExecutable = initializationSourceExecutable
 		result, err := sessionhost.RunLiveAcceptance(context.Background(), liveOpt)
 		result, err = PublishLiveAcceptanceReceipt(liveOpt.ReceiptPath, result, err)
 		return printResult(stdout, stderr, result, err)
@@ -307,12 +347,13 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 		result, err := sessionhost.RunLiveSoakAcceptance(context.Background(), sessionhost.LiveSoakAcceptanceOptions{
 			Goal: liveOpt.Goal, Correction: liveOpt.Correction, Model: opt.Model, Actor: opt.Actor,
 			Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts, ReceiptPath: liveOpt.ReceiptPath,
+			InitializationSourceExecutable: initializationSourceExecutable,
 		})
 		result, err = PublishLiveSoakAcceptanceReceipt(liveOpt.ReceiptPath, result, err)
 		return printResult(stdout, stderr, result, err)
 	}
 
-	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" || adoptionRequested || controlRequested {
+	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" || adoptionRequested || controlRequested || *successorWhatIf || *successorApply || strings.TrimSpace(*successorPublicationStamp) != "" || strings.TrimSpace(*expectedSuccessorPlanSHA256) != "" {
 		if strings.TrimSpace(projectRoot) != "" {
 			resolved, err := rekitruntime.ResolveProjectLocalTarget(
 				projectRoot,
@@ -348,21 +389,27 @@ func run(args []string, stdout, stderr io.Writer, projectRoot string) int {
 			initializationRepoRoot = ctx.RepoRoot
 		}
 		result, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
-			Target:                  opt.Target,
-			Goal:                    liveOpt.Goal,
-			Correction:              liveOpt.Correction,
-			SelectedLane:            opt.SelectedLane,
-			Control:                 controlOpt,
-			ControlWhatIf:           *controlWhatIf,
-			ControlApply:            *controlApply,
-			DirectoryAdoptionAction: *directoryAdoptionAction,
-			ExpectedInitPlanSHA256:  *expectedInitPlanSHA256,
-			InitializationRepoRoot:  initializationRepoRoot,
-			Actor:                   opt.Actor,
-			ClaudePath:              opt.ClaudePath,
-			Model:                   opt.Model,
-			Timeout:                 opt.Timeout,
-			MaxAttempts:             opt.MaxAttempts,
+			Target:                         opt.Target,
+			Goal:                           liveOpt.Goal,
+			Correction:                     liveOpt.Correction,
+			SelectedLane:                   opt.SelectedLane,
+			Control:                        controlOpt,
+			ControlWhatIf:                  *controlWhatIf,
+			ControlApply:                   *controlApply,
+			DirectoryAdoptionAction:        *directoryAdoptionAction,
+			DirectoryAdoptionPack:          *directoryAdoptionPack,
+			ExpectedInitPlanSHA256:         *expectedInitPlanSHA256,
+			SuccessorWhatIf:                *successorWhatIf,
+			SuccessorApply:                 *successorApply,
+			SuccessorPublicationStamp:      *successorPublicationStamp,
+			ExpectedSuccessorPlanSHA256:    *expectedSuccessorPlanSHA256,
+			InitializationRepoRoot:         initializationRepoRoot,
+			InitializationSourceExecutable: initializationSourceExecutable,
+			Actor:                          opt.Actor,
+			ClaudePath:                     opt.ClaudePath,
+			Model:                          opt.Model,
+			Timeout:                        opt.Timeout,
+			MaxAttempts:                    opt.MaxAttempts,
 		})
 		if strings.TrimSpace(projectRoot) != "" {
 			projected, projectionErr := projectDailyResultPublicResponse(result, opt.Target)

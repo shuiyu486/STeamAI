@@ -20,6 +20,7 @@ func TestResolveDailyRequestTreatsLaneAsSelectorNotOperation(t *testing.T) {
 		{name: "correction", options: DailyOptions{Correction: "recheck the evidence", SelectedLane: "binary-analysis-main"}, operation: DailyOperationCorrection},
 		{name: "control", options: DailyOptions{SelectedLane: "binary-analysis-main", ControlWhatIf: true, Control: executioncontrol.Options{Action: executioncontrol.ActionPause, Reason: "bounded pause"}}, operation: DailyOperationControl, control: true},
 		{name: "adoption", options: DailyOptions{DirectoryAdoptionAction: "initialize-in-place"}, operation: DailyOperationAdoption, adoption: true},
+		{name: "adoption-pack", options: DailyOptions{DirectoryAdoptionPack: "web-security"}, operation: DailyOperationAdoption, adoption: true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			request, err := ResolveDailyRequest(fixture.options)

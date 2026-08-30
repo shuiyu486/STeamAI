@@ -162,7 +162,16 @@ func Paths(caseRoot string) (ArtifactPaths, error) {
 	if err != nil {
 		return ArtifactPaths{}, err
 	}
-	return artifactPaths(root), nil
+	paths := artifactPaths(root)
+	view, err := projectstate.ResolveMissionView(caseRoot)
+	if err != nil {
+		return ArtifactPaths{}, err
+	}
+	paths.MissionIntent, err = view.Rel("mission-intent.json")
+	if err != nil {
+		return ArtifactPaths{}, err
+	}
+	return paths, nil
 }
 
 func artifactPaths(root projectstate.Root) ArtifactPaths {
@@ -1255,7 +1264,33 @@ func Inspect(caseRoot string) (inspection Inspection, resultErr error) {
 	if intent.SchemaVersion == 1 {
 		return inspectV1(caseRoot, stateRoot, missionBytes, missionPresent, bindingPresent, intentBytes, intent, commitBytes, commitPresent)
 	}
-	return inspectV2(caseRoot, stateRoot, missionBytes, missionPresent, bindingBytes, bindingPresent, intentBytes, intent, commitBytes, commitPresent)
+	inspection, err = inspectV2(caseRoot, stateRoot, missionBytes, missionPresent, bindingBytes, bindingPresent, intentBytes, intent, commitBytes, commitPresent)
+	if err != nil || !inspection.Committed || stateRoot.Legacy {
+		return inspection, err
+	}
+	view, err := projectstate.ResolveMissionView(caseRoot)
+	if err != nil {
+		return Inspection{State: "corrupt"}, err
+	}
+	if view.Generation == 1 {
+		return inspection, nil
+	}
+	activeMissionPath := filepath.Join(view.Path, "mission-intent.json")
+	activeMissionBytes, err := rekitfs.ReadStableRegularFileAnchored(view.Path, activeMissionPath, "active successor mission intent", maxArtifactBytes)
+	if err != nil {
+		return Inspection{State: "corrupt"}, err
+	}
+	var activeIdentity Identity
+	if err := decodeCanonical(activeMissionBytes, &activeIdentity); err != nil {
+		return Inspection{State: "corrupt"}, fmt.Errorf("invalid active successor mission intent: %w", err)
+	}
+	canonicalMission, err := MarshalMissionIntentAt(caseRoot, activeIdentity)
+	if err != nil || !bytes.Equal(canonicalMission, activeMissionBytes) || activeIdentity.ProjectID != inspection.Identity.ProjectID || activeIdentity.Pack != inspection.Identity.Pack || !strings.EqualFold(SHA256(activeMissionBytes), view.MissionIntentSHA256) {
+		return Inspection{State: "corrupt"}, fmt.Errorf("active successor mission identity is not bound to the project and active pointer")
+	}
+	inspection.Identity = activeIdentity
+	inspection.MissionIntentSHA256 = SHA256(activeMissionBytes)
+	return inspection, nil
 
 }
 

@@ -41,3 +41,30 @@ func TestProjectStatePathsUseResolvedRoot(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectStatePathsUseActiveMissionNamespace(t *testing.T) {
+	caseRoot := t.TempDir()
+	stateRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	activeMissionRoot := filepath.Join(stateRoot, projectstate.MissionsDir, "g000002")
+	view := projectstate.MissionView{
+		Root:       projectstate.Root{Dir: projectstate.CurrentDir, Path: stateRoot, Existing: true},
+		Generation: 2,
+		Path:       activeMissionRoot,
+	}
+
+	got := projectStatePathsInMissionView(view, []string{
+		".rekit/facts/**",
+		".steamai/lanes/**",
+		".steamai/instance.yml",
+		"references/binary-re/**",
+	})
+	want := []string{
+		".steamai/missions/g000002/facts/**",
+		".steamai/missions/g000002/lanes/**",
+		".steamai/instance.yml",
+		"references/binary-re/**",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("projected paths = %v, want %v", got, want)
+	}
+}

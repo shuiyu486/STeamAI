@@ -43,7 +43,103 @@ func publicEntrypointProductCase(t *testing.T, fixture publicEntrypointProductFi
 		"-Pack", "_template",
 		"-ProjectName", projectName,
 	)
+	onboardArgs := []string{
+		"-Command", "onboard",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-ProjectName", projectName,
+		"-Goal", "validate current project public entrypoint",
+		"-Actor", "mission-commander",
+		"-Executor", "public-entrypoint-executor",
+		"-InitialLane", "main",
+		"-WhatIf",
+		"-Format", "json",
+	}
+	out.Reset()
+	if err := Run(onboardArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var onboard onboardCLIPlan
+	if err := json.Unmarshal(out.Bytes(), &onboard); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(onboard.ApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
 	return caseRoot
+}
+
+func TestStatusAndOverviewProjectEntrypointProjectionAcrossFormats(t *testing.T) {
+	commandsAndFormats := []struct {
+		command string
+		formats []string
+	}{
+		{command: commands.Status, formats: []string{"table", "tsv", "text", "json", "compact-json"}},
+		{command: commands.Overview, formats: []string{"table", "tsv", "text", "json"}},
+	}
+	for _, fixture := range publicEntrypointProductFixtures() {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := publicEntrypointProductCase(t, fixture, "format-entrypoint-projection")
+			for _, commandAndFormats := range commandsAndFormats {
+				for _, format := range commandAndFormats.formats {
+					t.Run(commandAndFormats.command+"/"+format, func(t *testing.T) {
+						var out bytes.Buffer
+						if err := Run([]string{
+							"-Command", commandAndFormats.command,
+							"-Target", caseRoot,
+							"-Pack", "_template",
+							"-Format", format,
+						}, &out); err != nil {
+							t.Fatal(err)
+						}
+						if format == "json" || format == "compact-json" {
+							var public map[string]any
+							if err := json.Unmarshal(out.Bytes(), &public); err != nil {
+								t.Fatalf("%s %s did not decode: %v\n%s", commandAndFormats.command, format, err, out.String())
+							}
+							assertSelectedPublicEntrypoint(t, commandAndFormats.command, public, fixture.entrypoint)
+							return
+						}
+						assertRenderedPublicEntrypoint(t, out.String(), fixture.entrypoint)
+					})
+				}
+			}
+		})
+	}
+}
+
+func assertRenderedPublicEntrypoint(t *testing.T, text, entrypoint string) {
+	t.Helper()
+	if !strings.Contains(text, entrypoint+" ") {
+		t.Fatalf("rendered output omitted selected entrypoint %s:\n%s", entrypoint, text)
+	}
+	otherEntrypoint := commands.LegacyPublicEntrypoint
+	if entrypoint == commands.LegacyPublicEntrypoint {
+		otherEntrypoint = commands.CurrentPublicEntrypoint
+	}
+	for line := range strings.SplitSeq(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- "+otherEntrypoint+" ") {
+			t.Fatalf("rendered command list uses unselected entrypoint %s:\n%s", otherEntrypoint, line)
+		}
+		if _, value, ok := strings.Cut(trimmed, "："); ok && strings.HasPrefix(strings.TrimSpace(value), otherEntrypoint+" ") {
+			t.Fatalf("rendered command field uses unselected entrypoint %s:\n%s", otherEntrypoint, line)
+		}
+		for _, marker := range []string{
+			"command=" + otherEntrypoint + " ",
+			"command=`" + otherEntrypoint + " ",
+			"current=" + otherEntrypoint + " ",
+			"primary=" + otherEntrypoint + " ",
+			"primary=`" + otherEntrypoint + " ",
+			"continue: " + otherEntrypoint + " ",
+			"handoff: " + otherEntrypoint + " ",
+		} {
+			if strings.Contains(trimmed, marker) {
+				t.Fatalf("rendered command carrier uses unselected entrypoint %s:\n%s", otherEntrypoint, line)
+			}
+		}
+	}
 }
 
 func TestStatusFreshCurrentProductPathOmitsLegacyEntrypoint(t *testing.T) {
@@ -54,7 +150,7 @@ func TestStatusFreshCurrentProductPathOmitsLegacyEntrypoint(t *testing.T) {
 	}
 	caseRoot := publicEntrypointProductCase(t, fixture, "fresh-current-entrypoint-projection")
 	data, status := runPublicEntrypointProductStatus(t, caseRoot, "")
-	if status.Mode != "case" || status.Onboarding == nil || status.Onboarding.State != "absent" || status.ProjectHandoff == nil || len(status.ProjectHandoff.ValidationCommands) != 0 || status.ProjectHandoff.NextBatchSelectionPackage != nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 0 {
+	if status.Mode != "case" || status.Onboarding == nil || status.Onboarding.State != "committed" || status.ProjectHandoff == nil || len(status.ProjectHandoff.ValidationCommands) != 0 || status.ProjectHandoff.NextBatchSelectionPackage != nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 0 {
 		t.Fatalf("fresh current status retained central handoff state or left onboarding: mode=%s onboarding=%+v project=%+v", status.Mode, status.Onboarding, status.ProjectHandoff)
 	}
 	if index := strings.Index(string(data), commands.LegacyPublicEntrypoint); index >= 0 {

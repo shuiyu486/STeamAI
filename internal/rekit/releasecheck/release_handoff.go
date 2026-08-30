@@ -448,7 +448,7 @@ func BuildProjectHandoff(repoRoot string) (ReleaseHandoff, error) {
 		ReadFirst:   releaseHandoffDocuments(repo),
 		ActiveRoute: activeRoute,
 		LatestBatch: latest,
-		Validation:  releaseHandoffValidation(gateProfile(catalogGateSteps(repo, cat.RecommendedMinimum)).Steps),
+		Validation:  releaseHandoffValidation(gateProfile(requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum)).Steps),
 		NextActions: releaseHandoffNextActions(),
 		Warnings:    []string{},
 	}

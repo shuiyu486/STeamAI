@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -79,8 +81,18 @@ type publicDriverResult struct {
 }
 
 func runPublicCLI(args []string, target any) error {
+	return runPublicCLIWithUnifiedExecutable(args, target, "")
+}
+
+func runPublicCLIWithUnifiedExecutable(args []string, target any, executable string) error {
 	var out bytes.Buffer
-	if err := cli.Run(args, &out); err != nil {
+	var err error
+	if strings.TrimSpace(executable) == "" {
+		err = cli.Run(args, &out)
+	} else {
+		err = cli.RunWithUnifiedExecutable(args, &out, executable)
+	}
+	if err != nil {
 		return err
 	}
 	if target == nil {
@@ -97,12 +109,18 @@ func runPublicCLI(args []string, target any) error {
 	return nil
 }
 
-func runPublicCommand(command string) error {
-	args, err := cli.SplitPublicCommand(command)
+func runPublicDriverRequest(request mission.MissionCommanderDriverRequest, target any) error {
+	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
+		return err
+	}
+	if request.Invocation == nil || !request.CommandExecutable || request.Blocked {
+		return fmt.Errorf("public driver request is not executable")
+	}
+	args, err := request.Invocation.CLIArgs()
 	if err != nil {
 		return err
 	}
-	return runPublicCLI(args, nil)
+	return runPublicCLI(args, target)
 }
 
 func runPublicNotePreviewApply(
@@ -154,6 +172,17 @@ func runPublicNotePreviewApply(
 		return publicNoteResult{}, publicNoteResult{}, fmt.Errorf("public note Apply did not replay or apply the exact preview")
 	}
 	return preview, applied, nil
+}
+
+func runPublicExactApply(args []string, command, expectedPlanSHA256 string, target any) error {
+	action, err := commands.ExactActionFromCLIArgs(args)
+	if err != nil {
+		return err
+	}
+	if err := action.ValidatePlanApply(command, expectedPlanSHA256); err != nil {
+		return err
+	}
+	return runPublicCLI(action.CLIArgs, target)
 }
 
 func runPublicApplyCommand(command, expectedCommand, caseRoot, pack string, target any) error {
@@ -254,15 +283,35 @@ func bindHostCurrentDriverRequestFromStatus(opt *Options, status publicStatus) (
 }
 
 func runPublicStatus(caseRoot, pack, selected string) (publicStatus, error) {
+	return runPublicStatusWithLease(caseRoot, pack, selected, nil)
+}
+
+func runPublicStatusWithLease(caseRoot, pack, selected string, lease *projectexecution.Lease) (publicStatus, error) {
 	args := []string{"-Command", "status", "-Target", caseRoot}
 	if strings.TrimSpace(pack) != "" {
 		args = append(args, "-Pack", pack)
 	}
 	args = appendSelectedLaneArg(args, selected)
 	args = append(args, "-Format", "json")
+	if lease == nil {
+		var status publicStatus
+		err := runPublicCLI(args, &status)
+		return status, err
+	}
+	var out bytes.Buffer
+	if err := cli.RunStatusWithProjectExecutionLease(args, &out, lease); err != nil {
+		return publicStatus{}, err
+	}
 	var status publicStatus
-	err := runPublicCLI(args, &status)
-	return status, err
+	decoder := json.NewDecoder(bytes.NewReader(out.Bytes()))
+	if err := decoder.Decode(&status); err != nil {
+		return publicStatus{}, fmt.Errorf("decode held-lease public status: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return publicStatus{}, fmt.Errorf("held-lease public status contains trailing JSON")
+	}
+	return status, nil
 }
 
 func runPublicDriverStep(caseRoot, pack string, selected ...string) (publicDriverResult, error) {

@@ -39,18 +39,19 @@ var crossPackLiveAcceptancePacks = map[string]bool{
 }
 
 type LiveAcceptanceOptions struct {
-	CaseRoot    string
-	Pack        string
-	Goal        string
-	Correction  string
-	ClaudePath  string
-	Model       string
-	Actor       string
-	Timeout     time.Duration
-	MaxAttempts int
-	KeepCase    bool
-	ReceiptPath string
-	AdapterPath string
+	CaseRoot                       string
+	Pack                           string
+	Goal                           string
+	Correction                     string
+	ClaudePath                     string
+	Model                          string
+	Actor                          string
+	Timeout                        time.Duration
+	MaxAttempts                    int
+	KeepCase                       bool
+	ReceiptPath                    string
+	AdapterPath                    string
+	InitializationSourceExecutable string
 }
 
 type LiveAcceptanceReceipt struct {
@@ -383,7 +384,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	}()
 
 	if !strings.EqualFold(pack, liveAcceptancePack) {
-		if err := initLiveAcceptanceCase(caseRoot, pack, "rekit-live-cross-pack-acceptance", &freshCaseIdentity); err != nil {
+		if err := initLiveAcceptanceCase(caseRoot, pack, "rekit-live-cross-pack-acceptance", &freshCaseIdentity, opt.InitializationSourceExecutable); err != nil {
 			return receipt, err
 		}
 		receipt.CaseCreated = true
@@ -414,6 +415,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		ClaudePath:                        claude.Path,
 		ExpectedClaudeExecutableSHA256:    claude.SHA256,
 		ExpectedClaudeExecutablePublisher: claude.Publisher,
+		InitializationSourceExecutable:    opt.InitializationSourceExecutable,
 		Model:                             opt.Model,
 		Timeout:                           opt.Timeout,
 		MaxAttempts:                       opt.MaxAttempts,
@@ -697,10 +699,14 @@ func validateLiveAcceptanceEvidence(caseRoot string, evidence LiveAcceptanceEvid
 	return nil
 }
 
-func initLiveAcceptanceCase(caseRoot, pack, projectName string, identity *liveAcceptanceCaseIdentity) error {
+func initLiveAcceptanceCase(caseRoot, pack, projectName string, identity *liveAcceptanceCaseIdentity, sourceExecutable ...string) error {
 	initArgs := []string{"-Command", "init", "-Target", caseRoot, "-Pack", pack, "-ProjectName", projectName, "-WhatIf", "-Format", "json"}
+	executable := ""
+	if len(sourceExecutable) > 0 {
+		executable = strings.TrimSpace(sourceExecutable[0])
+	}
 	var preview syncreview.InitPlan
-	if err := runPublicCLI(initArgs, &preview); err != nil {
+	if err := runPublicCLIWithUnifiedExecutable(initArgs, &preview, executable); err != nil {
 		return fmt.Errorf("public live acceptance case init preview: %w", err)
 	}
 	if preview.IsMutation || !preview.ReviewRequired || !preview.RequiresConfirmation || len(preview.Writes) == 0 ||
@@ -708,7 +714,7 @@ func initLiveAcceptanceCase(caseRoot, pack, projectName string, identity *liveAc
 		return fmt.Errorf("public live acceptance case init preview omitted review-first writes or exact Apply request")
 	}
 	var applied syncreview.ApplyResult
-	applyErr := runPublicCLI(preview.ApplyArgs, &applied)
+	applyErr := runPublicCLIWithUnifiedExecutable(preview.ApplyArgs, &applied, executable)
 	if identity != nil {
 		if bindErr := captureLiveAcceptanceCaseRoot(caseRoot, identity); bindErr != nil {
 			return errors.Join(applyErr, fmt.Errorf("bind live acceptance case root: %w", bindErr))
@@ -731,7 +737,7 @@ func runLiveAcceptanceAttached(parent context.Context, caseRoot, pack, goal, act
 			Cleanup:  "pending",
 		},
 	}
-	if err := initLiveAcceptanceCase(caseRoot, pack, "rekit-live-attached-acceptance", identity); err != nil {
+	if err := initLiveAcceptanceCase(caseRoot, pack, "rekit-live-attached-acceptance", identity, opt.InitializationSourceExecutable); err != nil {
 		return result, err
 	}
 	result.Receipt.CaseCreated = true
@@ -755,6 +761,7 @@ func runLiveAcceptanceAttached(parent context.Context, caseRoot, pack, goal, act
 		ClaudePath:                        claude.Path,
 		ExpectedClaudeExecutableSHA256:    claude.SHA256,
 		ExpectedClaudeExecutablePublisher: claude.Publisher,
+		InitializationSourceExecutable:    opt.InitializationSourceExecutable,
 		Model:                             opt.Model,
 		Timeout:                           opt.Timeout,
 		MaxAttempts:                       opt.MaxAttempts,

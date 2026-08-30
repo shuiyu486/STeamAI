@@ -139,6 +139,83 @@ func publicInvocationSelectorValueFlag(flag string) bool {
 	}
 }
 
+func BindExactLane(invocation PublicInvocation, lane string, selectorAliases ...string) (PublicInvocation, error) {
+	if err := invocation.Validate(); err != nil {
+		return PublicInvocation{}, err
+	}
+	lane = strings.TrimSpace(lane)
+	if lane == "" {
+		return PublicInvocation{}, fmt.Errorf("public invocation exact lane is missing")
+	}
+	arguments := append([]string{}, invocation.Arguments...)
+	for index, argument := range arguments {
+		if !strings.EqualFold(argument, "-Lane") && !strings.EqualFold(argument, "--lane") {
+			continue
+		}
+		if index+1 >= len(arguments) || strings.TrimSpace(arguments[index+1]) != lane {
+			return PublicInvocation{}, fmt.Errorf("public invocation lane selector does not match exact lane %q", lane)
+		}
+		return NewPublicInvocation(invocation.Command, arguments...)
+	}
+	name := ""
+	if index, ok := publicInvocationPositionalSelectorIndex(invocation.Command, arguments); ok {
+		selector := strings.TrimSpace(arguments[index])
+		if !exactLaneSelectorMatches(selector, lane, selectorAliases) {
+			return PublicInvocation{}, fmt.Errorf("public invocation positional selector %q does not match exact lane %q", selector, lane)
+		}
+		if invocation.Command == Start {
+			name = selector
+		}
+		arguments = append(arguments[:index], arguments[index+1:]...)
+	}
+	insertAt := len(arguments)
+	for index, argument := range arguments {
+		if strings.EqualFold(argument, "-WhatIf") || strings.EqualFold(argument, "--what-if") ||
+			strings.EqualFold(argument, "-Apply") || strings.EqualFold(argument, "--apply") {
+			insertAt = index
+			break
+		}
+	}
+	selector := []string{"-Lane", lane}
+	if name != "" {
+		selector = append([]string{"-Name", name}, selector...)
+	}
+	arguments = append(arguments[:insertAt], append(selector, arguments[insertAt:]...)...)
+	return NewPublicInvocation(invocation.Command, arguments...)
+}
+
+func publicInvocationPositionalSelectorIndex(command string, arguments []string) (int, bool) {
+	if !publicInvocationCommandHasPositionalSelector(command) {
+		return 0, false
+	}
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		if strings.HasPrefix(argument, "-") {
+			if publicInvocationSelectorValueFlag(argument) && index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		if argument != "" {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func exactLaneSelectorMatches(selector, lane string, aliases []string) bool {
+	selector = strings.TrimSpace(selector)
+	if selector == lane {
+		return true
+	}
+	for _, alias := range aliases {
+		if selector == strings.TrimSpace(alias) && selector != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (invocation PublicInvocation) CLIArgs() ([]string, error) {
 	if err := invocation.Validate(); err != nil {
 		return nil, err

@@ -3,11 +3,16 @@ package sessionhost
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -20,6 +25,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionsuccessor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -40,10 +46,12 @@ func TestRunDailyRejectsGoalAndCorrectionTogether(t *testing.T) {
 
 func TestRunDailyCaseReadyHookCapturesFreshOnboardingFailure(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "fresh-hook")
+	unifiedExecutable := buildSessionhostUnifiedRuntimeFixture(t, sessionhostTestRepoRoot(t))
 	calls := 0
 	result, err := RunDaily(context.Background(), DailyOptions{
 		Target:                            caseRoot,
 		Goal:                              "capture fresh partial onboarding",
+		InitializationSourceExecutable:    unifiedExecutable,
 		ClaudePath:                        missingClaudePath(t),
 		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
 		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
@@ -115,7 +123,8 @@ func TestRunDailyRejectsUnboundCustomClaudeBeforeMutation(t *testing.T) {
 
 func TestRunDailyFreshGoalCommitsAndStartsBeforeClaudeUnavailable(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "fresh")
-	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "inspect the supplied research target", ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	unifiedExecutable := buildSessionhostUnifiedRuntimeFixture(t, sessionhostTestRepoRoot(t))
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "inspect the supplied research target", InitializationSourceExecutable: unifiedExecutable, ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
 	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
 		t.Fatalf("RunDaily result=%+v err=%v", result, err)
 	}
@@ -348,8 +357,9 @@ func TestRunDailyRejectsConflictingCommittedGoalWithoutLaunchingClaude(t *testin
 
 func TestRunDailyAdoptsExistingAttachedCaseBeforeClaudeUnavailable(t *testing.T) {
 	repo := sessionhostTestRepoRoot(t)
+	unifiedExecutable := buildSessionhostUnifiedRuntimeFixture(t, repo)
 	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
-	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "analyze the attached case", ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "analyze the attached case", InitializationSourceExecutable: unifiedExecutable, ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
 	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
 		t.Fatalf("RunDaily result=%+v err=%v", result, err)
 	}
@@ -554,6 +564,7 @@ func TestRunDailyRejectsAdoptionSupportFieldsForAttachedTarget(t *testing.T) {
 
 func TestRunDailyDirectoryAdoptionPreviewApplyAndFreshOnboarding(t *testing.T) {
 	repoRoot := sessionhostTestRepoRoot(t)
+	unifiedExecutable := buildSessionhostUnifiedRuntimeFixture(t, repoRoot)
 	caseRoot := t.TempDir()
 	userPath := filepath.Join(caseRoot, "user.txt")
 	original := []byte("keep\n")
@@ -562,10 +573,11 @@ func TestRunDailyDirectoryAdoptionPreviewApplyAndFreshOnboarding(t *testing.T) {
 	}
 
 	preview, err := RunDaily(context.Background(), DailyOptions{
-		Target:                  caseRoot,
-		Goal:                    "inspect this project",
-		DirectoryAdoptionAction: dailyAdoptionInitialize,
-		InitializationRepoRoot:  repoRoot,
+		Target:                         caseRoot,
+		Goal:                           "inspect this project",
+		DirectoryAdoptionAction:        dailyAdoptionInitialize,
+		InitializationRepoRoot:         repoRoot,
+		InitializationSourceExecutable: unifiedExecutable,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -581,11 +593,12 @@ func TestRunDailyDirectoryAdoptionPreviewApplyAndFreshOnboarding(t *testing.T) {
 	}
 
 	stale, staleErr := RunDaily(context.Background(), DailyOptions{
-		Target:                  caseRoot,
-		Goal:                    "inspect this project",
-		DirectoryAdoptionAction: dailyAdoptionConfirm,
-		ExpectedInitPlanSHA256:  strings.Repeat("0", 64),
-		InitializationRepoRoot:  repoRoot,
+		Target:                         caseRoot,
+		Goal:                           "inspect this project",
+		DirectoryAdoptionAction:        dailyAdoptionConfirm,
+		ExpectedInitPlanSHA256:         strings.Repeat("0", 64),
+		InitializationRepoRoot:         repoRoot,
+		InitializationSourceExecutable: unifiedExecutable,
 	})
 	if staleErr == nil || !strings.Contains(staleErr.Error(), "plan changed after preview") || stale.SessionLaunches != 0 || len(stale.HostRuns) != 0 {
 		t.Fatalf("stale adoption confirmation = %+v err=%v", stale, staleErr)
@@ -595,11 +608,12 @@ func TestRunDailyDirectoryAdoptionPreviewApplyAndFreshOnboarding(t *testing.T) {
 	}
 
 	applied, err := RunDaily(context.Background(), DailyOptions{
-		Target:                  caseRoot,
-		Goal:                    "inspect this project",
-		DirectoryAdoptionAction: dailyAdoptionConfirm,
-		ExpectedInitPlanSHA256:  preview.DirectoryAdoption.Plan.ExpectedPlanSHA256,
-		InitializationRepoRoot:  repoRoot,
+		Target:                         caseRoot,
+		Goal:                           "inspect this project",
+		DirectoryAdoptionAction:        dailyAdoptionConfirm,
+		ExpectedInitPlanSHA256:         preview.DirectoryAdoption.Plan.ExpectedPlanSHA256,
+		InitializationRepoRoot:         repoRoot,
+		InitializationSourceExecutable: unifiedExecutable,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -623,6 +637,56 @@ func TestRunDailyDirectoryAdoptionPreviewApplyAndFreshOnboarding(t *testing.T) {
 	}
 	if !fresh.OnboardingApplied {
 		t.Fatalf("fresh onboarding did not own the post-adoption mission: %+v", fresh)
+	}
+}
+
+func TestRunDailyDirectoryAdoptionHonorsMaturePackSelection(t *testing.T) {
+	repoRoot := sessionhostTestRepoRoot(t)
+	unifiedExecutable := buildSessionhostUnifiedRuntimeFixture(t, repoRoot)
+
+	for _, test := range []struct {
+		name    string
+		pack    string
+		wantErr string
+	}{
+		{name: "mature web security", pack: "web-security"},
+		{name: "skeleton ctf", pack: "ctf", wantErr: "is not mature"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			preview, err := RunDaily(context.Background(), DailyOptions{
+				Target:                         caseRoot,
+				Goal:                           "inspect this project",
+				DirectoryAdoptionAction:        dailyAdoptionInitialize,
+				DirectoryAdoptionPack:          test.pack,
+				InitializationRepoRoot:         repoRoot,
+				InitializationSourceExecutable: unifiedExecutable,
+			})
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("pack %s preview err=%v result=%+v", test.pack, err, preview)
+				}
+				if _, statErr := os.Lstat(filepath.Join(caseRoot, projectstate.CurrentDir)); !os.IsNotExist(statErr) {
+					t.Fatalf("rejected pack selection wrote project state: %v", statErr)
+				}
+				return
+			}
+			if err != nil || preview.DirectoryAdoption == nil || preview.DirectoryAdoption.Plan == nil || preview.DirectoryAdoption.Plan.Pack != test.pack || len(preview.DirectoryAdoption.Plan.ExpectedPlanSHA256) != 64 {
+				t.Fatalf("mature pack preview err=%v result=%+v", err, preview)
+			}
+			applied, err := RunDaily(context.Background(), DailyOptions{
+				Target:                         caseRoot,
+				Goal:                           "inspect this project",
+				DirectoryAdoptionAction:        dailyAdoptionConfirm,
+				DirectoryAdoptionPack:          test.pack,
+				ExpectedInitPlanSHA256:         preview.DirectoryAdoption.Plan.ExpectedPlanSHA256,
+				InitializationRepoRoot:         repoRoot,
+				InitializationSourceExecutable: unifiedExecutable,
+			})
+			if err != nil || applied.DirectoryAdoption == nil || applied.DirectoryAdoption.Apply == nil || applied.DirectoryAdoption.Apply.Pack != test.pack {
+				t.Fatalf("mature pack Apply err=%v result=%+v", err, applied)
+			}
+		})
 	}
 }
 
@@ -802,6 +866,740 @@ func TestRunDailyReplaysCommittedClosedLaneBeforeOpenLaneProbe(t *testing.T) {
 		}
 		assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
 	}
+}
+
+func prepareTerminalMissionForSuccessor(t *testing.T, caseRoot, predecessorGoal, evidenceName, evidence string) (missionintent.Inspection, DailyResult) {
+	t.Helper()
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, predecessorGoal, "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", evidenceName)
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte(evidence), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: "daily-test", Reason: "close predecessor before successor", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || preview.Blocked {
+		t.Fatalf("completion preview=%+v err=%v", preview, err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	if _, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := make([]mission.BoardLane, 0, 1)
+	for _, lane := range board.Lanes {
+		if lane.ID == bootstrap.Lane {
+			active = append(active, lane)
+		}
+	}
+	board.Lanes = active
+	writeDailyTestBoard(t, caseRoot, board)
+	if completion, err := workstream.InspectMissionCompletion(caseRoot); err != nil || !completion.Ready {
+		t.Fatalf("predecessor mission is not terminal: %+v err=%v", completion, err)
+	}
+	return inspection, bootstrap
+}
+
+func applySuccessorMission(t *testing.T, caseRoot, goal string) DailyResult {
+	t.Helper()
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+	if err != nil || planned.SuccessorMission == nil {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	applied, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+		ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return applied
+}
+
+func TestRunDailyTerminalNewGoalPublishesSuccessorPreviewWithoutWrite(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-preview")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "completed predecessor goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "successor-evidence.md")
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("reviewed successor predecessor evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: "daily-test", Reason: "close predecessor before successor", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || preview.Blocked {
+		t.Fatalf("completion preview=%+v err=%v", preview, err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	if _, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := make([]mission.BoardLane, 0, 1)
+	for _, lane := range board.Lanes {
+		if lane.ID == bootstrap.Lane {
+			active = append(active, lane)
+		}
+	}
+	board.Lanes = active
+	writeDailyTestBoard(t, caseRoot, board)
+	if completion, err := workstream.InspectMissionCompletion(caseRoot); err != nil || !completion.Ready {
+		t.Fatalf("predecessor mission is not terminal: %+v err=%v", completion, err)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "independent successor goal", Actor: "daily-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalState != DailyActionConfirmationRequired || !result.Blocked || result.SuccessorMission == nil || result.SuccessorMission.Applied || len(result.SuccessorMission.ExpectedPlanSHA256) != 64 || len(result.SuccessorMission.ApplyArgs) == 0 || result.SessionLaunches != 0 {
+		t.Fatalf("successor preview = %+v", result)
+	}
+	actorBound := false
+	for i := 0; i+1 < len(result.SuccessorMission.ApplyArgs); i++ {
+		if result.SuccessorMission.ApplyArgs[i] == "-actor" && result.SuccessorMission.ApplyArgs[i+1] == "daily-test" {
+			actorBound = true
+			break
+		}
+	}
+	if !actorBound {
+		t.Fatalf("successor preview Apply args do not bind the reviewed actor: %v", result.SuccessorMission.ApplyArgs)
+	}
+	seenWrites := make(map[string]bool, len(result.SuccessorMission.Writes))
+	for _, write := range result.SuccessorMission.Writes {
+		if write.Path == "" || len(write.SHA256) != 64 || write.Size < 1 || write.Phase == "" {
+			t.Fatalf("successor preview contains an unbound write: %+v", write)
+		}
+		if seenWrites[write.Path] {
+			t.Fatalf("successor preview contains duplicate write path: %s", write.Path)
+		}
+		seenWrites[write.Path] = true
+	}
+	if len(seenWrites) != 16 {
+		t.Fatalf("successor preview write count = %d, want 16: %+v", len(seenWrites), result.SuccessorMission.Writes)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunDailyTerminalSuccessorApplyArgsPreserveReviewedActorThroughHostCLI(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-apply-args-actor")
+	prepareTerminalMissionForSuccessor(t, caseRoot, "actor-bound predecessor", "actor-bound-evidence.md", "actor-bound evidence\n")
+	actor := "reviewed-successor-actor"
+	goal := "actor-bound successor goal"
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: actor})
+	if err != nil || planned.SuccessorMission == nil {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	executable := buildSessionhostUnifiedRuntimeFixture(t, sessionhostTestRepoRoot(t))
+	command := exec.Command(executable, planned.SuccessorMission.ApplyArgs...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("execute exact successor Apply args: %v\n%s", err, output)
+	}
+	var applied DailyResult
+	if err := json.Unmarshal(output, &applied); err != nil {
+		t.Fatalf("decode exact successor Apply result: %v\n%s", err, output)
+	}
+	if applied.SuccessorMission == nil || !applied.SuccessorMission.Applied || applied.SuccessorMission.Actor != actor || applied.SessionLaunches != 0 {
+		t.Fatalf("exact successor Apply did not preserve reviewed actor: %+v", applied)
+	}
+}
+
+func TestRunDailyTerminalSuccessorApplyActivatesIsolatedGenerationWithoutClaude(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-apply")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "completed apply predecessor", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "successor-apply-evidence.md")
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("reviewed successor apply evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: "daily-test", Reason: "close predecessor before successor apply", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || preview.Blocked {
+		t.Fatalf("completion preview=%+v err=%v", preview, err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	if _, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := make([]mission.BoardLane, 0, 1)
+	for _, lane := range board.Lanes {
+		if lane.ID == bootstrap.Lane {
+			active = append(active, lane)
+		}
+	}
+	board.Lanes = active
+	writeDailyTestBoard(t, caseRoot, board)
+	goal := "independent applied successor"
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+	if err != nil || planned.SuccessorMission == nil {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	applied, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+		ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.SuccessorMission == nil || !applied.SuccessorMission.Applied || applied.SessionLaunches != 0 || applied.FinalState != DailyActionReadyToContinue {
+		t.Fatalf("successor Apply = %+v", applied)
+	}
+	replay, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+		ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err != nil || replay.SuccessorMission == nil || !replay.SuccessorMission.Replay || replay.SessionLaunches != 0 {
+		t.Fatalf("successor replay=%+v err=%v", replay, err)
+	}
+	view, err := projectstate.ResolveMissionView(caseRoot)
+	if err != nil || view.Generation != 2 || view.MissionID != applied.SuccessorMission.MissionID {
+		t.Fatalf("active successor view=%+v err=%v", view, err)
+	}
+	activeIntent, err := missionintent.Inspect(caseRoot)
+	if err != nil || activeIntent.Identity.Goal != goal || activeIntent.MissionIntentSHA256 != view.MissionIntentSHA256 {
+		t.Fatalf("active successor intent=%+v err=%v", activeIntent, err)
+	}
+	newBoard, err := mission.ReadBoard(caseRoot)
+	if err != nil || len(newBoard.Lanes) != 0 {
+		t.Fatalf("fresh successor board=%+v err=%v", newBoard, err)
+	}
+	newBoard.Lanes = []mission.BoardLane{{
+		ID: inspection.Identity.InitialLane, Type: "feature", Title: "Replay mutable board", Status: "ready",
+		Workspace: "workspace/features/replay-mutable-board", UpdatedAt: planned.SuccessorMission.PublicationStamp,
+	}}
+	writeDailyTestBoard(t, caseRoot, newBoard)
+	mutableReplay, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+		ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err != nil || mutableReplay.SuccessorMission == nil || !mutableReplay.SuccessorMission.Replay {
+		t.Fatalf("successor replay after mutable board advance=%+v err=%v", mutableReplay, err)
+	}
+	for _, write := range mutableReplay.SuccessorMission.Writes {
+		if write.Kind != "board" {
+			continue
+		}
+		mutableBytes, readErr := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(write.Path)))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		mutableSHA := sha256.Sum256(mutableBytes)
+		if strings.EqualFold(write.SHA256, hex.EncodeToString(mutableSHA[:])) {
+			t.Fatalf("committed replay replaced reviewed board digest with mutable bytes: %+v", write)
+		}
+	}
+	newBoard.Lanes = nil
+	writeDailyTestBoard(t, caseRoot, newBoard)
+	freshStatus, err := runPublicStatus(caseRoot, inspection.Identity.Pack, "")
+	if err != nil || freshStatus.MissionControlRunbook == nil || freshStatus.MissionControlRunbook.CurrentDriverRequest == nil || freshStatus.MissionControlRunbook.CurrentDriverRequest.Invocation == nil || freshStatus.MissionControlRunbook.CurrentDriverRequest.Invocation.Command != "start" || freshStatus.MissionControlRunbook.CurrentDriverRequest.Blocked {
+		t.Fatalf("fresh successor status omitted its unique start preview: %+v err=%v", freshStatus, err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, projectstate.CurrentDir, "lanes", bootstrap.Lane, "lane.json")); err != nil {
+		t.Fatalf("predecessor audit lane was not retained: %v", err)
+	}
+}
+
+func TestRunDailyTerminalSecondSuccessorReplacesActivePointer(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-generation-three")
+	inspection, _ := prepareTerminalMissionForSuccessor(t, caseRoot, "generation one predecessor", "generation-one-evidence.md", "generation one evidence\n")
+	second := applySuccessorMission(t, caseRoot, "generation two mission")
+	if second.SuccessorMission == nil || !second.SuccessorMission.Applied {
+		t.Fatalf("generation two Apply = %+v", second)
+	}
+	repoRoot := sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack)
+	startOpt := workstream.StartOptions{Name: inspection.Identity.InitialLane, Selector: inspection.Identity.InitialLane}
+	startPreview, err := workstream.StartPreview(repoRoot, caseRoot, inspection.Identity.Pack, startOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startPreviewBytes, err := json.Marshal(startPreview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startPreviewSHA := sha256.Sum256(startPreviewBytes)
+	startOpt.ExpectedPreviewSHA256 = hex.EncodeToString(startPreviewSHA[:])
+	started, err := workstream.StartApply(repoRoot, caseRoot, inspection.Identity.Pack, startOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap := DailyResult{CaseRoot: caseRoot, Lane: started.Lane.ID}
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "generation-two-evidence.md")
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("generation two evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: started.Lane.ID, Actor: "daily-test", Reason: "close generation two before successor", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || preview.Blocked {
+		t.Fatalf("generation two completion preview=%+v err=%v", preview, err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	if _, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := make([]mission.BoardLane, 0, 1)
+	for _, lane := range board.Lanes {
+		if lane.ID == bootstrap.Lane {
+			active = append(active, lane)
+		}
+	}
+	board.Lanes = active
+	writeDailyTestBoard(t, caseRoot, board)
+	if completion, err := workstream.InspectMissionCompletion(caseRoot); err != nil || !completion.Ready || !completion.OperationallyComplete {
+		t.Fatalf("generation two mission is not terminal: %+v err=%v", completion, err)
+	}
+	third := applySuccessorMission(t, caseRoot, "generation three mission")
+	if third.SuccessorMission == nil || !third.SuccessorMission.Applied || third.SuccessorMission.Generation != 3 {
+		t.Fatalf("generation three Apply = %+v", third)
+	}
+	view, err := projectstate.ResolveMissionView(caseRoot)
+	if err != nil || view.Generation != 3 || view.MissionID != third.SuccessorMission.MissionID {
+		t.Fatalf("generation three active view=%+v err=%v", view, err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, projectstate.CurrentDir, projectstate.MissionsDir, "g000002", "mission-intent.json")); err != nil {
+		t.Fatalf("generation two audit mission was not retained: %v", err)
+	}
+}
+
+func TestRunDailyTerminalThirdGenerationRecoversInterruptedActiveReplacement(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-generation-three-recovery")
+	inspection, _ := prepareTerminalMissionForSuccessor(t, caseRoot, "generation one recovery predecessor", "g1-recovery.md", "g1 recovery\n")
+	applySuccessorMission(t, caseRoot, "generation two recovery mission")
+	repoRoot := sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack)
+	startOpt := workstream.StartOptions{Name: inspection.Identity.InitialLane, Selector: inspection.Identity.InitialLane}
+	startPreview, err := workstream.StartPreview(repoRoot, caseRoot, inspection.Identity.Pack, startOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startPreviewBytes, _ := json.Marshal(startPreview)
+	startPreviewSHA := sha256.Sum256(startPreviewBytes)
+	startOpt.ExpectedPreviewSHA256 = hex.EncodeToString(startPreviewSHA[:])
+	started, err := workstream.StartApply(repoRoot, caseRoot, inspection.Identity.Pack, startOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", started.Lane.ID, "workspace", "g2-recovery.md")
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("g2 recovery evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: started.Lane.ID, Actor: "daily-test", Reason: "close generation two for recovery", EvidenceRefs: evidenceRef}
+	completionPreview, err := workstream.CompletePreview(repoRoot, caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || completionPreview.Blocked {
+		t.Fatalf("completion preview=%+v err=%v", completionPreview, err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = completionPreview.CompletionPlanSHA256
+	if _, err := workstream.CompleteApply(repoRoot, caseRoot, inspection.Identity.Pack, completeOpt); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeLanes := make([]mission.BoardLane, 0, 1)
+	for _, lane := range board.Lanes {
+		if lane.ID == started.Lane.ID {
+			activeLanes = append(activeLanes, lane)
+		}
+	}
+	board.Lanes = activeLanes
+	writeDailyTestBoard(t, caseRoot, board)
+	goal := "generation three recovery mission"
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+	if err != nil || planned.SuccessorMission == nil {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	stopErr := errors.New("stop after active pointer publication")
+	restore := rekitfs.SetAnchoredRootAfterReplacementPublishHookForTest(func() error { return stopErr })
+	_, err = RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp: planned.SuccessorMission.PublicationStamp, ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	restore()
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("successor active replacement cut err=%v", err)
+	}
+	recovered, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp: planned.SuccessorMission.PublicationStamp, ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err != nil || recovered.SuccessorMission == nil || !recovered.SuccessorMission.Applied || recovered.SuccessorMission.Generation != 3 {
+		t.Fatalf("recover active replacement=%+v err=%v", recovered, err)
+	}
+}
+
+func TestRunDailyTerminalSuccessorRejectsLegacyStateWithoutWrite(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-legacy")
+	prepareTerminalMissionForSuccessor(t, caseRoot, "legacy predecessor", "legacy-evidence.md", "legacy evidence\n")
+	currentRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	legacyRoot := filepath.Join(caseRoot, projectstate.LegacyDir)
+	if err := os.Rename(currentRoot, legacyRoot); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	if _, err := missionsuccessor.Preview(caseRoot, missionsuccessor.Options{Goal: "legacy successor", Actor: "daily-test"}); err == nil || !strings.Contains(err.Error(), "existing current .steamai project") {
+		t.Fatalf("legacy successor preview was not rejected: %v", err)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunDailyTerminalSuccessorRejectsDualStateRootsWithoutWrite(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-dual-root")
+	prepareTerminalMissionForSuccessor(t, caseRoot, "dual predecessor", "dual-evidence.md", "dual evidence\n")
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.LegacyDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	if _, err := missionsuccessor.Preview(caseRoot, missionsuccessor.Options{Goal: "dual successor", Actor: "daily-test"}); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual-root successor preview was not rejected: %v", err)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunDailyTerminalSuccessorRecoversExactPartialPublication(t *testing.T) {
+	for _, cut := range []int{1, 2, 8, 15} {
+		t.Run(fmt.Sprintf("after-%02d-publications", cut), func(t *testing.T) {
+			caseRoot := filepath.Join(t.TempDir(), "successor-partial-recovery")
+			prepareTerminalMissionForSuccessor(t, caseRoot, "partial predecessor", "partial-evidence.md", "partial evidence\n")
+			goal := fmt.Sprintf("recover exact partial successor %d", cut)
+			planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+			if err != nil || planned.SuccessorMission == nil {
+				t.Fatalf("successor preview=%+v err=%v", planned, err)
+			}
+			stopErr := fmt.Errorf("stop after %d durable successor publications", cut)
+			calls := 0
+			restore := missionsuccessor.SetApplyAfterPublicationHookForTest(func(write missionsuccessor.Write) error {
+				calls++
+				if calls == cut {
+					return stopErr
+				}
+				return nil
+			})
+			_, err = RunDaily(context.Background(), DailyOptions{
+				Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+				SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+				ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+			})
+			restore()
+			if !errors.Is(err, stopErr) || calls != cut {
+				t.Fatalf("partial successor Apply calls=%d err=%v", calls, err)
+			}
+			view, viewErr := projectstate.ResolveMissionView(caseRoot)
+			if viewErr != nil || view.Generation != 1 {
+				t.Fatalf("partial successor activated a generation: view=%+v err=%v", view, viewErr)
+			}
+			recovered, err := RunDaily(context.Background(), DailyOptions{
+				Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+				SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+				ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+			})
+			if err != nil || recovered.SuccessorMission == nil || !recovered.SuccessorMission.Applied || recovered.SuccessorMission.Generation != 2 {
+				t.Fatalf("recover partial successor=%+v err=%v", recovered, err)
+			}
+		})
+	}
+}
+
+func TestRunDailyTerminalSuccessorRejectsDifferentPlanWhilePartialIntentIsPending(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-stale-partial-plan")
+	prepareTerminalMissionForSuccessor(t, caseRoot, "pending predecessor", "pending-evidence.md", "pending evidence\n")
+	first, err := missionsuccessor.Preview(caseRoot, missionsuccessor.Options{
+		Goal: "first pending successor", Actor: "daily-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopErr := errors.New("stop after pending successor intent")
+	restore := missionsuccessor.SetApplyAfterPublicationHookForTest(func(write missionsuccessor.Write) error { return stopErr })
+	_, err = missionsuccessor.Apply(caseRoot, missionsuccessor.Options{
+		Goal: first.Goal, Actor: "daily-test", PublicationStamp: first.PublicationStamp,
+		ExpectedPlanSHA256: first.ExpectedPlanSHA256,
+	})
+	restore()
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("partial successor Apply err=%v", err)
+	}
+	second, err := missionsuccessor.Preview(caseRoot, missionsuccessor.Options{
+		Goal: "different successor must not bypass pending intent", Actor: "daily-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := missionsuccessor.Apply(caseRoot, missionsuccessor.Options{
+		Goal: second.Goal, Actor: "daily-test", PublicationStamp: second.PublicationStamp,
+		ExpectedPlanSHA256: second.ExpectedPlanSHA256,
+	}); err == nil || !strings.Contains(err.Error(), "different successor transition is pending") {
+		t.Fatalf("different successor bypassed pending exact recovery: %v", err)
+	}
+	view, viewErr := projectstate.ResolveMissionView(caseRoot)
+	if viewErr != nil || view.Generation != 1 {
+		t.Fatalf("different successor activated a generation: view=%+v err=%v", view, viewErr)
+	}
+}
+
+func TestRunDailyTerminalSuccessorRejectsCorruptPartialPublication(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-partial-corrupt")
+	prepareTerminalMissionForSuccessor(t, caseRoot, "corrupt predecessor", "corrupt-evidence.md", "corrupt evidence\n")
+	goal := "reject corrupt partial successor"
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+	if err != nil || planned.SuccessorMission == nil {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	stopErr := errors.New("stop after first durable successor publication")
+	restore := missionsuccessor.SetApplyAfterPublicationHookForTest(func(write missionsuccessor.Write) error { return stopErr })
+	_, err = RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+		ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	restore()
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("partial successor Apply err=%v", err)
+	}
+	firstPath := filepath.Join(caseRoot, filepath.FromSlash(planned.SuccessorMission.Writes[0].Path))
+	if err := os.WriteFile(firstPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+		ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	}); err == nil || (!strings.Contains(err.Error(), "existing file differs from exact complete bytes") && !strings.Contains(err.Error(), "existing file is incomplete or not regular") && !strings.Contains(err.Error(), "successor artifact is not canonical")) {
+		t.Fatalf("corrupt partial successor was not rejected: %v", err)
+	}
+	view, viewErr := projectstate.ResolveMissionView(caseRoot)
+	if viewErr != nil || view.Generation != 1 {
+		t.Fatalf("corrupt partial successor activated a generation: view=%+v err=%v", view, viewErr)
+	}
+}
+
+func TestRunDailyTerminalSuccessorRejectsShortPublicationStampWithoutPanic(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-short-stamp")
+	prepareTerminalMissionForSuccessor(t, caseRoot, "short stamp predecessor", "short-stamp-evidence.md", "short stamp evidence\n")
+	if _, err := missionsuccessor.Apply(caseRoot, missionsuccessor.Options{
+		Goal: "short stamp successor", Actor: "daily-test", PublicationStamp: "x", ExpectedPlanSHA256: strings.Repeat("a", 64),
+	}); err == nil || !strings.Contains(err.Error(), "invalid successor mission publication stamp") {
+		t.Fatalf("short publication stamp error = %v", err)
+	}
+}
+
+func TestRunDailyTerminalSuccessorExactReplaySurvivesPackManifestDrift(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-replay-pack-drift")
+	inspection, _ := prepareTerminalMissionForSuccessor(t, caseRoot, "replay pack predecessor", "replay-pack-evidence.md", "replay pack evidence\n")
+	goal := "replay pack bound successor"
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+	if err != nil || planned.SuccessorMission == nil {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	applied, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp: planned.SuccessorMission.PublicationStamp, ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err != nil || applied.SuccessorMission == nil || !applied.SuccessorMission.Applied {
+		t.Fatalf("successor Apply=%+v err=%v", applied, err)
+	}
+	manifestPath := filepath.Join(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), "packs", inspection.Identity.Pack, "manifest.yml")
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(manifestBytes, []byte("\n# drift after committed successor\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := missionsuccessor.Apply(caseRoot, missionsuccessor.Options{
+		Goal: goal, Actor: "daily-test", PublicationStamp: planned.SuccessorMission.PublicationStamp,
+		ExpectedPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err != nil || !replayed.Applied || !replayed.Replay || replayed.PackManifestSHA256 != planned.SuccessorMission.PackManifestSHA256 || replayed.AuthorityLane != planned.SuccessorMission.AuthorityLane {
+		t.Fatalf("committed replay after pack drift=%+v err=%v", replayed, err)
+	}
+}
+
+func TestRunDailyTerminalSuccessorRejectsProjectLocalPackManifestDrift(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-pack-manifest-drift")
+	inspection, _ := prepareTerminalMissionForSuccessor(t, caseRoot, "pack manifest predecessor", "pack-manifest-evidence.md", "pack manifest evidence\n")
+	goal := "pack manifest bound successor"
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+	if err != nil || planned.SuccessorMission == nil || len(planned.SuccessorMission.PackManifestSHA256) != 64 || planned.SuccessorMission.AuthorityLane == "" {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	manifestPath := filepath.Join(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), "packs", inspection.Identity.Pack, "manifest.yml")
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(manifestBytes, []byte("\n# drift after successor review\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := missionsuccessor.Apply(caseRoot, missionsuccessor.Options{
+		Goal: goal, Actor: "daily-test", PublicationStamp: planned.SuccessorMission.PublicationStamp,
+		ExpectedPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	}); err == nil || !strings.Contains(err.Error(), "plan changed after review") {
+		t.Fatalf("pack manifest drift was not rejected: %v", err)
+	}
+}
+
+func TestRunDailyTerminalSuccessorActiveViewRequiresGenerationCommitAndProjectIdentity(t *testing.T) {
+	t.Run("generation-commit", func(t *testing.T) {
+		caseRoot := filepath.Join(t.TempDir(), "successor-generation-commit")
+		prepareTerminalMissionForSuccessor(t, caseRoot, "generation commit predecessor", "generation-commit-evidence.md", "generation commit evidence\n")
+		applied := applySuccessorMission(t, caseRoot, "generation commit successor")
+		commitPath := filepath.Join(caseRoot, filepath.FromSlash(generationPathForTest(applied.SuccessorMission.Generation, "commit.json")))
+		if err := os.Remove(commitPath); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectstate.ResolveMissionView(caseRoot); err == nil || !strings.Contains(err.Error(), "generation commit") {
+			t.Fatalf("active view accepted missing generation commit: %v", err)
+		}
+	})
+	t.Run("project-id", func(t *testing.T) {
+		caseRoot := filepath.Join(t.TempDir(), "successor-project-id")
+		prepareTerminalMissionForSuccessor(t, caseRoot, "project identity predecessor", "project-identity-evidence.md", "project identity evidence\n")
+		applySuccessorMission(t, caseRoot, "project identity successor")
+		activePath, err := projectstate.MissionActivePath(caseRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		activeBytes, err := os.ReadFile(activePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var active projectstate.MissionActive
+		if err := json.Unmarshal(activeBytes, &active); err != nil {
+			t.Fatal(err)
+		}
+		active.ProjectID = "0123456789abcdef"
+		activeBytes, err = json.MarshalIndent(active, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(activePath, append(activeBytes, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectstate.ResolveMissionView(caseRoot); err == nil || !strings.Contains(err.Error(), "manifest does not bind") {
+			t.Fatalf("active view accepted mismatched project identity: %v", err)
+		}
+	})
+}
+
+func generationPathForTest(generation int, rel string) string {
+	return filepath.ToSlash(filepath.Join(projectstate.CurrentDir, projectstate.MissionsDir, fmt.Sprintf("g%06d", generation), rel))
+}
+
+func TestRunDailyTerminalSuccessorRejectsStaleClosureWithoutWrite(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-stale")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "completed stale predecessor", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "successor-stale-evidence.md")
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("reviewed successor stale evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: "daily-test", Reason: "close predecessor before stale successor", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || preview.Blocked {
+		t.Fatalf("completion preview=%+v err=%v", preview, err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	if _, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := make([]mission.BoardLane, 0, 1)
+	for _, lane := range board.Lanes {
+		if lane.ID == bootstrap.Lane {
+			active = append(active, lane)
+		}
+	}
+	board.Lanes = active
+	writeDailyTestBoard(t, caseRoot, board)
+	goal := "stale successor goal"
+	planned, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "daily-test"})
+	if err != nil || planned.SuccessorMission == nil {
+		t.Fatalf("successor preview=%+v err=%v", planned, err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, projectstate.CurrentDir, "facts", "observations.jsonl"), []byte("{\"eventId\":\"late\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	applied, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
+		SuccessorPublicationStamp:   planned.SuccessorMission.PublicationStamp,
+		ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "plan changed after review") || applied.SessionLaunches != 0 {
+		t.Fatalf("stale successor Apply=%+v err=%v", applied, err)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
 }
 
 func TestRunDailyCorrectionReopensCommittedClosedLaneBeforeNewMember(t *testing.T) {
@@ -1890,6 +2688,21 @@ func provisionSessionhostAttachedCase(t *testing.T, repo, pack string) string {
 		t.Fatal(err)
 	}
 	return caseRoot
+}
+
+func buildSessionhostUnifiedRuntimeFixture(t *testing.T, repoRoot string) string {
+	t.Helper()
+	name := "steamai-sessionhost-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(t.TempDir(), name)
+	command := exec.Command("go", "build", "-o", path, "./cmd/rekit")
+	command.Dir = repoRoot
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sessionhost unified runtime fixture: %v\n%s", err, output)
+	}
+	return path
 }
 
 func sessionhostTestRepoRoot(t *testing.T) string {

@@ -34,6 +34,7 @@ type ExclusiveInitOptions struct {
 	SkipVerificationMarker  bool
 	DefaultPublicationPhase int
 	ExtraFiles              []ExclusiveInitExtraFile
+	SourceExecutable        string
 }
 
 // ExclusiveInitExtraFile adds one deterministic case-local regular file to
@@ -55,9 +56,21 @@ type ExclusiveInitWrite struct {
 	Size             int64  `json:"size"`
 	Content          []byte `json:"content,omitempty"`
 	PublicationPhase int    `json:"publicationPhase,omitempty"`
+	snapshot         []byte
 }
 
 // ExclusiveInitPlan is a deterministic, complete, no-overwrite case package.
+func BindExclusiveInitWriteSnapshot(write ExclusiveInitWrite, data []byte) (ExclusiveInitWrite, error) {
+	sum := sha256.Sum256(data)
+	if write.Size != int64(len(data)) || write.SHA256 != hex.EncodeToString(sum[:]) {
+		return ExclusiveInitWrite{}, fmt.Errorf("exclusive init snapshot differs from its write binding: %s", write.Path)
+	}
+	write.SourcePath = ""
+	write.Content = nil
+	write.snapshot = append([]byte(nil), data...)
+	return write, nil
+}
+
 type ExclusiveInitPlan struct {
 	SchemaVersion  int                  `json:"schemaVersion"`
 	Command        string               `json:"command"`
@@ -116,6 +129,8 @@ func SetExclusiveInitLeafWriteHookForTest(hook func(stage, path string) error) f
 	return func() { exclusiveInitLeafWriteHook = previous }
 }
 
+var exclusiveInitRuntimeBundleBuilder = runtimebundle.BuildWithUnifiedExecutable
+
 // PlanExclusiveInit builds all exact bytes required for a doctor-ready
 // attached case. It is read-only and permits planning only for a missing root.
 func PlanExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions) (ExclusiveInitPlan, error) {
@@ -173,7 +188,15 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		return ExclusiveInitPlan{}, fmt.Errorf("exclusive init requires a non-negative default publication phase")
 	}
 	builder := exclusiveInitBuilder{caseRoot: caseFull, paths: map[string]struct{}{}, defaultPhase: opt.DefaultPublicationPhase}
-	bundlePlan, err := runtimebundle.Build(repoFull, pack)
+	var bundlePlan runtimebundle.Plan
+	sourceExecutable := strings.TrimSpace(opt.SourceExecutable)
+	if sourceExecutable == "" {
+		sourceExecutable, err = runtimebundle.SourceExecutable()
+		if err != nil {
+			return ExclusiveInitPlan{}, err
+		}
+	}
+	bundlePlan, err = exclusiveInitRuntimeBundleBuilder(repoFull, pack, sourceExecutable)
 	if err != nil {
 		return ExclusiveInitPlan{}, err
 	}
@@ -181,6 +204,10 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		rel := filepath.ToSlash(filepath.Join(".steamai", filepath.FromSlash(publication.Path)))
 		if publication.SourcePath != "" {
 			if err := builder.addSource(rel, publication.Kind, publication.SourcePath); err != nil {
+				return ExclusiveInitPlan{}, err
+			}
+		} else if publication.Kind == "runtime-executable" {
+			if err := builder.addSnapshot(rel, publication.Kind, publication.Content); err != nil {
 				return ExclusiveInitPlan{}, err
 			}
 		} else if err := builder.add(rel, publication.Kind, publication.Content); err != nil {
@@ -556,6 +583,28 @@ func (b *exclusiveInitBuilder) addSource(rel, kind, sourcePath string, phases ..
 	return nil
 }
 
+func (b *exclusiveInitBuilder) addSnapshot(rel, kind string, content []byte, phases ...int) error {
+	phase := b.defaultPhase
+	if len(phases) > 1 {
+		return fmt.Errorf("exclusive init write has multiple publication phases: %s", rel)
+	}
+	if len(phases) == 1 {
+		phase = phases[0]
+	}
+	rel, target, err := exclusiveInitPath(b.caseRoot, rel)
+	if err != nil {
+		return err
+	}
+	key := strings.ToLower(rel)
+	if _, exists := b.paths[key]; exists {
+		return fmt.Errorf("exclusive init duplicate write path: %s", rel)
+	}
+	b.paths[key] = struct{}{}
+	sum := sha256.Sum256(content)
+	b.writes = append(b.writes, ExclusiveInitWrite{Path: rel, Kind: kind, TargetPath: target, SHA256: hex.EncodeToString(sum[:]), Size: int64(len(content)), PublicationPhase: phase, snapshot: append([]byte(nil), content...)})
+	return nil
+}
+
 func (b *exclusiveInitBuilder) add(rel, kind string, content []byte, phases ...int) error {
 	phase := b.defaultPhase
 	if len(phases) > 1 {
@@ -579,6 +628,23 @@ func (b *exclusiveInitBuilder) add(rel, kind string, content []byte, phases ...i
 }
 
 func validateExclusiveInitPlan(plan ExclusiveInitPlan) error {
+	if err := validateExclusiveInitPlanBindings(plan); err != nil {
+		return err
+	}
+	for _, write := range plan.Writes {
+		content, err := exclusiveInitWriteBytes(write)
+		if err != nil {
+			return fmt.Errorf("exclusive init write source is unavailable: %s: %w", write.Path, err)
+		}
+		sum := sha256.Sum256(content)
+		if write.Size != int64(len(content)) || write.SHA256 != hex.EncodeToString(sum[:]) {
+			return fmt.Errorf("exclusive init write content binding mismatch: %s", write.Path)
+		}
+	}
+	return nil
+}
+
+func validateExclusiveInitPlanBindings(plan ExclusiveInitPlan) error {
 	if plan.SchemaVersion != 1 || plan.Command != "exclusive-init" {
 		return fmt.Errorf("invalid exclusive init plan identity")
 	}
@@ -613,13 +679,9 @@ func validateExclusiveInitPlan(plan ExclusiveInitPlan) error {
 			return fmt.Errorf("exclusive init duplicate write path: %s", rel)
 		}
 		seen[key] = struct{}{}
-		content, err := exclusiveInitWriteBytes(write)
-		if err != nil {
-			return fmt.Errorf("exclusive init write source is unavailable: %s: %w", rel, err)
-		}
-		sum := sha256.Sum256(content)
-		if write.Size != int64(len(content)) || write.SHA256 != hex.EncodeToString(sum[:]) {
-			return fmt.Errorf("exclusive init write content binding mismatch: %s", rel)
+		decoded, decodeErr := hex.DecodeString(write.SHA256)
+		if write.Size < 0 || decodeErr != nil || len(decoded) != sha256.Size || write.SHA256 != strings.ToLower(write.SHA256) {
+			return fmt.Errorf("exclusive init write binding is invalid: %s", rel)
 		}
 	}
 	if len(plan.Writes) == 0 {
@@ -872,6 +934,9 @@ func completeExclusiveInitReplay(root *os.Root, plan ExclusiveInitPlan) error {
 }
 
 func exclusiveInitWriteBytes(write ExclusiveInitWrite) ([]byte, error) {
+	if write.snapshot != nil {
+		return write.snapshot, nil
+	}
 	if strings.TrimSpace(write.SourcePath) == "" {
 		return write.Content, nil
 	}

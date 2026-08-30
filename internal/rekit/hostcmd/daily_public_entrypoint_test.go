@@ -11,6 +11,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionsuccessor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
@@ -159,13 +160,16 @@ func dailyPublicEntrypointFixture(t *testing.T, caseRoot string) sessionhost.Dai
 				ApplyCommand: "/rekit init -Target project -Pack web-security -Apply -ExpectedInitPlanSha256 " + strings.Repeat("c", 64) + " -Format json",
 			},
 		},
+		SuccessorMission: &missionsuccessor.Result{Plan: missionsuccessor.Plan{
+			ApplyArgs: []string{"host", "-daily", "-target", caseRoot, "-goal", "successor"},
+		}},
 	}
 }
 
 func assertDailyPublicEntrypoint(t *testing.T, result sessionhost.DailyResult, entrypoint string) {
 	t.Helper()
 	if result.CurrentDriverRequest == nil || result.Completion == nil || result.ExecutionControl == nil ||
-		result.DirectoryAdoption == nil || result.DirectoryAdoption.Plan == nil {
+		result.DirectoryAdoption == nil || result.DirectoryAdoption.Plan == nil || result.SuccessorMission == nil {
 		t.Fatalf("daily public projection omitted typed carriers: %+v", result)
 	}
 	request := result.CurrentDriverRequest
@@ -196,5 +200,8 @@ func assertDailyPublicEntrypoint(t *testing.T, result sessionhost.DailyResult, e
 	if !strings.HasPrefix(result.ExecutionControl.ApplyCommand, entrypoint+" control ") ||
 		!strings.HasPrefix(result.DirectoryAdoption.Plan.ApplyCommand, entrypoint+" init ") {
 		t.Fatalf("daily auxiliary exact commands use mixed entrypoint: control=%q adoption=%q", result.ExecutionControl.ApplyCommand, result.DirectoryAdoption.Plan.ApplyCommand)
+	}
+	if got := result.SuccessorMission.ApplyArgs; len(got) == 0 || got[0] != "host" {
+		t.Fatalf("daily successor executable argv was projected as a public command: %v", got)
 	}
 }

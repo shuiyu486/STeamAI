@@ -25,6 +25,24 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/statemigration"
 )
 
+var currentSyncRuntimeBundleBuilder = runtimebundle.BuildWithUnifiedExecutable
+
+func SetRuntimeBundleBuildersForTest(
+	builder func(string, string, string) (runtimebundle.Plan, error),
+) func() {
+	previousInit := initRuntimeBundleBuilder
+	previousExclusive := exclusiveInitRuntimeBundleBuilder
+	previousCurrentSync := currentSyncRuntimeBundleBuilder
+	initRuntimeBundleBuilder = builder
+	exclusiveInitRuntimeBundleBuilder = builder
+	currentSyncRuntimeBundleBuilder = builder
+	return func() {
+		initRuntimeBundleBuilder = previousInit
+		exclusiveInitRuntimeBundleBuilder = previousExclusive
+		currentSyncRuntimeBundleBuilder = previousCurrentSync
+	}
+}
+
 const (
 	currentSyncSchemaVersion = 1
 	currentSyncPlanKind      = "steamai-current-sync-plan"
@@ -321,7 +339,7 @@ func buildCurrentSyncPlan(repoRoot, caseRoot, pack string, opt CurrentSyncOption
 	if err := m.ValidateSchema(); err != nil {
 		return CurrentSyncPlan{}, err
 	}
-	bundle, err := runtimebundle.BuildWithExecutable(repoFull, pack, sourceExecutable)
+	bundle, err := currentSyncRuntimeBundleBuilder(repoFull, pack, sourceExecutable)
 	if err != nil {
 		return CurrentSyncPlan{}, err
 	}

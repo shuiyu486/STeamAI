@@ -2,6 +2,8 @@ package fs
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +28,9 @@ var errAnchoredExactMutationUnsupported = errors.New("exact handle-bound filesys
 
 var anchoredRootBeforeRemoveHook func() error
 var anchoredRootBeforeRenameHook func() error
+var anchoredRootBeforeReplaceHook func() error
+var anchoredRootAfterPredecessorRenameHook func() error
+var anchoredRootAfterReplacementPublishHook func() error
 var anchoredRootReadAfterOpenHook func() error
 var anchoredRootExactFileAfterOpenHook func() error
 var anchoredRootWriteBeforeFinalValidationHook func() error
@@ -42,6 +47,28 @@ func setAnchoredRootBeforeRenameHookForTest(hook func() error) func() {
 	previous := anchoredRootBeforeRenameHook
 	anchoredRootBeforeRenameHook = hook
 	return func() { anchoredRootBeforeRenameHook = previous }
+}
+
+func setAnchoredRootBeforeReplaceHookForTest(hook func() error) func() {
+	previous := anchoredRootBeforeReplaceHook
+	anchoredRootBeforeReplaceHook = hook
+	return func() { anchoredRootBeforeReplaceHook = previous }
+}
+
+// SetAnchoredRootAfterPredecessorRenameHookForTest injects a cut after the
+// reviewed predecessor is durably moved aside. It is test-only.
+func SetAnchoredRootAfterPredecessorRenameHookForTest(hook func() error) func() {
+	previous := anchoredRootAfterPredecessorRenameHook
+	anchoredRootAfterPredecessorRenameHook = hook
+	return func() { anchoredRootAfterPredecessorRenameHook = previous }
+}
+
+// SetAnchoredRootAfterReplacementPublishHookForTest injects a cut after the
+// new target is durable but before predecessor recovery bytes are retired.
+func SetAnchoredRootAfterReplacementPublishHookForTest(hook func() error) func() {
+	previous := anchoredRootAfterReplacementPublishHook
+	anchoredRootAfterReplacementPublishHook = hook
+	return func() { anchoredRootAfterReplacementPublishHook = previous }
 }
 
 func setAnchoredRootReadAfterOpenHookForTest(hook func() error) func() {
@@ -491,6 +518,125 @@ func (root *AnchoredRoot) RenameFileNoReplaceExact(sourceRel, targetRel string, 
 	return root.renameNoReplaceExact(sourceRel, targetRel, expected, mode, nil)
 }
 
+// ReplaceFileExact atomically replaces one exact regular target with one exact
+// staged regular file. Platforms without handle-bound replacement fail closed.
+func (root *AnchoredRoot) ReplaceFileExact(
+	sourceRel,
+	targetRel string,
+	expectedSource []byte,
+	sourceMode fs.FileMode,
+	expectedTarget []byte,
+	targetMode fs.FileMode,
+) error {
+	if root == nil {
+		return fmt.Errorf("anchored root is missing")
+	}
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if err := root.validateLocked(); err != nil {
+		return err
+	}
+	source, err := cleanAnchoredRel(sourceRel, false)
+	if err != nil {
+		return fmt.Errorf("anchored replace source: %w", err)
+	}
+	target, err := cleanAnchoredRel(targetRel, false)
+	if err != nil {
+		return fmt.Errorf("anchored replace target: %w", err)
+	}
+	if anchoredRelEqual(source, target) {
+		return fmt.Errorf("anchored replace source and target are identical: %s", sourceRel)
+	}
+	sourceParentRel, targetParentRel := filepath.Dir(source), filepath.Dir(target)
+	sourceParent, err := openDirectoryNoFollow(root.root, sourceParentRel, root.path, "anchored replace source")
+	if err != nil {
+		return err
+	}
+	defer sourceParent.Close()
+	targetParent, err := openDirectoryNoFollow(root.root, targetParentRel, root.path, "anchored replace target")
+	if err != nil {
+		return err
+	}
+	defer targetParent.Close()
+	sourceName, targetName := filepath.Base(source), filepath.Base(target)
+	sourceInfo, err := sourceParent.Lstat(sourceName)
+	if err != nil || !sourceInfo.Mode().IsRegular() || sourceInfo.Mode()&os.ModeSymlink != 0 ||
+		sourceInfo.Size() != int64(len(expectedSource)) || !anchoredModeMatches(sourceMode, sourceInfo.Mode()) {
+		return fmt.Errorf("anchored replace source differs from expected object: %s: %w", sourceRel, err)
+	}
+	targetInfo, err := targetParent.Lstat(targetName)
+	targetMissing := os.IsNotExist(err)
+	if !targetMissing && (err != nil || !targetInfo.Mode().IsRegular() || targetInfo.Mode()&os.ModeSymlink != 0 ||
+		targetInfo.Size() != int64(len(expectedTarget)) || !anchoredModeMatches(targetMode, targetInfo.Mode())) {
+		return fmt.Errorf("anchored replace target differs from expected object: %s: %w", targetRel, err)
+	}
+	if err := root.validateLocked(); err != nil {
+		return err
+	}
+	if err := root.validateDirectoryBindingLocked(sourceParentRel, mustDirectoryInfo(sourceParent), "anchored replace source parent"); err != nil {
+		return err
+	}
+	if err := root.validateDirectoryBindingLocked(targetParentRel, mustDirectoryInfo(targetParent), "anchored replace target parent"); err != nil {
+		return err
+	}
+	if anchoredRootBeforeReplaceHook != nil {
+		if err := anchoredRootBeforeReplaceHook(); err != nil {
+			return err
+		}
+	}
+	targetRecoveryRel := filepath.ToSlash(filepath.Join(
+		targetParentRel,
+		"."+targetName+".predecessor-"+anchoredSHA(expectedTarget)[:16]+".tmp",
+	))
+	if targetMissing {
+		if recoveryErr := root.validateReplayLocked(
+			targetParent,
+			targetRecoveryRel,
+			filepath.Base(targetRecoveryRel),
+			expectedTarget,
+			targetMode,
+		); recoveryErr != nil {
+			return fmt.Errorf("anchored replacement predecessor recovery differs: %w", recoveryErr)
+		}
+	} else if err != nil {
+		return err
+	} else if err := root.renameNoReplaceExactLocked(target, targetRecoveryRel, expectedTarget, targetMode); err != nil {
+		return fmt.Errorf("anchor exact replacement predecessor: %w", err)
+	}
+	if anchoredRootAfterPredecessorRenameHook != nil {
+		if err := anchoredRootAfterPredecessorRenameHook(); err != nil {
+			return err
+		}
+	}
+	if err := root.renameNoReplaceExactLocked(source, target, expectedSource, sourceMode); err != nil {
+		return fmt.Errorf("publish exact replacement target: %w", err)
+	}
+	published, err := targetParent.Lstat(targetName)
+	if err != nil || published.Mode()&os.ModeSymlink != 0 || !os.SameFile(sourceInfo, published) {
+		return fmt.Errorf("anchored replace result changed: %s: %w", targetRel, err)
+	}
+	if _, err := sourceParent.Lstat(sourceName); !os.IsNotExist(err) {
+		return fmt.Errorf("anchored replace source remains after publication: %s: %w", sourceRel, err)
+	}
+	if err := syncPublishedDirectory(sourceParent); err != nil {
+		return err
+	}
+	if filepath.Clean(sourceParentRel) != filepath.Clean(targetParentRel) {
+		if err := syncPublishedDirectory(targetParent); err != nil {
+			return err
+		}
+	}
+	if anchoredRootAfterReplacementPublishHook != nil {
+		if err := anchoredRootAfterReplacementPublishHook(); err != nil {
+			return err
+		}
+	}
+	if err := root.removeExactLocked(targetRecoveryRel, expectedTarget, targetMode, false); err != nil {
+		return fmt.Errorf("retire exact replacement predecessor: %w", err)
+	}
+	return nil
+}
+
 // RenameDirectoryNoReplaceExact atomically moves a directory only when its
 // complete relative directory/file tree still matches the caller's binding.
 func (root *AnchoredRoot) RenameDirectoryNoReplaceExact(sourceRel, targetRel string, expected ExpectedTree) error {
@@ -507,6 +653,14 @@ func (root *AnchoredRoot) renameNoReplaceExact(sourceRel, targetRel string, expe
 	}
 	root.mu.Lock()
 	defer root.mu.Unlock()
+	return root.renameNoReplaceExactLocked(sourceRel, targetRel, expected, mode, expectedTree)
+}
+
+func (root *AnchoredRoot) renameNoReplaceExactLocked(sourceRel, targetRel string, expected []byte, mode fs.FileMode, expectedTree ...*ExpectedTree) error {
+	var tree *ExpectedTree
+	if len(expectedTree) > 0 {
+		tree = expectedTree[0]
+	}
 	if err := root.validateLocked(); err != nil {
 		return err
 	}
@@ -542,7 +696,7 @@ func (root *AnchoredRoot) renameNoReplaceExact(sourceRel, targetRel string, expe
 	if sourceInfo.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("anchored rename source must not be a symlink or reparse point: %s", sourceRel)
 	}
-	if expectedTree != nil {
+	if tree != nil {
 		if !sourceInfo.IsDir() {
 			return fmt.Errorf("anchored rename source must be a directory: %s", sourceRel)
 		}
@@ -607,7 +761,7 @@ func (root *AnchoredRoot) renameNoReplaceExact(sourceRel, targetRel string, expe
 		ExpectedInfo:  current,
 		ExpectedBytes: expected,
 		ExpectedMode:  mode,
-		ExpectedTree:  expectedTree,
+		ExpectedTree:  tree,
 	}
 	if err := renameNoReplaceExactNative(request); err != nil {
 		if os.IsExist(err) {
@@ -640,6 +794,11 @@ func (root *AnchoredRoot) renameNoReplaceExact(sourceRel, targetRel string, expe
 	return nil
 }
 
+func anchoredSHA(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 func mustDirectoryInfo(root *os.Root) os.FileInfo {
 	info, _ := root.Lstat(".")
 	return info
@@ -663,6 +822,10 @@ func (root *AnchoredRoot) removeExact(rel string, expected []byte, mode fs.FileM
 	}
 	root.mu.Lock()
 	defer root.mu.Unlock()
+	return root.removeExactLocked(rel, expected, mode, directory)
+}
+
+func (root *AnchoredRoot) removeExactLocked(rel string, expected []byte, mode fs.FileMode, directory bool) error {
 	if err := root.validateLocked(); err != nil {
 		return err
 	}

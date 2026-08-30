@@ -120,7 +120,7 @@ func TestInstalledProjectLocalRealClaudeE2E(t *testing.T) {
 		RuntimeRoot  string `json:"runtimeRoot"`
 	}
 	selfContainedDecode(t, statusData, &status)
-	if status.Mode != "case" || !sameSelfContainedPath(status.Target, projectRoot) ||
+	if status.Mode != "case-onboarding-required" || !sameSelfContainedPath(status.Target, projectRoot) ||
 		!sameSelfContainedPath(status.TemplateRoot, filepath.Join(projectRoot, ".steamai")) ||
 		!sameSelfContainedPath(status.RuntimeRoot, filepath.Join(projectRoot, ".steamai", "runtime")) {
 		t.Fatalf("installed status did not bind the project-local runtime: %+v", status)
@@ -153,7 +153,7 @@ func TestInstalledProjectLocalRealClaudeE2E(t *testing.T) {
 	selfContainedDecode(t, firstData, &first)
 	if !first.OnboardingApplied || first.Pack != "_template" || first.Lane == "" ||
 		!first.Blocked || first.FinalState != "reviewer-rejected-awaiting-correction" ||
-		first.SessionLaunches < 2 || first.SessionCompletions != first.SessionLaunches || first.Failure != nil {
+		first.SessionLaunches < 2 || first.SessionCompletions+first.Replacements != first.SessionLaunches || first.Failure != nil {
 		t.Fatalf("installed first real-Claude pass did not reach canonical Reviewer rejection: %+v", first)
 	}
 	firstSessions := assertInstalledRealClaudeSessions(t, first, 1, 1)
@@ -191,7 +191,7 @@ func TestInstalledProjectLocalRealClaudeE2E(t *testing.T) {
 	selfContainedDecode(t, correctedData, &corrected)
 	if corrected.CorrectionEventID == "" || corrected.ExecutorGeneration != 2 ||
 		corrected.FinalState != "lane-closed" || corrected.Blocked || corrected.Failure != nil ||
-		corrected.SessionLaunches < 2 || corrected.SessionCompletions != corrected.SessionLaunches ||
+		corrected.SessionLaunches < 2 || corrected.SessionCompletions+corrected.Replacements != corrected.SessionLaunches ||
 		corrected.Completion == nil || !corrected.Completion.Applied || corrected.Completion.Lane.Status != "closed" {
 		t.Fatalf("installed correction did not replace, review, and close the lane: %+v", corrected)
 	}
@@ -320,7 +320,7 @@ func TestInstalledProjectLocalWebSecurityRealClaudeE2E(t *testing.T) {
 		Mode, Target, TemplateRoot, RuntimeRoot, Pack string
 	}
 	selfContainedDecode(t, statusData, &status)
-	if status.Mode != "case" || status.Pack != pack || !sameSelfContainedPath(status.Target, projectRoot) ||
+	if status.Mode != "case-onboarding-required" || status.Pack != pack || !sameSelfContainedPath(status.Target, projectRoot) ||
 		!sameSelfContainedPath(status.TemplateRoot, filepath.Join(projectRoot, ".steamai")) ||
 		!sameSelfContainedPath(status.RuntimeRoot, filepath.Join(projectRoot, ".steamai", "runtime")) {
 		t.Fatalf("installed web-security status did not bind the project-local runtime: %+v", status)
@@ -423,7 +423,7 @@ func TestInstalledProjectLocalWebSecurityRealClaudeE2E(t *testing.T) {
 		web.Run.AdapterID != websecurity.InventoryAdapterID || !web.Run.NoNetwork || web.Run.PacketPath == "" ||
 		first.Pack != pack || first.Lane != lane || first.Blocked || first.Failure != nil ||
 		first.FinalState != "lane-closed" || first.Completion == nil || !first.Completion.Applied ||
-		first.SessionLaunches < 2 || first.SessionCompletions != first.SessionLaunches {
+		first.SessionLaunches < 2 || first.SessionCompletions+first.Replacements != first.SessionLaunches {
 		t.Fatalf("installed web-security production lifecycle did not execute, review, bind, and close: %+v", first)
 	}
 	memberSessions := assertInstalledRealClaudeSessions(t, first, 1, 1)

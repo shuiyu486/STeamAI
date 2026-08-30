@@ -71,7 +71,14 @@ func runCurrentLoopExternalSessionRelay(ctx runtime.Context, opt Options, out io
 			externalSessionRelayApplyCommand(plan),
 			opt.SelectedCurrentLane,
 		)
-		return writeJSON(out, plan)
+		diagnostics, err := buildCurrentLoopExternalSessionRelayDiagnosticsDTO(
+			currentLoopExternalSessionRelayResult{Plan: plan},
+			ctx.Target,
+		)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, diagnostics)
 	}
 	applied, err := externalsession.ApplyCurrent(plan, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256, func() (externalsession.Job, error) {
 		return currentExternalSessionJob(ctx, opt)
@@ -86,7 +93,11 @@ func runCurrentLoopExternalSessionRelay(ctx runtime.Context, opt Options, out io
 		result.Plan = applied
 		result.RefreshedStatus = &fresh
 	}
-	return writeJSON(out, result)
+	diagnostics, err := buildCurrentLoopExternalSessionRelayDiagnosticsDTO(result, ctx.Target)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, diagnostics)
 }
 
 type currentLoopExternalSessionRelayResult struct {

@@ -200,9 +200,23 @@ func TestRunPublicHostAcceptsFreshRequestForExplicitLane(t *testing.T) {
 func TestRunStopsForExecutionEvidenceReviewWithoutLaunchingClaude(t *testing.T) {
 	repo := sessionhostTestRepoRoot(t)
 	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "review bounded execution evidence", "host-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap, inspection.Identity.InitialLane); err != nil {
+		t.Fatal(err)
+	}
+	selected := inspection.Identity.InitialLane
+	initialLanePath := filepath.Join(caseRoot, filepath.FromSlash(sessionhostStateRel(t, caseRoot, "lanes", selected, "lane.json")))
+	if _, err := os.Stat(initialLanePath); err != nil {
+		t.Fatalf("initial lane was not started: %v", err)
+	}
 	attachedRepo := sessionhostAttachedRepoRoot(t, caseRoot, "_template")
 	factsRoot := sessionhostStateRel(t, caseRoot, "facts")
-	laneRoot := sessionhostStateRel(t, caseRoot, "lanes", "main")
+	laneRoot := sessionhostStateRel(t, caseRoot, "lanes", selected)
 	board := mission.Board{
 		SchemaVersion:        1,
 		CaseRoot:             filepath.ToSlash(caseRoot),
@@ -210,8 +224,8 @@ func TestRunStopsForExecutionEvidenceReviewWithoutLaunchingClaude(t *testing.T) 
 		Pack:                 "_template",
 		DefaultAuthorityLane: "main",
 		Lanes: []mission.BoardLane{{
-			ID: "main", Type: "main", Title: "Main", Status: "open",
-			Authority: true, Workspace: "workspace/main/main",
+			ID: selected, Type: "feature", Title: "Mission", Status: "open",
+			Authority: false, Workspace: "workspace/main/mission",
 			CurrentExecutor: "evidence-review-member", ExecutorGeneration: 1,
 			UpdatedAt: "2026-08-11T00:00:00Z",
 		}},
@@ -222,15 +236,27 @@ func TestRunStopsForExecutionEvidenceReviewWithoutLaunchingClaude(t *testing.T) 
 		t.Fatal(err)
 	}
 	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "board.json"), append(boardData, '\n'))
-	laneJSON := fmt.Sprintf(`{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":%q,"currentExecutor":"evidence-review-member","executorGeneration":1,"lastTakeoverAt":"2026-08-11T00:00:00Z","lastTakeoverBy":"test","lastTakeoverReason":"fixture"}`, laneRoot)
-	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "lanes", "main", "lane.json"), []byte(laneJSON))
-	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "facts", "observations.jsonl"), []byte(`{"kind":"observation","eventId":"obs-host-stop","lane":"main","subject":"bounded adapter output","summary":"preauthorized adapter output ready for review","status":"complete","target":"target-alpha","evidenceRefs":["evidence/debug.json"],"execution":{"gateEventId":"gate-host-stop","authorization":"preauthorized","status":"complete","outputRefs":["workspace/main/debug/out.txt"]},"gate":{"action":"debug","authorization":{"decision":"preauthorized"}}}`+"\n"))
+	laneJSON := fmt.Sprintf(`{"schemaVersion":1,"id":%q,"type":"feature","title":"Mission","status":"open","authority":false,"workspace":"workspace/main/mission","laneRoot":%q,"currentExecutor":"evidence-review-member","executorGeneration":1,"lastTakeoverAt":"2026-08-11T00:00:00Z","lastTakeoverBy":"test","lastTakeoverReason":"fixture"}`, selected, laneRoot)
+	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "lanes", selected, "lane.json"), []byte(laneJSON))
+	observation := fmt.Sprintf(`{"kind":"observation","eventId":"obs-host-stop","lane":%q,"subject":"bounded adapter output","summary":"preauthorized adapter output ready for review","status":"complete","target":"target-alpha","evidenceRefs":["evidence/debug.json"],"execution":{"gateEventId":"gate-host-stop","authorization":"preauthorized","status":"complete","outputRefs":["workspace/main/debug/out.txt"]},"gate":{"action":"debug","authorization":{"decision":"preauthorized"}}}`+"\n", selected)
+	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "facts", "observations.jsonl"), []byte(observation))
 	for _, rel := range []string{"requests.jsonl", "candidates.jsonl", "decisions.jsonl", "interventions.jsonl", "verifications.jsonl"} {
 		writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "facts", rel), nil)
 	}
+	if _, err := os.Stat(initialLanePath); err != nil {
+		t.Fatalf("initial lane disappeared before status: %v", err)
+	}
+	globalStatus, globalErr := runPublicStatus(caseRoot, "_template", "")
+	if globalErr != nil || globalStatus.MissionControlRunbook == nil || globalStatus.MissionControlRunbook.CurrentDriverRequest == nil {
+		t.Fatalf("global evidence status=%+v err=%v", globalStatus, globalErr)
+	}
+	if request := globalStatus.MissionControlRunbook.CurrentDriverRequest; request.Lane != selected || request.Source != "executionEvidenceReview" {
+		boardSnapshot, _ := mission.ReadBoard(caseRoot)
+		t.Fatalf("global evidence request=%+v identityLane=%s board=%+v", request, inspection.Identity.InitialLane, boardSnapshot.Lanes)
+	}
 	before := snapshotDailyCaseFiles(t, caseRoot)
 	result, err := Run(context.Background(), Options{
-		Target: caseRoot, Pack: "_template", SelectedLane: "main",
+		Target: caseRoot, Pack: "_template", SelectedLane: selected,
 		ClaudePath: missingClaudePath(t), MaxAttempts: 1,
 	})
 	if err != nil {

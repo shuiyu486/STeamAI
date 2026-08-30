@@ -1981,6 +1981,7 @@ func reviewerPacketAdoptionRel(path string, stateRoot reviewerPacketAdoptionRoot
 
 type reviewerPacketAdoptionRoot struct {
 	projectstate.Root
+	view     projectstate.MissionView
 	handle   *os.Root
 	identity os.FileInfo
 }
@@ -1993,28 +1994,28 @@ func (root reviewerPacketAdoptionRoot) Close() error {
 }
 
 func reviewerPacketAdoptionStateRoot(caseRoot string) (reviewerPacketAdoptionRoot, error) {
-	root, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return reviewerPacketAdoptionRoot{}, err
 	}
-	if !root.Existing {
-		return reviewerPacketAdoptionRoot{}, fmt.Errorf("reviewer packet adoption requires an existing project state root: %s", root.Path)
+	if !view.Root.Existing {
+		return reviewerPacketAdoptionRoot{}, fmt.Errorf("reviewer packet adoption requires an existing project state root: %s", view.Root.Path)
 	}
-	before, err := refsf.ValidateNonReparseDirectory(root.Path, "reviewer packet adoption metadata root")
+	before, err := refsf.ValidateNonReparseDirectory(view.Path, "reviewer packet adoption metadata root")
 	if err != nil {
 		return reviewerPacketAdoptionRoot{}, err
 	}
-	handle, err := os.OpenRoot(root.Path)
+	handle, err := os.OpenRoot(view.Path)
 	if err != nil {
 		return reviewerPacketAdoptionRoot{}, err
 	}
 	opened, openErr := handle.Stat(".")
-	after, afterErr := refsf.ValidateNonReparseDirectory(root.Path, "reviewer packet adoption metadata root")
+	after, afterErr := refsf.ValidateNonReparseDirectory(view.Path, "reviewer packet adoption metadata root")
 	if openErr != nil || afterErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
 		_ = handle.Close()
 		return reviewerPacketAdoptionRoot{}, fmt.Errorf("reviewer packet adoption state root changed while opening")
 	}
-	return reviewerPacketAdoptionRoot{Root: root, handle: handle, identity: opened}, nil
+	return reviewerPacketAdoptionRoot{Root: projectstate.Root{Dir: view.Root.Dir, Path: view.Path, Existing: view.Root.Existing, Legacy: view.Root.Legacy}, view: view, handle: handle, identity: opened}, nil
 }
 
 func reviewerPacketAdoptionCommand(packetPath, lane, actor, reason string, apply bool) string {
@@ -2104,13 +2105,12 @@ func validateReviewerPacketAdoptionStateRoot(caseRoot string, expected reviewerP
 	if expected.handle == nil || expected.identity == nil {
 		return fmt.Errorf("reviewer packet adoption state root changed before publication")
 	}
-	current, err := projectstate.Resolve(caseRoot)
-	if err != nil {
-		return err
+	if err := expected.view.ValidateCurrent(caseRoot); err != nil {
+		return fmt.Errorf("reviewer packet adoption state root changed before publication: %w", err)
 	}
-	canonicalIdentity, identityErr := refsf.ValidateNonReparseDirectory(current.Path, "reviewer packet adoption metadata root")
+	canonicalIdentity, identityErr := refsf.ValidateNonReparseDirectory(expected.view.Path, "reviewer packet adoption metadata root")
 	heldIdentity, heldErr := expected.handle.Stat(".")
-	if current.Dir != expected.Dir || !samePath(current.Path, expected.Path) || identityErr != nil || heldErr != nil || !os.SameFile(expected.identity, heldIdentity) || !os.SameFile(heldIdentity, canonicalIdentity) {
+	if !samePath(expected.view.Path, expected.Path) || identityErr != nil || heldErr != nil || !os.SameFile(expected.identity, heldIdentity) || !os.SameFile(heldIdentity, canonicalIdentity) {
 		return fmt.Errorf("reviewer packet adoption state root changed before publication")
 	}
 	return nil

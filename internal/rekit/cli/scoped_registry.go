@@ -401,9 +401,6 @@ func runScopedCommand(ctx runtime.Context, opt Options, out io.Writer) (bool, er
 }
 
 func executeScopedCommandRoute(ctx runtime.Context, opt Options, out io.Writer, route scopedCommandRoute) error {
-	if err := validateScopedCommandRouteCatalog(); err != nil {
-		return err
-	}
 	binding, err := route.Bind(opt, route.Scope)
 	if err != nil {
 		return err

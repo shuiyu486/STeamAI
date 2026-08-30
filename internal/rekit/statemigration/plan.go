@@ -26,6 +26,14 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
+var stateMigrationRuntimeBundleBuilder = runtimebundle.BuildWithUnifiedExecutable
+
+func SetRuntimeBundleBuilderForTest(builder func(string, string, string) (runtimebundle.Plan, error)) func() {
+	previous := stateMigrationRuntimeBundleBuilder
+	stateMigrationRuntimeBundleBuilder = builder
+	return func() { stateMigrationRuntimeBundleBuilder = previous }
+}
+
 const (
 	maxLegacyFiles = 4096
 	maxLegacyBytes = int64(128 << 20)
@@ -256,7 +264,11 @@ func build(repoRoot, caseRoot, pack string) (Plan, error) {
 	if projectName == "" {
 		projectName = casebind.ProjectNameFromRoot(caseRoot)
 	}
-	bundle, err := runtimebundle.Build(repoRoot, targetPack)
+	executable, err := runtimebundle.SourceExecutable()
+	if err != nil {
+		return Plan{}, err
+	}
+	bundle, err := stateMigrationRuntimeBundleBuilder(repoRoot, targetPack, executable)
 	if err != nil {
 		return Plan{}, err
 	}

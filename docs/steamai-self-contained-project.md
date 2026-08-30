@@ -32,7 +32,7 @@ claude
 - [x] 新项目默认选择 `.steamai`；legacy-only 项目继续单写 `.rekit`；双根 fail-closed。
 - [x] `status -Format compact-json` 提供 4 KiB 硬预算的只读投影，保留完整 typed request/choices；无法完整安全输出时返回小型 blocked envelope。
 - [x] project-local executable 提供 no-mode `help` / `status` / `continue` 用户入口；默认 summary 与 opt-in `--diagnostics` 分层，维护 flags 不进入普通用户 parser。
-- [x] 显式未接入目录的 status 只读投影 schema-valid、非 template pack choices；pending onboarding publication 只发布一个绑定 durable identity/stamp/plan 的 exact recovery action，不重新开放 pack 选择。
+- [x] 显式未接入目录的 status 只读投影 schema-valid、非 template pack choices；普通 initializer 只允许选择 mature `binary-re` / `web-security`，skeleton packs 仅保留 inventory 可见；pending onboarding publication 只发布一个绑定 durable identity/stamp/plan 的 exact recovery action，不重新开放 pack 选择。
 - [x] daily action 提供“现在、原因、下一步”和 typed recovery 分类；不从 provider detail 编造用户建议。
 - [x] `bounded-autonomous-v1` 提供显式 opt-in 的单 lane、exact action/target、有限预算、短时有效自治档位；每次仍重验和留证。
 - [x] ordinary init 发布可验证、可重定位的项目内 runtime bundle、selected pack、common 与必要 assets。
@@ -64,6 +64,7 @@ claude
 |---|---|
 | “现在到哪了”“下一步是什么” | 项目内 runtime 的 compact status；零写入、零 Claude launch |
 | “开始/继续推进” | fresh typed daily owner；resume/goal/correction/control/adoption 只由一个 operation owner 选路，`-Lane` 只是 selector；多 lane 先显示 typed choices |
+| mission 完成后“开始另一个新目标” | successor preview→确认→exact Apply；独立generation、保留旧任务audit tree、返回`ready-to-continue`，不自动启动Claude；fresh status再发布initial `start` preview |
 | “按这条意见纠偏” | fresh rejection/reopen route；不自建第二状态机 |
 | “暂停/恢复/停止某条 lane” | fresh exact lane的`control` WhatIf→确认→exact Apply；多lane先选择 |
 | “换新会话接手” | fresh status + scope-bound handoff preview/Apply |
@@ -71,6 +72,8 @@ claude
 | heavy action | strict profile + fresh `authorized-gate`；超范围立即停止 |
 
 普通 continue 的 public executable contract 固定为三阶段：fresh status 发布 typed `-WhatIf -Format json`；preview 结果以 `continuePlanSha256` 绑定完整 mutation snapshot，并发布保持同 selector、owner、generation 和其它 typed 参数、携带 `-ExpectedContinuePlanSha256` 的 exact `-Apply`；Apply 结果或后续 fresh status 重新发布 preview。blocked preview 不发布 Apply。主 Agent不得从 command prose 手工拼 phase，不得让 command 与 invocation 分别改写，也不得复用刚执行的 Apply request。
+
+completed mission 的不同新目标不复用 continue/reopen owner。successor preview绑定predecessor mission intent、完整closure与completion receipt，并给每个最终写入提供准确SHA/size；exact Apply按intent→generation artifacts→generation commit→transition commit→active pointer last顺序发布。中断留下的exact durable prefix可由同一request恢复，任何不同字节、stale closure、legacy/dual root或损坏的active binding都fail-closed。激活后mission-scoped board/policy/lanes/facts/runs/reviews/handovers等只指向active generation，project identity/runtime/packs/onboarding/transitions仍留项目根。
 
 默认用户输出只包含：
 

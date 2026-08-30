@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -88,6 +89,99 @@ func TestAnchoredRootWriteSupportsEmptyFileReplay(t *testing.T) {
 	data, info, err := root.ReadStableFile("stage/empty.bin", 0)
 	if err != nil || len(data) != 0 || info.Size() != 0 {
 		t.Fatalf("empty stable read data=%v info=%v err=%v", data, info, err)
+	}
+}
+
+func TestAnchoredRootReplaceFileExactPublishesOnlyReviewedPredecessor(t *testing.T) {
+	if !HandleBoundExactMutationSupported() {
+		t.Skip("handle-bound exact replacement is platform-specific")
+	}
+	rootPath := t.TempDir()
+	root, err := OpenAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	previous := []byte("previous\n")
+	planned := []byte("planned\n")
+	if _, err := root.WriteExclusiveFileWriteThrough("active.json", previous, 0o600, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.WriteExclusiveFileWriteThrough(".active.tmp", planned, 0o600, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.ReplaceFileExact(".active.tmp", "active.json", planned, 0o600, previous, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, _, err := root.ReadStableFile("active.json", 1<<10)
+	if err != nil || !bytes.Equal(data, planned) {
+		t.Fatalf("replacement data=%q err=%v", data, err)
+	}
+}
+
+func TestAnchoredRootReplaceFileExactRecoversAfterPredecessorRename(t *testing.T) {
+	if !HandleBoundExactMutationSupported() {
+		t.Skip("handle-bound exact replacement is platform-specific")
+	}
+	rootPath := t.TempDir()
+	root, err := OpenAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	previous := []byte("previous\n")
+	planned := []byte("planned\n")
+	if _, err := root.WriteExclusiveFileWriteThrough("active.json", previous, 0o600, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.WriteExclusiveFileWriteThrough(".active.tmp", planned, 0o600, false); err != nil {
+		t.Fatal(err)
+	}
+	stopErr := errors.New("stop after predecessor rename")
+	restore := SetAnchoredRootAfterPredecessorRenameHookForTest(func() error { return stopErr })
+	err = root.ReplaceFileExact(".active.tmp", "active.json", planned, 0o600, previous, 0o600)
+	restore()
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("replacement cut err=%v", err)
+	}
+	if err := root.ReplaceFileExact(".active.tmp", "active.json", planned, 0o600, previous, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, _, err := root.ReadStableFile("active.json", 1<<10)
+	if err != nil || !bytes.Equal(data, planned) {
+		t.Fatalf("recovered replacement data=%q err=%v", data, err)
+	}
+}
+
+func TestAnchoredRootReplaceFileExactRejectsPredecessorRebind(t *testing.T) {
+	if !HandleBoundExactMutationSupported() {
+		t.Skip("handle-bound exact replacement is platform-specific")
+	}
+	rootPath := t.TempDir()
+	root, err := OpenAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	previous := []byte("previous\n")
+	planned := []byte("planned\n")
+	if _, err := root.WriteExclusiveFileWriteThrough("active.json", previous, 0o600, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.WriteExclusiveFileWriteThrough(".active.tmp", planned, 0o600, false); err != nil {
+		t.Fatal(err)
+	}
+	restore := setAnchoredRootBeforeReplaceHookForTest(func() error {
+		return os.WriteFile(filepath.Join(rootPath, "active.json"), []byte("changed\n"), 0o600)
+	})
+	err = root.ReplaceFileExact(".active.tmp", "active.json", planned, 0o600, previous, 0o600)
+	restore()
+	if err == nil {
+		t.Fatal("replacement accepted a changed predecessor")
+	}
+	data, readErr := os.ReadFile(filepath.Join(rootPath, "active.json"))
+	if readErr != nil || string(data) != "changed\n" {
+		t.Fatalf("replacement overwrote changed predecessor: data=%q err=%v", data, readErr)
 	}
 }
 

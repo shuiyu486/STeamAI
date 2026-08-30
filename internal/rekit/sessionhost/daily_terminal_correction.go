@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -199,9 +200,9 @@ func applyDailyTerminalCorrectionIntent(caseRoot, pack, correction, actor, selec
 	if len(intent.PreviewSHA256) != 64 || intent.PreviewSHA256 != intent.ExactPublicationSHA256 || strings.TrimSpace(intent.RequestedSelector) == "" {
 		return true, result, fmt.Errorf("pending daily terminal correction omitted its exact reviewed identity")
 	}
-	applyCommand := dailyPendingReopenApplyCommand(intent)
+	applyArgs := dailyPendingReopenApplyArgs(caseRoot, pack, intent)
 	var applied workstream.ReopenResult
-	if err := runPublicApplyCommand(applyCommand, "reopen", caseRoot, pack, &applied); err != nil {
+	if err := runPublicExactApply(applyArgs, commands.Reopen, intent.PreviewSHA256, &applied); err != nil {
 		result = recordDailyReopenMutation(result, err)
 		return true, result, fmt.Errorf("recover pending daily terminal correction Apply: %w", err)
 	}
@@ -236,9 +237,12 @@ func recordDailyReopenMutation(result DailyResult, err error) DailyResult {
 	return result
 }
 
-func dailyPendingReopenApplyCommand(intent lanecompletion.OperationIntent) string {
-	parts := []string{
-		"/rekit", "reopen", intent.RequestedSelector,
+func dailyPendingReopenApplyArgs(caseRoot, pack string, intent lanecompletion.OperationIntent) []string {
+	return []string{
+		"-Command", commands.Reopen,
+		"-Target", caseRoot,
+		"-Pack", pack,
+		intent.RequestedSelector,
 		"-Actor", intent.Actor,
 		"-Reason", intent.Reason,
 		"-EvidenceRefs", strings.Join(intent.EvidenceRefs, ","),
@@ -246,14 +250,6 @@ func dailyPendingReopenApplyCommand(intent lanecompletion.OperationIntent) strin
 		"-ExpectedReopenPlanSha256", intent.PreviewSHA256,
 		"-Apply", "-Format", "json",
 	}
-	for index := range parts {
-		parts[index] = quotePublicCommandArg(parts[index])
-	}
-	return strings.Join(parts, " ")
-}
-
-func quotePublicCommandArg(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func runDailyTerminalCorrection(hostOpt Options, correction string, result DailyResult) (DailyResult, error) {
@@ -283,7 +279,7 @@ func runDailyTerminalCorrection(hostOpt Options, correction string, result Daily
 	if err := runPublicCLI(previewArgs, &preview); err != nil {
 		return result, fmt.Errorf("daily terminal correction reopen preview: %w", err)
 	}
-	if preview.IsMutation || preview.Applied || !preview.RequiresConfirmation || preview.RequestedLane != lane || len(strings.TrimSpace(preview.ReopenPlanSHA256)) != 64 || strings.TrimSpace(preview.PublicationStamp) == "" || strings.TrimSpace(preview.ApplyCommand) == "" || len(preview.EffectiveTargets) == 0 {
+	if preview.IsMutation || preview.Applied || !preview.RequiresConfirmation || preview.RequestedLane != lane || len(strings.TrimSpace(preview.ReopenPlanSHA256)) != 64 || strings.TrimSpace(preview.PublicationStamp) == "" || strings.TrimSpace(preview.ApplyCommand) == "" || len(preview.ApplyArgs) == 0 || len(preview.EffectiveTargets) == 0 {
 		return result, fmt.Errorf("daily terminal correction reopen preview omitted the zero-write exact Apply request")
 	}
 	if dailyTerminalCorrectionAfterPreviewHook != nil {
@@ -292,7 +288,7 @@ func runDailyTerminalCorrection(hostOpt Options, correction string, result Daily
 		}
 	}
 	var applied workstream.ReopenResult
-	if err := runPublicApplyCommand(preview.ApplyCommand, "reopen", result.CaseRoot, result.Pack, &applied); err != nil {
+	if err := runPublicExactApply(preview.ApplyArgs, commands.Reopen, preview.ReopenPlanSHA256, &applied); err != nil {
 		result = recordDailyReopenMutation(result, err)
 		return result, fmt.Errorf("daily terminal correction reopen Apply: %w", err)
 	}

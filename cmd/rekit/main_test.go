@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -23,7 +25,17 @@ func TestMain(m *testing.M) {
 	if os.Getenv(rekitExecutableHelperEnv) == "1" {
 		os.Exit(run(os.Args[1:]))
 	}
-	os.Exit(m.Run())
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	restoreExecutableSource := runtimebundle.SetExecutableSourceForTest(executable)
+	restoreRuntimeBuilders := syncreview.SetRuntimeBundleBuildersForTest(runtimebundle.BuildWithExecutable)
+	code := m.Run()
+	restoreRuntimeBuilders()
+	restoreExecutableSource()
+	os.Exit(code)
 }
 
 func requireCurrentSyncApplyForProcessTest(t *testing.T) {
@@ -359,7 +371,7 @@ func TestProjectLocalExecutableRecoveryCompactStatusFallsBackWhenTargetExceedsBu
 		!envelope.Blocked || !envelope.DetailsRequired ||
 		envelope.CommandExecutable ||
 		envelope.Reason != "compact-output-budget-exceeded" ||
-		envelope.FullDiagnostics.Command != "/steamai status -Format json" ||
+		envelope.FullDiagnostics.Command != "/steamai status --diagnostics" ||
 		envelope.FullDiagnostics.Format != "json" ||
 		!envelope.FullDiagnostics.OnDemand ||
 		!envelope.FullDiagnostics.ReuseOriginalSelectors ||
@@ -482,6 +494,112 @@ func initProjectLocalProcessFixture(t *testing.T, projectName string) (string, s
 		"bin",
 		runtimebundle.ExecutableName(),
 	)
+}
+
+func TestUnifiedRuntimeInitPublishesRunnableProjectExecutable(t *testing.T) {
+	repoRoot := rekitTestRepoRoot(t)
+	name := "steamai-runtime-init-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	unifiedExecutable := filepath.Join(t.TempDir(), name)
+	build := exec.Command("go", "build", "-o", unifiedExecutable, "./cmd/rekit")
+	build.Dir = repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build unified runtime init fixture: %v\n%s", err, output)
+	}
+
+	caseRoot := filepath.Join(t.TempDir(), "project")
+	previewOut, previewErrOut, previewErr := runRekitExecutable(
+		t,
+		unifiedExecutable,
+		"runtime",
+		"-Command", "init",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-ProjectName", "runtime-init",
+		"-WhatIf",
+		"-Format", "json",
+	)
+	if previewErr != nil || previewErrOut != "" {
+		t.Fatalf("runtime init preview err=%v stderr=%q stdout=%s", previewErr, previewErrOut, previewOut)
+	}
+	var preview struct {
+		ExpectedPlanSHA256 string   `json:"expectedPlanSha256"`
+		ApplyArgs          []string `json:"applyArgs"`
+	}
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil || len(preview.ExpectedPlanSHA256) != 64 || len(preview.ApplyArgs) == 0 {
+		t.Fatalf("runtime init preview omitted exact Apply: err=%v preview=%+v stdout=%s", err, preview, previewOut)
+	}
+	applyOut, applyErrOut, applyErr := runRekitExecutable(t, unifiedExecutable, append([]string{"runtime"}, preview.ApplyArgs...)...)
+	if applyErr != nil || applyErrOut != "" || !strings.Contains(applyOut, `"applied": true`) {
+		t.Fatalf("runtime init Apply err=%v stderr=%q stdout=%s", applyErr, applyErrOut, applyOut)
+	}
+
+	projectExecutable := filepath.Join(caseRoot, ".steamai", "runtime", "bin", runtimebundle.ExecutableName())
+	if err := runtimebundle.ValidateUnifiedExecutableRole(projectExecutable); err != nil {
+		t.Fatalf("runtime init published executable role: %v", err)
+	}
+	centralBytes, err := os.ReadFile(unifiedExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectBytes, err := os.ReadFile(projectExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(projectBytes, centralBytes) {
+		t.Fatal("runtime init did not publish the invoking unified executable bytes")
+	}
+}
+
+func TestUnifiedHostFreshGoalPublishesRunnableProjectExecutable(t *testing.T) {
+	repoRoot := rekitTestRepoRoot(t)
+	name := "steamai-fresh-goal-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	unifiedExecutable := filepath.Join(t.TempDir(), name)
+	build := exec.Command("go", "build", "-o", unifiedExecutable, "./cmd/rekit")
+	build.Dir = repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build unified fresh-goal fixture: %v\n%s", err, output)
+	}
+
+	caseRoot := filepath.Join(t.TempDir(), "project")
+	stdout, stderr, runErr := runRekitExecutable(
+		t,
+		unifiedExecutable,
+		"host",
+		"-daily",
+		"-target", caseRoot,
+		"-goal", "inspect this fresh project",
+		"-lane", "missing-lane",
+	)
+	if runErr == nil || !strings.Contains(stderr, "board.json") ||
+		!strings.Contains(stdout, `"onboardingApplied": true`) ||
+		!strings.Contains(stdout, `"sessionLaunches": 0`) {
+		t.Fatalf("fresh-goal host did not initialize and stop before Claude: err=%v stderr=%q stdout=%s", runErr, stderr, stdout)
+	}
+
+	projectExecutable := filepath.Join(
+		caseRoot,
+		".steamai",
+		"runtime",
+		"bin",
+		runtimebundle.ExecutableName(),
+	)
+	if err := runtimebundle.ValidateUnifiedExecutableRole(projectExecutable); err != nil {
+		t.Fatalf("published project executable role: %v\nhost stdout=%s\nhost stderr=%s", err, stdout, stderr)
+	}
+	helpOut, helpErrOut, helpErr := runRekitExecutable(t, projectExecutable, "help")
+	if helpErr != nil || helpErrOut != "" || !strings.Contains(helpOut, "STeamAI public commands:") {
+		t.Fatalf("published project help err=%v stderr=%q stdout=%s", helpErr, helpErrOut, helpOut)
+	}
+	statusOut, statusErrOut, statusErr := runRekitExecutable(t, projectExecutable, "status")
+	if statusErr != nil || statusErrOut != "" || !strings.Contains(statusOut, "现在：") || !strings.Contains(statusOut, "下一步：") {
+		t.Fatalf("published project status err=%v stderr=%q stdout=%s", statusErr, statusErrOut, statusOut)
+	}
 }
 
 func TestProjectLocalExecutablePublicHelpStatusAndDiagnostics(t *testing.T) {

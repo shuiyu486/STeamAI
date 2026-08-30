@@ -2,13 +2,88 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/hostcmd"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 )
+
+func TestStandaloneHostRefusesProjectInitializationWithoutWrites(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve rekit-host test source")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "rekit-host-role-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	hostPath := filepath.Join(t.TempDir(), name)
+	build := exec.Command("go", "build", "-o", hostPath, "./cmd/rekit-host")
+	build.Dir = repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build standalone host: %v\n%s", err, output)
+	}
+
+	for _, test := range []struct {
+		name     string
+		existing bool
+		args     func(string) []string
+	}{
+		{
+			name:     "ordinary directory adoption",
+			existing: true,
+			args: func(caseRoot string) []string {
+				return []string{
+					"-daily", "-target", caseRoot,
+					"-directory-adoption-action", "initialize-in-place",
+				}
+			},
+		},
+		{
+			name: "fresh goal onboarding",
+			args: func(caseRoot string) []string {
+				return []string{
+					"-daily", "-target", caseRoot,
+					"-goal", "inspect this fresh project",
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parent := t.TempDir()
+			caseRoot := filepath.Join(parent, "project")
+			if test.existing {
+				if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			command := exec.Command(hostPath, test.args(caseRoot)...)
+			output, err := command.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), "verified unified runtime executable source") {
+				t.Fatalf("standalone host initialization err=%v output=%q", err, output)
+			}
+			if test.existing {
+				entries, err := os.ReadDir(caseRoot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(entries) != 0 {
+					t.Fatalf("standalone host initialization wrote project state: %+v", entries)
+				}
+			} else if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
+				t.Fatalf("standalone host initialization wrote project state: %v", err)
+			}
+		})
+	}
+}
 
 func TestPublishLiveAcceptanceReceiptFailureClearsPassed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")

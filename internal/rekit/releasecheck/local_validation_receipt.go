@@ -514,7 +514,7 @@ func localValidationExpectedProfile(repo, name string) (GateProfile, error) {
 	if err != nil {
 		return GateProfile{}, err
 	}
-	profile := gateProfile(catalogGateSteps(repo, cat.RecommendedMinimum))
+	profile := gateProfile(requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum))
 	if profile.Name != strings.TrimSpace(name) || !profile.Ready {
 		return GateProfile{}, fmt.Errorf("unexpected local validation gate profile")
 	}

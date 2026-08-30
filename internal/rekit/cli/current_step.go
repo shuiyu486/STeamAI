@@ -182,7 +182,11 @@ func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) (retErr err
 		if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" {
 			return fmt.Errorf("run-current-step -WhatIf does not accept -ExpectedCurrentStepPlanSha256")
 		}
-		return writeJSON(out, plan)
+		diagnostics, err := buildCurrentStepDiagnosticsDTO(plan, ctx.Target)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, diagnostics)
 	}
 	if plan.MemberExecution != nil {
 		expectedMember := strings.TrimSpace(opt.ExpectedMemberExecutionPlanSHA256)
@@ -206,13 +210,21 @@ func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) (retErr err
 	plan, err = applyCurrentStepPlan(ctx, opt, plan)
 	if err != nil {
 		if plan.Applied {
-			if writeErr := writeJSON(out, plan); writeErr != nil {
+			diagnostics, diagnosticsErr := buildCurrentStepDiagnosticsDTO(plan, ctx.Target)
+			if diagnosticsErr != nil {
+				return errors.Join(err, diagnosticsErr)
+			}
+			if writeErr := writeJSON(out, diagnostics); writeErr != nil {
 				return errors.Join(err, writeErr)
 			}
 		}
 		return err
 	}
-	return writeJSON(out, plan)
+	diagnostics, err := buildCurrentStepDiagnosticsDTO(plan, ctx.Target)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, diagnostics)
 }
 
 func acquireReplacementResultPublicationLease(
@@ -880,8 +892,7 @@ func currentStepReviewerRequestsMatch(caseRoot string, routed, nested mission.Mi
 		return false
 	}
 	selectedLane, lanePresent, laneValid :=
-		statusMissionControlInvocationFlagValue(
-			refreshInvocation,
+		refreshInvocation.FlagValue(
 			"-Lane",
 			"--lane",
 		)

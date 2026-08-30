@@ -42,6 +42,7 @@ type ApplyOptions struct {
 	CreateLocalFiles    bool
 	Command             string
 	ExpectedPlanSHA256  string
+	SourceExecutable    string
 }
 
 type WriteResult struct {
@@ -94,6 +95,7 @@ type InitPlan struct {
 	initManifestSHA256   string
 	initGitignorePresent bool
 	bundleManifestSHA256 string
+	sourceExecutable     string
 }
 
 func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
@@ -222,6 +224,8 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 	return review.Plan{SchemaVersion: 1, Command: "sync", Direction: "kit-to-case", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ManifestPath: m.ManifestPath, ManifestVersion: m.Version, Items: items}, nil
 }
 
+var initRuntimeBundleBuilder = runtimebundle.BuildWithUnifiedExecutable
+
 func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, error) {
 	caseFull, err := filepath.Abs(caseRoot)
 	if err != nil {
@@ -286,7 +290,14 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	var bundlePlan runtimebundle.Plan
 	var projectSkillContent []byte
 	if !stateRoot.Legacy && initPublishesCanonicalText(targetClass) {
-		bundlePlan, err = runtimebundle.Build(repoFull, pack)
+		sourceExecutable := strings.TrimSpace(opt.SourceExecutable)
+		if sourceExecutable == "" {
+			sourceExecutable, err = runtimebundle.SourceExecutable()
+			if err != nil {
+				return InitPlan{}, err
+			}
+		}
+		bundlePlan, err = initRuntimeBundleBuilder(repoFull, pack, sourceExecutable)
 		if err != nil {
 			return InitPlan{}, err
 		}
@@ -410,7 +421,7 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	if stateRoot.Legacy {
 		entrypoint = "/rekit"
 	}
-	return finalizeInitPlan(InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, TargetClass: targetClass, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply and the exact plan hash to initialize the case", "use " + entrypoint + " as the Mission Commander entrypoint; this remains a review-first Go runtime path"}, initManifestSHA256: sha256Bytes(sourceartifact.SemanticText(manifestBytes)), initGitignorePresent: gitignorePresent, bundleManifestSHA256: bundleManifestSHA256})
+	return finalizeInitPlan(InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, TargetClass: targetClass, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply and the exact plan hash to initialize the case", "use " + entrypoint + " as the Mission Commander entrypoint; this remains a review-first Go runtime path"}, initManifestSHA256: sha256Bytes(sourceartifact.SemanticText(manifestBytes)), initGitignorePresent: gitignorePresent, bundleManifestSHA256: bundleManifestSHA256, sourceExecutable: strings.TrimSpace(opt.SourceExecutable)})
 }
 
 func initPublishesCanonicalText(targetClass string) bool {

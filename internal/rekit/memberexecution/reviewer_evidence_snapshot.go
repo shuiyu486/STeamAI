@@ -34,11 +34,15 @@ func SnapshotReviewerEvidenceClosure(caseRoot, pack, item string) (ReviewerEvide
 	if rawItem != item {
 		return ReviewerEvidenceClosure{}, fmt.Errorf("Remote Control reviewer item must use its exact canonical path")
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return ReviewerEvidenceClosure{}, err
 	}
-	prefix := filepath.ToSlash(filepath.Join(stateRoot.Dir, "lanes")) + "/"
+	prefix, err := view.Rel("lanes")
+	if err != nil {
+		return ReviewerEvidenceClosure{}, err
+	}
+	prefix = filepath.ToSlash(prefix) + "/"
 	const marker = "/member-executions/"
 	const suffix = "/evidence/manifest.json"
 	if item == "." || filepath.IsAbs(filepath.FromSlash(item)) || !strings.HasPrefix(item, prefix) || !strings.HasSuffix(item, suffix) {

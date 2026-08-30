@@ -968,8 +968,10 @@ func newMigrationFixtureForPack(t *testing.T, pack string) migrationFixture {
 		executable += ".exe"
 	}
 	writeFixtureFile(t, executable, []byte("test runtime executable"))
-	restore := runtimebundle.SetExecutableSourceForTest(executable)
-	t.Cleanup(restore)
+	restoreSource := runtimebundle.SetExecutableSourceForTest(executable)
+	restoreBuilder := SetRuntimeBundleBuilderForTest(runtimebundle.BuildWithExecutable)
+	t.Cleanup(restoreBuilder)
+	t.Cleanup(restoreSource)
 
 	instanceData := []byte(casebind.InstanceText(caseRoot, repoRoot, pack, "legacy-project"))
 	stateData, err := json.MarshalIndent(map[string]any{

@@ -333,12 +333,12 @@ func Inspect(caseRoot, lane string) (Inspection, error) {
 	if _, _, err := laneowner.Path(caseRoot, lane); err != nil {
 		return Inspection{}, err
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return Inspection{}, err
 	}
 	out := Inspection{Lane: lane, State: StateRunning}
-	root, err := rekitfs.OpenAnchoredRoot(stateRoot.Path)
+	root, err := rekitfs.OpenAnchoredRoot(view.Path)
 	if err != nil {
 		return Inspection{}, err
 	}
@@ -707,18 +707,18 @@ func artifactPaths(caseRoot, lane string, generation int) (string, string, error
 }
 
 func publish(caseRoot, rel, label string, data []byte) error {
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return err
 	}
-	root, err := rekitfs.OpenAnchoredRoot(stateRoot.Path)
+	root, err := rekitfs.OpenAnchoredRoot(view.Path)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
-	stateRel, err := filepath.Rel(stateRoot.Path, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+	stateRel, err := filepath.Rel(view.Path, filepath.Join(caseRoot, filepath.FromSlash(rel)))
 	if err != nil || filepath.IsAbs(stateRel) || stateRel == "." || stateRel == ".." || strings.HasPrefix(stateRel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("%s path is outside selected state root: %s", label, rel)
+		return fmt.Errorf("%s path is outside selected mission root: %s", label, rel)
 	}
 	if err := root.MkdirAllNoFollow(filepath.Dir(stateRel), 0o700); err != nil {
 		return err

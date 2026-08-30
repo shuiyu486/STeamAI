@@ -55,6 +55,17 @@ func projectExecutionHandoffRequired(
 }
 
 func acquireSharedForCurrentProject(value string) (*projectexecution.Lease, error) {
+	return acquireForCurrentProject(value, projectexecution.AcquireShared)
+}
+
+func acquireExclusiveForCurrentProject(value string) (*projectexecution.Lease, error) {
+	return acquireForCurrentProject(value, projectexecution.AcquireExclusive)
+}
+
+func acquireForCurrentProject(
+	value string,
+	acquire func(string) (*projectexecution.Lease, error),
+) (*projectexecution.Lease, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
@@ -75,5 +86,5 @@ func acquireSharedForCurrentProject(value string) (*projectexecution.Lease, erro
 	if !stateRoot.Existing || stateRoot.Legacy || stateRoot.Dir != projectstate.CurrentDir {
 		return nil, nil
 	}
-	return projectexecution.AcquireShared(caseRoot)
+	return acquire(caseRoot)
 }

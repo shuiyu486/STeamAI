@@ -47,17 +47,17 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "CLAUDE.md", "`/steamai` canonical skill")
 	assertPhrase(t, readiness, "CLAUDE.md", "legacy `/rekit` compatibility skill")
 	assertPhrase(t, readiness, "CLAUDE.md", "case public JSON 的 project-local typed command 由 resolved state root 统一投影")
-	assertPhrase(t, readiness, "CLAUDE.md", "当前已批准路线是 `steamai-product-optimization-v1`")
+	assertPhrase(t, readiness, "CLAUDE.md", "当前已批准路线是 `steamai-architecture-product-convergence-v1`")
 	assertPhrase(t, readiness, "CLAUDE.md", "不做 installer")
 	assertPhrase(t, readiness, "CLAUDE.md", "exact lane `control` 使用独立 append-only generation")
 	assertPhrase(t, readiness, "docs/context-routing.md", "STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移")
 	assertPhrase(t, readiness, "docs/context-routing.md", "durable pause/resume/stop 与 late-result isolation")
 	assertPhrase(t, readiness, "docs/context-routing.md", "GitHub repository identity / clone / rename / Go module compatibility")
-	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "当前路线是 `steamai-product-optimization-v1`")
+	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "当前路线是 `steamai-architecture-product-convergence-v1`")
 	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "source-clone-first")
 	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "不实现 installer")
 	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "拒绝 PATH/外部 kit fallback")
-	assertPhrase(t, readiness, "docs/batch-plan.md", "当前路线是 `steamai-product-optimization-v1`")
+	assertPhrase(t, readiness, "docs/batch-plan.md", "当前路线是 `steamai-architecture-product-convergence-v1`")
 	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "新项目的用户入口是 `/steamai`")
 	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "唯一 current 状态根是 `.steamai`")
 	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "一个真实项目目录 = 一个自包含 STeamAI 项目")
@@ -389,7 +389,7 @@ Canonical repository: https://github.com/shuiyu486/STeamAI；module compatibilit
 新项目不得回退机器 PATH 或外部 kit。
 case public JSON 的 project-local typed command 由 resolved state root 统一投影。
 exact lane ` + "`control`" + ` 使用独立 append-only generation。
-当前已批准路线是 ` + "`steamai-product-optimization-v1`" + `；不做 installer。
+当前已批准路线是 ` + "`steamai-architecture-product-convergence-v1`" + `；不做 installer。
 `
 
 const readyContextRouting = `# context routing
@@ -405,14 +405,14 @@ const readyRealUsageHardeningRoadmap = `# roadmap
 
 本文件是 active source。
 Canonical repository: https://github.com/shuiyu486/STeamAI；module compatibility: github.com/shuiyu486/re-context-kits。
-当前路线是 ` + "`steamai-product-optimization-v1`" + `，保持 source-clone-first，不实现 installer。
+当前路线是 ` + "`steamai-architecture-product-convergence-v1`" + `，保持 source-clone-first，不实现 installer。
 拒绝 PATH/外部 kit fallback。
 默认 quickstart 只保留 ` + "`cd <project> → claude → /steamai`" + `。
 `
 
 const readyBatchPlan = `# batch plan
 
-当前路线是 ` + "`steamai-product-optimization-v1`" + `。
+当前路线是 ` + "`steamai-architecture-product-convergence-v1`" + `。
 唯一允许领取：完成 current closure。
 `
 

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -87,9 +88,7 @@ func TestSelfContainedCopiedProjectRunsWithoutCentralKit(t *testing.T) {
 	if err := os.RemoveAll(sourceProject); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(centralDir); err != nil {
-		t.Fatal(err)
-	}
+	removeSelfContainedTree(t, centralDir)
 	for _, removed := range []string{sourceProject, centralExecutable} {
 		if _, err := os.Lstat(removed); !os.IsNotExist(err) {
 			t.Fatalf("removed central dependency remains: %s: %v", removed, err)
@@ -120,7 +119,7 @@ func TestSelfContainedCopiedProjectRunsWithoutCentralKit(t *testing.T) {
 		} `json:"caseShim"`
 	}
 	selfContainedDecode(t, statusData, &status)
-	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.TargetProvided ||
+	if status.Command != "status" || status.Mode != "case-onboarding-required" || status.Pack != "_template" || status.TargetProvided ||
 		!sameSelfContainedPath(status.Target, copiedProject) ||
 		!sameSelfContainedPath(status.TemplateRoot, filepath.Join(copiedProject, ".steamai")) ||
 		!sameSelfContainedPath(status.RuntimeRoot, filepath.Join(copiedProject, ".steamai", "runtime")) ||
@@ -490,6 +489,19 @@ func selfContainedRepoRoot(t *testing.T) string {
 		t.Fatalf("resolve repository root: %v", err)
 	}
 	return root
+}
+
+func removeSelfContainedTree(t *testing.T, path string) {
+	t.Helper()
+	var err error
+	for range 20 {
+		err = os.RemoveAll(path)
+		if err == nil {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("remove self-contained dependency %s after executable release: %v", path, err)
 }
 
 func selfContainedRun(t *testing.T, dir, executable string, args ...string) []byte {

@@ -241,6 +241,25 @@ func runPackSmoke(t *testing.T, fixture packSmokeFixture) {
 		}
 	}
 
+	onboardArgs := []string{
+		"-Command", "onboard", "-Target", caseRoot, "-Pack", fixture.pack,
+		"-ProjectName", fixture.pack + "-go-smoke", "-Goal", "validate pack smoke lifecycle",
+		"-Actor", "mission-commander", "-Executor", "pack-smoke-executor",
+		"-InitialLane", fixture.expectedLane, "-WhatIf", "-Format", "json",
+	}
+	out.Reset()
+	if err := Run(onboardArgs, &out); err != nil {
+		t.Fatalf("onboard preview failed: %v", err)
+	}
+	var onboard onboardCLIPlan
+	if err := json.Unmarshal(out.Bytes(), &onboard); err != nil {
+		t.Fatalf("decode onboard preview: %v", err)
+	}
+	out.Reset()
+	if err := Run(onboard.ApplyArgs, &out); err != nil {
+		t.Fatalf("onboard Apply failed: %v", err)
+	}
+
 	out.Reset()
 	if err := Run([]string{
 		"-Command", "start",

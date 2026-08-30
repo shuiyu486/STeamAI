@@ -41,6 +41,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/productioncontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
@@ -84,6 +85,7 @@ type Options struct {
 	sourceRepoRootProvided                    bool
 	sourceExecutableProvided                  bool
 	expectedCurrentSyncPlanSHA256Provided     bool
+	initializationSourceExecutable            string
 	WhatIf                                    bool
 	Force                                     bool
 	List                                      bool
@@ -1846,17 +1848,55 @@ func validateCommandOptionOwnership(opt Options) error {
 }
 
 func Run(args []string, stdout io.Writer) error {
-	return runWithOptions(args, stdout, nil, nil, nil, "")
+	return runWithOptions(args, stdout, nil, nil, nil, "", "")
+}
+
+// RunStatusWithProjectExecutionLease renders a status command under a shared
+// lease already held by the current project session host. Other commands must
+// continue through Run so mutation ownership remains unchanged.
+func RunStatusWithProjectExecutionLease(args []string, stdout io.Writer, lease *projectexecution.Lease) error {
+	opt, err := Parse(args)
+	if err != nil {
+		return err
+	}
+	if opt.Command != commands.Status || lease == nil {
+		return fmt.Errorf("held project execution lease is supported only by status")
+	}
+	runtimePack := opt.Pack
+	if !opt.PackProvided {
+		runtimePack = ""
+	}
+	ctx, err := runtime.NewWithCwd(opt.Target, runtimePack, runtimeCwdOverride(opt))
+	if err != nil {
+		return err
+	}
+	if !opt.PackProvided && instance.LooksLikeCase(ctx.Target) {
+		inst, err := instance.Read(ctx.Target)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(inst.TemplatePack) != "" {
+			ctx.Pack = inst.TemplatePack
+			opt.Pack = inst.TemplatePack
+		}
+	}
+	return runStatusWithLease(ctx, opt, stdout, lease)
+}
+
+// RunWithUnifiedExecutable injects the already process-validated unified
+// runtime source for internal project initialization paths.
+func RunWithUnifiedExecutable(args []string, stdout io.Writer, executable string) error {
+	return runWithOptions(args, stdout, nil, nil, nil, "", executable)
 }
 
 // RunProjectLocal dispatches an ordinary project-local process against its
 // executable owner while preserving an omitted public target.
 func RunProjectLocal(args []string, stdout io.Writer, projectRoot string) error {
-	return runWithOptions(args, stdout, nil, nil, nil, projectRoot)
+	return runWithOptions(args, stdout, nil, nil, nil, projectRoot, "")
 }
 
 func RunWithReviewerResultSnapshot(args []string, stdout io.Writer, snapshot *subagents.ReviewerResultInputSnapshot) error {
-	return runWithOptions(args, stdout, snapshot, nil, nil, "")
+	return runWithOptions(args, stdout, snapshot, nil, nil, "", "")
 }
 
 func RunWithReviewerResultPublication(
@@ -1865,7 +1905,7 @@ func RunWithReviewerResultPublication(
 	snapshot *subagents.ReviewerResultInputSnapshot,
 	publication *executioncontrol.ResultPublicationOptions,
 ) error {
-	return runWithOptions(args, stdout, snapshot, publication, nil, "")
+	return runWithOptions(args, stdout, snapshot, publication, nil, "", "")
 }
 
 func RunWithReplacementResultPublication(
@@ -1873,7 +1913,7 @@ func RunWithReplacementResultPublication(
 	stdout io.Writer,
 	publication *executioncontrol.ResultPublicationOptions,
 ) error {
-	return runWithOptions(args, stdout, nil, nil, publication, "")
+	return runWithOptions(args, stdout, nil, nil, publication, "", "")
 }
 
 func runWithOptions(
@@ -1882,12 +1922,17 @@ func runWithOptions(
 	snapshot *subagents.ReviewerResultInputSnapshot,
 	reviewerPublication,
 	replacementPublication *executioncontrol.ResultPublicationOptions,
-	projectRoot string,
+	projectRoot,
+	initializationSourceExecutable string,
 ) error {
 	opt, err := Parse(args)
 	if err != nil {
 		return err
 	}
+	if err := validateScopedCommandRouteCatalog(); err != nil {
+		return err
+	}
+	opt.initializationSourceExecutable = strings.TrimSpace(initializationSourceExecutable)
 	opt.currentLoopReviewerResultSnapshot = snapshot
 	if reviewerPublication != nil {
 		if snapshot == nil {
@@ -2057,7 +2102,7 @@ type releaseRunInspectionGitState struct {
 	Warnings         []string `json:"warnings,omitempty"`
 }
 
-type releaseRunCommandExecutor func(context.Context, string, string) (int, string, error)
+type releaseRunCommandExecutor func(context.Context, string, string, ...string) (int, string, error)
 type releaseRunGitCommandExecutor func(context.Context, string, ...string) (int, string, error)
 
 var releaseRunGitCommandTimeout = 5 * time.Minute
@@ -2182,7 +2227,7 @@ func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, execu
 			result.Steps = append(result.Steps, stepResult)
 			continue
 		}
-		runReleaseRunStep(repoRoot, step.Command, executor, &stepResult)
+		runReleaseRunStep(repoRoot, step, executor, &stepResult)
 		if stepResult.Status == "failed" {
 			result.Failed++
 			result.Ready = false
@@ -2199,18 +2244,18 @@ func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, execu
 	return result
 }
 
-func runReleaseRunStep(repoRoot, command string, executor releaseRunCommandExecutor, stepResult *releaseRunStepResult) {
+func runReleaseRunStep(repoRoot string, step releasecheck.GateStep, executor releaseRunCommandExecutor, stepResult *releaseRunStepResult) {
 	stepStart := time.Now()
-	exitCode, output, err := executeReleaseRunStepAttempt(repoRoot, command, executor)
+	exitCode, output, err := executeReleaseRunStepAttempt(repoRoot, step, executor)
 	stepResult.Attempts = 1
-	if reason := releaseRunGoTestCleanupLockRetryReason(command, output, err, exitCode); reason != "" {
+	if reason := releaseRunGoTestCleanupLockRetryReason(step.Command, output, err, exitCode); reason != "" {
 		stepResult.TransientRetryReason = reason
 		stepResult.FirstAttemptExitCode = exitCode
 		if err != nil {
 			stepResult.FirstAttemptError = err.Error()
 		}
 		stepResult.FirstAttemptOutputTail = releaseRunOutputTail(output)
-		exitCode, output, err = executeReleaseRunStepAttempt(repoRoot, command, executor)
+		exitCode, output, err = executeReleaseRunStepAttempt(repoRoot, step, executor)
 		stepResult.Attempts = 2
 	}
 	stepResult.DurationMS = time.Since(stepStart).Milliseconds()
@@ -2226,19 +2271,19 @@ func runReleaseRunStep(repoRoot, command string, executor releaseRunCommandExecu
 	stepResult.Status = "passed"
 }
 
-func executeReleaseRunStepAttempt(repoRoot, command string, executor releaseRunCommandExecutor) (int, string, error) {
+func executeReleaseRunStepAttempt(repoRoot string, step releasecheck.GateStep, executor releaseRunCommandExecutor) (int, string, error) {
 	return executeReleaseRunStepAttemptWithTimeout(
 		repoRoot,
-		command,
-		releaseRunStepAttemptTimeout(command),
+		step,
+		releaseRunStepAttemptTimeout(step.Command),
 		executor,
 	)
 }
 
-func executeReleaseRunStepAttemptWithTimeout(repoRoot, command string, timeout time.Duration, executor releaseRunCommandExecutor) (int, string, error) {
+func executeReleaseRunStepAttemptWithTimeout(repoRoot string, step releasecheck.GateStep, timeout time.Duration, executor releaseRunCommandExecutor) (int, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	exitCode, output, err := executor(ctx, repoRoot, command)
+	exitCode, output, err := executor(ctx, repoRoot, step.Executable, step.Arguments...)
 	if ctx.Err() != nil {
 		return exitCode, output, errors.Join(
 			fmt.Errorf("release-run command exceeded %s attempt timeout: %w", timeout, ctx.Err()),
@@ -2294,12 +2339,11 @@ func releaseRunGoTestOutputHasFailureSignal(output string) bool {
 	return strings.HasPrefix(output, "fail\t") || strings.HasPrefix(output, "--- fail:")
 }
 
-func executeReleaseRunCommand(ctx context.Context, repoRoot, command string) (int, string, error) {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return -1, "", fmt.Errorf("empty release-run command")
+func executeReleaseRunCommand(ctx context.Context, repoRoot, executable string, args ...string) (int, string, error) {
+	if strings.TrimSpace(executable) == "" {
+		return -1, "", fmt.Errorf("empty release-run executable")
 	}
-	return executeReleaseRunArgv(ctx, repoRoot, fields[0], fields[1:]...)
+	return executeReleaseRunArgv(ctx, repoRoot, executable, args...)
 }
 
 func executeReleaseRunGitCommand(ctx context.Context, repoRoot string, args ...string) (int, string, error) {
@@ -2381,7 +2425,7 @@ func releaseRunInspectionHandoffFor(repoRoot string, inventory releasecheck.Resu
 		Git:                                git,
 		ActiveRoute:                        inventory.ReleaseHandoff.ActiveRoute,
 		LatestBatch:                        latest,
-		NextActions:                        releaseRunInspectionNextActions(git, inventory.ReleaseHandoff, localReady),
+		NextActions:                        releaseRunInspectionNextActions(queue, inventory.ReleaseHandoff),
 		MissionCommanderActionQueue:        queue,
 		MissionCommanderDriverReceipt:      receipt,
 		ReplacementExecutorTakeoverPackage: releaseRunReplacementExecutorTakeoverPackage(queue),
@@ -2578,48 +2622,21 @@ func releaseRunInspectionSummary(ready bool, latest releasecheck.ReleaseHandoffL
 	return "release inspection handoff ok"
 }
 
-func releaseRunInspectionNextActions(git releaseRunInspectionGitState, handoff releasecheck.ReleaseHandoff, localReady bool) []string {
-	latest := handoff.LatestBatch
-	if !localReady {
-		return []string{"/rekit release-run -Format json"}
+func releaseRunInspectionNextActions(queue mission.MissionCommanderActionQueue, handoff releasecheck.ReleaseHandoff) []string {
+	actions := make([]string, 0, len(queue.UnblockedActions)+1)
+	if queue.CurrentAction != nil {
+		actions = append(actions, queue.CurrentAction.Command)
 	}
-	actions := []string{}
-	if pkg := handoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready && pkg.MissionCommanderActionQueue.CurrentAction != nil {
-		actions = append(actions, pkg.MissionCommanderActionQueue.CurrentAction.Command)
-		if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
-			actions = append(actions, "keep remote CI status truthful: inventory ready is not remote green")
+	for _, action := range queue.UnblockedActions {
+		if queue.CurrentAction != nil && action.ActionID == queue.CurrentAction.ActionID && action.Command == queue.CurrentAction.Command {
+			continue
 		}
-		return uniqueNonEmptyStrings(actions)
-	}
-	if action := handoff.ActiveRoute.CurrentAction; handoff.ActiveRoute.Present && action != nil {
+		if mission.MissionCommanderNextActionIsFollowUp(action) {
+			continue
+		}
 		actions = append(actions, action.Command)
-		if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
-			actions = append(actions, "keep remote CI status truthful: inventory ready is not remote green")
-		}
-		return uniqueNonEmptyStrings(actions)
 	}
-	if strings.TrimSpace(git.Branch) != "main" {
-		actions = append(actions, "switch to main before release inspection handoff")
-	}
-	if !git.WorkingTreeClean {
-		actions = append(actions, "commit or revert working tree changes before declaring release inspection complete")
-	}
-	if !git.Synchronized {
-		actions = append(actions, "fetch/pull/push until local main and origin/main point at the same commit")
-	}
-	if !releasecheck.LatestBatchDocumentsRecordLocalValidation(latest) {
-		actions = append(actions, "record this release-run result in docs/batch-plan.md before final release handoff")
-	}
-	cadence := latest.Handoff.ReleaseInspectionCadence
-	if cadence.State == "complete" {
-		actions = append(actions, "continue the next batch without polling remote CI or creating a release inspection commit")
-	}
-	if strings.TrimSpace(cadence.NextAction) != "" {
-		actions = append(actions, cadence.NextAction)
-	} else if strings.TrimSpace(latest.Handoff.NextAction) != "" {
-		actions = append(actions, latest.Handoff.NextAction)
-	}
-	if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+	if detail := handoff.LatestBatch.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
 		actions = append(actions, "keep remote CI status truthful: inventory ready is not remote green")
 	}
 	return uniqueNonEmptyStrings(actions)
@@ -4190,32 +4207,31 @@ type statusCaseMission struct {
 }
 
 func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
+	return runStatusWithLease(ctx, opt, out, nil)
+}
+
+func runStatusWithLease(ctx runtime.Context, opt Options, out io.Writer, lease *projectexecution.Lease) error {
 	format := strings.ToLower(strings.TrimSpace(opt.Format))
 	if format == "" {
 		format = "table"
 	}
-	packSource := statusPackSource(ctx, opt)
+	if (format == "table" || format == "tsv") && strings.TrimSpace(opt.SelectedCurrentLane) != "" {
+		return fmt.Errorf("status -Lane supports only -Format text, json, or compact-json")
+	}
+	status, err := buildInvocationStatusInventoryWithLease(ctx, opt, lease)
+	if err != nil {
+		return err
+	}
 	switch format {
 	case "table", "tsv":
-		if strings.TrimSpace(opt.SelectedCurrentLane) != "" {
-			return fmt.Errorf("status -Lane supports only -Format text, json, or compact-json")
-		}
-		return runStatusLegacyText(ctx, packSource, out)
+		return writeStatusLegacyText(out, status)
 	case "text":
-		return runStatusText(ctx, opt, out)
+		return writeStatusText(out, status)
 	case "json":
-		status, err := buildInvocationStatusInventory(ctx, opt)
-		if err != nil {
-			return err
-		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(status)
 	case "compact-json":
-		status, err := buildInvocationStatusInventory(ctx, opt)
-		if err != nil {
-			return err
-		}
 		return writeStatusCompactJSON(out, status)
 	default:
 		return fmt.Errorf("unsupported status format: %s", opt.Format)
@@ -4291,86 +4307,60 @@ func statusRepairPack(inst instance.Instance, activePack string) string {
 	return strings.TrimSpace(activePack)
 }
 
-func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) error {
-	caseShim := buildStatusCaseShim(ctx.RepoRoot, "")
-	fmt.Fprintf(out, "rekit go backend: %s\n", ctx.RuntimeRoot)
-	fmt.Fprintf(out, "template root: %s\n", ctx.RepoRoot)
-	fmt.Fprintf(out, "pack: %s\n", ctx.Pack)
-	fmt.Fprintf(out, "pack source: %s\n", packSource)
-	if instance.LooksLikeCase(ctx.Target) {
-		inst, err := instance.Read(ctx.Target)
-		if err != nil {
-			return err
-		}
-		caseShim = buildStatusCaseShim(ctx.RepoRoot, inst.CaseRoot)
-		fmt.Fprintf(out, "case: %s\n", inst.CaseRoot)
-		fmt.Fprintf(out, "case metadata: %s %s\n", inst.Source, inst.InstancePath)
-		fmt.Fprintf(out, "case templateRoot: %s\n", inst.TemplateRoot)
-		fmt.Fprintf(out, "case templatePack: %s\n", inst.TemplatePack)
-		fmt.Fprintf(out, "case pack matches metadata: %t\n", statusPackMatchesMetadata(ctx.Pack, inst.TemplatePack))
-		fmt.Fprintf(out, "case pack diagnostic: %s\n", statusPackDiagnostic(ctx.Pack, inst.TemplatePack, packSource))
-		for _, step := range statusCaseNextSteps(inst, ctx.Pack, packSource) {
+func writeStatusLegacyText(out io.Writer, status statusInventory) error {
+	fmt.Fprintf(out, "rekit go backend: %s\n", status.RuntimeRoot)
+	fmt.Fprintf(out, "template root: %s\n", status.TemplateRoot)
+	fmt.Fprintf(out, "pack: %s\n", status.Pack)
+	fmt.Fprintf(out, "pack source: %s\n", status.PackSource)
+	if status.Case != nil {
+		caseStatus := status.Case
+		fmt.Fprintf(out, "case: %s\n", caseStatus.CaseRoot)
+		fmt.Fprintf(out, "case metadata: %s %s\n", caseStatus.MetadataSource, caseStatus.InstancePath)
+		fmt.Fprintf(out, "case templateRoot: %s\n", caseStatus.TemplateRoot)
+		fmt.Fprintf(out, "case templatePack: %s\n", caseStatus.TemplatePack)
+		fmt.Fprintf(out, "case pack matches metadata: %t\n", caseStatus.PackMatchesMetadata)
+		fmt.Fprintf(out, "case pack diagnostic: %s\n", caseStatus.PackDiagnostic)
+		for _, step := range caseStatus.NextSteps {
 			fmt.Fprintf(out, "case next step: %s\n", step)
 		}
-		fmt.Fprintf(out, "case shim: %s ready=%t installed=%s matchesTemplate=%t\n", caseShim.Summary, caseShim.Ready, caseShim.InstalledShimPath, boolPtrValue(caseShim.InstalledShimMatches))
-		if err := writeStatusCaseShimEntrypointText(out, caseShim.Entrypoint); err != nil {
+		fmt.Fprintf(out, "case shim: %s ready=%t installed=%s matchesTemplate=%t\n", status.CaseShim.Summary, status.CaseShim.Ready, status.CaseShim.InstalledShimPath, boolPtrValue(status.CaseShim.InstalledShimMatches))
+		if err := writeStatusCaseShimEntrypointText(out, status.CaseShim.Entrypoint); err != nil {
 			return err
 		}
-		for _, step := range statusCaseShimNextSteps(caseShim, inst.CaseRoot, statusRepairPack(inst, ctx.Pack)) {
+		for _, step := range status.CaseShim.NextSteps {
 			fmt.Fprintf(out, "case shim next step: %s\n", step)
 		}
-		if inst.Moved() {
+		if caseStatus.Moved {
 			fmt.Fprintln(out, "detected moved case metadata")
 		}
-		caseMission, err := buildStatusCaseMission(ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
-		if err != nil {
+		if err := writeStatusMissionCommanderFirstScreenTextWithConsumption(out, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption); err != nil {
 			return err
 		}
-		handoff, err := projectHandoffBuild(ctx.RepoRoot)
-		if err != nil {
+		if err := writeStatusMissionControlRunbookText(out, status.MissionControlRunbook); err != nil {
 			return err
 		}
-		projectHandoff := buildStatusProjectHandoff(handoff)
-		bindStatusCaseCandidateDecisionDraftHandoffs(projectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
-		if err := writeStatusMissionCommanderFirstScreenText(out, caseMission, projectHandoff); err != nil {
+		if err := writeStatusCaseMissionText(out, status.CaseMission); err != nil {
 			return err
 		}
-		if err := writeStatusMissionControlRunbookText(out, buildStatusMissionControlRunbook(ctx.Target, caseMission, projectHandoff)); err != nil {
-			return err
-		}
-		if err := writeStatusCaseMissionText(out, caseMission); err != nil {
-			return err
-		}
-		return writeStatusProjectHandoffText(out, projectHandoff)
+		return writeStatusProjectHandoffText(out, status.ProjectHandoff)
 	}
-	fmt.Fprintf(out, "case shim: %s ready=%t\n", caseShim.Summary, caseShim.Ready)
-	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
-	if err != nil {
+	fmt.Fprintf(out, "case shim: %s ready=%t\n", status.CaseShim.Summary, status.CaseShim.Ready)
+	if status.Manifest != nil {
+		fmt.Fprintf(out, "manifest: %s\n", status.Manifest.ManifestPath)
+		fmt.Fprintf(out, "managed files: %d\n", status.Manifest.ManagedFiles)
+		fmt.Fprintf(out, "promote files: %d\n", status.Manifest.PromoteFiles)
+		fmt.Fprintf(out, "tooling files: %d\n", status.Manifest.ToolingFiles)
+	}
+	if err := writeStatusMissionCommanderFirstScreenTextWithConsumption(out, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "manifest: %s\n", m.ManifestPath)
-	fmt.Fprintf(out, "managed files: %d\n", len(m.ManagedFiles))
-	fmt.Fprintf(out, "promote files: %d\n", len(m.PromoteFiles))
-	fmt.Fprintf(out, "tooling files: %d\n", len(m.ToolingFiles))
-	handoff, err := projectHandoffBuild(ctx.RepoRoot)
-	if err != nil {
+	if err := writeStatusMissionControlRunbookText(out, status.MissionControlRunbook); err != nil {
 		return err
 	}
-	projectHandoff := buildStatusProjectHandoff(handoff)
-	if err := writeStatusMissionCommanderFirstScreenText(out, nil, projectHandoff); err != nil {
-		return err
-	}
-	if err := writeStatusMissionControlRunbookText(out, buildStatusMissionControlRunbook(ctx.Target, nil, projectHandoff)); err != nil {
-		return err
-	}
-	return writeStatusProjectHandoffText(out, projectHandoff)
+	return writeStatusProjectHandoffText(out, status.ProjectHandoff)
 }
 
-func runStatusText(ctx runtime.Context, opt Options, out io.Writer) error {
-	status, err := buildInvocationStatusInventory(ctx, opt)
-	if err != nil {
-		return err
-	}
+func writeStatusText(out io.Writer, status statusInventory) error {
 	if _, err := fmt.Fprintf(out, "status：mutation=%t mode=%s targetProvided=%t pack=%s packSource=%s target=%s runtimeRoot=%s templateRoot=%s\n", status.IsMutation, status.Mode, status.TargetProvided, status.Pack, status.PackSource, status.Target, status.RuntimeRoot, status.TemplateRoot); err != nil {
 		return err
 	}
@@ -5126,15 +5116,26 @@ func statusCurrentLoopExternalReviewerHandoffForPackage(pkg *workstream.Reviewer
 			previewCommand = strings.TrimSpace(directPreviewCommand[0])
 		}
 		result.ObservationContract.Alternatives = append(result.ObservationContract.Alternatives, mission.CurrentLoopObservationAlternative{
-			Kind:                   alternative.Kind,
-			RequiredFlags:          requiredFlags,
-			PreviewCommandTemplate: previewCommand,
-			Transition:             statusCurrentLoopReviewerAttemptTransition(alternative.Kind),
-			Constraints:            append([]string{}, alternative.Constraints...),
+			Kind:                          alternative.Kind,
+			RequiredFlags:                 requiredFlags,
+			ExpectedReviewerAttemptSHA256: "",
+			PreviewCommandTemplate:        previewCommand,
+			Transition:                    statusCurrentLoopReviewerAttemptTransition(alternative.Kind),
+			Constraints:                   append([]string{}, alternative.Constraints...),
 		})
 	}
 	result.Attempt = statusCurrentLoopReviewerAttempt(pkg, selected, result)
 	if result.Attempt != nil {
+		for idx := range result.ObservationContract.Alternatives {
+			if result.ObservationContract.Alternatives[idx].Kind != "reviewer-result-direct-write" {
+				result.ObservationContract.Alternatives[idx].ExpectedReviewerAttemptSHA256 = result.Attempt.AttemptSnapshotSHA256
+			}
+		}
+		for idx := range result.Attempt.SelectedAction.ObservationContract.Alternatives {
+			if result.Attempt.SelectedAction.ObservationContract.Alternatives[idx].Kind != "reviewer-result-direct-write" {
+				result.Attempt.SelectedAction.ObservationContract.Alternatives[idx].ExpectedReviewerAttemptSHA256 = result.Attempt.AttemptSnapshotSHA256
+			}
+		}
 		statusMaterializeCurrentLoopReviewerAttemptContract(&result.ObservationContract, result.Attempt.AttemptSnapshotSHA256)
 		statusMaterializeCurrentLoopReviewerAttemptContract(&result.Attempt.SelectedAction.ObservationContract, result.Attempt.AttemptSnapshotSHA256)
 		for idx := range result.ObservationContract.Alternatives {
@@ -6539,7 +6540,7 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 	if err := invocation.Validate(); err != nil {
 		return statusMissionControlInvalidInvocationRequest(request, err.Error())
 	}
-	projected, err := parseProjectVisibleInvocation(request.Command)
+	projected, err := commands.ParsePublicInvocation(request.Command)
 	if err != nil || !invocation.Equivalent(projected) {
 		return statusMissionControlInvalidInvocationRequest(request, "typed invocation differs from its command projection")
 	}
@@ -6594,22 +6595,11 @@ func statusMissionControlQualifiedCommand(original string, invocation commands.P
 	if addedFormat {
 		command += " -Format json"
 	}
-	projected, err := parseProjectVisibleInvocation(command)
+	projected, err := commands.ParsePublicInvocation(command)
 	if err != nil || !invocation.Equivalent(projected) {
 		return "", fmt.Errorf("qualified command differs from its typed invocation")
 	}
 	return command, nil
-}
-
-func parseProjectVisibleInvocation(command string) (commands.PublicInvocation, error) {
-	fields, err := splitDriverCommand(command)
-	if err != nil {
-		return commands.PublicInvocation{}, err
-	}
-	if len(fields) < 2 || (fields[0] != "/rekit" && fields[0] != "/steamai") || strings.TrimSpace(fields[1]) == "" {
-		return commands.PublicInvocation{}, fmt.Errorf("project-visible invocation must begin with /rekit or /steamai followed by a command")
-	}
-	return commands.NewPublicInvocation(fields[1], fields[2:]...)
 }
 
 func statusMissionControlInvalidInvocationRequest(request mission.MissionCommanderDriverRequest, reason string) mission.MissionCommanderDriverRequest {
@@ -6624,10 +6614,6 @@ func statusMissionControlInvalidInvocationRequest(request mission.MissionCommand
 	request.ExpectedReceipt.Command = ""
 	request.Boundary = mission.UniqueStrings(append(request.Boundary, "typed invocation blocked before execution: "+strings.TrimSpace(reason)))
 	return request
-}
-
-func statusMissionControlInvocationFlagValue(invocation commands.PublicInvocation, names ...string) (string, bool, bool) {
-	return invocation.FlagValue(names...)
 }
 
 func statusMissionControlCommandName(command string) string {
@@ -6776,37 +6762,69 @@ func statusMissionControlRunbookSteps(runbook *statusMissionControlRunbook) []st
 			"do not choose follow-up work from stale first-screen focus data",
 		},
 	})
-	if strings.TrimSpace(runbook.HandoffPreviewCommand) != "" {
-		steps = append(steps, statusMissionControlRunbookStep{
-			StepID:            "preview-handoff",
-			Order:             4,
-			Actor:             "main-agent",
-			State:             "handoff-preview-available",
-			Source:            "missionControlRunbook.handoffPreview",
-			Command:           runbook.HandoffPreviewCommand,
-			CommandExecutable: true,
-			Boundary: []string{
+	if strings.TrimSpace(runbook.HandoffPreviewCommand) != "" || runbook.HandoffPreviewDriverRequest != nil {
+		steps = append(steps, statusMissionControlHandoffRunbookStep(
+			"preview-handoff",
+			4,
+			"handoff-preview-available",
+			"missionControlRunbook.handoffPreview",
+			runbook.HandoffPreviewCommand,
+			runbook.HandoffPreviewDriverRequest,
+			[]string{
 				"preview handoff before writing durable handoff artifacts when the next session must take over",
 				"handoff preview is read-only and should use -WhatIf -Format json",
 			},
-		})
+		))
 	}
-	if strings.TrimSpace(runbook.HandoffApplyCommand) != "" {
-		steps = append(steps, statusMissionControlRunbookStep{
-			StepID:            "write-handoff-for-takeover",
-			Order:             5,
-			Actor:             "main-agent",
-			State:             "handoff-apply-available",
-			Source:            "missionControlRunbook.handoffApply",
-			Command:           runbook.HandoffApplyCommand,
-			CommandExecutable: true,
-			Boundary: []string{
+	if strings.TrimSpace(runbook.HandoffApplyCommand) != "" || runbook.HandoffApplyDriverRequest != nil {
+		steps = append(steps, statusMissionControlHandoffRunbookStep(
+			"write-handoff-for-takeover",
+			5,
+			"handoff-apply-available",
+			"missionControlRunbook.handoffApply",
+			runbook.HandoffApplyCommand,
+			runbook.HandoffApplyDriverRequest,
+			[]string{
 				"write durable handoff only after reviewing the current status and handoff preview",
 				"handoff apply does not execute reviewer, adapter, heavy-tool, authority, or confirmed actions",
 			},
-		})
+		))
 	}
 	return steps
+}
+
+func statusMissionControlHandoffRunbookStep(
+	stepID string,
+	order int,
+	state, source, command string,
+	request *mission.MissionCommanderDriverRequest,
+	boundary []string,
+) statusMissionControlRunbookStep {
+	step := statusMissionControlRunbookStep{
+		StepID:   stepID,
+		Order:    order,
+		Actor:    "main-agent",
+		State:    state,
+		Source:   source,
+		Guidance: strings.TrimSpace(command),
+		Boundary: mission.UniqueStrings(append(boundary,
+			"without a valid typed driver request this scalar handoff command is display guidance only",
+		)),
+	}
+	if request == nil || mission.ValidateMissionCommanderDriverRequest(*request) != nil {
+		return step
+	}
+	step.Actor = statusFirstText(request.Actor, "main-agent")
+	step.State = statusFirstText(request.State, state)
+	step.Source = statusFirstText(request.Source, source)
+	step.DriverKind = request.Kind
+	step.Command = request.Command
+	step.Guidance = request.Guidance
+	step.CommandExecutable = request.CommandExecutable
+	step.Blocked = request.Blocked
+	step.RequiresReview = request.RequiresReview
+	step.Boundary = mission.UniqueStrings(append(step.Boundary, request.Boundary...))
+	return step
 }
 
 func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionControlRunbook) error {
@@ -7260,10 +7278,6 @@ func writeStatusMissionControlGuidanceHandoffText(out io.Writer, handoff *status
 		}
 	}
 	return nil
-}
-
-func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff) error {
-	return writeStatusMissionCommanderFirstScreenTextWithConsumption(out, caseMission, projectHandoff, nil)
 }
 
 func writeStatusMissionCommanderFirstScreenTextWithConsumption(out io.Writer, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff, consumption *packMemoryConsumptionStatus) error {
@@ -9019,7 +9033,11 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 }
 
 func buildStatusInventory(ctx runtime.Context, packSource string) (statusInventory, error) {
-	status, err := buildStatusInventoryBase(ctx, packSource)
+	return buildStatusInventoryWithLease(ctx, packSource, nil)
+}
+
+func buildStatusInventoryWithLease(ctx runtime.Context, packSource string, lease *projectexecution.Lease) (statusInventory, error) {
+	status, err := buildStatusInventoryBaseWithLease(ctx, packSource, lease)
 	if err != nil {
 		return statusInventory{}, err
 	}
@@ -9031,7 +9049,34 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 	return status, nil
 }
 
-func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInventory, error) {
+func buildStatusInventoryBaseWithLease(ctx runtime.Context, packSource string, held *projectexecution.Lease) (statusInventory, error) {
+	if instance.LooksLikeCase(ctx.Target) {
+		root, err := projectstate.Resolve(ctx.Target)
+		if err != nil {
+			return statusInventory{}, err
+		}
+		if root.Existing && !root.Legacy && root.Dir == projectstate.CurrentDir {
+			if held != nil {
+				if err := held.ValidateFor(ctx.Target); err != nil {
+					return statusInventory{}, err
+				}
+				return buildStatusInventoryBaseLocked(ctx, packSource)
+			}
+			lease, err := projectexecution.AcquireShared(ctx.Target)
+			if err != nil {
+				return statusInventory{}, err
+			}
+			defer lease.Unlock()
+			return buildStatusInventoryBaseLocked(ctx, packSource)
+		}
+	}
+	if held != nil {
+		return statusInventory{}, fmt.Errorf("project execution lease is valid only for a current .steamai status target")
+	}
+	return buildStatusInventoryBaseLocked(ctx, packSource)
+}
+
+func buildStatusInventoryBaseLocked(ctx runtime.Context, packSource string) (statusInventory, error) {
 	status := statusInventory{
 		Command:        "status",
 		SchemaVersion:  1,
@@ -9145,6 +9190,22 @@ func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInv
 				return statusInventory{}, actionErr
 			}
 			status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, "onboarding publication is pending; the exact recovery action is current", action)
+		} else if onboardingInspection.State == "absent" && inst.StateDir == instance.StateDirSTeamAI {
+			status.Onboarding.SelectedPack = inst.TemplatePack
+			status.Onboarding.PackChoices = nil
+			boardPath, pathErr := projectstate.Join(inst.CaseRoot, "board.json")
+			if pathErr != nil {
+				return statusInventory{}, pathErr
+			}
+			if _, statErr := os.Stat(boardPath); statErr == nil {
+				status.Mode = "case-onboarding-conflict"
+				status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, "project mission details are missing but Mission Commander state already exists; review the project before continuing")
+			} else if !os.IsNotExist(statErr) {
+				return statusInventory{}, statErr
+			} else {
+				status.Mode = "case-onboarding-required"
+				status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, "project onboarding requires a goal; the project pack is already selected")
+			}
 		} else {
 			status.CaseMission, err = buildStatusCaseMission(ctx.RepoRoot, inst.CaseRoot, ctx.Pack, onboardingInspection)
 			if err != nil {
@@ -9229,14 +9290,15 @@ func buildStatusOnboarding(repoRoot, selectedPack string, inspection missioninte
 		if !pack.SchemaValid || pack.Maturity == "template" {
 			continue
 		}
+		selectable := strings.EqualFold(strings.TrimSpace(pack.Maturity), "mature")
 		status.PackChoices = append(status.PackChoices, statusOnboardingPackChoice{
 			ID:          pack.ID,
 			Name:        pack.Name,
 			Maturity:    pack.Maturity,
 			Description: pack.Description,
-			Recommended: strings.EqualFold(pack.ID, defaults.DefaultPack),
-			Selected:    selectionExplicit && strings.EqualFold(pack.ID, selectedPack),
-			Selectable:  true,
+			Recommended: selectable && strings.EqualFold(pack.ID, defaults.DefaultPack),
+			Selected:    selectable && selectionExplicit && strings.EqualFold(pack.ID, selectedPack),
+			Selectable:  selectable,
 		})
 	}
 	return status, nil
@@ -9401,7 +9463,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string, onboarding ...missi
 		queue := mission.MissionCommanderActionQueueFor(actions)
 		return &statusCaseMission{
 			Ready:                         false,
-			Summary:                       "case board missing; run overview or start -Apply to initialize Mission Commander state",
+			Summary:                       "任务面板尚未建立；请使用当前唯一的初始化步骤",
 			MissionCommanderActionQueue:   queue,
 			MissionCommanderNextActions:   actions,
 			DailyMissionControlRunbook:    workstream.DailyMissionControlRunbookFor(caseRoot, "case-onboarding", queue, previewCommand, applyCommand),
@@ -11234,6 +11296,7 @@ func runOnboard(ctx runtime.Context, opt Options, out io.Writer) error {
 		Target: ctx.Target, ProjectID: opt.ProjectID, Pack: ctx.Pack, ProjectName: opt.ProjectName, Goal: opt.Goal,
 		Actor: opt.Note.Actor, Executor: opt.Start.Executor, InitialLane: opt.InitialLane,
 		PublicationStamp: opt.OnboardingPublicationStamp, ExpectedOnboardingPlanSHA256: opt.ExpectedOnboardingPlanSHA256,
+		SourceExecutable: opt.initializationSourceExecutable,
 	}
 	if opt.WhatIf {
 		plan, err := onboarding.Preview(ctx.RepoRoot, onboardOpt)
@@ -11282,7 +11345,7 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("unsupported %s format: %s", opt.Command, opt.Format)
 	}
-	applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, CreateLocalFiles: true, Command: opt.Command, ExpectedPlanSHA256: opt.ExpectedInitPlanSHA256}
+	applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, CreateLocalFiles: true, Command: opt.Command, ExpectedPlanSHA256: opt.ExpectedInitPlanSHA256, SourceExecutable: opt.initializationSourceExecutable}
 	if opt.WhatIf {
 		result, err := syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
 		if err != nil {
@@ -11499,28 +11562,24 @@ func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if format == "" {
 		format = "table"
 	}
+	result, err := overview.BuildInventory(ctx.RepoRoot, target, ctx.Pack)
+	if err != nil {
+		return err
+	}
+	if err := projectOverviewInventoryPublicEntrypoint(&result, target); err != nil {
+		return err
+	}
 	switch format {
 	case "table", "tsv":
-		text, err := overview.Render(ctx.RepoRoot, target, ctx.Pack)
+		text, err := overview.RenderInventory(result)
 		if err != nil {
 			return err
 		}
 		_, err = io.WriteString(out, text)
 		return err
 	case "text":
-		result, err := overview.BuildInventory(ctx.RepoRoot, target, ctx.Pack)
-		if err != nil {
-			return err
-		}
 		return writeOverviewText(out, result)
 	case "json":
-		result, err := overview.BuildInventory(ctx.RepoRoot, target, ctx.Pack)
-		if err != nil {
-			return err
-		}
-		if err := projectOverviewInventoryPublicEntrypoint(&result, target); err != nil {
-			return err
-		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(result)
@@ -12293,13 +12352,14 @@ func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if format == "json" {
-		if err := projectStartResultPublicEntrypoint(&result, target); err != nil {
-			return err
-		}
-		return writeJSON(out, result)
+	diagnostics, err := buildStartDiagnosticsDTO(result, target)
+	if err != nil {
+		return err
 	}
-	return writeStartText(out, result)
+	if format == "json" {
+		return writeJSON(out, diagnostics)
+	}
+	return writeStartText(out, workstream.StartResult(diagnostics))
 }
 
 func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -12383,13 +12443,14 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	inspection := currentloop.Inspect(ctx.RepoRoot, target, ctx.Pack, currentRequest)
 	result.CurrentLoopSegment = &inspection
-	if format == "json" {
-		if err := projectHandoffResultPublicEntrypoint(&result, target); err != nil {
-			return err
-		}
-		return writeJSON(out, result)
+	diagnostics, err := buildHandoffDiagnosticsDTO(result, target)
+	if err != nil {
+		return err
 	}
-	return writeHandoffText(out, result)
+	if format == "json" {
+		return writeJSON(out, diagnostics)
+	}
+	return writeHandoffText(out, workstream.HandoffResult(diagnostics))
 }
 
 func resolveHandoffSelectedCurrentLane(target, selector string) (string, error) {
@@ -12511,13 +12572,14 @@ func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
 		return err
 	}
 	bindReconcileResultRefreshStatus(&result, refresh)
-	if format == "json" {
-		if err := projectReconcileResultPublicEntrypoint(&result, target); err != nil {
-			return err
-		}
-		return writeJSON(out, result)
+	diagnostics, err := buildReconcileDiagnosticsDTO(result, target)
+	if err != nil {
+		return err
 	}
-	return writeReconcileText(out, result)
+	if format == "json" {
+		return writeJSON(out, diagnostics)
+	}
+	return writeReconcileText(out, workstream.ReconcileResult(diagnostics))
 }
 
 func bindReconcileResultRefreshStatus(result *workstream.ReconcileResult, refresh string) {
@@ -12570,13 +12632,14 @@ func runComplete(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if format == "json" {
-		if err := projectCompleteResultPublicEntrypoint(&result, target); err != nil {
-			return err
-		}
-		return writeJSON(out, result)
+	diagnostics, err := buildCompleteDiagnosticsDTO(result, target)
+	if err != nil {
+		return err
 	}
-	return writeCompleteText(out, result)
+	if format == "json" {
+		return writeJSON(out, diagnostics)
+	}
+	return writeCompleteText(out, workstream.CompleteResult(diagnostics))
 }
 
 func runControl(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -12643,13 +12706,14 @@ func runReopen(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if format == "json" {
-		if err := projectReopenResultPublicEntrypoint(&result, target); err != nil {
-			return err
-		}
-		return writeJSON(out, result)
+	diagnostics, err := buildReopenDiagnosticsDTO(result, target)
+	if err != nil {
+		return err
 	}
-	return writeReopenText(out, result)
+	if format == "json" {
+		return writeJSON(out, diagnostics)
+	}
+	return writeReopenText(out, workstream.ReopenResult(diagnostics))
 }
 
 func executeContinue(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -12691,14 +12755,14 @@ func executeContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 			return err
 		}
 	}
+	diagnostics, err := buildContinueDiagnosticsDTO(result, target)
+	if err != nil {
+		return err
+	}
 	if format == "json" {
-		diagnostics, err := buildContinueDiagnosticsDTO(result, target)
-		if err != nil {
-			return err
-		}
 		return writeJSON(out, diagnostics)
 	}
-	return writeContinueText(out, result)
+	return writeContinueText(out, workstream.ContinueResult(diagnostics))
 }
 
 func bindCurrentContinueResult(result *workstream.ContinueResult, target, selected string) error {
@@ -16220,14 +16284,14 @@ func executeGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return err
 		}
+		diagnostics, projectionErr := buildGatePlanDiagnosticsDTO(plan, target)
+		if projectionErr != nil {
+			return projectionErr
+		}
 		if format == "json" {
-			diagnostics, projectionErr := buildGatePlanDiagnosticsDTO(plan, target)
-			if projectionErr != nil {
-				return projectionErr
-			}
 			return writeJSON(out, diagnostics)
 		}
-		return writeGatePlanText(out, plan)
+		return writeGatePlanText(out, gate.Plan(diagnostics))
 	}
 	if !opt.Apply {
 		return fmt.Errorf("gate write requires -Apply; use -WhatIf for dry-run preview")
@@ -16258,14 +16322,14 @@ func executeGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	result.ExecutionEvidenceReview = workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(result.ExecutionEvidenceReview, []mission.BoardLane{laneAuthority})
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	diagnostics, projectionErr := buildGateApplyDiagnosticsDTO(result, target)
+	if projectionErr != nil {
+		return projectionErr
+	}
 	if format == "json" {
-		diagnostics, projectionErr := buildGateApplyDiagnosticsDTO(result, target)
-		if projectionErr != nil {
-			return projectionErr
-		}
 		return writeJSON(out, diagnostics)
 	}
-	return writeGateApplyText(out, result)
+	return writeGateApplyText(out, gate.ApplyResult(diagnostics))
 }
 
 func validateAdapterExecutionReceiptModeFlags(opt Options) error {

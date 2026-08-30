@@ -301,6 +301,7 @@ func bindStatusExecutionControlMember(status *statusInventory) {
 	status.MemberExecution.PreviewCommand = ""
 	status.MemberExecution.ObservationCommand = ""
 	status.MemberExecution.ReviewerPlanCommand = ""
+	status.MemberExecution.ReviewerPlanInvocation = nil
 	status.MemberExecution.CorrectionCommand = ""
 	status.MemberExecution.Boundary = mission.UniqueStrings(append(status.MemberExecution.Boundary,
 		control.Reason,

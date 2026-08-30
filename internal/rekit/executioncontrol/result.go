@@ -794,11 +794,11 @@ func heldResultFor(
 }
 
 func ensureHeldResultCapacity(caseRoot, lane, pendingName string) error {
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return err
 	}
-	root, err := rekitfs.OpenAnchoredRoot(stateRoot.Path)
+	root, err := rekitfs.OpenAnchoredRoot(view.Path)
 	if err != nil {
 		return err
 	}

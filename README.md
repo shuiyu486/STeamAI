@@ -8,7 +8,7 @@ Canonical GitHub repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486
 
 下面三步只适用于**已经完成一次 STeamAI 接入**的项目。未接入的普通目录在 init 前没有项目级 `/steamai`，Claude Code 不会凭空识别它；首次接入必须由可信的外部 STeamAI initializer / maintenance executable 先做只读分类并生成 hash-bound init preview，用户确认 exact writes 后才 Apply。Apply 会把 `/steamai` skill、`.steamai` 状态根、verified runtime 和 selected pack 发布进项目；此后日常使用不再依赖 initializer、机器 PATH、全局 plugin 或原中央 kit。
 
-目前仓库尚未提供面向普通用户的独立安装包；从源码试用时，一次性 initializer 仍由维护者从本仓库构建或提供。不能把 `cd → claude → /steamai` 描述成一个从未接入目录的首次启动方式。
+目前仓库尚未提供面向普通用户的独立安装包；从源码试用时，一次性 initializer 由维护者在 canonical clone 中构建 unified `cmd/rekit`，再用该 executable 对目标目录运行 init/directory-adoption 的只读 preview 与其返回的 exact Apply。不能把 `cd → claude → /steamai` 描述成一个从未接入目录的首次启动方式，也不能让新项目回退到机器 PATH、外部 kit 或中央源码 runtime。
 
 ```text
 cd <已接入的 project>
@@ -43,7 +43,7 @@ claude
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 
-> Batch 828 的 Windows 自包含闭环、Batch 829 的 canonical GitHub repository identity，以及 `steamai-product-optimization-v1` 的 Batch 830～833、P0P3-C1～C4、retired identity migration、binary-re专项校准和完整总验证均已完成。当前没有已批准下一路线，不自动创建Batch 834；后续只接受显式用户路线变更。完成态由`docs/real-usage-hardening-roadmap.md`与Git-local typed receipt、唯一direct commit、本地tracking ref共同证明；局部live acceptance、synthetic fixture、manifest maturity、测试或inventory不单独代表总体完成，本地readiness也不冒充remote CI green。
+> 当前已批准路线是 `steamai-architecture-product-convergence-v1`，按 `APC-01 → APC-02 → APC-03 → APC-04` 顺序实施；不并行跳批，也不创建新的 numbered batch 冒充路线进度。完成态必须由当前路线文档、Git-local typed receipt、direct commit 与本地 tracking ref共同证明；局部 live acceptance、synthetic fixture、manifest maturity、测试或 inventory 不单独代表总体完成，本地 readiness 也不冒充 remote CI green。
 
 STeamAI 不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。heavy action 只在 strict durable profile 与 fresh `authorized-gate` 覆盖的 exact scope/budget/stop/output 内执行并留证；`bounded-autonomous-v1` 只是显式、短时、有界的免逐次询问，不是无限权限。
 
@@ -84,7 +84,7 @@ Claude Code Remote Control 仅作为显式 opt-in 的 read-only Reviewer transpo
 
 - canonical `/steamai` skill：`.claude/skills/steamai/SKILL.md`
 - legacy `/rekit` compatibility skill：`.claude/skills/rekit/SKILL.md`
-- deterministic runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；真实 Claude Code session host：`cmd/rekit-host/**`、`internal/rekit/sessionhost/**`；read-only adapter host 与显式验收门：`cmd/rekit-adapter-host/**`、`cmd/rekit-adapter-acceptance/**`、`internal/rekit/adapterhost/**`。legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。
+- deterministic runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；真实 Claude Code session host：`cmd/rekit-host/**`、`internal/rekit/sessionhost/**`；read-only adapter host 与显式验收门：`cmd/rekit-adapter-host/**`、`cmd/rekit-adapter-acceptance/**`、`internal/rekit/adapterhost/**`。显式 adapter acceptance 的 `-runtime` 必须指向单独构建的 unified `./cmd/rekit` image，不能复用 `rekit-adapter-host`、`rekit-host` 或 acceptance executable；该 image 只作为 disposable project-local runtime 的验证来源。legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。
 - 领域 pack：`packs/<pack>/**`
 - 通用 policy / prompt：`common/**`
 - 设计与路线：`docs/**`
@@ -114,7 +114,7 @@ claude
 
 ordinary public `continue` 只消费 fresh status 的 typed `-WhatIf -Format json`，再原样执行 preview 返回的 exact Apply。preview 顶层 `continuePlanSha256` 绑定完整 mutation snapshot，returned Apply 携带同值的 `-ExpectedContinuePlanSha256`；current action blocked 时不发布 Apply。Apply 后必须刷新 status，不能手工拼 phase、参数或复用旧 request。
 
-fresh target 会选择默认 `binary-re`；已通过 `attach/init` 绑定且 doctor-ready、尚无 Mission Control 状态的 existing case 会从 metadata 选择 pack，并只追加 immutable onboarding intent/mission/commit，不覆盖普通 case 文件。旧 `vmp-re` / `generic-binary-re` metadata 只返回 typed `pack-migration-required`，不作为 alias、不自动迁移或改写。相同 goal 在当前真实 member 已 intake-ready 后安全 replay，不重复启动 Claude；冲突 goal 会明确拒绝。
+fresh target 的 external initializer 只展示 schema-valid、非 template 的 pack choices；普通用户只能选择 mature pack（当前为 `binary-re` 与 `web-security`），骨架 pack可以在 inventory 中可见但不能作为普通接入选择。已通过 `attach/init` 绑定且 doctor-ready、尚无 Mission Control 状态的 existing case 会从 metadata 选择 pack，并只追加 immutable onboarding intent/mission/commit，不覆盖普通 case 文件。旧 `vmp-re` / `generic-binary-re` metadata 只返回 typed `pack-migration-required`，不作为 alias、不自动迁移或改写。相同 goal 在当前真实 member 已 intake-ready 后安全 replay，不重复启动 Claude；当前 mission 尚未完成时的冲突 goal 会明确拒绝。
 
 已有 case 同时有多个可继续 lane 时，daily 先返回 typed choices，选择前不启动 Claude、也不写 case。主 Agent 使用 choice 的 canonical ID 重新调用 `-lane <lane-id>`；该 selector 只在本次调用生效，并贯穿 status、current-step/current-loop、纠偏和完成，所选 lane 不可继续时会停止，不会回退到其它 lane。lane 的人话 label 只用于展示，不能代替 canonical ID。
 
@@ -124,7 +124,11 @@ fresh target 会选择默认 `binary-re`；已通过 `attach/init` 绑定且 doc
 
 人工纠偏也只提交文本；多个可纠偏 lane（包括已完成 lane）会先返回 typed choices，选择前零写入、零 Claude launch。用户只需告诉主 Agent“按这条意见纠偏：优先核对控制流证据，区分 observation 与 hypothesis”；主 Agent 选择同一个 canonical lane ID，并只调用 manifest 绑定的项目内 `steamai.exe host`。中央源码目录下的 direct host 仅作为 maintenance/internal API，不是新项目默认入口。
 
-Reviewer rejection 仍由既有 correction/reconcile owner 记录 intervention、启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane。若所选 lane 已 committed completion/closed，front door 会把当前 completion receipt 作为证据，消费 public zero-write `reopen` preview 与 owner 返回的 exact Apply；提交后只返回 `ready-to-continue`，不会自动接管 executor、恢复旧 session/current-loop budget或启动 Claude。中断恢复只接受同 actor、纠偏文本、lane 与 exact plan；成功响应丢失后的相同请求返回同 operation 的 mutation-free replay，并复核 compound targets 仍是 current reopen。trusted daily 路线还使用 host-owned durable supervisor：front host 在 Claude 启动、output 返回、result-first、submission 或 intake 后中断时，fresh host 会收取同一 attempt/session 的 exact result、从已提交边界继续或在 ownership 证据丢失时先 durable fence 再 replacement，不用 PID 单独声称 liveness，也不会重复启动成功 session。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。失败 JSON 的顶层 `failure` 返回 stable `code` / `stage`、`terminal|replaceable|recoverable`、真实 `mutationApplied` / `mutationBoundary`、attempt 计数和唯一 `nextAction`；达到上限后不会自动循环。完整故障矩阵与恢复语义按需见 `docs/agent-team-usage.md`。
+Reviewer rejection 仍由既有 correction/reconcile owner 记录 intervention、启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane。若所选 lane 已 committed completion/closed，front door 会把当前 completion receipt 作为证据，消费 public zero-write `reopen` preview 与 owner 返回的 exact Apply；提交后只返回 `ready-to-continue`，不会自动接管 executor、恢复旧 session/current-loop budget或启动 Claude。中断恢复只接受同 actor、纠偏文本、lane 与 exact plan；成功响应丢失后的相同请求返回同 operation 的 mutation-free replay，并复核 compound targets 仍是 current reopen。
+
+若整个当前 mission 已 `mission-complete`，用户提出不同新目标时不再报“冲突 goal”或复用 reopen。daily owner先返回绑定 predecessor mission intent、完整 closure、generation、publication stamp 与 write set 的零写入 successor preview；用户确认后主 Agent原样消费其 exact Apply。Apply commit-last、active-pointer-last，只激活新的 `.steamai/missions/gNNNNNN/` namespace，保留 predecessor audit tree，不写 authority/confirmed、不执行 heavy tool，也不自动启动 Claude；fresh status随后只发布该新 mission唯一的 initial `start` preview。普通用户不填写或记忆 SHA；相同请求只允许 committed replay，stale closure、legacy `.rekit`、dual root、partial/corrupt transition 或 pointer drift均 fail-closed。
+
+trusted daily 路线还使用 host-owned durable supervisor：front host 在 Claude 启动、output 返回、result-first、submission 或 intake 后中断时，fresh host 会收取同一 attempt/session 的 exact result、从已提交边界继续或在 ownership 证据丢失时先 durable fence 再 replacement，不用 PID 单独声称 liveness，也不会重复启动成功 session。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。失败 JSON 的顶层 `failure` 返回 stable `code` / `stage`、`terminal|replaceable|recoverable`、真实 `mutationApplied` / `mutationBoundary`、attempt 计数和唯一 `nextAction`；达到上限后不会自动循环。完整故障矩阵与恢复语义按需见 `docs/agent-team-usage.md`。
 
 内部 Go commands、legacy compatibility API 和 direct host 仍供维护、迁移与排障使用；项目内 ordinary host 必须消费 fresh status 发布的 typed current driver request 及其 exact SHA-256，多条可继续 lane 并存时还必须先消费 typed choice，request SHA 不能替代 lane 选择。日常不需要手工拼接底层步骤，也不应直接调用中央 kit source runtime。
 

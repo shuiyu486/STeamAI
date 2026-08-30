@@ -20,6 +20,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionsuccessor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -39,8 +40,14 @@ type DailyOptions struct {
 	ControlWhatIf                     bool
 	ControlApply                      bool
 	DirectoryAdoptionAction           string
+	DirectoryAdoptionPack             string
 	ExpectedInitPlanSHA256            string
+	SuccessorWhatIf                   bool
+	SuccessorApply                    bool
+	SuccessorPublicationStamp         string
+	ExpectedSuccessorPlanSHA256       string
 	InitializationRepoRoot            string
+	InitializationSourceExecutable    string
 	Actor                             string
 	ClaudePath                        string
 	ExpectedClaudeExecutableSHA256    string
@@ -88,6 +95,7 @@ type DailyResult struct {
 	CurrentSyncRecovery        *syncreview.CurrentSyncRecovery        `json:"currentSyncRecovery,omitempty"`
 	DirectoryAdoption          *DailyDirectoryAdoption                `json:"directoryAdoption,omitempty"`
 	ExecutionControl           *executioncontrol.Plan                 `json:"executionControl,omitempty"`
+	SuccessorMission           *missionsuccessor.Result               `json:"successorMission,omitempty"`
 	BinaryREAdapter            *BinaryREAdapterLifecycleResult        `json:"binaryReAdapter,omitempty"`
 	WebSecurityAdapter         *WebSecurityAdapterLifecycleResult     `json:"webSecurityAdapter,omitempty"`
 	Boundary                   []string                               `json:"boundary"`
@@ -155,9 +163,16 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 	}()
 	ensureExecutionLease := func(caseRoot string) error {
 		if executionLease != nil {
+			if opt.SuccessorApply {
+				return executionLease.ValidateExclusiveFor(caseRoot)
+			}
 			return executionLease.ValidateFor(caseRoot)
 		}
-		acquired, acquireErr := acquireSharedForCurrentProject(caseRoot)
+		acquire := acquireSharedForCurrentProject
+		if opt.SuccessorApply {
+			acquire = acquireExclusiveForCurrentProject
+		}
+		acquired, acquireErr := acquire(caseRoot)
 		if acquireErr != nil {
 			return acquireErr
 		}
@@ -236,7 +251,16 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		if goal == "" {
 			return result, fmt.Errorf("daily target without committed onboarding requires -goal <natural-language goal>")
 		}
-		inspection, err = applyDailyOnboarding(caseRoot, goal, opt.Actor, &result)
+		if strings.TrimSpace(opt.InitializationSourceExecutable) == "" {
+			return result, fmt.Errorf("daily onboarding requires a verified unified runtime executable source")
+		}
+		inspection, err = applyDailyOnboarding(
+			caseRoot,
+			goal,
+			opt.Actor,
+			&result,
+			opt.InitializationSourceExecutable,
+		)
 		if err != nil {
 			return result, err
 		}
@@ -290,8 +314,74 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		}
 		exists = true
 	} else if inspection.Committed {
+		if opt.SuccessorApply && goal != "" && goal == strings.TrimSpace(inspection.Identity.Goal) {
+			result.Pack = inspection.Identity.Pack
+			replay, replayErr := missionsuccessor.ApplyWithLease(caseRoot, missionsuccessor.Options{
+				Goal: goal, Actor: opt.Actor, PublicationStamp: opt.SuccessorPublicationStamp,
+				ExpectedPlanSHA256: opt.ExpectedSuccessorPlanSHA256,
+			}, opt.projectExecutionLease)
+			if replayErr != nil {
+				return result, replayErr
+			}
+			result.SuccessorMission = &replay
+			result.FinalState = DailyActionReadyToContinue
+			result.Replay = replay.Replay
+			result.Action = &DailyUserAction{Code: DailyActionReadyToContinue, Message: "新任务已按精确计划建立；本次没有启动 Claude。", Now: "新任务已成为当前任务。", Reason: "successor mission Apply 已提交新的隔离任务代并保留旧任务审计。", Next: "刷新状态并从新任务的唯一初始 lane 预览继续。"}
+			return result, nil
+		}
 		if goal != "" && goal != strings.TrimSpace(inspection.Identity.Goal) {
-			return result, fmt.Errorf("daily goal differs from the immutable committed mission intent")
+			completion, completionErr := workstream.InspectMissionCompletion(caseRoot)
+			if completionErr != nil || !completion.Ready || !completion.OperationallyComplete || completion.State != "mission-complete" {
+				return result, fmt.Errorf("daily goal differs from the immutable committed mission intent")
+			}
+			if strings.TrimSpace(opt.SelectedLane) != "" || correction != "" {
+				return result, fmt.Errorf("successor mission goal does not accept a lane or correction")
+			}
+			result.Pack = inspection.Identity.Pack
+			successorOpt := missionsuccessor.Options{
+				Goal:               goal,
+				Actor:              opt.Actor,
+				PublicationStamp:   opt.SuccessorPublicationStamp,
+				ExpectedPlanSHA256: opt.ExpectedSuccessorPlanSHA256,
+			}
+			if opt.SuccessorApply {
+				applied, applyErr := missionsuccessor.ApplyWithLease(caseRoot, successorOpt, opt.projectExecutionLease)
+				if applyErr != nil {
+					return result, applyErr
+				}
+				result.SuccessorMission = &applied
+				result.FinalState = DailyActionReadyToContinue
+				result.Replay = applied.Replay
+				result.Action = &DailyUserAction{
+					Code:    DailyActionReadyToContinue,
+					Message: "新任务已按精确计划建立；本次没有启动 Claude。",
+					Now:     "新任务已成为当前任务。",
+					Reason:  "successor mission Apply 已提交新的隔离任务代并保留旧任务审计。",
+					Next:    "刷新状态并从新任务的唯一初始 lane 预览继续。",
+				}
+				return result, nil
+			}
+			if opt.ExpectedSuccessorPlanSHA256 != "" || opt.SuccessorPublicationStamp != "" {
+				return result, fmt.Errorf("successor mission binding requires -successor-apply")
+			}
+			plan, previewErr := missionsuccessor.Preview(caseRoot, successorOpt)
+			if previewErr != nil {
+				return result, previewErr
+			}
+			result.SuccessorMission = &missionsuccessor.Result{Plan: plan}
+			result.FinalState = DailyActionConfirmationRequired
+			result.Blocked = true
+			result.Action = &DailyUserAction{
+				Code:    DailyActionConfirmationRequired,
+				Message: "旧任务已完成；已生成新任务的零写入精确预览。",
+				Now:     "新任务尚未建立。",
+				Reason:  "新目标会创建独立任务代并切换当前任务，需要先确认精确写入计划。",
+				Next:    "确认后原样执行 successorMission.applyArgs；本次预览没有启动 Claude。",
+			}
+			return result, nil
+		}
+		if opt.SuccessorApply || opt.SuccessorWhatIf || opt.ExpectedSuccessorPlanSHA256 != "" || opt.SuccessorPublicationStamp != "" {
+			return result, fmt.Errorf("successor mission controls require a new goal")
 		}
 		if goal != "" {
 			result.OnboardingReplay = true
@@ -349,7 +439,7 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			correctionRoute, action, err = resolveDailyCorrectionRoute(caseRoot, pack, correction, opt.Actor, selected, inspection)
 			selected = correctionRoute.Lane
 		} else {
-			selected, action, err = dailySelectedLane(caseRoot, pack, selected, inspection.Identity.InitialLane)
+			selected, action, err = dailySelectedLane(caseRoot, pack, selected, opt.projectExecutionLease, inspection.Identity.InitialLane)
 		}
 		if err != nil {
 			return result, err
@@ -407,7 +497,7 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 		result.Replay = true
 		return result, nil
 	}
-	if err := ensureDailyStarted(caseRoot, pack, &result, routeLane); err != nil {
+	if err := ensureDailyStartedWithLease(caseRoot, pack, &result, opt.projectExecutionLease, routeLane); err != nil {
 		return result, err
 	}
 	if opt.beforeMemberRun != nil {
@@ -491,7 +581,7 @@ func bindDailyTrustedClaude(opt *DailyOptions) error {
 	return nil
 }
 
-func applyDailyOnboarding(caseRoot, goal, actor string, result *DailyResult) (missionintent.Inspection, error) {
+func applyDailyOnboarding(caseRoot, goal, actor string, result *DailyResult, sourceExecutable ...string) (missionintent.Inspection, error) {
 	pack := defaults.DefaultPack
 	projectName := strings.TrimSpace(filepath.Base(caseRoot))
 	if projectName == "" || projectName == "." || projectName == string(filepath.Separator) {
@@ -514,15 +604,19 @@ func applyDailyOnboarding(caseRoot, goal, actor string, result *DailyResult) (mi
 		"-Executor", executor, "-InitialLane", lane,
 		"-WhatIf", "-Format", "json",
 	}
+	executable := ""
+	if len(sourceExecutable) > 0 {
+		executable = strings.TrimSpace(sourceExecutable[0])
+	}
 	var plan onboarding.Plan
-	if err := runPublicCLI(args, &plan); err != nil {
+	if err := runPublicCLIWithUnifiedExecutable(args, &plan, executable); err != nil {
 		return missionintent.Inspection{}, fmt.Errorf("daily public onboard preview: %w", err)
 	}
 	if plan.IsMutation || plan.Replay || len(plan.ApplyArgs) == 0 {
 		return missionintent.Inspection{}, fmt.Errorf("daily public onboard preview omitted a fresh zero-write exact Apply request")
 	}
 	var applied onboarding.Result
-	if err := runPublicCLI(plan.ApplyArgs, &applied); err != nil {
+	if err := runPublicCLIWithUnifiedExecutable(plan.ApplyArgs, &applied, executable); err != nil {
 		return missionintent.Inspection{}, fmt.Errorf("daily public onboard Apply: %w", err)
 	}
 	if !applied.Applied || applied.Replay || !applied.Inspection.Committed {
@@ -601,8 +695,8 @@ func dailyPack(caseRoot string, inspection missionintent.Inspection) (string, er
 	return inst.TemplatePack, nil
 }
 
-func dailySelectedLane(caseRoot, pack, selected string, fallback ...string) (string, *DailyUserAction, error) {
-	status, err := runPublicStatus(caseRoot, pack, "")
+func dailySelectedLane(caseRoot, pack, selected string, lease *projectexecution.Lease, fallback ...string) (string, *DailyUserAction, error) {
+	status, err := runPublicStatusWithLease(caseRoot, pack, "", lease)
 	if err != nil {
 		return "", nil, err
 	}
@@ -672,7 +766,7 @@ func dailySelectedLane(caseRoot, pack, selected string, fallback ...string) (str
 		}
 		return "", dailySelectedLaneBlockedAction(choice), nil
 	}
-	if _, err := runPublicStatus(caseRoot, pack, selected); err != nil {
+	if _, err := runPublicStatusWithLease(caseRoot, pack, selected, lease); err != nil {
 		if explicit {
 			board, readErr := mission.ReadBoard(caseRoot)
 			if readErr != nil {
@@ -711,6 +805,10 @@ func dailyChoiceForLane(choices []DailyChoice, selected string) (DailyChoice, bo
 }
 
 func ensureDailyStarted(caseRoot, pack string, result *DailyResult, selected ...string) error {
+	return ensureDailyStartedWithLease(caseRoot, pack, result, nil, selected...)
+}
+
+func ensureDailyStartedWithLease(caseRoot, pack string, result *DailyResult, lease *projectexecution.Lease, selected ...string) error {
 	lane := firstSelectedLane(selected)
 	if lane == "" && result != nil {
 		lane = strings.TrimSpace(result.Lane)
@@ -735,7 +833,7 @@ func ensureDailyStarted(caseRoot, pack string, result *DailyResult, selected ...
 				statusLane = ""
 			}
 		}
-		status, err := runPublicStatus(caseRoot, pack, statusLane)
+		status, err := runPublicStatusWithLease(caseRoot, pack, statusLane, lease)
 		if err != nil {
 			return err
 		}
@@ -751,7 +849,7 @@ func ensureDailyStarted(caseRoot, pack string, result *DailyResult, selected ...
 			if !request.CommandExecutable || request.Blocked {
 				return fmt.Errorf("daily overview request is not executable")
 			}
-			if err := runPublicCommand(request.Command); err != nil {
+			if err := runPublicDriverRequest(*request, nil); err != nil {
 				return fmt.Errorf("consume daily public overview request: %w", err)
 			}
 			result.DriverSteps = append(result.DriverSteps, "overview")

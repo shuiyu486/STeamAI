@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -29,6 +30,9 @@ func runDailyDirectoryAdoption(opt DailyOptions, result *DailyResult) error {
 	}
 	if strings.TrimSpace(opt.SelectedLane) != "" {
 		return fmt.Errorf("daily directory adoption does not accept a lane before onboarding")
+	}
+	if strings.TrimSpace(opt.DirectoryAdoptionPack) != "" && action != dailyAdoptionInitialize && action != dailyAdoptionConfirm {
+		return fmt.Errorf("daily directory adoption pack requires initialize-in-place or confirm-exact-plan")
 	}
 	result.DirectoryAdoption = &DailyDirectoryAdoption{
 		State:  DailyActionDirectoryAdoptionRequired,
@@ -62,7 +66,11 @@ func runDailyDirectoryAdoption(opt DailyOptions, result *DailyResult) error {
 		if expected != "" {
 			return fmt.Errorf("daily directory adoption preview does not accept a plan hash")
 		}
-		plan, err := dailyDirectoryAdoptionPreview(opt, result.CaseRoot)
+		pack, err := dailyDirectoryAdoptionPack(opt)
+		if err != nil {
+			return err
+		}
+		plan, err := dailyDirectoryAdoptionPreview(opt, result.CaseRoot, pack)
 		if err != nil {
 			return err
 		}
@@ -85,16 +93,23 @@ func runDailyDirectoryAdoption(opt DailyOptions, result *DailyResult) error {
 		if expected == "" {
 			return fmt.Errorf("daily directory adoption confirmation requires the exact init plan SHA-256")
 		}
+		pack, err := dailyDirectoryAdoptionPack(opt)
+		if err != nil {
+			return err
+		}
 		repoRoot := strings.TrimSpace(opt.InitializationRepoRoot)
 		if repoRoot == "" {
 			return fmt.Errorf("daily directory adoption requires the external source repository owner")
 		}
-		applyOpt := dailyDirectoryAdoptionOptions()
+		if strings.TrimSpace(opt.InitializationSourceExecutable) == "" {
+			return fmt.Errorf("daily directory adoption requires a verified unified runtime executable source")
+		}
+		applyOpt := dailyDirectoryAdoptionOptions(opt.InitializationSourceExecutable)
 		applyOpt.ExpectedPlanSHA256 = expected
 		applied, err := syncreview.Apply(
 			repoRoot,
 			result.CaseRoot,
-			defaults.DefaultPack,
+			pack,
 			applyOpt,
 		)
 		if err != nil {
@@ -123,16 +138,19 @@ func runDailyDirectoryAdoption(opt DailyOptions, result *DailyResult) error {
 	}
 }
 
-func dailyDirectoryAdoptionPreview(opt DailyOptions, caseRoot string) (syncreview.InitPlan, error) {
+func dailyDirectoryAdoptionPreview(opt DailyOptions, caseRoot, pack string) (syncreview.InitPlan, error) {
 	repoRoot := strings.TrimSpace(opt.InitializationRepoRoot)
 	if repoRoot == "" {
 		return syncreview.InitPlan{}, fmt.Errorf("daily directory adoption requires the external source repository owner")
 	}
+	if strings.TrimSpace(opt.InitializationSourceExecutable) == "" {
+		return syncreview.InitPlan{}, fmt.Errorf("daily directory adoption requires a verified unified runtime executable source")
+	}
 	plan, err := syncreview.InitPreview(
 		repoRoot,
 		caseRoot,
-		defaults.DefaultPack,
-		dailyDirectoryAdoptionOptions(),
+		pack,
+		dailyDirectoryAdoptionOptions(opt.InitializationSourceExecutable),
 	)
 	if err != nil {
 		return syncreview.InitPlan{}, fmt.Errorf("preview daily directory adoption: %w", err)
@@ -143,9 +161,35 @@ func dailyDirectoryAdoptionPreview(opt DailyOptions, caseRoot string) (syncrevie
 	return plan, nil
 }
 
-func dailyDirectoryAdoptionOptions() syncreview.ApplyOptions {
+func dailyDirectoryAdoptionPack(opt DailyOptions) (string, error) {
+	pack := strings.TrimSpace(opt.DirectoryAdoptionPack)
+	if pack == "" {
+		pack = defaults.DefaultPack
+	}
+	repoRoot := strings.TrimSpace(opt.InitializationRepoRoot)
+	if repoRoot == "" {
+		if strings.TrimSpace(opt.DirectoryAdoptionAction) == "" {
+			return pack, nil
+		}
+		return "", fmt.Errorf("daily directory adoption requires the external source repository owner")
+	}
+	loaded, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return "", fmt.Errorf("load daily directory adoption pack %s: %w", pack, err)
+	}
+	if err := loaded.ValidateSchema(); err != nil {
+		return "", fmt.Errorf("daily directory adoption pack %s is invalid: %w", pack, err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(loaded.Maturity), "mature") {
+		return "", fmt.Errorf("daily directory adoption pack %s is not mature and cannot be selected", pack)
+	}
+	return loaded.Pack, nil
+}
+
+func dailyDirectoryAdoptionOptions(sourceExecutable string) syncreview.ApplyOptions {
 	return syncreview.ApplyOptions{
 		CreateLocalFiles: true,
 		Command:          "init",
+		SourceExecutable: strings.TrimSpace(sourceExecutable),
 	}
 }

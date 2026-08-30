@@ -31,7 +31,7 @@ func TestReducePublicStatusInteractionUsesOnlyTypedInteractionInput(t *testing.T
 					CommandExecutable: true,
 				}},
 			},
-			want: []string{"工作线已读取", "fresh typed action 已就绪", "exact action"},
+			want: []string{"工作线已读取", "可以继续推进", "本次状态中给出的步骤"},
 		},
 		{
 			name: "blocked",
@@ -41,12 +41,34 @@ func TestReducePublicStatusInteractionUsesOnlyTypedInteractionInput(t *testing.T
 					Blocked: true,
 				}},
 			},
-			want: []string{"状态已读取", "需要先处理 blocker", "不要手工拼内部参数"},
+			want: []string{"状态已读取", "需要先处理当前阻塞", "不要自行拼接内部参数"},
+		},
+		{
+			name: "details required",
+			input: publicStatusInteractionInput{
+				State:           "details-required",
+				DetailsRequired: true,
+				Reason:          "compact-output-budget-exceeded",
+			},
+			want: []string{"完整情况暂时无法", "当前下一步无法", "完整状态", "不要猜测"},
+		},
+		{
+			name: "mission complete",
+			input: publicStatusInteractionInput{
+				Summary: "全部工作线已完成",
+				CaseMission: &publicStatusMissionInput{
+					MissionCompletion: &publicMissionCompletionInput{
+						State:                 "mission-complete",
+						OperationallyComplete: true,
+					},
+				},
+			},
+			want: []string{"全部工作线已完成", "当前任务已完成", "补充或纠正", "新的独立目标"},
 		},
 		{
 			name:  "no current",
 			input: publicStatusInteractionInput{Summary: "空闲"},
-			want:  []string{"空闲", "没有可执行的 typed action", "告诉主 Agent 你的目标"},
+			want:  []string{"空闲", "没有可以直接执行的下一步", "告诉主 Agent 你的目标"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -95,7 +117,7 @@ func TestRunPublicSupervisorSeparatesInteractionAndDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := interaction.String()
-	for _, want := range []string{"现在：ready=1 blocked=0", "fresh typed action 已就绪", "exact action"} {
+	for _, want := range []string{"现在：ready=1 blocked=0", "可以继续推进", "本次状态中给出的步骤"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("interaction output missing %q: %s", want, text)
 		}

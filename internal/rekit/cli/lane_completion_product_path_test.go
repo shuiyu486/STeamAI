@@ -107,6 +107,21 @@ func TestRunLaneCompletionProductPathRoutesNextLaneAndMissionComplete(t *testing
 	if status.CaseMission.DailyMissionControlRunbook == nil || status.CaseMission.DailyMissionControlRunbook.CurrentDriverRequest != nil || status.CaseMission.DailyMissionControlRunbook.Ready {
 		t.Fatalf("mission-complete case runbook must not suggest continue or bootstrap: %+v", status.CaseMission.DailyMissionControlRunbook)
 	}
+	out.Reset()
+	if err := RunPublic([]string{"status", "--target", caseRoot}, &out, ""); err != nil {
+		t.Fatal(err)
+	}
+	publicText := out.String()
+	for _, expected := range []string{"当前任务已完成", "补充或纠正", "新的独立目标"} {
+		if !strings.Contains(publicText, expected) {
+			t.Fatalf("mission-complete public status omitted %q: %s", expected, publicText)
+		}
+	}
+	for _, forbidden := range []string{"missionCompletion", "mission-complete", "currentDriverRequestSha256", "generation", "-Expected"} {
+		if strings.Contains(publicText, forbidden) {
+			t.Fatalf("mission-complete public status leaked %q: %s", forbidden, publicText)
+		}
+	}
 	terminalLoop := runCurrentLoopPreview(t, caseRoot, 2)
 	if terminalLoop.ExpectedCurrentLoopPlanSHA256 != "" || terminalLoop.StopReason.Code != "mission-complete" || terminalLoop.StopReason.Phase != "status" || terminalLoop.InitialCurrentDriverRequest != nil || terminalLoop.ApplyCommand != "" {
 		t.Fatalf("mission-complete did not stop the bounded loop without an executable request: %+v", terminalLoop)

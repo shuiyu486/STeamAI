@@ -55,11 +55,17 @@ type statusCompactCase struct {
 }
 
 type statusCompactMission struct {
-	Ready            bool   `json:"ready"`
-	Summary          string `json:"summary,omitempty"`
-	LaneCount        int    `json:"laneCount"`
-	ReadyLaneCount   int    `json:"readyLaneCount"`
-	BlockedLaneCount int    `json:"blockedLaneCount"`
+	Ready             bool                            `json:"ready"`
+	Summary           string                          `json:"summary,omitempty"`
+	LaneCount         int                             `json:"laneCount"`
+	ReadyLaneCount    int                             `json:"readyLaneCount"`
+	BlockedLaneCount  int                             `json:"blockedLaneCount"`
+	MissionCompletion *statusCompactMissionCompletion `json:"missionCompletion,omitempty"`
+}
+
+type statusCompactMissionCompletion struct {
+	State                 string `json:"state"`
+	OperationallyComplete bool   `json:"operationallyComplete"`
 }
 
 type statusCompactOnboarding struct {
@@ -147,6 +153,12 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 			LaneCount:        status.CaseMission.LaneCount,
 			ReadyLaneCount:   status.CaseMission.ReadyLaneCount,
 			BlockedLaneCount: status.CaseMission.BlockedLaneCount,
+		}
+		if completion := status.CaseMission.MissionCompletion; completion != nil {
+			compact.CaseMission.MissionCompletion = &statusCompactMissionCompletion{
+				State:                 completion.State,
+				OperationallyComplete: completion.OperationallyComplete,
+			}
 		}
 	}
 	if status.Case != nil {
@@ -324,7 +336,7 @@ func marshalStatusCompactBlockedJSON(status statusInventory, reason string) ([]b
 
 func statusCompactFullDiagnosticsCommand(status statusInventory) (string, error) {
 	return status.publicProjection.command(
-		"/rekit status -Format " + statusCompactFullDiagnosticsFormat,
+		"/rekit status --diagnostics",
 	)
 }
 

@@ -755,7 +755,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 	returnedContinuation := continuation.ObservationContract.Alternatives[0]
 	failedContinuation := continuation.ObservationContract.Alternatives[1]
-	if strings.Contains(continuation.WhatIfCommand, "-ExpectedCurrentLoopReviewerAttemptSha256") || !strings.Contains(returnedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256) || !strings.Contains(failedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256) || failedContinuation.Transition != "refresh-status:spawn-reviewer" {
+	if strings.Contains(continuation.WhatIfCommand, "-ExpectedCurrentLoopReviewerAttemptSha256") || returnedContinuation.ExpectedReviewerAttemptSHA256 != dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256 || failedContinuation.ExpectedReviewerAttemptSHA256 != dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256 || !strings.Contains(returnedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256) || !strings.Contains(failedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256) || failedContinuation.Transition != "refresh-status:spawn-reviewer" {
 		t.Fatalf("result continuation did not separate shared command from guarded alternatives: shared=%s returned=%+v failed=%+v", continuation.WhatIfCommand, returnedContinuation, failedContinuation)
 	}
 	var operatorStatusOut bytes.Buffer
@@ -802,7 +802,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("checkpoint-bound reviewer result templates are incomplete: returned=%s failed=%s", returnedTemplate, failedTemplate)
 	}
 	for _, alternative := range resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives {
-		if !strings.Contains(alternative.ObservationEnvelopeTemplate, `"checkpointSha256": "`+dispatchApplied.SegmentCheckpoint.ArtifactSHA256+`"`) || !strings.Contains(alternative.ObservationEnvelopeTemplate, `"reviewerAttemptSha256": "`+resultAttempt.AttemptSnapshotSHA256+`"`) || !strings.Contains(alternative.ObservationPathCommand, "-CurrentLoopObservationPath") {
+		if alternative.ExpectedReviewerAttemptSHA256 != resultAttempt.AttemptSnapshotSHA256 || !strings.Contains(alternative.ObservationEnvelopeTemplate, `"checkpointSha256": "`+dispatchApplied.SegmentCheckpoint.ArtifactSHA256+`"`) || !strings.Contains(alternative.ObservationEnvelopeTemplate, `"reviewerAttemptSha256": "`+resultAttempt.AttemptSnapshotSHA256+`"`) || !strings.Contains(alternative.ObservationPathCommand, "-CurrentLoopObservationPath") {
 			t.Fatalf("checkpoint reviewer alternative omitted envelope intake: %+v", alternative)
 		}
 	}
@@ -3324,9 +3324,10 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if accepted.ObservationPath != observationPath || accepted.ObservationSHA256 != observationSHA256 {
 		t.Fatalf("member observation preview omitted exact envelope identity: %+v", accepted)
 	}
-	for _, required := range []string{"-CurrentLoopObservationPath \"" + observationPath + "\"", "-ExpectedCurrentLoopObservationSha256 \"" + observationSHA256 + "\"", "-ExpectedMemberExecutionPlanSha256 \"" + accepted.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256 + "\""} {
-		if !strings.Contains(accepted.ApplyCommand, required) {
-			t.Fatalf("member resume apply command omitted %q: %s", required, accepted.ApplyCommand)
+	applyArgs := rekitCommandCLIArgs(t, accepted.ApplyCommand)
+	for _, required := range []string{observationPath, observationSHA256, accepted.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256} {
+		if !containsArgValue(applyArgs, required) {
+			t.Fatalf("member resume apply command omitted typed argument value %q: %s", required, accepted.ApplyCommand)
 		}
 	}
 	for _, forbidden := range []string{"-MemberExecutionAttemptId", "-MemberExecutionOutcome", "-MemberExecutionObservedAt", "-Actor"} {

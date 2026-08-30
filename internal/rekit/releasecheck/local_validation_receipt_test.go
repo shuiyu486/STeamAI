@@ -314,7 +314,7 @@ func readyLocalValidationReceiptSubjectInput(t *testing.T, repo string, subject 
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile := gateProfile(catalogGateSteps(repo, cat.RecommendedMinimum))
+	profile := gateProfile(requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum))
 	steps := make([]LocalValidationReceiptStep, 0, len(profile.Steps))
 	for index, step := range profile.Steps {
 		steps = append(steps, LocalValidationReceiptStep{Index: index + 1, Command: step.Command, Status: "passed", ExitCode: 0, Attempts: 1})

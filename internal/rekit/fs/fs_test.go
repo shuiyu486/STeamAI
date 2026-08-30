@@ -364,6 +364,24 @@ func TestWalkRegularFilesAnchoredRejectsEmptyDirectoriesAndLimit(t *testing.T) {
 	}
 }
 
+func TestReadStableRegularFileAllowEmptyAnchored(t *testing.T) {
+	caseRoot := t.TempDir()
+	path := filepath.Join(caseRoot, "empty.jsonl")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := ReadStableRegularFileAllowEmptyAnchored(caseRoot, path, "empty ledger", 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("empty ledger bytes = %q", data)
+	}
+	if _, err := ReadStableRegularFileAnchored(caseRoot, path, "non-empty ledger", 1024); err == nil || !strings.Contains(err.Error(), "non-empty") {
+		t.Fatalf("non-empty reader accepted empty ledger: %v", err)
+	}
+}
+
 func TestReadStableRegularFileAnchoredRejectsSymlinkComponents(t *testing.T) {
 	caseRoot := t.TempDir()
 	real := filepath.Join(caseRoot, "real")

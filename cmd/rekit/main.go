@@ -85,15 +85,21 @@ func run(args []string) int {
 				process.projectRoot,
 			)
 		}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			fmt.Fprintln(os.Stderr, executableErr)
+			return 1
+		}
 		if process.projectRoot != "" {
-			return hostcmd.RunProjectLocal(
+			return hostcmd.RunProjectLocalWithUnifiedExecutable(
 				modeArgs,
 				os.Stdout,
 				os.Stderr,
 				process.projectRoot,
+				executable,
 			)
 		}
-		return hostcmd.Run(modeArgs, os.Stdout, os.Stderr)
+		return hostcmd.RunWithUnifiedExecutable(modeArgs, os.Stdout, os.Stderr, executable)
 	default:
 		var runErr error
 		switch {
@@ -110,7 +116,12 @@ func run(args []string) int {
 				process.projectRoot,
 			)
 		default:
-			runErr = cli.Run(modeArgs, os.Stdout)
+			executable, executableErr := os.Executable()
+			if executableErr != nil {
+				fmt.Fprintln(os.Stderr, executableErr)
+				return 1
+			}
+			runErr = cli.RunWithUnifiedExecutable(modeArgs, os.Stdout, executable)
 		}
 		if runErr != nil {
 			if code, handled := cli.RenderRuntimePlanFailure(

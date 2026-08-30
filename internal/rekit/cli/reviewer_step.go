@@ -147,7 +147,11 @@ func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) (retErr er
 		if strings.TrimSpace(opt.ExpectedReviewerStepPlanSHA256) != "" {
 			return fmt.Errorf("run-reviewer-step -WhatIf does not accept -ExpectedReviewerStepPlanSha256")
 		}
-		return writeJSON(out, plan)
+		diagnostics, err := buildReviewerStepDiagnosticsDTO(plan, ctx.Target)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, diagnostics)
 	}
 	if plan.ExternalHandoff != nil {
 		return fmt.Errorf("run-reviewer-step current step requires an external harness action before Apply")
@@ -166,7 +170,11 @@ func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) (retErr er
 	if err != nil {
 		return err
 	}
-	return writeJSON(out, plan)
+	diagnostics, err := buildReviewerStepDiagnosticsDTO(plan, ctx.Target)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, diagnostics)
 }
 
 func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPlan) (reviewerStepPlan, error) {
@@ -423,6 +431,8 @@ func reviewerStepPreparedRequest(ctx runtime.Context, opt Options, pkg *workstre
 	request := *pkg.CurrentDriverRequest
 	request.Kind = "preview-command"
 	request.Command = command
+	request.Invocation = nil
+	request.ExpectedReceipt.Command = command
 	request.Guidance = ""
 	request.CommandExecutable = true
 	request.Blocked = false
@@ -576,37 +586,51 @@ func replaceReviewerStepToken(command, placeholder, value string) string {
 }
 
 func qualifyReviewerStepRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (mission.MissionCommanderDriverRequest, error) {
-	command, err := projectVisibleCommand(ctx.Target, request.Command)
-	if err != nil {
+	if request.Invocation == nil {
+		command, err := projectVisibleCommand(ctx.Target, request.Command)
+		if err != nil {
+			return mission.MissionCommanderDriverRequest{}, err
+		}
+		request.Command = command
+		request, err = mission.MissionCommanderDriverRequestWithTypedCommand(request)
+		if err != nil {
+			return mission.MissionCommanderDriverRequest{}, err
+		}
+	} else if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
 		return mission.MissionCommanderDriverRequest{}, err
 	}
-	fields, err := splitDriverCommand(command)
-	if err != nil {
-		return mission.MissionCommanderDriverRequest{}, err
-	}
-	invocation, err := commands.ParsePublicInvocation(command)
-	if err != nil {
-		return mission.MissionCommanderDriverRequest{}, err
-	}
-	if len(fields) < 3 || !driverStepEntrypointMatches(ctx, fields[0]) || invocation.Command != commands.PlanSubagents {
+	if request.Invocation == nil || request.Invocation.Command != commands.PlanSubagents || len(request.Invocation.Arguments) == 0 {
 		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("reviewer request must use a typed plan-subagents invocation")
 	}
-	args := fields[2:]
-	if !driverCommandHasFlag(args, "-Target", "--target") {
-		fields = append(fields, "-Target", ctx.Target)
-	}
-	if !driverCommandHasFlag(args, "-Pack", "--pack") {
-		fields = append(fields, "-Pack", ctx.Pack)
-	}
-	if !driverCommandHasFlag(args, "-Format", "--format") {
-		fields = append(fields, "-Format", "json")
-	}
-	request.Command = joinDriverCommand(fields)
-	request, err = mission.MissionCommanderDriverRequestWithTypedCommand(request)
+	projection, err := resolveProjectPublicProjection(ctx.Target)
 	if err != nil {
 		return mission.MissionCommanderDriverRequest{}, err
 	}
-	return mission.MissionCommanderDriverRequestForEntrypoint(request, fields[0])
+	args := append([]string{}, request.Invocation.Arguments...)
+	if !driverCommandHasFlag(args, "-Target", "--target") {
+		args = append(args, "-Target", ctx.Target)
+	}
+	if !driverCommandHasFlag(args, "-Pack", "--pack") {
+		args = append(args, "-Pack", ctx.Pack)
+	}
+	if !driverCommandHasFlag(args, "-Format", "--format") {
+		args = append(args, "-Format", "json")
+	}
+	invocation, err := commands.NewPublicInvocation(commands.PlanSubagents, args...)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	command, err := invocation.RenderForEntrypoint(projection.entrypoint)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	request.Invocation = &invocation
+	request.Command = command
+	request.ExpectedReceipt.Command = command
+	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	return request, nil
 }
 
 func parseBoundedReviewerRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest, apply bool) (Options, error) {
@@ -619,24 +643,25 @@ func parseBoundedReviewerRequest(ctx runtime.Context, request mission.MissionCom
 	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
 		return Options{}, err
 	}
-	fields, err := splitDriverCommand(request.Command)
-	if err != nil {
-		return Options{}, err
-	}
-	if len(fields) < 3 || !driverStepEntrypointMatches(ctx, fields[0]) {
-		return Options{}, fmt.Errorf("reviewer driver request must use the canonical project entrypoint")
-	}
-	invocation, err := commands.ParsePublicInvocation(request.Command)
-	if err != nil {
-		return Options{}, err
-	}
-	if invocation.Command != commands.PlanSubagents {
+	if request.Invocation == nil || request.Invocation.Command != commands.PlanSubagents {
 		return Options{}, fmt.Errorf("reviewer driver request must use a typed plan-subagents invocation")
 	}
-	if err := validateBoundedReviewerTokens(invocation.Arguments, apply); err != nil {
+	projection, err := resolveProjectPublicProjection(ctx.Target)
+	if err != nil {
 		return Options{}, err
 	}
-	inner, err := Parse(append([]string{"-Command", commands.PlanSubagents}, invocation.Arguments...))
+	fields, err := splitDriverCommand(request.Command)
+	if err != nil || len(fields) < 2 || fields[0] != projection.entrypoint {
+		return Options{}, fmt.Errorf("reviewer driver request must use the canonical project entrypoint")
+	}
+	if err := validateBoundedReviewerTokens(request.Invocation.Arguments, apply); err != nil {
+		return Options{}, err
+	}
+	args, err := request.Invocation.CLIArgs()
+	if err != nil {
+		return Options{}, err
+	}
+	inner, err := Parse(args)
 	if err != nil {
 		return Options{}, err
 	}

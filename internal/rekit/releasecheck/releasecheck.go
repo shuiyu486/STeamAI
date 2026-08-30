@@ -132,14 +132,16 @@ type GateProfile struct {
 }
 
 type GateStep struct {
-	Command   string `json:"command"`
-	Source    string `json:"source"`
-	Kind      string `json:"kind"`
-	RepoPath  string `json:"repoPath,omitempty"`
-	Present   bool   `json:"present"`
-	Required  bool   `json:"required"`
-	InCatalog bool   `json:"inCatalog"`
-	Resolved  bool   `json:"resolved"`
+	Command    string   `json:"command"`
+	Executable string   `json:"executable,omitempty"`
+	Arguments  []string `json:"arguments,omitempty"`
+	Source     string   `json:"source"`
+	Kind       string   `json:"kind"`
+	RepoPath   string   `json:"repoPath,omitempty"`
+	Present    bool     `json:"present"`
+	Required   bool     `json:"required"`
+	InCatalog  bool     `json:"inCatalog"`
+	Resolved   bool     `json:"resolved"`
 }
 
 type DocumentCheck struct {
@@ -153,14 +155,14 @@ type catalog struct {
 	GlobalBoundaries   []string `json:"globalBoundaries"`
 }
 
-var requiredCommands = []string{
-	"go run ./cmd/rekit -- -Command release-check -Format json",
-	"go run ./cmd/rekit -- -Command status",
-	"go run ./cmd/rekit -- -Command packs",
-	"go run ./cmd/rekit -- -Command doctor",
-	CanonicalGoTestCommand,
-	"go vet ./...",
-	"git diff --check",
+var requiredCommands = []GateStep{
+	{Command: "go run ./cmd/rekit -- -Command release-check -Format json", Executable: "go", Arguments: []string{"run", "./cmd/rekit", "--", "-Command", "release-check", "-Format", "json"}},
+	{Command: "go run ./cmd/rekit -- -Command status", Executable: "go", Arguments: []string{"run", "./cmd/rekit", "--", "-Command", "status"}},
+	{Command: "go run ./cmd/rekit -- -Command packs", Executable: "go", Arguments: []string{"run", "./cmd/rekit", "--", "-Command", "packs"}},
+	{Command: "go run ./cmd/rekit -- -Command doctor", Executable: "go", Arguments: []string{"run", "./cmd/rekit", "--", "-Command", "doctor"}},
+	{Command: CanonicalGoTestCommand, Executable: "go", Arguments: []string{"test", "-count=1", "-p=2", "-timeout=30m", "./..."}},
+	{Command: "go vet ./...", Executable: "go", Arguments: []string{"vet", "./..."}},
+	{Command: "git diff --check", Executable: "git", Arguments: []string{"diff", "--check"}},
 }
 
 var requiredDocuments = []DocumentCheck{
@@ -221,7 +223,7 @@ func Build(repoRoot string) (Result, error) {
 		KnownGaps:             knownGaps(repo),
 		Warnings:              []string{},
 	}
-	check.GateProfile = gateProfile(check.RecommendedMinimum)
+	check.GateProfile = gateProfile(check.RequiredCommands)
 	if crossWarnings := goNativePublicSurfaceCrossWarnings(check.GoNativePublicSurface, check.PowerShellDeprecation.PublicFacade); len(crossWarnings) > 0 {
 		check.GoNativePublicSurface.Warnings = append(check.GoNativePublicSurface.Warnings, crossWarnings...)
 		check.GoNativePublicSurface.Ready = false
@@ -396,15 +398,19 @@ func catalogGateSteps(repo string, commands []string) []GateStep {
 	return steps
 }
 
-func requiredGateSteps(repo string, commands, catalogCommands []string) []GateStep {
+func requiredGateSteps(repo string, commands []GateStep, catalogCommands []string) []GateStep {
 	catalogSet := map[string]bool{}
 	for _, command := range catalogCommands {
 		catalogSet[normalizeCommand(command)] = true
 	}
 	steps := make([]GateStep, 0, len(commands))
-	for _, command := range commands {
-		inCatalog := catalogSet[normalizeCommand(command)]
-		steps = append(steps, gateStep(repo, command, "release-check", true, inCatalog))
+	for _, carrier := range commands {
+		inCatalog := catalogSet[normalizeCommand(carrier.Command)]
+		step := gateStep(repo, carrier.Command, "release-check", true, inCatalog)
+		step.Executable = carrier.Executable
+		step.Arguments = append([]string{}, carrier.Arguments...)
+		step.Resolved = step.Resolved && strings.TrimSpace(step.Executable) != ""
+		steps = append(steps, step)
 	}
 	return steps
 }

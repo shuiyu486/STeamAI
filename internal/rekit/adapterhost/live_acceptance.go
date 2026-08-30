@@ -18,6 +18,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -31,12 +32,14 @@ const (
 )
 
 type liveAcceptanceTestHooks struct {
+	afterInit           func(string) error
 	afterCaseQuarantine func(string) error
 }
 
 type LiveAcceptanceOptions struct {
 	RepoRoot    string
 	AdapterPath string
+	RuntimePath string
 	ReceiptPath string
 	testHooks   *liveAcceptanceTestHooks
 }
@@ -114,8 +117,12 @@ func RunLiveAcceptance(opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt
 	if err != nil {
 		return receipt, err
 	}
-	if strings.TrimSpace(opt.AdapterPath) == "" || strings.TrimSpace(opt.ReceiptPath) == "" {
-		return receipt, fmt.Errorf("adapter live acceptance requires -adapter and -receipt")
+	if strings.TrimSpace(opt.AdapterPath) == "" || strings.TrimSpace(opt.RuntimePath) == "" || strings.TrimSpace(opt.ReceiptPath) == "" {
+		return receipt, fmt.Errorf("adapter live acceptance requires -adapter, -runtime, and -receipt")
+	}
+	runtimePath, err := filepath.Abs(strings.TrimSpace(opt.RuntimePath))
+	if err != nil {
+		return receipt, err
 	}
 	adapterBinding, err := processguard.LockExecutable(adapterPath, 128<<20)
 	if err != nil {
@@ -126,6 +133,9 @@ func RunLiveAcceptance(opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt
 	receipt.RepoRoot = repoRoot
 	if pathWithin(repoRoot, receiptPath) {
 		return receipt, fmt.Errorf("adapter live acceptance receipt must be outside the repository: %s", receiptPath)
+	}
+	if err := runtimebundle.ValidateUnifiedExecutableRole(runtimePath); err != nil {
+		return receipt, err
 	}
 	receipt.AdapterPath = adapterPath
 	receipt.AdapterSHA256 = adapterSHA
@@ -184,6 +194,7 @@ func RunLiveAcceptance(opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt
 		ProjectName:      "rekit-rh06-adapter-live",
 		CreateLocalFiles: true,
 		Command:          "init",
+		SourceExecutable: runtimePath,
 	}
 	initPlan, err := syncreview.InitPreview(repoRoot, caseRoot, liveAcceptancePack, initOpt)
 	if err != nil || initPlan.IsMutation || !initPlan.ReviewRequired || !initPlan.RequiresConfirmation {
@@ -193,6 +204,11 @@ func RunLiveAcceptance(opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt
 	initialized, err := syncreview.Apply(repoRoot, caseRoot, liveAcceptancePack, initOpt)
 	if err != nil || !initialized.Applied {
 		return receipt, fmt.Errorf("adapter live acceptance init Apply failed: %w", err)
+	}
+	if opt.testHooks != nil && opt.testHooks.afterInit != nil {
+		if err := opt.testHooks.afterInit(caseRoot); err != nil {
+			return receipt, err
+		}
 	}
 
 	startOpt := workstream.StartOptions{

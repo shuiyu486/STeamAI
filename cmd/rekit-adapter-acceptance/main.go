@@ -13,6 +13,7 @@ func main() {
 	var opt adapterhost.LiveAcceptanceOptions
 	flag.StringVar(&opt.RepoRoot, "repo", "", "canonical re-context-kits repository root")
 	flag.StringVar(&opt.AdapterPath, "adapter", "", "built rekit-adapter-host executable")
+	flag.StringVar(&opt.RuntimePath, "runtime", "", "built unified cmd/rekit executable")
 	flag.StringVar(&opt.ReceiptPath, "receipt", "", "repository-external acceptance receipt path")
 	flag.Parse()
 	if flag.NArg() != 0 {
@@ -20,11 +21,13 @@ func main() {
 		os.Exit(2)
 	}
 	receipt, err := adapterhost.RunLiveAcceptance(opt)
-	if writeErr := adapterhost.WriteLiveAcceptanceReceipt(opt.ReceiptPath, receipt); writeErr != nil {
-		if err == nil {
-			err = writeErr
-		} else {
-			err = fmt.Errorf("%v; write receipt: %w", err, writeErr)
+	if receipt.ReceiptOutputPath != "" {
+		if writeErr := adapterhost.WriteLiveAcceptanceReceipt(receipt.ReceiptOutputPath, receipt); writeErr != nil {
+			if err == nil {
+				err = writeErr
+			} else {
+				err = fmt.Errorf("%v; write receipt: %w", err, writeErr)
+			}
 		}
 	}
 	data, marshalErr := json.MarshalIndent(receipt, "", "  ")

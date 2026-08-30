@@ -10,19 +10,35 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 func TestRunPlanSubagentsRejectsReviewerSessionBornBeforeControlAdvance(t *testing.T) {
-	const lane = "review-birth-control"
-	project := testfixture.NewProject(t, testfixture.ProjectOptions{
-		Layout: testfixture.CurrentProject, SourceRepo: repoRoot(t), Pack: "_template", ProjectName: "review-birth-control",
-	})
-	caseRoot := project.CaseRoot
-	writeCaseFile(t, caseRoot, ".steamai/board.json", `{"lanes":[{"id":"review-birth-control","status":"open","workspace":"workspace/review-birth-control","currentExecutor":"reviewer-main","executorGeneration":1}]}`+"\n")
-	writeCaseFile(t, caseRoot, ".steamai/lanes/review-birth-control/lane.json", `{
+	const lane = "feature-review-birth-control"
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var initOut bytes.Buffer
+	runInitApplyFromPreview(t, &initOut, "-Command", "init", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "review-birth-control")
+	var onboardOut bytes.Buffer
+	onboardArgs := []string{
+		"-Command", "onboard", "-Target", caseRoot, "-Pack", "_template",
+		"-ProjectName", "review-birth-control", "-Goal", "review birth control",
+		"-Actor", "mission-commander", "-Executor", "reviewer-main",
+		"-InitialLane", lane, "-WhatIf", "-Format", "json",
+	}
+	if err := Run(onboardArgs, &onboardOut); err != nil {
+		t.Fatal(err)
+	}
+	var onboard onboardCLIPlan
+	if err := json.Unmarshal(onboardOut.Bytes(), &onboard); err != nil {
+		t.Fatal(err)
+	}
+	onboardOut.Reset()
+	if err := Run(onboard.ApplyArgs, &onboardOut); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, ".steamai/board.json", `{"lanes":[{"id":"feature-review-birth-control","status":"open","workspace":"workspace/review-birth-control","currentExecutor":"reviewer-main","executorGeneration":1}]}`+"\n")
+	writeCaseFile(t, caseRoot, ".steamai/lanes/feature-review-birth-control/lane.json", `{
   "schemaVersion": 1,
-  "id": "review-birth-control",
+  "id": "feature-review-birth-control",
   "type": "feature",
   "name": "review-birth-control",
   "title": "Review birth control",
@@ -92,15 +108,32 @@ func TestRunPlanSubagentsRejectsReviewerSessionBornBeforeControlAdvance(t *testi
 }
 
 func TestRunPlanSubagentsRejectsStaleReviewerDispatchBeforeCompletionWrite(t *testing.T) {
-	const lane = "review-control"
-	project := testfixture.NewProject(t, testfixture.ProjectOptions{
-		Layout: testfixture.CurrentProject, SourceRepo: repoRoot(t), Pack: "_template", ProjectName: "review-control",
-	})
-	caseRoot := project.CaseRoot
-	writeCaseFile(t, caseRoot, ".steamai/board.json", `{"lanes":[{"id":"review-control","status":"open","workspace":"workspace/review-control","currentExecutor":"reviewer-main","executorGeneration":1}]}`+"\n")
-	writeCaseFile(t, caseRoot, ".steamai/lanes/review-control/lane.json", `{
+	const lane = "feature-review-control"
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var initOut bytes.Buffer
+	runInitApplyFromPreview(t, &initOut, "-Command", "init", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "review-control")
+	onboardArgs := []string{
+		"-Command", "onboard", "-Target", caseRoot, "-Pack", "_template",
+		"-ProjectName", "review-control", "-Goal", "review control",
+		"-Actor", "mission-commander", "-Executor", "reviewer-main",
+		"-InitialLane", lane, "-WhatIf", "-Format", "json",
+	}
+	initOut.Reset()
+	if err := Run(onboardArgs, &initOut); err != nil {
+		t.Fatal(err)
+	}
+	var onboard onboardCLIPlan
+	if err := json.Unmarshal(initOut.Bytes(), &onboard); err != nil {
+		t.Fatal(err)
+	}
+	initOut.Reset()
+	if err := Run(onboard.ApplyArgs, &initOut); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, ".steamai/board.json", `{"lanes":[{"id":"feature-review-control","status":"open","workspace":"workspace/review-control","currentExecutor":"reviewer-main","executorGeneration":1}]}`+"\n")
+	writeCaseFile(t, caseRoot, ".steamai/lanes/feature-review-control/lane.json", `{
   "schemaVersion": 1,
-  "id": "review-control",
+  "id": "feature-review-control",
   "type": "feature",
   "name": "review-control",
   "title": "Review control",

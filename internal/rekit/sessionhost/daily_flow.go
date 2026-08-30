@@ -52,7 +52,7 @@ func runDailyGoalFlow(
 		return owner.finish(result)
 	}
 
-	status, err := runPublicStatus(caseRoot, pack, result.Lane)
+	status, err := runPublicStatusWithLease(caseRoot, pack, result.Lane, hostOpt.projectExecutionLease)
 	if err != nil {
 		return err
 	}

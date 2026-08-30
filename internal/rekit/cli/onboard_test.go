@@ -639,7 +639,10 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 	var reopenPreview reopenProductResult
 	runCompletionJSON(t, &out, []string{"-Command", "reopen", "analysis", "-Target", caseRoot, "-Pack", "_template", "-Actor", "operator", "-Reason", "review requires fresh analysis evidence", "-EvidenceRefs", reopenEvidenceRel, "-WhatIf", "-Format", "json"}, &reopenPreview)
 	var reopened reopenProductResult
-	runCompletionJSON(t, &out, append(rekitCommandCLIArgs(t, reopenPreview.ApplyCommand), "-Target", caseRoot, "-Pack", "_template"), &reopened)
+	if len(reopenPreview.ApplyArgs) == 0 {
+		t.Fatal("public journey reopen preview omitted exact Apply args")
+	}
+	runCompletionJSON(t, &out, reopenPreview.ApplyArgs, &reopened)
 	if !reopened.Applied || reopened.OperationCommit == nil || !reopened.OperationCommit.NoAuthority || !reopened.OperationCommit.NoConfirmed {
 		t.Fatalf("public journey reopen receipt is not truthful: %+v", reopened)
 	}

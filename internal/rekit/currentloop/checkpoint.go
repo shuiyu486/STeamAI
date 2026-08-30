@@ -41,11 +41,12 @@ var (
 )
 
 type ObservationAlternative struct {
-	Kind                   string   `json:"kind"`
-	RequiredFlags          []string `json:"requiredFlags"`
-	PreviewCommandTemplate string   `json:"previewCommandTemplate,omitempty"`
-	Transition             string   `json:"transition,omitempty"`
-	Constraints            []string `json:"constraints"`
+	Kind                          string   `json:"kind"`
+	RequiredFlags                 []string `json:"requiredFlags"`
+	ExpectedReviewerAttemptSHA256 string   `json:"expectedReviewerAttemptSha256,omitempty"`
+	PreviewCommandTemplate        string   `json:"previewCommandTemplate,omitempty"`
+	Transition                    string   `json:"transition,omitempty"`
+	Constraints                   []string `json:"constraints"`
 }
 
 type ObservationContract struct {
@@ -1186,19 +1187,32 @@ func caseIdentity(repoRoot, caseRoot, pack string) (string, error) {
 }
 
 func openArtifactRoot(caseRoot string, create bool) (*os.Root, error) {
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	components, err := activeMissionNamespaceComponents(caseRoot, "runs", "current-loop-segments")
 	if err != nil {
 		return nil, err
 	}
-	return openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, "runs", "current-loop-segments"}, create)
+	return openCaseNamespaceRoot(caseRoot, components, create)
 }
 
 func openClaimRoot(caseRoot string, create bool) (*os.Root, error) {
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	components, err := activeMissionNamespaceComponents(caseRoot, "runs", "current-loop-segment-claims")
 	if err != nil {
 		return nil, err
 	}
-	return openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, "runs", "current-loop-segment-claims"}, create)
+	return openCaseNamespaceRoot(caseRoot, components, create)
+}
+
+func activeMissionNamespaceComponents(caseRoot string, parts ...string) ([]string, error) {
+	view, err := projectstate.ResolveMissionView(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(caseRoot, view.Path)
+	if err != nil || filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("current-loop active mission namespace escapes case root: %s", view.Path)
+	}
+	components := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+	return append(components, parts...), nil
 }
 
 func openCaseNamespaceRoot(caseRoot string, components []string, create bool) (*os.Root, error) {

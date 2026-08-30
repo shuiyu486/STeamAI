@@ -1010,11 +1010,11 @@ func candidateDecisionDraftPath(caseRoot, decisionInput string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return "", err
 	}
-	reviewsRoot := filepath.Join(stateRoot.Path, "reviews")
+	reviewsRoot := filepath.Join(view.Path, "reviews")
 	if err := assertInsideRoot(reviewsRoot, decisionPath); err != nil || refsf.SamePath(reviewsRoot, decisionPath) {
 		return "", fmt.Errorf("candidate decision draft path must stay under the attached case's resolved state reviews namespace: %s", decisionPath)
 	}
@@ -1151,15 +1151,18 @@ func writeCandidateDecisionDraftFile(caseRoot, path string, data []byte) (bool, 
 	if err != nil {
 		return false, err
 	}
-	stateRoot, err := projectstate.Resolve(caseRoot)
+	view, err := projectstate.ResolveMissionView(caseRoot)
 	if err != nil {
 		return false, err
 	}
-	rel, err := filepath.Rel(stateRoot.Path, decisionPath)
+	rel, err := filepath.Rel(view.Path, decisionPath)
 	if err != nil {
 		return false, err
 	}
-	return refsf.WriteExclusiveRegularFileAnchored(stateRoot.Path, rel, "candidate decision draft", data)
+	if err := view.ValidateCurrent(caseRoot); err != nil {
+		return false, err
+	}
+	return refsf.WriteExclusiveRegularFileAnchored(view.Path, rel, "candidate decision draft", data)
 }
 
 func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisionOptions) (CandidateDecisionResult, error) {

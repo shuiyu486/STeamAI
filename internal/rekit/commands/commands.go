@@ -118,41 +118,6 @@ type PublicProfilePolicy struct {
 	Commands       []string `json:"commands"`
 }
 
-var publicCommands = []string{
-	Attach,
-	Bootstrap,
-	Complete,
-	Continue,
-	Control,
-	Doctor,
-	Gate,
-	Handoff,
-	Init,
-	MigrateState,
-	NextBatch,
-	Note,
-	Onboard,
-	Overview,
-	Packs,
-	PlanSubagents,
-	Promote,
-	Reconcile,
-	Reopen,
-	ReleaseCheck,
-	ReleaseRun,
-	Repair,
-	RunCurrentLoop,
-	RunCurrentStep,
-	RunDriverStep,
-	RunReviewerStep,
-	RunReviewerWave,
-	Start,
-	Status,
-	Sync,
-	Update,
-	Validate,
-}
-
 var publicProfiles = []PublicProfile{
 	{Command: Attach, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Bootstrap, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
@@ -189,54 +154,15 @@ var publicProfiles = []PublicProfile{
 }
 
 func Public() []string {
-	out := append([]string{}, publicCommands...)
-	sort.Strings(out)
-	return out
+	return PublicProfileCommands(publicProfiles)
 }
 
 func PublicSet() map[string]bool {
 	set := map[string]bool{}
-	for _, command := range publicCommands {
-		set[command] = true
+	for _, profile := range publicProfiles {
+		set[profile.Command] = true
 	}
 	return set
-}
-
-func SymbolValues() map[string]string {
-	return map[string]string{
-		"Attach":          Attach,
-		"Bootstrap":       Bootstrap,
-		"Complete":        Complete,
-		"Continue":        Continue,
-		"Control":         Control,
-		"Doctor":          Doctor,
-		"Gate":            Gate,
-		"Handoff":         Handoff,
-		"Init":            Init,
-		"MigrateState":    MigrateState,
-		"NextBatch":       NextBatch,
-		"Note":            Note,
-		"Onboard":         Onboard,
-		"Overview":        Overview,
-		"Packs":           Packs,
-		"PlanSubagents":   PlanSubagents,
-		"Promote":         Promote,
-		"Reconcile":       Reconcile,
-		"Reopen":          Reopen,
-		"ReleaseCheck":    ReleaseCheck,
-		"ReleaseRun":      ReleaseRun,
-		"Repair":          Repair,
-		"RunCurrentLoop":  RunCurrentLoop,
-		"RunCurrentStep":  RunCurrentStep,
-		"RunDriverStep":   RunDriverStep,
-		"RunReviewerStep": RunReviewerStep,
-		"RunReviewerWave": RunReviewerWave,
-		"Start":           Start,
-		"Status":          Status,
-		"Sync":            Sync,
-		"Update":          Update,
-		"Validate":        Validate,
-	}
 }
 
 func PublicProfiles() []PublicProfile {
