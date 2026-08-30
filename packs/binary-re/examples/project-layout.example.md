@@ -13,7 +13,7 @@ C:\AI\m_projects\RE\
   cases\
     sample-vmp-case\              # 具体 RE 项目实例
       .claude\skills\steamai\     # project-local canonical skill
-      .steamai\                   # verified runtime、pack assets、typed state 与 evidence
+      .steamai\                   # verified runtime、pack assets、project state；successor generations 位于 missions\gNNNNNN
       CLAUDE.local.md
       references\binary-re\...
       scripts\

@@ -23,7 +23,7 @@ argument-hint: "[目标、继续请求、状态查询、纠偏、暂停/恢复/�
 - fresh `onboarding.state=absent` 只展示只读 pack choices，请用户给目标并选择 pack；`selectedPack` 只是当前投影，不是 durable identity。不得因 status 自动接入。
 - pending onboarding publication 不重新开放 pack 选择；只 review 并原样消费 `missionControlRunbook.currentDriverRequest` 中绑定既有 identity、publication stamp 与 plan SHA 的唯一 exact recovery action，不从 diagnostics 重建参数。onboarding committed 但 board 缺失时走 `overview` bootstrap，不复用 onboarding Apply。
 - “开始/继续/纠偏”：只走 typed daily owner；多任务时先展示 typed choices。
-- 当前 mission 已 `mission-complete` 时，新目标走 successor mission 路径：daily owner 先发布零写入、绑定旧 mission 完整 closure 的 successor preview；主 Agent只向用户展示新目标、代际隔离和影响，用户确认后原样消费该 preview 返回的 publication stamp 与 plan SHA 执行 exact Apply。普通用户不填写 hash。Apply 只激活新的独立 mission generation，保留 predecessor audit tree，返回 `ready-to-continue` 且不自动启动 Claude；随后重新读取 fresh compact status，并只消费其中唯一的 initial `start` preview。相同目标的重复 Apply 只能作为 committed replay，不得重建或覆盖 active pointer。
+- 当前 mission 已 `mission-complete` 时，新目标走 successor mission 路径：daily owner 先发布零写入、绑定旧 mission 完整 closure 的 successor preview；主 Agent只向用户展示新目标、代际隔离和影响，用户确认后原样执行 `successorMission.applyArgs`，不得省略或改写其中的 reviewed actor、目标、publication stamp 或 plan binding。普通用户不填写 hash。Apply 只激活新的独立 mission generation，保留 predecessor audit tree，返回 `ready-to-continue` 且不自动启动 Claude；随后重新读取 fresh compact status，并只消费其中唯一的 initial `start` preview。相同目标的重复 Apply 只能作为 committed replay，不得重建或覆盖 active pointer。
 - “暂停、恢复或停止某条 lane”：从 fresh compact status 唯一解析 exact lane；多 lane 时先展示 typed choices，选择前零写入。
 - 默认只告诉用户：**现在**、**原因**、**下一步**；内部路径、SHA、lane/session ID 仅在维护诊断时展开。
 - 完整 status 只用于按需诊断，不作为默认模型上下文。

@@ -73,7 +73,7 @@ claude
 
 普通 continue 的 public executable contract 固定为三阶段：fresh status 发布 typed `-WhatIf -Format json`；preview 结果以 `continuePlanSha256` 绑定完整 mutation snapshot，并发布保持同 selector、owner、generation 和其它 typed 参数、携带 `-ExpectedContinuePlanSha256` 的 exact `-Apply`；Apply 结果或后续 fresh status 重新发布 preview。blocked preview 不发布 Apply。主 Agent不得从 command prose 手工拼 phase，不得让 command 与 invocation 分别改写，也不得复用刚执行的 Apply request。
 
-completed mission 的不同新目标不复用 continue/reopen owner。successor preview绑定predecessor mission intent、完整closure与completion receipt，并给每个最终写入提供准确SHA/size；exact Apply按intent→generation artifacts→generation commit→transition commit→active pointer last顺序发布。中断留下的exact durable prefix可由同一request恢复，任何不同字节、stale closure、legacy/dual root或损坏的active binding都fail-closed。激活后mission-scoped board/policy/lanes/facts/runs/reviews/handovers等只指向active generation，project identity/runtime/packs/onboarding/transitions仍留项目根。
+completed mission 的不同新目标不复用 continue/reopen owner。successor preview绑定predecessor mission intent、完整closure、completion receipt与reviewed actor，并给每个最终写入提供准确SHA/size；主 Agent确认后只原样执行`successorMission.applyArgs`，不得重建或遗漏`-actor`等typed参数。exact Apply按intent→generation artifacts→generation commit→transition commit→active pointer last顺序发布。中断留下的exact durable prefix可由同一request恢复，任何不同字节、stale closure、legacy/dual root或损坏的active binding都fail-closed。激活后mission-scoped board/policy/lanes/facts/runs/reviews/handovers等只指向active generation，project identity/runtime/packs/onboarding/transitions仍留项目根。
 
 默认用户输出只包含：
 

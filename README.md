@@ -43,7 +43,7 @@ claude
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 
-> 当前已批准路线是 `steamai-architecture-product-convergence-v1`，按 `APC-01 → APC-02 → APC-03 → APC-04` 顺序实施；不并行跳批，也不创建新的 numbered batch 冒充路线进度。完成态必须由当前路线文档、Git-local typed receipt、direct commit 与本地 tracking ref共同证明；局部 live acceptance、synthetic fixture、manifest maturity、测试或 inventory 不单独代表总体完成，本地 readiness 也不冒充 remote CI green。
+> `steamai-architecture-product-convergence-v1` 的 `APC-01 → APC-02 → APC-03 → APC-04` 已全部完成；当前无 owner、无 next batch，等待新的明确批准路线，不从残留风险自动选题。完成态由当前路线文档、direct commit 与本地 tracking ref共同证明；局部 live acceptance、synthetic fixture、manifest maturity、测试或 inventory 不单独代表总体完成，本地 readiness 也不冒充 remote CI green。
 
 STeamAI 不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。heavy action 只在 strict durable profile 与 fresh `authorized-gate` 覆盖的 exact scope/budget/stop/output 内执行并留证；`bounded-autonomous-v1` 只是显式、短时、有界的免逐次询问，不是无限权限。
 
@@ -126,7 +126,7 @@ fresh target 的 external initializer 只展示 schema-valid、非 template 的 
 
 Reviewer rejection 仍由既有 correction/reconcile owner 记录 intervention、启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane。若所选 lane 已 committed completion/closed，front door 会把当前 completion receipt 作为证据，消费 public zero-write `reopen` preview 与 owner 返回的 exact Apply；提交后只返回 `ready-to-continue`，不会自动接管 executor、恢复旧 session/current-loop budget或启动 Claude。中断恢复只接受同 actor、纠偏文本、lane 与 exact plan；成功响应丢失后的相同请求返回同 operation 的 mutation-free replay，并复核 compound targets 仍是 current reopen。
 
-若整个当前 mission 已 `mission-complete`，用户提出不同新目标时不再报“冲突 goal”或复用 reopen。daily owner先返回绑定 predecessor mission intent、完整 closure、generation、publication stamp 与 write set 的零写入 successor preview；用户确认后主 Agent原样消费其 exact Apply。Apply commit-last、active-pointer-last，只激活新的 `.steamai/missions/gNNNNNN/` namespace，保留 predecessor audit tree，不写 authority/confirmed、不执行 heavy tool，也不自动启动 Claude；fresh status随后只发布该新 mission唯一的 initial `start` preview。普通用户不填写或记忆 SHA；相同请求只允许 committed replay，stale closure、legacy `.rekit`、dual root、partial/corrupt transition 或 pointer drift均 fail-closed。
+若整个当前 mission 已 `mission-complete`，用户提出不同新目标时不再报“冲突 goal”或复用 reopen。daily owner先返回绑定 predecessor mission intent、完整 closure、generation、publication stamp、reviewed actor 与 write set 的零写入 successor preview；用户确认后主 Agent必须原样消费 `successorMission.applyArgs`，不得省略或改写其中的 `-actor`、目标、stamp 或 plan binding。Apply commit-last、active-pointer-last，只激活新的 `.steamai/missions/gNNNNNN/` namespace，保留 predecessor audit tree，不写 authority/confirmed、不执行 heavy tool，也不自动启动 Claude；fresh status随后只发布该新 mission唯一的 initial `start` preview。普通用户不填写或记忆 SHA；相同请求只允许 committed replay，stale closure、legacy `.rekit`、dual root、partial/corrupt transition 或 pointer drift均 fail-closed。
 
 trusted daily 路线还使用 host-owned durable supervisor：front host 在 Claude 启动、output 返回、result-first、submission 或 intake 后中断时，fresh host 会收取同一 attempt/session 的 exact result、从已提交边界继续或在 ownership 证据丢失时先 durable fence 再 replacement，不用 PID 单独声称 liveness，也不会重复启动成功 session。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。失败 JSON 的顶层 `failure` 返回 stable `code` / `stage`、`terminal|replaceable|recoverable`、真实 `mutationApplied` / `mutationBoundary`、attempt 计数和唯一 `nextAction`；达到上限后不会自动循环。完整故障矩阵与恢复语义按需见 `docs/agent-team-usage.md`。
 

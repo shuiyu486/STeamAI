@@ -114,7 +114,7 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 
 该 smoke 在单个临时 case 中验证 `missing-board status → typed onboarding → quickstart continue preview/apply → 读回 durable run receipt/artifacts → intervention reconcile preview/apply → status refresh → typed project handoff preview/apply → explicit lane handoff preview + returned typed Apply → lane-scoped durable takeover → new-session status`；durable takeover artifact 采用 strict JSON decode，绑定完整 `currentDriverRequest` identity SHA 与 exact artifact bytes SHA，fresh status 会先验证 artifact 顶层镜像、再按当前 invocation 补齐 target/WhatIf/format/refresh route 后比较完整 request identity；unknown/trailing JSON、action/driver/expectedReceipt/boundary drift 均 fail-closed 并给出 handoff refresh preview。它不执行 heavy-tool、不 spawn session、不写 authority/confirmed。
 
-以下长命令块是 **legacy／backend deterministic reference**，仅供 legacy-only `.rekit` 项目、维护者、自动化和 full diagnostics 使用。current `.steamai` 项目的普通用户应继续使用 `/steamai` 或自然语言，不照抄这些 `/rekit` 命令。
+以下长命令块是 **legacy／backend deterministic reference**，仅供 legacy-only `.rekit` 项目、维护者、自动化和 full diagnostics 使用。current `.steamai` 项目的普通用户应继续使用 `/steamai` 或自然语言，不照抄这些 `/rekit` 命令。completed mission的新目标由daily owner返回`successorMission.applyArgs`；主 Agent必须连同reviewed `-actor`原样执行，不从本附录拼装。
 
 ```text
 /rekit overview              # legacy/维护诊断：看项目总览，不选择工作线
