@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
@@ -159,7 +160,7 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 		if err := verifyDailyCorrection(existing, lane, correction, hostOpt.Actor, result.CorrectionEventID, targetRef, rejection); err != nil {
 			return result, err
 		}
-		step, err := runPublicDriverStep(result.CaseRoot, result.Pack, lane)
+		step, err := runPublicDriverStepWithLease(result.CaseRoot, result.Pack, dailyOpt.projectExecutionLease, lane)
 		if err != nil {
 			return result, fmt.Errorf("daily public correction reconcile: %w", err)
 		}
@@ -197,7 +198,22 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 	if !adapterReady {
 		return result, nil
 	}
-	owner, err := newDailySessionTransitionOwner(result.CaseRoot, result.Pack, lane)
+	if result.Pack == defaults.DefaultPack {
+		inputReady, err := prepareDailyInputReadiness(
+			result.CaseRoot,
+			result.Pack,
+			lane,
+			DailyInputRequest{},
+			&result,
+		)
+		if err != nil {
+			return result, err
+		}
+		if !inputReady {
+			return result, nil
+		}
+	}
+	owner, err := newDailySessionTransitionOwner(result.CaseRoot, result.Pack, lane, dailyOpt.projectExecutionLease)
 	if err != nil {
 		return result, err
 	}

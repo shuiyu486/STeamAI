@@ -419,6 +419,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		Model:                             opt.Model,
 		Timeout:                           opt.Timeout,
 		MaxAttempts:                       opt.MaxAttempts,
+		Input:                             DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		onCaseReady: func(root string) error {
 			if err := captureLiveAcceptanceCaseRoot(root, &freshCaseIdentity); err != nil {
 				return err
@@ -765,6 +766,7 @@ func runLiveAcceptanceAttached(parent context.Context, caseRoot, pack, goal, act
 		Model:                             opt.Model,
 		Timeout:                           opt.Timeout,
 		MaxAttempts:                       opt.MaxAttempts,
+		Input:                             DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		onCaseReady: func(root string) error {
 			return captureLiveAcceptanceCaseRoot(root, identity)
 		},

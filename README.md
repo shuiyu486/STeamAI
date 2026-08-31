@@ -6,9 +6,18 @@ Canonical GitHub repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486
 
 用户前提很简单：**本机已经能正常使用 Claude Code**。STeamAI 不安装 Claude Code、不管理登录、不要求全局 plugin，也不另造桌面启动器。
 
-下面三步只适用于**已经完成一次 STeamAI 接入**的项目。未接入的普通目录在 init 前没有项目级 `/steamai`，Claude Code 不会凭空识别它；首次接入必须由可信的外部 STeamAI initializer / maintenance executable 先做只读分类并生成 hash-bound init preview，用户确认 exact writes 后才 Apply。Apply 会把 `/steamai` skill、`.steamai` 状态根、verified runtime 和 selected pack 发布进项目；此后日常使用不再依赖 initializer、机器 PATH、全局 plugin 或原中央 kit。
+未接入的普通目录在 init 前没有项目级 `/steamai`，Claude Code 不会凭空识别它。目前仓库尚未提供面向普通用户的独立安装包。Windows source-clone-first 首次接入使用 canonical clone 内一次性构建的 unified executable；它先生成零写入 exact preview，只有用户输入 `APPLY` 后才在同一进程内部消费 plan SHA。用户不填写 SHA。Apply 会把 `/steamai` skill、`.steamai` 状态根、verified runtime 和 selected pack 发布进项目；此后日常使用不再依赖 bootstrap executable、机器 PATH、全局 plugin 或原 clone。
 
-目前仓库尚未提供面向普通用户的独立安装包；从源码试用时，一次性 initializer 由维护者在 canonical clone 中构建 unified `cmd/rekit`，再用该 executable 对目标目录运行 init/directory-adoption 的只读 preview 与其返回的 exact Apply。不能把 `cd → claude → /steamai` 描述成一个从未接入目录的首次启动方式，也不能让新项目回退到机器 PATH、外部 kit 或中央源码 runtime。
+```text
+git clone https://github.com/shuiyu486/STeamAI.git
+cd STeamAI
+go build -trimpath -o .\steamai-bootstrap.exe .\cmd\rekit
+.\steamai-bootstrap.exe bootstrap -target "C:\work\my-project" -goal "分析这个项目并建立可审计任务主线" -pack binary-re
+```
+
+目标目录必须已经存在；不提供 `-pack` 时只返回 mature pack choices（当前 `binary-re`、`web-security`），不写项目。默认交互模式完整展示 preview，并要求输入精确的 `APPLY`；其它输入或 EOF 均取消。`-format json` 永远只返回 preview、不会读取确认或写项目。Apply 成功只返回 `ready-to-continue`、`NoAutoResume=true` 和 manifest-bound typed continuation，不启动 Claude、不写 onboarding mission；用户或主 Agent下一次明确选择继续原目标时，才消费该 continuation。这里没有 installer、PATH shim、全局 plugin、PowerShell runtime 或自动更新器。
+
+下面的日常三步只适用于**已经完成一次 STeamAI 接入**的项目：
 
 ```text
 cd <已接入的 project>
@@ -43,7 +52,7 @@ claude
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 
-> `steamai-architecture-product-convergence-v1` 的 `APC-01 → APC-02 → APC-03 → APC-04` 已全部完成；当前无 owner、无 next batch，等待新的明确批准路线，不从残留风险自动选题。完成态由当前路线文档、direct commit 与本地 tracking ref共同证明；局部 live acceptance、synthetic fixture、manifest maturity、测试或 inventory 不单独代表总体完成，本地 readiness 也不冒充 remote CI green。
+> `steamai-architecture-product-convergence-v1` 的 `APC-01 → APC-02 → APC-03 → APC-04` 已全部完成；当前无 owner、无 next batch，等待新的明确批准路线，不从残留风险自动选题。完成态由当前路线文档、direct commit 与本地 tracking ref共同证明；局部 live acceptance、synthetic fixture、manifest maturity、测试或 inventory 不单独代表总体完成。`release-check.ready` 仅是兼容的 inventory readiness；`readinessLayers` 分开给出 local validation、真实 Windows acceptance、remote CI green 与 formal release truth，本地低层 ready 不向上冒充。
 
 STeamAI 不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。heavy action 只在 strict durable profile 与 fresh `authorized-gate` 覆盖的 exact scope/budget/stop/output 内执行并留证；`bounded-autonomous-v1` 只是显式、短时、有界的免逐次询问，不是无限权限。
 
@@ -95,7 +104,7 @@ Claude Code Remote Control 仅作为显式 opt-in 的 read-only Reviewer transpo
 
 ### 1. 新 STeamAI 项目
 
-**首次接入（一次）**：未接入目录里还没有 `/steamai`。可信的外部 initializer 先只读分类目标目录并返回 exact init preview；用户确认具体新增文件后才 Apply。initializer 不覆盖普通项目文件，不把中央 kit 路径写成日常依赖；collision、partial state、wrong binding、dual root、symlink/junction/reparse 或 plan/source/target drift 都会停止。
+**首次接入（一次）**：未接入目录里还没有 `/steamai`。在 Windows canonical source clone 中按上面的 `go build -trimpath -o .\steamai-bootstrap.exe .\cmd\rekit` 构建单文件 unified image，再执行其 external-only `bootstrap` mode。它只接受已经存在的 ordinary directory 和明确 mature pack，先返回 exact init preview；交互输入精确 `APPLY` 后才在同一进程内消费 hash binding。它不覆盖普通项目文件，不把 clone 路径写成日常依赖；collision、partial state、wrong binding、dual root、symlink/junction/reparse 或 plan/source/target drift 都会停止。`-format json` 固定 preview-only；Apply 只返回 typed original-goal continuation 与 `NoAutoResume=true`，不会在本次调用继续 goal 或启动 Claude。
 
 **接入完成后（日常）**：直接在真实项目目录启动 Claude Code：
 
@@ -113,6 +122,8 @@ claude
 主 Agent 使用项目内 deterministic daily front door；用户不填写 pack、lane、executor、session/event ID、generation、时间、路径或 SHA，也不需要记底层 executable 命令。`/steamai` 通过 `${CLAUDE_PROJECT_DIR}` 定位并验证项目内 runtime，再提交原始 goal/correction。需要直接查询时，项目内 executable 的 no-mode `help` / `status` / `continue` 是普通用户 surface；`runtime -Command ...` 与 `host -daily` 只作为 typed bridge 和维护 API。
 
 ordinary public `continue` 只消费 fresh status 的 typed `-WhatIf -Format json`，再原样执行 preview 返回的 exact Apply。preview 顶层 `continuePlanSha256` 绑定完整 mutation snapshot，returned Apply 携带同值的 `-ExpectedContinuePlanSha256`；current action blocked 时不发布 Apply。Apply 后必须刷新 status，不能手工拼 phase、参数或复用旧 request。
+
+`binary-re` 在启动 member 前还要求 typed input readiness：分析具体文件时由主 Agent让用户选择一个 case-local artifact、alias 或 sidecar，runtime 绑定并在进程启动前重验 path/SHA/bytes；只想检查目录时选择 bounded `workspace-inventory` scope。模式或目标不明确会返回 `input-required`，选择前不启动 member/Reviewer，也不会通过自然语言关键词或扫描目录猜测目标。用户仍只提供项目内目标或目录，executor、generation、binding identity 与 SHA 由 runtime 生成。
 
 fresh target 的 external initializer 只展示 schema-valid、非 template 的 pack choices；普通用户只能选择 mature pack（当前为 `binary-re` 与 `web-security`），骨架 pack可以在 inventory 中可见但不能作为普通接入选择。已通过 `attach/init` 绑定且 doctor-ready、尚无 Mission Control 状态的 existing case 会从 metadata 选择 pack，并只追加 immutable onboarding intent/mission/commit，不覆盖普通 case 文件。旧 `vmp-re` / `generic-binary-re` metadata 只返回 typed `pack-migration-required`，不作为 alias、不自动迁移或改写。相同 goal 在当前真实 member 已 intake-ready 后安全 replay，不重复启动 Claude；当前 mission 尚未完成时的冲突 goal 会明确拒绝。
 

@@ -10,12 +10,14 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -322,6 +324,9 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 				return AppendResult{}, fmt.Errorf("note execution control binding is stale: %w", err)
 			}
 		}
+		if err := requireCurrentOwnerBindingWithLease(inst.CaseRoot, mutationLease, lane, opt); err != nil {
+			return AppendResult{}, err
+		}
 		exists, err = eventIDExists(inst.CaseRoot, eventID)
 		if err != nil {
 			return AppendResult{}, err
@@ -347,6 +352,40 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 	result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
 	result.MissionCommanderNextActions = noteMissionCommanderNextActions(boardLane, result.ExecutorAction)
 	return result, nil
+}
+
+func requireCurrentOwnerBindingWithLease(caseRoot string, lease *lanemutation.Lease, lane string, opt Options) error {
+	if strings.TrimSpace(opt.OwnerBindingMode) != "daily-active-correction" {
+		return nil
+	}
+	executor := strings.TrimSpace(opt.OwnerExecutor)
+	generationText := strings.TrimSpace(opt.OwnerGeneration)
+	if executor == "" && generationText == "" {
+		return nil
+	}
+	if executor == "" || generationText == "" {
+		return fmt.Errorf("note owner binding requires both executor and generation")
+	}
+	generation, err := strconv.Atoi(generationText)
+	if err != nil || generation < 1 {
+		return fmt.Errorf("note owner binding generation is invalid: %q", opt.OwnerGeneration)
+	}
+	if err := lease.ValidateLaneFor(caseRoot, lane); err != nil {
+		return err
+	}
+	current, err := laneowner.Read(caseRoot, lane)
+	if err != nil || current.CurrentExecutor != executor || current.ExecutorGeneration != generation {
+		return fmt.Errorf(
+			"note owner binding is stale for lane %s: expected %s/%d got %s/%d: %w",
+			lane,
+			executor,
+			generation,
+			current.CurrentExecutor,
+			current.ExecutorGeneration,
+			err,
+		)
+	}
+	return lease.ValidateLaneFor(caseRoot, lane)
 }
 
 func noteMissionCommanderNextActions(lane mission.BoardLane, action mission.ExecutorAction) []mission.MissionCommanderNextActionItem {
@@ -728,6 +767,7 @@ var recordCommandReplayableKeys = map[string]bool{
 	"reviewerDecisionEventId":         true,
 	"ownerExecutor":                   true,
 	"ownerGeneration":                 true,
+	"ownerBindingMode":                true,
 }
 
 func recordCommand(args []string) string {
@@ -786,6 +826,7 @@ func recordArgs(caseRoot, pack string, event map[string]any, eventSHA256 string,
 		{"-ReviewerDecisionEventId", "reviewerDecisionEventId"},
 		{"-ReviewerOwnerExecutor", "ownerExecutor"},
 		{"-ReviewerOwnerGeneration", "ownerGeneration"},
+		{"-ReviewerOwnerBindingMode", "ownerBindingMode"},
 		{"-ExpectedNoteEventSha256", ""},
 	} {
 		value := eventSHA256

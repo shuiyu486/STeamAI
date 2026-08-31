@@ -22,6 +22,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
@@ -55,6 +56,7 @@ func TestRunDailyCaseReadyHookCapturesFreshOnboardingFailure(t *testing.T) {
 		ClaudePath:                        missingClaudePath(t),
 		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
 		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		Input:                             DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		onCaseReady: func(root string) error {
 			calls++
 			if root != caseRoot {
@@ -88,6 +90,7 @@ func TestRunDailyCaseReadyHookCapturesExistingCaseBeforeMutation(t *testing.T) {
 		ClaudePath:                        missingClaudePath(t),
 		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
 		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		Input:                             DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		onCaseReady: func(root string) error {
 			calls++
 			if root != caseRoot {
@@ -124,7 +127,7 @@ func TestRunDailyRejectsUnboundCustomClaudeBeforeMutation(t *testing.T) {
 func TestRunDailyFreshGoalCommitsAndStartsBeforeClaudeUnavailable(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "fresh")
 	unifiedExecutable := buildSessionhostUnifiedRuntimeFixture(t, sessionhostTestRepoRoot(t))
-	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "inspect the supplied research target", InitializationSourceExecutable: unifiedExecutable, ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "inspect the supplied research target", InitializationSourceExecutable: unifiedExecutable, ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher, Input: DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."}})
 	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
 		t.Fatalf("RunDaily result=%+v err=%v", result, err)
 	}
@@ -148,7 +151,7 @@ func TestRunDailyFreshGoalCommitsAndStartsBeforeClaudeUnavailable(t *testing.T) 
 	}
 }
 
-func TestRunDailyResumeContinuesCommittedLaneBeforeClaudeUnavailable(t *testing.T) {
+func TestRunDailyResumeBootstrapsCommittedLaneBeforeRequiringTypedInput(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "resume")
 	bootstrap := DailyResult{CaseRoot: caseRoot}
 	inspection, err := applyDailyOnboarding(caseRoot, "resume goal", "daily-test", &bootstrap)
@@ -156,10 +159,10 @@ func TestRunDailyResumeContinuesCommittedLaneBeforeClaudeUnavailable(t *testing.
 		t.Fatal(err)
 	}
 	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
-	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+	if err != nil {
 		t.Fatalf("resume result=%+v err=%v", result, err)
 	}
-	if result.Mode != "resume" || result.Pack != inspection.Identity.Pack || result.Lane != inspection.Identity.InitialLane || result.SessionLaunches != 0 || !containsDailyStep(result.DriverSteps, "overview") || !containsDailyStep(result.DriverSteps, "start") {
+	if result.Mode != "resume" || result.Pack != inspection.Identity.Pack || result.Lane != inspection.Identity.InitialLane || result.FinalState != DailyActionInputRequired || !result.Blocked || result.SessionLaunches != 0 || !containsDailyStep(result.DriverSteps, "overview") || !containsDailyStep(result.DriverSteps, "start") {
 		t.Fatalf("resume result=%+v", result)
 	}
 }
@@ -257,7 +260,282 @@ func TestRunDailyCorrectionMultipleLanesRequiresChoiceWithoutWrite(t *testing.T)
 	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
 }
 
-func TestRunDailyResolvedLaneBindsMemberPreparation(t *testing.T) {
+func TestRunDailyActiveCorrectionRequiresExplicitLaneWithoutWrite(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "single-active-correction-choice")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "single active correction goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:     caseRoot,
+		Correction: "change the active lane approach only after explicit selection",
+		Actor:      "daily-test",
+	})
+	if err != nil {
+		t.Fatalf("active correction choice result=%+v err=%v", result, err)
+	}
+	if result.Action == nil || result.Action.Code != DailyActionBlocked ||
+		!result.Action.RequiresInput || len(result.Action.Choices) != 1 ||
+		result.Action.Choices[0].ID != bootstrap.Lane || result.SessionLaunches != 0 ||
+		len(result.HostRuns) != 0 || len(result.DriverSteps) != 0 {
+		t.Fatalf("single active correction did not require exact lane selection: %+v", result)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunDailyActiveCorrectionAdvancesSelectedOwnerGenerationWithoutLaunch(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "selected-active-correction")
+	actor := "daily-test"
+	correction := "replace the current approach with the bounded corrected approach"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "selected active correction goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, ok := mission.LookupBoardLane(board.Lanes, bootstrap.Lane, false)
+	if !ok || before.CurrentExecutor == "" || before.ExecutorGeneration < 1 {
+		t.Fatalf("active correction fixture has no current owner: %+v", before)
+	}
+
+	memberRunCalled := false
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Correction: correction, SelectedLane: bootstrap.Lane, Actor: actor,
+		beforeMemberRun: func(_, _, _ string) error { memberRunCalled = true; return nil },
+	})
+	if err != nil {
+		t.Fatalf("active correction result=%+v err=%v", result, err)
+	}
+	if memberRunCalled || result.Lane != bootstrap.Lane ||
+		result.FinalState != "active-correction-recorded" || result.Action == nil ||
+		result.Action.Code != DailyActionReadyToContinue || result.CorrectionEventID == "" ||
+		result.ExecutorGeneration != before.ExecutorGeneration+1 || result.SessionLaunches != 0 ||
+		len(result.HostRuns) != 0 || !containsDailyStep(result.DriverSteps, "note-active-correction") ||
+		!containsDailyStep(result.DriverSteps, "reconcile") {
+		t.Fatalf("active correction crossed its bounded generation fence: called=%t result=%+v", memberRunCalled, result)
+	}
+	board, err = mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, ok := mission.LookupBoardLane(board.Lanes, bootstrap.Lane, false)
+	if !ok || after.CurrentExecutor != before.CurrentExecutor ||
+		after.ExecutorGeneration != before.ExecutorGeneration+1 ||
+		after.LastReconciledIntervention != result.CorrectionEventID || after.Authority {
+		t.Fatalf("active correction changed the wrong lane authority/owner state: before=%+v after=%+v", before, after)
+	}
+	items, err := mission.ReadStrictFact(caseRoot, "intervention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventCount := 0
+	resolutionCount := 0
+	for _, item := range items {
+		if mission.Value(item, "eventId") == result.CorrectionEventID {
+			eventCount++
+			if mission.Value(item, "subject") != dailyActiveCorrectionSubject ||
+				mission.Value(item, "ownerExecutor") != before.CurrentExecutor ||
+				mission.Value(item, "ownerGeneration") != fmt.Sprint(before.ExecutorGeneration) {
+				t.Fatalf("active correction event lost its superseded owner binding: %+v", item)
+			}
+		}
+		if mission.Value(item, "resolvesEventId") == result.CorrectionEventID {
+			resolutionCount++
+		}
+	}
+	if eventCount != 1 || resolutionCount != 1 {
+		t.Fatalf("active correction append/reconcile counts event=%d resolution=%d", eventCount, resolutionCount)
+	}
+	stale, err := workstream.ContinuePreview(
+		sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack),
+		caseRoot,
+		inspection.Identity.Pack,
+		workstream.ContinueOptions{
+			Selector:                   bootstrap.Lane,
+			Executor:                   before.CurrentExecutor,
+			ExpectedExecutorGeneration: before.ExecutorGeneration,
+		},
+	)
+	if err != nil || !stale.Blocked || stale.ContinueOwnerGuardRecovery == nil {
+		t.Fatalf("superseded generation was not held by owner guard: result=%+v err=%v", stale, err)
+	}
+}
+
+func TestRunDailyActiveCorrectionReplaysCommittedReconcileAfterRefreshFailure(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "active-correction-refresh-recovery")
+	actor := "daily-test"
+	correction := "recover the exact committed active correction"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "active correction refresh recovery goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, ok := mission.LookupBoardLane(board.Lanes, bootstrap.Lane, false)
+	if !ok {
+		t.Fatal("active correction lane missing")
+	}
+
+	restoreRefreshHook := cli.SetDriverStepStatusRefreshHookForTest(func(command string) error {
+		if command == "run-driver-step" {
+			return errors.New("injected status refresh failure")
+		}
+		return nil
+	})
+	t.Cleanup(restoreRefreshHook)
+
+	first, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Correction: correction, SelectedLane: bootstrap.Lane, Actor: actor,
+	})
+	if err != nil {
+		t.Fatalf("committed correction recovery result=%+v err=%v", first, err)
+	}
+	if !first.Replay || first.FinalState != "active-correction-recorded" ||
+		first.ExecutorGeneration != before.ExecutorGeneration+1 ||
+		!containsDailyStep(first.DriverSteps, "reconcile") {
+		t.Fatalf("post-refresh failure was not recovered as committed: %+v", first)
+	}
+	restoreRefreshHook()
+
+	second, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Correction: correction, SelectedLane: bootstrap.Lane, Actor: actor,
+	})
+	if err != nil {
+		t.Fatalf("active correction replay result=%+v err=%v", second, err)
+	}
+	if !second.Replay || second.CorrectionEventID != first.CorrectionEventID ||
+		second.ExecutorGeneration != before.ExecutorGeneration+1 || len(second.DriverSteps) != 0 {
+		t.Fatalf("same correction replay advanced generation or republished: first=%+v second=%+v", first, second)
+	}
+	items, err := mission.ReadStrictFact(caseRoot, "intervention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, resolutions := 0, 0
+	for _, item := range items {
+		if mission.Value(item, "eventId") == first.CorrectionEventID {
+			events++
+		}
+		if mission.Value(item, "resolvesEventId") == first.CorrectionEventID {
+			resolutions++
+		}
+	}
+	if events != 1 || resolutions != 1 {
+		t.Fatalf("active correction recovery duplicated durable events: events=%d resolutions=%d", events, resolutions)
+	}
+}
+
+func TestRunDailyActiveCorrectionReconcilesExactEventWhenOtherInterventionIsOpen(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "active-correction-other-intervention")
+	actor := "daily-test"
+	correction := "reconcile only this active correction"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "active correction exact intervention goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	other, err := note.Append(
+		sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack),
+		caseRoot,
+		inspection.Identity.Pack,
+		note.Options{
+			Kind: "intervention", Lane: bootstrap.Lane, Subject: "existing intervention",
+			Action: "override", Status: "open", EventID: "existing-open-intervention",
+		},
+		false,
+	)
+	if err != nil || !other.Applied {
+		t.Fatalf("append existing intervention result=%+v err=%v", other, err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Correction: correction, SelectedLane: bootstrap.Lane, Actor: actor,
+	})
+	if err != nil {
+		t.Fatalf("exact active correction result=%+v err=%v", result, err)
+	}
+	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := mission.EffectiveOpenLaneInterventions(facts.Facts, bootstrap.Lane)
+	if len(open) != 1 || mission.Value(open[0], "eventId") != other.EventID ||
+		result.FinalState != "active-correction-recorded" {
+		t.Fatalf("active correction reconciled the wrong intervention: result=%+v open=%+v", result, open)
+	}
+}
+
+func TestRunDailyActiveCorrectionRejectsOwnerDriftAfterPreviewWithoutAppend(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "stale-active-correction")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "stale active correction goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	previous := dailyActiveCorrectionAfterPreviewHook
+	dailyActiveCorrectionAfterPreviewHook = func() error {
+		board, err := mission.ReadBoard(caseRoot)
+		if err != nil {
+			return err
+		}
+		for index := range board.Lanes {
+			if board.Lanes[index].ID == bootstrap.Lane {
+				board.Lanes[index].ExecutorGeneration++
+			}
+		}
+		writeDailyTestBoard(t, caseRoot, board)
+		return nil
+	}
+	t.Cleanup(func() { dailyActiveCorrectionAfterPreviewHook = previous })
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Correction: "apply only while the reviewed owner is current",
+		SelectedLane: bootstrap.Lane, Actor: "daily-test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "owner generation changed after preview") {
+		t.Fatalf("stale active correction result=%+v err=%v", result, err)
+	}
+	if result.CorrectionEventID == "" || len(result.DriverSteps) != 0 || result.SessionLaunches != 0 {
+		t.Fatalf("stale active correction reported a durable correction mutation: %+v", result)
+	}
+	items, err := mission.ReadStrictFact(caseRoot, "intervention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if mission.Value(item, "eventId") == result.CorrectionEventID {
+			t.Fatalf("stale active correction appended its event: %+v", item)
+		}
+	}
+}
+
+func TestRunDailyResolvedLaneBindsTypedInputPreparation(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "resolved-lane-binding")
 	bootstrap := DailyResult{CaseRoot: caseRoot}
 	inspection, err := applyDailyOnboarding(caseRoot, "resolved lane binding goal", "daily-test", &bootstrap)
@@ -303,11 +581,127 @@ func TestRunDailyResolvedLaneBindsMemberPreparation(t *testing.T) {
 			return nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+	if err != nil {
 		t.Fatalf("resolved lane binding action=%+v result=%+v err=%v", result.Action, result, err)
 	}
-	if result.Lane != inspection.Identity.InitialLane || preparedLane != result.Lane {
-		t.Fatalf("resolved lane was not bound through member preparation: prepared=%q result=%+v", preparedLane, result)
+	if result.Lane != inspection.Identity.InitialLane || preparedLane != result.Lane ||
+		result.FinalState != DailyActionInputRequired || !result.Blocked || result.SessionLaunches != 0 {
+		t.Fatalf("resolved lane was not bound through typed input preparation: prepared=%q result=%+v", preparedLane, result)
+	}
+}
+
+func TestRunDailyBinaryRERequiresTypedInputBeforeMemberOrReviewerLaunch(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "typed-input-required")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "analyze one specific binary behavior", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberRunCalled := false
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Goal: inspection.Identity.Goal,
+		Input: DailyInputRequest{Mode: DailyInputArtifactAnalysis},
+		beforeMemberRun: func(_, _, _ string) error {
+			memberRunCalled = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !memberRunCalled || result.Pack != defaults.DefaultPack || result.Lane != inspection.Identity.InitialLane || result.FinalState != DailyActionInputRequired || !result.Blocked || result.InputReadiness == nil || result.InputReadiness.State != DailyActionInputRequired || result.Action == nil || result.Action.Code != DailyActionInputRequired || result.SessionLaunches != 0 || result.SessionCompletions != 0 || len(result.HostRuns) != 0 {
+		t.Fatalf("missing typed input did not stop before launch: memberRunCalled=%t result=%+v", memberRunCalled, result)
+	}
+	if current, err := memberexecution.CurrentTaskBinding(caseRoot, result.Lane); err != nil || current != nil {
+		t.Fatalf("missing typed input published a binding: %+v err=%v", current, err)
+	}
+}
+
+func TestRunDailyResumeRequiresTypedInputBeforeMemberOrReviewerLaunch(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "typed-input-resume")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "resume one bounded binary task", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	memberRunCalled := false
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, SelectedLane: bootstrap.Lane,
+		beforeMemberRun: func(_, _, _ string) error {
+			memberRunCalled = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !memberRunCalled || result.FinalState != DailyActionInputRequired || !result.Blocked ||
+		result.Action == nil || result.Action.Code != DailyActionInputRequired ||
+		result.SessionLaunches != 0 || result.SessionCompletions != 0 || len(result.HostRuns) != 0 {
+		t.Fatalf("resume bypassed typed input readiness: memberRunCalled=%t result=%+v", memberRunCalled, result)
+	}
+}
+
+func TestRunDailyArtifactAnalysisBindsExactInputBeforeExecutableResolution(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "typed-artifact-input")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "analyze this exact binary", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactRel := "inputs/sample.bin"
+	artifactPath := filepath.Join(caseRoot, filepath.FromSlash(artifactRel))
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifactPath, []byte("bounded-sample"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              inspection.Identity.Goal,
+		Input:                             DailyInputRequest{Mode: DailyInputArtifactAnalysis, ArtifactPath: artifactRel},
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+	})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("typed artifact result=%+v err=%v", result, err)
+	}
+	binding, bindErr := memberexecution.CurrentTaskBinding(caseRoot, inspection.Identity.InitialLane)
+	if bindErr != nil || binding == nil || binding.Kind != memberexecution.TaskBindingArtifactAnalysis || binding.Values["artifact-path"] != artifactRel || len(binding.Values["artifact-sha256"]) != 64 || binding.Values["artifact-bytes"] != "14" || result.SessionLaunches != 0 {
+		t.Fatalf("typed artifact binding=%+v result=%+v err=%v", binding, result, bindErr)
+	}
+}
+
+func TestRunDailyWorkspaceInventoryAcceptsEmptyScopeBeforeExecutableResolution(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "typed-workspace-inventory")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "inventory the bounded workspace", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(caseRoot, "inputs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              inspection.Identity.Goal,
+		Input:                             DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "inputs"},
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+	})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("workspace inventory result=%+v err=%v", result, err)
+	}
+	binding, bindErr := memberexecution.CurrentTaskBinding(caseRoot, inspection.Identity.InitialLane)
+	if bindErr != nil || binding == nil || binding.Kind != memberexecution.TaskBindingWorkspaceInventory || binding.Values["workspace-scope"] != "inputs" || len(binding.Values) != 1 || result.InputReadiness == nil || result.InputReadiness.State != "ready" || result.SessionLaunches != 0 {
+		t.Fatalf("workspace inventory binding=%+v result=%+v err=%v", binding, result, bindErr)
 	}
 }
 
@@ -324,6 +718,7 @@ func TestRunDailyInvokesMemberPreparationBeforeExecutableResolution(t *testing.T
 		ClaudePath:                        missingClaudePath(t),
 		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
 		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		Input:                             DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		beforeMemberRun: func(root, pack, lane string) error {
 			called = true
 			if root != caseRoot || pack != inspection.Identity.Pack || lane != inspection.Identity.InitialLane {
@@ -812,7 +1207,7 @@ func TestRunDailyRejectsInvalidBindingBeforeCaseReadyHook(t *testing.T) {
 	}
 }
 
-func TestRunDailyReplaysCommittedClosedLaneBeforeOpenLaneProbe(t *testing.T) {
+func TestRunDailyPrefersOpenLaneOverCommittedClosedInitialLane(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "committed-terminal")
 	bootstrap := DailyResult{CaseRoot: caseRoot}
 	inspection, err := applyDailyOnboarding(caseRoot, "committed terminal replay goal", "daily-test", &bootstrap)
@@ -853,16 +1248,19 @@ func TestRunDailyReplaysCommittedClosedLaneBeforeOpenLaneProbe(t *testing.T) {
 		{Target: caseRoot},
 	} {
 		memberRunCalled := false
-		replay.beforeMemberRun = func(string, string, string) error {
+		replay.beforeMemberRun = func(_ string, _ string, lane string) error {
 			memberRunCalled = true
+			if lane != "devirt-main" {
+				t.Fatalf("daily selected lane = %s, want open authority lane", lane)
+			}
 			return nil
 		}
 		result, err := RunDaily(context.Background(), replay)
 		if err != nil {
-			t.Fatalf("terminal replay result=%+v err=%v", result, err)
+			t.Fatalf("open-lane continuation result=%+v err=%v", result, err)
 		}
-		if !result.Replay || result.FinalState != "lane-closed" || result.Lane != bootstrap.Lane || result.ExecutorGeneration != completed.Lane.ExecutorGeneration || result.SessionLaunches != 0 || result.SessionCompletions != 0 || len(result.HostRuns) != 0 || memberRunCalled {
-			t.Fatalf("terminal replay crossed its zero-launch boundary: called=%t result=%+v", memberRunCalled, result)
+		if result.Lane != "devirt-main" || result.FinalState == "lane-closed" || result.Action == nil || result.Action.Code == DailyActionCompleted || result.CurrentDriverRequest == nil || result.CurrentDriverRequest.Lane != "devirt-main" || result.SessionLaunches != 0 || result.SessionCompletions != 0 || !memberRunCalled {
+			t.Fatalf("closed initial lane displaced open authority lane: called=%t result=%+v", memberRunCalled, result)
 		}
 		assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
 	}
@@ -1018,6 +1416,25 @@ func TestRunDailyTerminalSuccessorApplyArgsPreserveReviewedActorThroughHostCLI(t
 		t.Fatalf("successor preview=%+v err=%v", planned, err)
 	}
 	executable := buildSessionhostUnifiedRuntimeFixture(t, sessionhostTestRepoRoot(t))
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	for _, fixture := range []struct {
+		name    string
+		mutate  func([]string)
+		wantErr string
+	}{
+		{name: "uppercase host", mutate: func(args []string) { args[0] = "HOST" }, wantErr: "host mode token must be exactly"},
+		{name: "uppercase sha", mutate: func(args []string) { args[len(args)-1] = strings.ToUpper(args[len(args)-1]) }, wantErr: "exact fresh successorMission.applyArgs argv"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			args := append([]string(nil), planned.SuccessorMission.ApplyArgs...)
+			fixture.mutate(args)
+			output, err := exec.Command(executable, args...).CombinedOutput()
+			if err == nil || !strings.Contains(string(output), fixture.wantErr) {
+				t.Fatalf("mutated successor Apply args were not rejected: err=%v output=%s", err, output)
+			}
+			assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+		})
+	}
 	command := exec.Command(executable, planned.SuccessorMission.ApplyArgs...)
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -1265,8 +1682,8 @@ func TestRunDailyTerminalThirdGenerationRecoversInterruptedActiveReplacement(t *
 	if err != nil || planned.SuccessorMission == nil {
 		t.Fatalf("successor preview=%+v err=%v", planned, err)
 	}
-	stopErr := errors.New("stop after active pointer publication")
-	restore := rekitfs.SetAnchoredRootAfterReplacementPublishHookForTest(func() error { return stopErr })
+	stopErr := errors.New("stop after active pointer predecessor rename")
+	restore := rekitfs.SetAnchoredRootAfterPredecessorRenameHookForTest(func() error { return stopErr })
 	_, err = RunDaily(context.Background(), DailyOptions{
 		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
 		SuccessorPublicationStamp: planned.SuccessorMission.PublicationStamp, ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
@@ -1275,12 +1692,31 @@ func TestRunDailyTerminalThirdGenerationRecoversInterruptedActiveReplacement(t *
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("successor active replacement cut err=%v", err)
 	}
-	recovered, err := RunDaily(context.Background(), DailyOptions{
-		Target: caseRoot, Goal: goal, Actor: "daily-test", SuccessorApply: true,
-		SuccessorPublicationStamp: planned.SuccessorMission.PublicationStamp, ExpectedSuccessorPlanSHA256: planned.SuccessorMission.ExpectedPlanSHA256,
+	executable := buildSessionhostUnifiedRuntimeFixture(t, sessionhostTestRepoRoot(t))
+	output, err := exec.Command(executable, planned.SuccessorMission.ApplyArgs...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("recover active replacement through exact CLI argv: %v\n%s", err, output)
+	}
+	var recovered DailyResult
+	if err := json.Unmarshal(output, &recovered); err != nil {
+		t.Fatalf("decode recovered successor result: %v\n%s", err, output)
+	}
+	if recovered.SuccessorMission == nil || !recovered.SuccessorMission.Applied || recovered.SuccessorMission.Generation != 3 {
+		t.Fatalf("recover active replacement=%+v", recovered)
+	}
+}
+
+func TestRunDailyImplicitSuccessorRejectsTypedInput(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "successor-typed-input")
+	prepareTerminalMissionForSuccessor(t, caseRoot, "completed predecessor", "successor-evidence.md", "reviewed evidence\n")
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot,
+		Goal:   "new successor goal",
+		Input:  DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
+		Actor:  "daily-test",
 	})
-	if err != nil || recovered.SuccessorMission == nil || !recovered.SuccessorMission.Applied || recovered.SuccessorMission.Generation != 3 {
-		t.Fatalf("recover active replacement=%+v err=%v", recovered, err)
+	if err == nil || !strings.Contains(err.Error(), "implicit successor mission") || result.SuccessorMission != nil || result.SessionLaunches != 0 {
+		t.Fatalf("implicit successor accepted typed input: result=%+v err=%v", result, err)
 	}
 }
 
@@ -2054,12 +2490,12 @@ func TestRunDailyRefusesArchivedLaneWithoutDurableArchiveTransition(t *testing.T
 	if err := os.WriteFile(sessionhostStatePath(t, caseRoot, "board.json"), append(boardBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: inspection.Identity.Goal})
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: inspection.Identity.Goal, SelectedLane: bootstrap.Lane})
 	if err == nil || !strings.Contains(err.Error(), "no durable archive transition is supported") {
-		t.Fatalf("archived lane result=%+v err=%v", result, err)
+		t.Fatalf("explicit archived lane result=%+v err=%v", result, err)
 	}
 	if result.Replay || result.SessionLaunches != 0 {
-		t.Fatalf("archived lane was treated as replay: %+v", result)
+		t.Fatalf("explicit archived lane was treated as replay: %+v", result)
 	}
 }
 
@@ -2149,6 +2585,72 @@ func TestRunDailyCorrectionRefusesPendingCompletionAsTerminalReplay(t *testing.T
 	}
 }
 
+func TestRunDailyCorrectionReplacementGenerationRequiresFreshTypedInput(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "correction-input-readiness")
+	actor := "daily-test"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "correction input readiness goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane := inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap, lane); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(caseRoot, "inputs", "target.bin")
+	if err := os.MkdirAll(filepath.Dir(artifact), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifact, []byte("bounded target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := memberexecution.ArtifactAnalysisTaskBinding(caseRoot, "inputs/target.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, found := mission.LookupBoardLane(board.Lanes, lane, false)
+	if !found {
+		t.Fatalf("current lane %q is missing", lane)
+	}
+	if _, _, err := memberexecution.WriteTaskBindingForOwner(caseRoot, lane, owner.CurrentExecutor, owner.ExecutorGeneration, binding); err != nil {
+		t.Fatal(err)
+	}
+	manifestRef := writeDailyReviewerRejectionFixture(t, caseRoot, inspection.Identity.Pack, lane, actor)
+	if _, rejected, err := workstream.CurrentMemberManifestReviewerRejection(caseRoot, lane, manifestRef); err != nil || !rejected {
+		t.Fatalf("reviewer rejection fixture is not canonical: rejected=%t err=%v", rejected, err)
+	}
+
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		SelectedLane:                      lane,
+		Correction:                        "apply the bounded reviewer correction",
+		Actor:                             actor,
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+	})
+	if err != nil {
+		t.Fatalf("corrected generation readiness result=%+v err=%v", result, err)
+	}
+	if result.FinalState != "input-required" || !result.Blocked || result.Action == nil || result.Action.Code != "input-required" || result.SessionLaunches != 0 || result.SessionCompletions != 0 {
+		t.Fatalf("replacement generation bypassed typed input readiness: %+v", result)
+	}
+	if result.ExecutorGeneration <= owner.ExecutorGeneration {
+		t.Fatalf("correction did not publish a replacement owner generation: before=%d result=%+v", owner.ExecutorGeneration, result)
+	}
+	current, rel, bindingSHA256, err := memberexecution.ReadTaskBindingForOwner(caseRoot, lane, result.ExecutorGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current != nil || rel == "" || bindingSHA256 != "" {
+		t.Fatalf("replacement generation inherited typed input binding: rel=%q sha=%q binding=%+v", rel, bindingSHA256, current)
+	}
+}
+
 func TestRunDailyExplicitReviewerRejectionReplayPreservesLaneWithoutMutation(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "explicit-reviewer-rejection")
 	actor := "daily-test"
@@ -2189,6 +2691,23 @@ func TestRunDailyExplicitReviewerRejectionReplayPreservesLaneWithoutMutation(t *
 
 func writeDailyReviewerRejectionFixture(t *testing.T, caseRoot, pack, lane, actor string) string {
 	t.Helper()
+	if current, err := memberexecution.CurrentTaskBinding(caseRoot, lane); err != nil {
+		t.Fatal(err)
+	} else if current == nil && pack == defaults.DefaultPack {
+		owner, err := laneowner.Read(caseRoot, lane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		binding, err := memberexecution.WorkspaceInventoryTaskBinding(caseRoot, ".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := memberexecution.WriteTaskBindingForOwner(
+			caseRoot, lane, owner.CurrentExecutor, owner.ExecutorGeneration, binding,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
 	status, err := runPublicStatus(caseRoot, pack, lane)
 	if err != nil || status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		t.Fatalf("read member dispatch request: status=%+v err=%v", status, err)

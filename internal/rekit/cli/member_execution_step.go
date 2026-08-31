@@ -15,9 +15,7 @@ import (
 )
 
 func currentStepRequestOwnsMemberExecution(request mission.MissionCommanderDriverRequest) bool {
-	return strings.TrimSpace(request.Source) == "missionCommanderActions" &&
-		strings.TrimSpace(request.State) == "ready-to-continue" &&
-		currentStepRequestCommand(request) == commands.Continue
+	return mission.MissionCommanderDriverRequestOwnsMemberContinuation(request)
 }
 
 func currentStepRequestCommand(request mission.MissionCommanderDriverRequest) string {

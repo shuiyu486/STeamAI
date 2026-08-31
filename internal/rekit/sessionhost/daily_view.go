@@ -11,6 +11,7 @@ const (
 	DailyActionCompleted                 = "completed"
 	DailyActionReadyToContinue           = "ready-to-continue"
 	DailyActionWaitingForCorrection      = "waiting-for-correction"
+	DailyActionInputRequired             = "input-required"
 	DailyActionDirectoryAdoptionRequired = "directory-adoption-required"
 	DailyActionConfirmationRequired      = "confirmation-required"
 	DailyActionReadyForEvidenceReview    = "ready-for-evidence-review"
@@ -132,12 +133,28 @@ func dailyUserAction(result DailyResult) *DailyUserAction {
 	state := strings.ToLower(strings.TrimSpace(result.FinalState))
 	var action *DailyUserAction
 	switch state {
-	case "mission-complete", "lane-closed":
+	case "mission-complete":
 		action = dailyAction(DailyActionCompleted)
+	case "lane-closed":
+		action = dailyAction(DailyActionReadyToContinue)
+		action.Message = "当前工作线已完成并保存；系统没有把它提升为整个任务完成。"
+		action.Now = "当前工作线已完成，整个任务尚未被宣布完成。"
+		action.Reason = "工作线完成只表示本次有界工作已关闭，不代表整个任务已完成。"
+		if result.CurrentDriverRequest != nil {
+			action.Next = "按最新状态继续剩余工作线或后续审核步骤。"
+		} else {
+			action.Next = "刷新当前任务状态，查看其它工作线或后续审核要求。"
+		}
 	case "member-intake-ready", "reviewer-intake-complete":
 		action = dailyAction(DailyActionReadyToContinue)
 	case "reviewer-rejected-awaiting-correction":
 		action = dailyAction(DailyActionWaitingForCorrection)
+	case DailyActionInputRequired:
+		if result.Action != nil {
+			action = result.Action
+		} else {
+			action = dailyInputRequiredAction("")
+		}
 	case "attention-required":
 		action = dailyAction(DailyActionBlocked)
 	case DailyActionReadyForEvidenceReview:
@@ -321,6 +338,8 @@ func dailyAction(code string) *DailyUserAction {
 			Code: code, Message: "当前结果已保存，可以从最新状态继续下一阶段。",
 			Now: "当前阶段已完成，可以继续。", Reason: "最新结果已经保存。", Next: "从最新状态继续下一阶段。",
 		}
+	case DailyActionInputRequired:
+		return dailyInputRequiredAction("")
 	case DailyActionWaitingForCorrection:
 		return &DailyUserAction{
 			Code:          code,

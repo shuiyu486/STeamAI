@@ -30,6 +30,7 @@ func TestCapabilitiesUseScopedCommandContracts(t *testing.T) {
 		{id: "public-continue-preview", policy: commands.BoundaryCaseLocalApply, currentness: commands.MutationCurrentnessStrictPlan, expected: "-ExpectedContinuePlanSha256"},
 		{id: "runtime-control-preview", policy: commands.BoundaryCaseLocalReviewFirst, currentness: commands.MutationCurrentnessStrictPlan, expected: "-ExpectedControlPlanSha256"},
 		{id: "runtime-bounded-autonomy-preview", policy: commands.BoundaryCaseLocalApply, currentness: commands.MutationCurrentnessStrictPlan, expected: "-ExpectedProfilePlanSha256"},
+		{id: "host-successor-exact-apply", policy: commands.BoundaryCaseLocalReviewFirst, currentness: commands.MutationCurrentnessStrictPlan, expected: "-expected-successor-plan-sha256"},
 	} {
 		capability, ok := byID[fixture.id]
 		if !ok {
@@ -38,6 +39,18 @@ func TestCapabilitiesUseScopedCommandContracts(t *testing.T) {
 		if capability.Policy != fixture.policy || capability.Currentness != fixture.currentness || capability.ExpectedApplyFlag != fixture.expected {
 			t.Fatalf("capability %s drifted from scoped command catalog: %+v", fixture.id, capability)
 		}
+	}
+	artifactInput := byID["host-daily-artifact-analysis"]
+	inventoryInput := byID["host-daily-workspace-inventory"]
+	if len(artifactInput.Argv) < 10 || artifactInput.Argv[7] != "artifact-analysis" || artifactInput.Argv[9] != "<CASE_RELATIVE_ARTIFACT>" || !strings.Contains(artifactInput.Notes, "before member launch") {
+		t.Fatalf("artifact-analysis capability is incomplete: %+v", artifactInput)
+	}
+	if len(inventoryInput.Argv) < 10 || inventoryInput.Argv[7] != "workspace-inventory" || inventoryInput.Argv[9] != "<CASE_RELATIVE_DIRECTORY>" || !strings.Contains(inventoryInput.Notes, "empty directory") {
+		t.Fatalf("workspace-inventory capability is incomplete: %+v", inventoryInput)
+	}
+	successor := byID["host-successor-exact-apply"]
+	if !successor.ExactApplyFromResult || successor.Surface != "host" || len(successor.Argv) != 1 || successor.Argv[0] != "<successorMission.applyArgs...>" || !strings.Contains(successor.Notes, "fresh successorMission.applyArgs") || !strings.Contains(successor.Notes, "reject stale") {
+		t.Fatalf("successor result-bound capability is incomplete: %+v", successor)
 	}
 	capabilities[0].Argv[0] = "tampered"
 	fresh, err := Capabilities()
@@ -67,6 +80,11 @@ func TestRenderMachineAppendixIsDeterministicAndBounded(t *testing.T) {
 		"Apply binding=`-ExpectedContinuePlanSha256`",
 		"Apply binding=`-ExpectedControlPlanSha256`",
 		"Apply binding=`-ExpectedProfilePlanSha256`",
+		"`host-successor-exact-apply`",
+		`["<successorMission.applyArgs...>"]`,
+		`"artifact-analysis","-input-artifact","<CASE_RELATIVE_ARTIFACT>"`,
+		`"workspace-inventory","-input-scope","<CASE_RELATIVE_DIRECTORY>"`,
+		"Apply binding=`-expected-successor-plan-sha256`",
 		"固定桥之外只允许 `typed-invocation`",
 	} {
 		if !strings.Contains(first, required) {

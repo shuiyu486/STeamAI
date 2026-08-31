@@ -1032,6 +1032,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ReviewerOwnerGeneration")
 			}
 			opt.Note.OwnerGeneration = args[i]
+		case "-ReviewerOwnerBindingMode", "--reviewer-owner-binding-mode":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerOwnerBindingMode")
+			}
+			opt.Note.OwnerBindingMode = args[i]
 		case "-DiffPath", "--diff-path":
 			i++
 			if i >= len(args) {
@@ -2867,10 +2873,12 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 	case "table", "tsv":
 		resultCounts := releasecheck.ReleaseCheckResultCountsFor(result)
 		fmt.Fprintf(out, "release-check: %s\n", result.Summary)
-		fmt.Fprintf(out, "ready: %t\n", result.Ready)
+		fmt.Fprintf(out, "inventory ready: %t\n", result.Ready)
 		fmt.Fprintf(out, "gate profile: %s ready=%t steps=%d largeMatrixDefault=%t\n", result.GateProfile.Name, result.GateProfile.Ready, resultCounts.GateProfileSteps, result.GateProfile.LargeMatrixDefault)
 		ciGateCounts := releasecheck.CIReleaseGateCountsFor(result.CIReleaseGate)
-		fmt.Fprintf(out, "CI release gate: %s ready=%t jobs=%d commands=%d forbidden=%d\n", result.CIReleaseGate.WorkflowPath, result.CIReleaseGate.Ready, ciGateCounts.Jobs, ciGateCounts.RequiredCommands, ciGateCounts.ForbiddenStrings)
+		fmt.Fprintf(out, "CI workflow definition: %s ready=%t jobs=%d commands=%d forbidden=%d remoteCIGreen=%t\n", result.CIReleaseGate.WorkflowPath, result.CIReleaseGate.Ready, ciGateCounts.Jobs, ciGateCounts.RequiredCommands, ciGateCounts.ForbiddenStrings, result.ReadinessLayers.RemoteCIGreen)
+		layers := result.ReadinessLayers
+		fmt.Fprintf(out, "readiness layers: inventoryReady=%t localValidationReady=%t realWindowsAcceptanceReady=%t remoteCIGreen=%t formalReleaseReady=%t\n", layers.InventoryReady, layers.LocalValidationReady, layers.RealWindowsAcceptanceReady, layers.RemoteCIGreen, layers.FormalReleaseReady)
 		if ciGateCounts.Warnings > 0 {
 			fmt.Fprintln(out, "CI release gate warnings:")
 			for _, warning := range result.CIReleaseGate.Warnings {
@@ -2985,6 +2993,10 @@ func writeReleaseCheckText(out io.Writer, result releasecheck.Result) error {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "release-check ci gate：workflow=%s ready=%t jobs=%d commands=%d forbidden=%d boundary=inventory-ready-not-remote-ci-green\n", result.CIReleaseGate.WorkflowPath, result.CIReleaseGate.Ready, ciGateCounts.Jobs, ciGateCounts.RequiredCommands, ciGateCounts.ForbiddenStrings); err != nil {
+		return err
+	}
+	layers := result.ReadinessLayers
+	if _, err := fmt.Fprintf(out, "release-check readiness：inventoryReady=%t localValidationReady=%t realWindowsAcceptanceReady=%t remoteCIGreen=%t formalReleaseReady=%t inventoryState=%s localValidationState=%s windowsAcceptanceState=%s remoteCIState=%s formalReleaseState=%s\n", layers.InventoryReady, layers.LocalValidationReady, layers.RealWindowsAcceptanceReady, layers.RemoteCIGreen, layers.FormalReleaseReady, layers.RepositoryInventory.State, layers.LocalValidation.State, layers.RealWindowsAcceptance.State, layers.RemoteCI.State, layers.FormalRelease.State); err != nil {
 		return err
 	}
 	for _, step := range result.RequiredCommands {

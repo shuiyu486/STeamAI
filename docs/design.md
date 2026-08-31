@@ -46,7 +46,7 @@ Go public command policy 保持三层单向组合，而不是在总 dispatch `sw
 
 Go runtime 的数据流固定为单向四层：durable/workstream domain 拥有状态与 plan/receipt identity；`commands` + `plancontract` 拥有 typed invocation、currentness 与 mutation binding；full diagnostics DTO 是 canonical result 的 wire-faithful immutable clone，只在 clone 上做 current `/steamai` 或 legacy `/rekit` 投影；默认 public interaction DTO 只解码 allowlist 字段，再经纯 reducer 发布“现在/原因/下一步”。projection 不得原地改写 canonical result、不得从 DTO 重算 plan SHA，也不得用 `map[string]any` 作为默认交互 reducer；deep clone 解码保留 JSON number token，避免 diagnostics 中的大整数或事件字段失真。
 
-Daily session 路径正在收敛为低层纯 transition reducer → typed effect → supervisor/session executor → publication coordinator；当前 pure reducer 已覆盖部分 completion/current-loop path，session executor、supervisor 和 publication 仍有既有 owner 需要继续统一，不能把现状描述成所有路径都已由 reducer 先行。production adapter 仍复用 canonical CLI/public driver owner，不复制 request/receipt 状态机。durable identity、权限、containment 与 heavy-action 边界始终由既有 domain/runtime owner 验证；presentation 或 transport observation 不授予权限。
+Daily session 路径正在收敛为低层纯 transition reducer → typed effect → supervisor/session executor → publication coordinator；当前 pure reducer 已覆盖部分 completion/current-loop path，session executor、supervisor 和 publication 仍有既有 owner 需要继续统一，不能把现状描述成所有路径都已由 reducer 先行。进程内 Mission Control status 与 bounded driver-step 由 `cli.ReadMissionSnapshot`、`cli.PreviewDriverStep` 和 `cli.ApplyDriverStep` 这组窄 typed seam 直接复用 canonical status inventory、plan hash、Apply 与 fresh-status owner；session host 不再为这些路径调用 CLI 后反解 private JSON DTO，public JSON façade、current/legacy entrypoint projection 和 durable owner 保持不变。active-lane correction 也只做协调：必须显式选择 current open non-authority lane，append 绑定旧 executor/generation 的 typed intervention，再消费 fresh status 发布的 exact reconcile request；reconcile 保持 executor、将 generation 推进一次并使旧结果继续 stale/held。它不另建 correction 状态机、不终止进程、不启动 Claude，也不授予 authority/confirmed、gate 或 heavy-tool 权限；Reviewer rejection 与 terminal completion 仍分别归既有 rejection reconcile 与 `reopen` owner。production adapter 仍复用 canonical CLI/public driver owner，不复制 request/receipt 状态机。durable identity、权限、containment 与 heavy-action 边界始终由既有 domain/runtime owner 验证；presentation 或 transport observation 不授予权限。
 
 ### Skill 机器合同与测试 fixture owner
 
@@ -83,7 +83,8 @@ canonical `.claude/skills/steamai/SKILL.md` 是人工交互与安全边界的唯
 - current `attach`：为已有项目生成 relocatable `.steamai/instance.yml`、`.steamai/state.json` 和项目级 `/steamai` skill，不覆盖 managed docs。
 - current `init`：在 attach 基础上发布 verified project-local runtime、selected pack、common/runtime assets，并按 manifest 落地 managed 内容；缺失或篡改 bundle 时 fail-closed，不从 PATH 或中央 kit 补齐。
 - legacy-only 项目的 `attach/init/bootstrap` 在迁移前继续使用 `.rekit` 与 `/rekit` 兼容入口；不得创建第二状态根。
-- `bootstrap` 不是用户级安装，也不写入 `~/.claude/skills`。
+- Windows source-clone-first 首次接入由 canonical clone 内单次构建的 unified `cmd/rekit` image 通过 external-only 顶层 `bootstrap` mode协调；它复用 daily adoption → canonical init preview/Apply，不建立第二状态机。交互确认在同一进程内部携带 exact plan SHA，用户不填写 SHA；`-format json` 固定 preview-only。Apply 只返回 `ready-to-continue`、manifest-bound original-goal continuation 与 `NoAutoResume=true`，不启动 Claude、不写 onboarding mission。
+- `bootstrap` 不是用户级安装，也不写入 `~/.claude/skills`、PATH 或全局 plugin，不使用 PowerShell runtime；project-local executable不能用它接入另一个目录。
 
 ## Sync
 

@@ -62,7 +62,7 @@
 | 日常产品收口实施方案 | `docs/daily-product-closure-plan.md` 顶部执行区；四个 `DPC-*` 与整体验收均已完成，只在复核完成证据时按需读取共同边界和对应卡 | 不从已完成设计自行开始下一阶段，不默认预读四张长卡 |
 | 当前 batch 和指针投影 | `docs/batch-plan.md` 顶部 current milestone / roadmap pointer / current state / latest completed；执行旧健康恢复考古时再读 `docs/health-recovery-and-real-executor-plan.md` 顶部 | 不读 `docs/batch-history.md`，也不默认读旧执行专文全文 |
 | 旧 batch 细节 / 考古 | `docs/batch-history.md` 中按 Batch ID 搜索 | 不从 Batch 0 顺序读 |
-| 正式发布 / CI 判断（仅用户明确要求正式发布、跨平台专项或周期复审时） | `docs/release-readiness.md` 顶部和 Known gaps；再看 `release-check -Format json` | 判断 Windows 当前能否日用时不要进入远程 jobs、Linux/macOS、三平台兼容或安装验收；也不把 `ciReleaseGate.ready` 当远程 green |
+| 正式发布 / CI 判断（仅用户明确要求正式发布、跨平台专项或周期复审时） | `docs/release-readiness.md` 顶部和 Known gaps；再看 `release-check -Format json` 的 `readinessLayers` | 判断 Windows 当前能否日用时不要进入远程 jobs、Linux/macOS、三平台兼容或安装验收；顶层 `ready` / `inventoryReady` 只表示 repository inventory，`ciReleaseGate.ready` 只表示 workflow definition，均不当作 Windows live acceptance、remote green 或 formal release |
 | PowerShell façade / removal | `docs/powershell-deprecation.md` 顶部和相关矩阵行 | 不默认运行 façade smoke |
 | Go runtime / command owner | CodeGraph 查询 `internal/rekit/**`，必要时读 `docs/go-first-convergence-plan.md` 或 `docs/go-runtime-migration.md` 顶部 | 不先读历史 migration 全文 |
 | ledger / evidence / intervention 字段 | `docs/evidence-ledger.md` 顶部和对应事件类型 | 不读取完整 case ledger 或复制大 sidecar |

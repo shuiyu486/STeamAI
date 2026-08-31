@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
@@ -169,6 +170,53 @@ func TestStatusCompactJSONFailsClosedOnCurrentRequestAliasDrift(t *testing.T) {
 			}
 			assertStatusCompactBlockedEnvelope(t, data, statusCompactReasonIdentityInvalid, "/steamai")
 		})
+	}
+}
+
+func TestStatusCompactJSONIncludesTypedInputReadinessWithoutLaneIdentity(t *testing.T) {
+	status := statusInventory{
+		Command:          commands.Status,
+		SchemaVersion:    1,
+		Mode:             "case",
+		publicProjection: projectPublicProjection{entrypoint: commands.CurrentPublicEntrypoint},
+		MemberExecution: &memberExecutionStatus{
+			State: "input-required",
+			Lane:  "binary-analysis-private",
+			InputReadiness: &memberInputReadinessStatus{
+				State: "input-required",
+			},
+		},
+	}
+	data, err := marshalStatusCompactJSON(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact statusCompactInventory
+	if err := json.Unmarshal(data, &compact); err != nil {
+		t.Fatal(err)
+	}
+	if compact.MemberExecution == nil || compact.MemberExecution.State != "input-required" ||
+		compact.MemberExecution.InputReadiness == nil || compact.MemberExecution.InputReadiness.State != "input-required" {
+		t.Fatalf("compact typed input readiness=%+v", compact.MemberExecution)
+	}
+	if strings.Contains(string(data), "binary-analysis-private") {
+		t.Fatalf("compact typed input readiness leaked lane identity: %s", data)
+	}
+
+	status.MemberExecution.InputReadiness = &memberInputReadinessStatus{
+		State:        "ready",
+		Mode:         memberexecution.TaskBindingArtifactAnalysis,
+		ArtifactPath: "inputs/private/sample.bin",
+		Scope:        "workspace/private",
+	}
+	data, err = marshalStatusCompactJSON(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "inputs/private/sample.bin") ||
+		strings.Contains(string(data), "workspace/private") ||
+		!strings.Contains(string(data), `"mode":"artifact-analysis"`) {
+		t.Fatalf("compact ready input projection leaked paths or omitted mode: %s", data)
 	}
 }
 

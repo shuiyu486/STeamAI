@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/bootstrapcmd"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/hostcmd"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -41,6 +43,18 @@ func run(args []string) int {
 		return 1
 	}
 	switch mode {
+	case "bootstrap":
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			fmt.Fprintln(os.Stderr, executableErr)
+			return 1
+		}
+		repoRoot, contextErr := bootstrapSourceRepoRoot(executable)
+		if contextErr != nil {
+			fmt.Fprintln(os.Stderr, contextErr)
+			return 1
+		}
+		return bootstrapcmd.Run(modeArgs, os.Stdin, os.Stdout, os.Stderr, repoRoot, executable)
 	case "public":
 		var runErr error
 		switch {
@@ -139,6 +153,30 @@ func run(args []string) int {
 	}
 }
 
+func bootstrapSourceRepoRoot(executable string) (string, error) {
+	dir, err := filepath.Abs(filepath.Dir(strings.TrimSpace(executable)))
+	if err != nil {
+		return "", err
+	}
+	for {
+		if info, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil && !info.IsDir() {
+			if packs, packsErr := os.Stat(filepath.Join(dir, "packs")); packsErr == nil && packs.IsDir() {
+				if cmd, cmdErr := os.Stat(filepath.Join(dir, "cmd", "rekit")); cmdErr == nil && cmd.IsDir() {
+					moduleData, readErr := os.ReadFile(filepath.Join(dir, "go.mod"))
+					if readErr == nil && strings.Contains(string(moduleData), "module github.com/shuiyu486/re-context-kits") {
+						return dir, nil
+					}
+				}
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("bootstrap executable must remain inside its canonical source clone")
+		}
+		dir = parent
+	}
+}
+
 func validateInvocationExecutable(
 	mode string,
 	args []string,
@@ -154,6 +192,9 @@ func validateInvocationExecutable(
 			return invocationExecutableContext{}, ordinaryErr
 		}
 		return invocationExecutableContext{}, nil
+	}
+	if mode == "bootstrap" {
+		return invocationExecutableContext{}, fmt.Errorf("project-local STeamAI executable cannot bootstrap another directory")
 	}
 
 	target, err := invocationProjectLocalTarget(mode, args)
@@ -211,6 +252,8 @@ func validateInvocationExecutable(
 
 func invocationProjectLocalTarget(mode string, args []string) (string, error) {
 	switch mode {
+	case "bootstrap":
+		return hostInvocationTarget(args)
 	case "public":
 		return cli.PublicInvocationTarget(args)
 	case "runtime":
@@ -324,9 +367,19 @@ func invocationMode(args []string) (string, []string, error) {
 	}
 	mode := first
 	switch mode {
-	case "runtime", "host":
+	case "bootstrap":
+		if args[0] != "bootstrap" {
+			return "", nil, fmt.Errorf("bootstrap mode token must be exactly %q", "bootstrap")
+		}
+		return mode, args[1:], nil
+	case "runtime":
+		return mode, args[1:], nil
+	case "host":
+		if args[0] != "host" {
+			return "", nil, fmt.Errorf("host mode token must be exactly %q", "host")
+		}
 		return mode, args[1:], nil
 	default:
-		return "", nil, fmt.Errorf("unknown steamai mode %q; use runtime or host", args[0])
+		return "", nil, fmt.Errorf("unknown steamai mode %q; use bootstrap, runtime, or host", args[0])
 	}
 }

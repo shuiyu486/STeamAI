@@ -115,6 +115,22 @@ func TestPublicSummaryKeepsDiagnosticsOutOfDefaultOutput(t *testing.T) {
 		t.Fatalf("status summary leaked typed diagnostics: %s", statusText)
 	}
 
+	status.Reset()
+	inputRequiredRaw := json.RawMessage(`{
+		"mode":"case",
+		"caseMission":{"summary":"等待分析输入"},
+		"memberExecution":{"state":"input-required","inputReadiness":{"state":"input-required"}}
+	}`)
+	if err := writePublicInteraction(&status, "status", inputRequiredRaw); err != nil {
+		t.Fatal(err)
+	}
+	inputRequiredText := status.String()
+	for _, expected := range []string{"typed 输入", "没有启动 member 或 Reviewer", "artifact-analysis", "workspace-inventory"} {
+		if !strings.Contains(inputRequiredText, expected) {
+			t.Fatalf("typed input summary omitted %q: %s", expected, inputRequiredText)
+		}
+	}
+
 	var continuation bytes.Buffer
 	continueRaw := json.RawMessage(`{
 		"lane":{"id":"feature-authz","label":"authz"},

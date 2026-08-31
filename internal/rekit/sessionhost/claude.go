@@ -36,6 +36,16 @@ const (
 	maxDiagnosticBytes   = 32 * 1024
 )
 
+var claudeBeforeFinalMemberInputValidationHook func() error
+
+func setClaudeBeforeFinalMemberInputValidationHookForTest(hook func() error) func() {
+	previous := claudeBeforeFinalMemberInputValidationHook
+	claudeBeforeFinalMemberInputValidationHook = hook
+	return func() {
+		claudeBeforeFinalMemberInputValidationHook = previous
+	}
+}
+
 type claudeRun struct {
 	launchControlBinding *claudeLaunchControlBinding
 	rawResultRef         string
@@ -276,6 +286,16 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 			if launchBinding != nil {
 				if err := launchBinding.Validate(); err != nil {
 					return fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err)
+				}
+			}
+			if pkg.SessionKind == "member" {
+				if claudeBeforeFinalMemberInputValidationHook != nil {
+					if err := claudeBeforeFinalMemberInputValidationHook(); err != nil {
+						return err
+					}
+				}
+				if _, err := validateClaudeMemberLaunchInput(opt.Target, *pkg.Launch); err != nil {
+					return fmt.Errorf("revalidate Claude member input immediately before launch: %w", err)
 				}
 			}
 			_, currentInput, inputErr := readClaudeLaunchInput(opt.Target, *pkg.Launch)
@@ -607,6 +627,10 @@ func memberTaskBindingPolicy(input []byte) string {
 		return " If the TaskContext binding kind is vmp-ida-index-evidence, read its exact packet, report, dispatch, and receipt paths and put the exact selected row (preserving TSV text or its exact JSON string escaping), selected evidence ref, packet path, receipt path, and observation event ID in the returned reviewerItemsPath output; a query-term-only echo is invalid."
 	case "binary-inventory-evidence":
 		return " If the TaskContext binding kind is binary-inventory-evidence, read its exact inventory, report, dispatch, and receipt paths. Base the analysis on the canonical PE/ELF inventory fields and exact source/inventory/report/dispatch/receipt hashes, then put the inventory path and SHA-256, source path and SHA-256, format family, section/import/export counts, report path, dispatch path, receipt path, selected evidence ref, and observation event ID in the returned reviewerItemsPath output. This binding has no selected TSV row or matched-term requirement; do not invent either."
+	case memberexecution.TaskBindingArtifactAnalysis:
+		return " If the TaskContext binding kind is artifact-analysis, read only the exact case-relative artifact-path bound in the TaskContext. Treat artifact-sha256 and artifact-bytes as the immutable launch identity already revalidated by the host; do not substitute another file, infer an alias, or broaden into a workspace scan. Report the exact path, SHA-256, byte count, and evidence-supported findings in the returned reviewerItemsPath output."
+	case memberexecution.TaskBindingWorkspaceInventory:
+		return " If the TaskContext binding kind is workspace-inventory, inspect only the exact case-relative workspace-scope bound in the TaskContext and produce a bounded inventory. An empty directory is a valid inventory result, not missing artifact input. Do not choose a candidate artifact, infer analysis intent from filenames, or broaden outside the bound scope. Report the exact scope and the bounded inventory result in the returned reviewerItemsPath output."
 	case webSecurityOpenAPIMemberBindingKind:
 		return " If the TaskContext binding kind is web-security-openapi-inventory-evidence, read only its exact source, canonical OpenAPI inventory, report, dispatch, receipt, review closure, and other explicitly bound evidence paths. Base the analysis on the typed servers, auth schemes, endpoints, parameters, media types, warnings, safety boundaries, and exact hashes. Do not make a network request, construct or execute a replay, resolve a non-loopback target, use ambient credentials, or output any secret. Put the exact artifact/input/report/dispatch/receipt paths and hashes, selected evidence ref, observation event ID, and evidence-supported endpoint/auth findings in the returned reviewerItemsPath output."
 	case webSecurityReplayMemberBindingKind:

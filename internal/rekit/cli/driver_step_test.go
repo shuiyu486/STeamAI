@@ -11,8 +11,10 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/plancontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 )
 
 func TestParseProjectVisibleInvocationSupportsCurrentAndLegacy(t *testing.T) {
@@ -261,6 +263,102 @@ func TestQualifyDriverStepApplyRequestRequiresContinuePreviewOwnedApply(t *testi
 	}
 	if _, err := parseBoundedDriverRequest(ctx, qualified, true); err != nil {
 		t.Fatalf("preview-owned Apply request is not executable as emitted: %v", err)
+	}
+}
+
+func TestMissionControlTypedSeamMatchesPublicStatusAndRejectsModifiedPreview(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := ReadMissionSnapshot(MissionSnapshotOptions{
+		CaseRoot:            caseRoot,
+		Pack:                "_template",
+		SelectedCurrentLane: "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status statusInventory
+	decodeJSONStrict(t, out.Bytes(), &status)
+	if snapshot.MissionControl == nil || status.MissionControlRunbook == nil ||
+		snapshot.MissionControl.CurrentDriverRequestSHA256 != status.MissionControlRunbook.CurrentDriverRequestSHA256 ||
+		snapshot.MissionControl.CurrentDriverRequest == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
+		t.Fatalf("typed snapshot omitted public status identity: snapshot=%+v status=%+v", snapshot, status.MissionControlRunbook)
+	}
+	typedRequest, err := json.Marshal(snapshot.MissionControl.CurrentDriverRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicRequest, err := json.Marshal(status.MissionControlRunbook.CurrentDriverRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(typedRequest, publicRequest) {
+		t.Fatalf("typed current request differs from public status: typed=%s public=%s", typedRequest, publicRequest)
+	}
+
+	preview, err := PreviewDriverStep(DriverStepPreviewOptions{
+		CaseRoot:            caseRoot,
+		Pack:                "_template",
+		SelectedCurrentLane: "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	preview.ApplyDriverRequest.Command += " "
+	if _, err := ApplyDriverStep(preview, DriverStepApplyOptions{}); err == nil || !strings.Contains(err.Error(), "identity was modified") {
+		t.Fatalf("modified exported preview identity did not fail closed: %v", err)
+	}
+	assertSnapshotEqual(t, beforeApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+}
+
+func TestMissionControlTypedSeamReusesHeldProjectLease(t *testing.T) {
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:      testfixture.CurrentProject,
+		SourceRepo:  repoRoot(t),
+		Pack:        "_template",
+		ProjectName: "typed-seam-lease",
+		Components: testfixture.Components{
+			InitialState: true,
+		},
+	})
+	lease, err := projectexecution.AcquireShared(project.CaseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Unlock()
+
+	snapshot, err := ReadMissionSnapshot(MissionSnapshotOptions{
+		CaseRoot:              project.CaseRoot,
+		Pack:                  "_template",
+		ProjectExecutionLease: lease,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.CaseRoot != project.CaseRoot || snapshot.MissionControl == nil {
+		t.Fatalf("held-lease typed snapshot = %+v", snapshot)
+	}
+	other := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:      testfixture.CurrentProject,
+		SourceRepo:  repoRoot(t),
+		Pack:        "_template",
+		ProjectName: "typed-seam-other",
+	})
+	if _, err := ReadMissionSnapshot(MissionSnapshotOptions{
+		CaseRoot:              other.CaseRoot,
+		Pack:                  "_template",
+		ProjectExecutionLease: lease,
+	}); err == nil || !strings.Contains(err.Error(), "lease target changed") {
+		t.Fatalf("wrong-target held lease did not fail closed: %v", err)
 	}
 }
 

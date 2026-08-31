@@ -553,6 +553,155 @@ func TestUnifiedRuntimeInitPublishesRunnableProjectExecutable(t *testing.T) {
 	}
 }
 
+func TestUnifiedBootstrapPublishesRunnableProjectWithoutAutoResume(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("source bootstrap mutation is Windows-only")
+	}
+	repoRoot := rekitTestRepoRoot(t)
+	unifiedExecutable := filepath.Join(repoRoot, "steamai-bootstrap-test.exe")
+	t.Cleanup(func() { _ = os.Remove(unifiedExecutable) })
+	build := exec.Command("go", "build", "-o", unifiedExecutable, "./cmd/rekit")
+	build.Dir = repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build unified bootstrap fixture: %v\n%s", err, output)
+	}
+
+	caseRoot := filepath.Join(t.TempDir(), "existing-project")
+	if err := os.Mkdir(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keepPath := filepath.Join(caseRoot, "keep.txt")
+	if err := os.WriteFile(keepPath, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	goal := "inspect this existing project"
+	choicesOut, choicesErrOut, choicesErr := runRekitExecutableWithInput(
+		t, unifiedExecutable, "",
+		"bootstrap", "-target", caseRoot, "-goal", goal,
+	)
+	if choicesErr != nil || choicesErrOut != "" || !strings.Contains(choicesOut, `"state": "pack-selection-required"`) ||
+		!strings.Contains(choicesOut, `"id": "binary-re"`) || !strings.Contains(choicesOut, `"id": "web-security"`) || strings.Contains(choicesOut, `"id": "_template"`) {
+		t.Fatalf("bootstrap pack choices err=%v stderr=%q stdout=%s", choicesErr, choicesErrOut, choicesOut)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap pack choices mutated target: %v", err)
+	}
+
+	_, rejectedPackErrOut, rejectedPackErr := runRekitExecutableWithInput(
+		t, unifiedExecutable, "APPLY\n",
+		"bootstrap", "-target", caseRoot, "-goal", goal, "-pack", "_template",
+	)
+	if rejectedPackErr == nil || !strings.Contains(rejectedPackErrOut, "not a schema-valid mature selectable pack") {
+		t.Fatalf("bootstrap admitted a non-mature pack: err=%v stderr=%q", rejectedPackErr, rejectedPackErrOut)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(err) {
+		t.Fatalf("rejected bootstrap pack mutated target: %v", err)
+	}
+
+	cancelOut, cancelErrOut, cancelErr := runRekitExecutableWithInput(
+		t, unifiedExecutable, "cancel\n",
+		"bootstrap", "-target", caseRoot, "-goal", goal, "-pack", "binary-re",
+	)
+	if cancelErr != nil || !strings.Contains(cancelOut, `"state": "bootstrap-cancelled"`) || !strings.Contains(cancelErrOut, "Type APPLY") {
+		t.Fatalf("bootstrap cancellation err=%v stderr=%q stdout=%s", cancelErr, cancelErrOut, cancelOut)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(err) {
+		t.Fatalf("cancelled bootstrap mutated target: %v", err)
+	}
+
+	previewOut, previewErrOut, previewErr := runRekitExecutableWithInput(
+		t, unifiedExecutable, "APPLY\n",
+		"bootstrap", "-target", caseRoot, "-goal", goal, "-pack", "binary-re", "-format", "json",
+	)
+	if previewErr != nil || previewErrOut != "" {
+		t.Fatalf("bootstrap JSON preview err=%v stderr=%q stdout=%s", previewErr, previewErrOut, previewOut)
+	}
+	var preview struct {
+		State                string `json:"state"`
+		Applied              bool   `json:"applied"`
+		RequiresConfirmation bool   `json:"requiresConfirmation"`
+		NoAutoResume         bool   `json:"noAutoResume"`
+	}
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatalf("decode bootstrap preview: %v\n%s", err, previewOut)
+	}
+	if preview.State != sessionhost.DailyActionConfirmationRequired || preview.Applied || !preview.RequiresConfirmation || !preview.NoAutoResume {
+		t.Fatalf("bootstrap JSON mode crossed preview-only boundary: %+v", preview)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap JSON preview mutated target: %v", err)
+	}
+
+	applyOut, applyErrOut, applyErr := runRekitExecutableWithInput(
+		t, unifiedExecutable, "APPLY\n",
+		"bootstrap", "-target", caseRoot, "-goal", goal, "-pack", "binary-re",
+	)
+	if applyErr != nil {
+		t.Fatalf("bootstrap Apply err=%v stderr=%q stdout=%s", applyErr, applyErrOut, applyOut)
+	}
+	var applied struct {
+		State        string `json:"state"`
+		Applied      bool   `json:"applied"`
+		NoAutoResume bool   `json:"noAutoResume"`
+		Continuation struct {
+			Executable             string   `json:"executable"`
+			ExecutableSHA256       string   `json:"executableSha256"`
+			ExecutableBytes        int64    `json:"executableBytes"`
+			BundleManifest         string   `json:"bundleManifest"`
+			BundleManifestSHA256   string   `json:"bundleManifestSha256"`
+			Arguments              []string `json:"arguments"`
+			Goal                   string   `json:"goal"`
+			RequiresExplicitChoice bool     `json:"requiresExplicitChoice"`
+			NoAutoResume           bool     `json:"noAutoResume"`
+		} `json:"continuation"`
+		Apply struct {
+			SessionLaunches int `json:"sessionLaunches"`
+		} `json:"apply"`
+	}
+	if err := json.Unmarshal([]byte(applyOut), &applied); err != nil {
+		t.Fatalf("decode bootstrap Apply: %v\n%s\nstderr=%s", err, applyOut, applyErrOut)
+	}
+	projectExecutable := filepath.Join(caseRoot, ".steamai", "runtime", "bin", runtimebundle.ExecutableName())
+	if applied.State != sessionhost.DailyActionReadyToContinue || !applied.Applied || !applied.NoAutoResume ||
+		!applied.Continuation.RequiresExplicitChoice || !applied.Continuation.NoAutoResume || applied.Continuation.Goal != goal ||
+		len(applied.Continuation.ExecutableSHA256) != 64 || applied.Continuation.ExecutableBytes <= 0 ||
+		applied.Continuation.BundleManifest != "runtime/manifest.json" || len(applied.Continuation.BundleManifestSHA256) != 64 ||
+		!reflect.DeepEqual(applied.Continuation.Arguments, []string{"host", "-daily", "-goal", goal}) ||
+		!strings.EqualFold(filepath.Clean(applied.Continuation.Executable), filepath.Clean(projectExecutable)) ||
+		applied.Apply.SessionLaunches != 0 {
+		t.Fatalf("bootstrap Apply did not preserve bounded continuation: %+v", applied)
+	}
+	if err := runtimebundle.ValidateUnifiedExecutableRole(projectExecutable); err != nil {
+		t.Fatalf("bootstrap published executable role: %v", err)
+	}
+	projectBytes, err := os.ReadFile(projectExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceBytes, err := os.ReadFile(unifiedExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projectBytes) != int(applied.Continuation.ExecutableBytes) || !bytes.Equal(projectBytes, sourceBytes) {
+		t.Fatal("bootstrap continuation executable binding differs from the exact published unified image")
+	}
+	keep, err := os.ReadFile(keepPath)
+	if err != nil || string(keep) != "keep\n" {
+		t.Fatalf("bootstrap changed ordinary project file: %q err=%v", keep, err)
+	}
+	if strings.Contains(strings.ToLower(applyOut), "powershell") {
+		t.Fatalf("bootstrap result introduced a PowerShell runtime path: %s", applyOut)
+	}
+
+	_, projectBootstrapErr, projectBootstrapRunErr := runRekitExecutableWithInput(
+		t, projectExecutable, "APPLY\n",
+		"bootstrap", "-target", filepath.Join(t.TempDir(), "other"), "-goal", "other", "-pack", "binary-re",
+	)
+	if projectBootstrapRunErr == nil || !strings.Contains(projectBootstrapErr, "cannot bootstrap another directory") {
+		t.Fatalf("project-local executable admitted external bootstrap: err=%v stderr=%q", projectBootstrapRunErr, projectBootstrapErr)
+	}
+}
+
 func TestUnifiedHostFreshGoalPublishesRunnableProjectExecutable(t *testing.T) {
 	repoRoot := rekitTestRepoRoot(t)
 	name := "steamai-fresh-goal-test"
@@ -745,8 +894,19 @@ func runRekitExecutable(
 	args ...string,
 ) (string, string, error) {
 	t.Helper()
+	return runRekitExecutableWithInput(t, executable, "", args...)
+}
+
+func runRekitExecutableWithInput(
+	t *testing.T,
+	executable,
+	input string,
+	args ...string,
+) (string, string, error) {
+	t.Helper()
 	command := exec.Command(executable, args...)
 	command.Env = append(os.Environ(), rekitExecutableHelperEnv+"=1")
+	command.Stdin = strings.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -834,6 +994,30 @@ func TestInvocationRecoveryTargetRequiresBoundedFrontDoor(t *testing.T) {
 	}
 }
 
+func TestBootstrapSourceRepoRootDoesNotBindAncestorProject(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "parent-project", "nested-source")
+	for _, dir := range []string{
+		filepath.Join(repo, "packs"),
+		filepath.Join(repo, "cmd", "rekit"),
+		filepath.Join(filepath.Dir(repo), ".steamai"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module github.com/shuiyu486/re-context-kits\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(repo, "bin", "steamai-bootstrap.exe")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := bootstrapSourceRepoRoot(executable)
+	if err != nil || !rekitfs.SamePath(got, repo) {
+		t.Fatalf("bootstrap source root = %q err=%v, want %q", got, err, repo)
+	}
+}
+
 func TestInvocationModeRoutesUnifiedExecutable(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -844,11 +1028,14 @@ func TestInvocationModeRoutesUnifiedExecutable(t *testing.T) {
 	}{
 		{name: "legacy runtime", args: []string{"-Command", "status"}, wantMode: "runtime", wantArgs: []string{"-Command", "status"}},
 		{name: "explicit runtime", args: []string{"runtime", "-Command", "status"}, wantMode: "runtime", wantArgs: []string{"-Command", "status"}},
+		{name: "bootstrap", args: []string{"bootstrap", "-target", "project", "-goal", "inspect"}, wantMode: "bootstrap", wantArgs: []string{"-target", "project", "-goal", "inspect"}},
+		{name: "uppercase bootstrap", args: []string{"BOOTSTRAP", "-target", "project"}, wantErr: "bootstrap mode token must be exactly"},
 		{name: "public help", args: []string{"help"}, wantMode: "public", wantArgs: []string{"help"}},
 		{name: "public short help", args: []string{"--help"}, wantMode: "public", wantArgs: []string{"help"}},
 		{name: "public status", args: []string{"status", "--diagnostics"}, wantMode: "public", wantArgs: []string{"status", "--diagnostics"}},
 		{name: "public continue", args: []string{"continue", "--lane", "main"}, wantMode: "public", wantArgs: []string{"continue", "--lane", "main"}},
 		{name: "host", args: []string{"host", "-daily", "-target", "project"}, wantMode: "host", wantArgs: []string{"-daily", "-target", "project"}},
+		{name: "uppercase host", args: []string{"HOST", "-daily", "-target", "project"}, wantErr: "host mode token must be exactly"},
 		{name: "internal child", args: []string{"-internal-supervisor", "spec.json", "-internal-supervisor-sha256", strings.Repeat("a", 64)}, wantMode: "host", wantArgs: []string{"-internal-supervisor", "spec.json", "-internal-supervisor-sha256", strings.Repeat("a", 64)}},
 		{name: "private adapter child", args: []string{"-child-vmp-ida-index-inspector"}, wantMode: "adapter", wantArgs: []string{"-child-vmp-ida-index-inspector"}},
 		{name: "unknown", args: []string{"future"}, wantErr: "unknown steamai mode"},

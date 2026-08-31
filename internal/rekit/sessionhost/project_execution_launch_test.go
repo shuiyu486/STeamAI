@@ -267,6 +267,54 @@ func TestRunClaudeBinaryInventoryMemberConsumesTypedPolicyThroughStdin(t *testin
 	}
 }
 
+func TestRunClaudeArtifactAnalysisDriftBlocksProcessStart(t *testing.T) {
+	var artifactPath string
+	_, opt, pkg, readyPath, releasePath := projectExecutionLaunchFixtureWithBindingFactory(
+		t,
+		func(caseRoot string) *memberexecution.TaskBinding {
+			artifactPath = filepath.Join(caseRoot, "inputs", "sample.bin")
+			if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(artifactPath, []byte("original artifact"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			binding, err := memberexecution.ArtifactAnalysisTaskBinding(caseRoot, "inputs/sample.bin")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return &binding
+		},
+	)
+	restoreHook := setClaudeBeforeFinalMemberInputValidationHookForTest(func() error {
+		return os.WriteFile(artifactPath, []byte("drifted artifact"), 0o600)
+	})
+	t.Cleanup(func() {
+		restoreHook()
+		_ = os.WriteFile(releasePath, nil, 0o600)
+	})
+	t.Setenv(projectExecutionHelperRoleEnv, "claude")
+	t.Setenv(projectExecutionHelperReadyEnv, readyPath)
+	t.Setenv(projectExecutionHelperReleaseEnv, releasePath)
+
+	started := false
+	run := runClaude(context.Background(), opt, pkg, pkg.Launch.Attempt.Session, func() error {
+		started = true
+		return nil
+	})
+	if run.started || started || run.spawnErr == nil {
+		t.Fatalf("drifted typed artifact was not blocked before process start: %+v callback=%t", run, started)
+	}
+	spawnError := run.spawnErr.Error()
+	if !strings.Contains(spawnError, "revalidate Claude member input immediately before launch") ||
+		!strings.Contains(spawnError, "artifact-analysis task input changed") {
+		t.Fatalf("unexpected typed artifact drift error %q", spawnError)
+	}
+	if _, err := os.Lstat(readyPath); !os.IsNotExist(err) {
+		t.Fatalf("Claude helper started despite typed artifact drift: readyErr=%v", err)
+	}
+}
+
 func TestRunClaudeProductionInstructionSourceDriftBlocksProcessStart(t *testing.T) {
 	caseRoot, opt, pkg, _, _ := projectExecutionLaunchFixture(t)
 	if pkg.Launch == nil || pkg.Launch.InstructionIdentity == nil || len(pkg.Launch.InstructionIdentity.Sources) == 0 {
@@ -746,10 +794,31 @@ func projectExecutionLaunchFixture(t *testing.T) (
 	string,
 	string,
 ) {
-	return projectExecutionLaunchFixtureWithBinding(t, nil)
+	return projectExecutionLaunchFixtureWithBindingFactory(t, func(caseRoot string) *memberexecution.TaskBinding {
+		binding, err := memberexecution.WorkspaceInventoryTaskBinding(caseRoot, ".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &binding
+	})
 }
 
 func projectExecutionLaunchFixtureWithBinding(t *testing.T, binding *memberexecution.TaskBinding) (
+	string,
+	Options,
+	mission.CurrentLoopExternalSessionHarnessPackage,
+	string,
+	string,
+) {
+	return projectExecutionLaunchFixtureWithBindingFactory(t, func(string) *memberexecution.TaskBinding {
+		return binding
+	})
+}
+
+func projectExecutionLaunchFixtureWithBindingFactory(
+	t *testing.T,
+	bindingForCase func(string) *memberexecution.TaskBinding,
+) (
 	string,
 	Options,
 	mission.CurrentLoopExternalSessionHarnessPackage,
@@ -772,6 +841,7 @@ func projectExecutionLaunchFixtureWithBinding(t *testing.T, binding *memberexecu
 	if err := ensureDailyStarted(caseRoot, intent.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
+	binding := bindingForCase(caseRoot)
 	if binding != nil {
 		owner, err := laneowner.Read(caseRoot, bootstrap.Lane)
 		if err != nil {

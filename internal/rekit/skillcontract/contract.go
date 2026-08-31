@@ -119,6 +119,18 @@ func Capabilities() ([]Capability, error) {
 			Notes: "starts only from a fresh goal operation selected by the daily classifier",
 		},
 		Capability{
+			ID: "host-daily-artifact-analysis", Audience: "mission-commander", Surface: "host",
+			Argv:   []string{"host", "-daily", "-target", "${CLAUDE_PROJECT_DIR}", "-goal", "<GOAL>", "-input-mode", "artifact-analysis", "-input-artifact", "<CASE_RELATIVE_ARTIFACT>"},
+			Effect: "typed-daily-owner", Policy: "daily-operation-classifier",
+			Notes: "binds one exact case-local artifact path, SHA-256, and byte size before member launch; the runtime rejects drift before process start",
+		},
+		Capability{
+			ID: "host-daily-workspace-inventory", Audience: "mission-commander", Surface: "host",
+			Argv:   []string{"host", "-daily", "-target", "${CLAUDE_PROJECT_DIR}", "-goal", "<GOAL>", "-input-mode", "workspace-inventory", "-input-scope", "<CASE_RELATIVE_DIRECTORY>"},
+			Effect: "typed-daily-owner", Policy: "daily-operation-classifier",
+			Notes: "binds one exact case-local directory scope; inventory contents are collected at member execution time, so an empty directory is a valid result and must not be reclassified as missing artifact input",
+		},
+		Capability{
 			ID: "host-daily-resume", Audience: "mission-commander", Surface: "host",
 			Argv:   []string{"host", "-daily", "-target", "${CLAUDE_PROJECT_DIR}", "-lane", "<TYPED_LANE>"},
 			Effect: "typed-daily-owner", Policy: "daily-operation-classifier",
@@ -129,6 +141,14 @@ func Capabilities() ([]Capability, error) {
 			Argv:   []string{"host", "-daily", "-target", "${CLAUDE_PROJECT_DIR}", "-lane", "<TYPED_LANE>", "-correction", "<CORRECTION>"},
 			Effect: "typed-daily-owner", Policy: "daily-operation-classifier",
 			Notes: "passes the user's correction verbatim to the correction owner",
+		},
+		Capability{
+			ID: "host-successor-exact-apply", Audience: "mission-commander", Surface: "host",
+			Argv:   []string{"<successorMission.applyArgs...>"},
+			Effect: "result-bound-exact-apply", Policy: commands.BoundaryCaseLocalReviewFirst,
+			Currentness: commands.MutationCurrentnessStrictPlan, ExpectedApplyFlag: "-expected-successor-plan-sha256",
+			ExactApplyFromResult: true,
+			Notes:                "only after explicit confirmation, consume the fresh successorMission.applyArgs array verbatim from the just-reviewed daily successor preview; it must invoke host -daily on the same project-local executable and retain goal, actor, publication stamp, and expected plan SHA-256; reject stale, non-successor, added, removed, reordered, or prose-reconstructed argv",
 		},
 		Capability{
 			ID: "typed-invocation", Audience: "mission-commander", Surface: "runtime",

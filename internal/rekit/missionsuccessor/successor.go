@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -380,43 +381,57 @@ func committedReplay(caseRoot string, opt Options) (Result, bool, error) {
 	if intent.SchemaVersion != 1 || intent.Kind != "mission-successor-intent" || intent.TransitionID != commit.TransitionID || intent.Generation != commit.Generation || intent.ProjectID != view.Active.ProjectID || !strings.EqualFold(intent.PlanSHA256, commit.PlanSHA256) || !strings.EqualFold(sha(intentBytes), commit.IntentSHA256) || !intent.NoAuthority || !intent.NoConfirmed || !intent.NoHeavyTool || !intent.NoAutoResume {
 		return Result{}, false, fmt.Errorf("committed successor intent does not bind the active transition")
 	}
+	plan, err := committedSuccessorPlan(filepath.Dir(view.Root.Path), view.Root.Path, intent, commit)
+	if err != nil {
+		return Result{}, false, err
+	}
+	plan.State = "ready-to-continue"
+	plan.RequiresConfirmation = false
+	return Result{Plan: plan, Applied: true, Replay: true}, true, nil
+}
+
+func committedSuccessorPlan(caseRoot, stateRoot string, intent TransitionIntent, commit TransitionCommit) (Plan, error) {
+	return successorPlanFromCommittedPublications(caseRoot, stateRoot, intent, commit, false)
+}
+
+func successorPlanFromCommittedPublications(caseRoot, stateRoot string, intent TransitionIntent, commit TransitionCommit, activePointerPending bool) (Plan, error) {
+	missionPath := filepath.Join(stateRoot, projectstate.MissionsDir, fmt.Sprintf("g%06d", intent.Generation), "mission-intent.json")
 	missionBytes, err := rekitfs.ReadStableRegularFileAnchored(
-		view.Root.Path,
-		filepath.Join(view.Path, "mission-intent.json"),
+		stateRoot,
+		missionPath,
 		"committed successor mission intent",
 		64<<10,
 	)
 	if err != nil {
-		return Result{}, false, err
+		return Plan{}, err
 	}
+	manifestPath := filepath.Join(stateRoot, projectstate.MissionsDir, fmt.Sprintf("g%06d", intent.Generation), projectstate.MissionManifestFile)
 	manifestBytes, err := rekitfs.ReadStableRegularFileAnchored(
-		view.Root.Path,
-		filepath.Join(view.Path, projectstate.MissionManifestFile),
+		stateRoot,
+		manifestPath,
 		"committed successor manifest",
 		4<<20,
 	)
 	if err != nil {
-		return Result{}, false, err
+		return Plan{}, err
 	}
 	var generationManifest GenerationManifest
 	if err := decodeCanonical(manifestBytes, &generationManifest); err != nil {
-		return Result{}, false, fmt.Errorf("decode committed successor manifest: %w", err)
+		return Plan{}, fmt.Errorf("decode committed successor manifest: %w", err)
 	}
 	plan := Plan{SchemaVersion: 1, Kind: "mission-successor-plan", Command: "successor", State: "confirmation-required", CaseRoot: caseRoot, ProjectID: intent.ProjectID, Pack: intent.Pack, PackManifestSHA256: generationManifest.PackManifestSHA256, AuthorityLane: generationManifest.AuthorityLane, PreviousGeneration: intent.PreviousGeneration, Generation: intent.Generation, MissionID: intent.MissionID, Goal: intent.Goal, Actor: intent.Actor, InitialLane: intent.InitialLane, Executor: intent.Executor, PublicationStamp: intent.PublicationStamp, PreviousMissionSHA: intent.PreviousMissionSHA, PreviousClosureSHA: intent.PreviousClosureSHA, PreviousCompletion: intent.PreviousCompletion, ExpectedPlanSHA256: commit.PlanSHA256, RequiresReview: true, RequiresConfirmation: true, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true, NoAutoResume: true}
 	plan.Writes = plannedWrites(intent.Generation, intent.TransitionID, missionBytes)
 	artifacts, _ := buildSuccessorArtifacts(plan, intent.TransitionID, missionBytes, intent.PreviousClosureSHA)
 	plan.Writes = setWriteHashes(plan.Writes, artifacts)
-	if err := validateCommittedWriteIdentity(view.Root.Path, plan.Writes); err != nil {
-		return Result{}, false, fmt.Errorf("verify committed successor publications: %w", err)
+	if err := validateCommittedWriteIdentity(stateRoot, plan.Writes, activePointerPending); err != nil {
+		return Plan{}, fmt.Errorf("verify committed successor publications: %w", err)
 	}
 	if planSHA, err := canonicalPlanSHA(plan); err != nil || !strings.EqualFold(planSHA, commit.PlanSHA256) {
-		return Result{}, false, fmt.Errorf("committed successor intent differs from its plan binding")
+		return Plan{}, fmt.Errorf("committed successor intent differs from its plan binding")
 	}
 	plan.ExpectedPlanSHA256 = commit.PlanSHA256
 	plan.ApplyArgs = successorApplyArgs(caseRoot, intent.Goal, intent.Actor, intent.PublicationStamp, commit.PlanSHA256)
-	plan.State = "ready-to-continue"
-	plan.RequiresConfirmation = false
-	return Result{Plan: plan, Applied: true, Replay: true}, true, nil
+	return plan, nil
 }
 
 func prepare(caseRoot string, opt Options, allowStamp bool) (prepared, error) {
@@ -953,13 +968,19 @@ func validatePlannedWrite(writes []Write, path string, data []byte) error {
 	return fmt.Errorf("successor publication is absent from reviewed writes: %s", path)
 }
 
-func validateCommittedWriteIdentity(stateRoot string, writes []Write) error {
+func validateCommittedWriteIdentity(stateRoot string, writes []Write, activePointerPending bool) error {
 	caseRoot := filepath.Dir(stateRoot)
 	for _, write := range writes {
 		switch write.Kind {
 		case "board", "fact-jsonl":
 			// These mission-owned artifacts are intentionally mutable after activation.
 			continue
+		case "active-mission-pointer":
+			if activePointerPending {
+				// Its planned bytes remain hash-bound below; only publication is pending
+				// at the exact predecessor-rename recovery cut.
+				continue
+			}
 		}
 		path := filepath.Join(caseRoot, filepath.FromSlash(write.Path))
 		data, err := rekitfs.ReadStableRegularFileAllowEmptyAnchored(
@@ -994,6 +1015,167 @@ func successorBoardBytes(plan Plan, authorityLane string) []byte {
 
 func successorApplyArgs(caseRoot, goal, actor, stamp, planSHA string) []string {
 	return []string{"host", "-daily", "-target", caseRoot, "-goal", goal, "-actor", actor, "-successor-apply", "-successor-publication-stamp", stamp, "-expected-successor-plan-sha256", planSHA}
+}
+
+// ValidateApplyArgs verifies the exact host argv emitted by a successor preview.
+// It derives the expected values from the fresh durable predecessor or committed
+// replay instead of treating the values currently being validated as canonical.
+func ValidateApplyArgs(args []string, caseRoot string, opt Options) error {
+	if !successorApplyArgsShape(args) {
+		return exactApplyArgsError(nil)
+	}
+	expected, err := canonicalApplyArgs(caseRoot, opt)
+	if err != nil {
+		return exactApplyArgsError(err)
+	}
+	if !slices.Equal(args, expected[1:]) {
+		return exactApplyArgsError(nil)
+	}
+	return nil
+}
+
+func successorApplyArgsShape(args []string) bool {
+	return len(args) == 12 &&
+		args[0] == "-daily" &&
+		args[1] == "-target" &&
+		args[3] == "-goal" &&
+		args[5] == "-actor" &&
+		args[7] == "-successor-apply" &&
+		args[8] == "-successor-publication-stamp" &&
+		args[10] == "-expected-successor-plan-sha256"
+}
+
+func canonicalApplyArgs(caseRoot string, opt Options) ([]string, error) {
+	if replay, ok, err := committedReplay(caseRoot, opt); err != nil {
+		return nil, err
+	} else if ok {
+		return replay.ApplyArgs, nil
+	}
+	if interrupted, ok, err := interruptedReplacementApplyArgs(caseRoot, opt); err != nil {
+		return nil, err
+	} else if ok {
+		return interrupted, nil
+	}
+	prepared, err := prepare(caseRoot, Options{
+		Goal:             opt.Goal,
+		Actor:            opt.Actor,
+		PublicationStamp: opt.PublicationStamp,
+	}, false)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.plan.ApplyArgs, nil
+}
+
+func interruptedReplacementApplyArgs(caseRoot string, opt Options) ([]string, bool, error) {
+	state, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, false, err
+	}
+	activePath, err := projectstate.MissionActivePath(caseRoot)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := os.Lstat(activePath); err == nil {
+		return nil, false, nil
+	} else if !os.IsNotExist(err) {
+		return nil, false, err
+	}
+	root, err := rekitfs.OpenAnchoredRoot(state.Path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer root.Close()
+	missionsRel := projectstate.MissionsDir
+	entries, err := root.ListNoFollow(missionsRel, maxClosureFiles)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	prefix := "." + projectstate.MissionActiveFile + ".predecessor-"
+	var predecessor projectstate.MissionActive
+	predecessors := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) || !strings.HasSuffix(entry.Name(), ".tmp") {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join(missionsRel, entry.Name()))
+		data, _, err := root.ReadStableFile(rel, 64<<10)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := decodeCanonical(data, &predecessor); err != nil || projectstate.ValidateMissionActive(predecessor) != nil {
+			return nil, false, fmt.Errorf("interrupted active mission predecessor is invalid: %w", err)
+		}
+		predecessors++
+	}
+	if predecessors == 0 {
+		return nil, false, nil
+	}
+	if predecessors != 1 {
+		return nil, false, fmt.Errorf("multiple interrupted active mission predecessors require manual review")
+	}
+	transitionEntries, err := root.ListNoFollow(filepath.FromSlash(transitionRoot), maxClosureFiles)
+	if err != nil {
+		return nil, false, err
+	}
+	var matched Plan
+	matches := 0
+	for _, entry := range transitionEntries {
+		if !entry.IsDir() {
+			continue
+		}
+		intentRel := filepath.ToSlash(filepath.Join(filepath.FromSlash(transitionRoot), entry.Name(), "intent.json"))
+		commitRel := filepath.ToSlash(filepath.Join(filepath.FromSlash(transitionRoot), entry.Name(), "commit.json"))
+		intentBytes, _, err := root.ReadStableFile(intentRel, 1<<20)
+		if err != nil {
+			return nil, false, err
+		}
+		commitBytes, _, err := root.ReadStableFile(commitRel, 1<<20)
+		if err != nil {
+			return nil, false, err
+		}
+		var intent TransitionIntent
+		var commit TransitionCommit
+		if err := decodeCanonical(intentBytes, &intent); err != nil {
+			return nil, false, err
+		}
+		if err := decodeCanonical(commitBytes, &commit); err != nil {
+			return nil, false, err
+		}
+		if intent.PreviousGeneration != predecessor.Generation || intent.Generation != predecessor.Generation+1 ||
+			intent.Goal != strings.TrimSpace(opt.Goal) || intent.Actor != strings.TrimSpace(opt.Actor) ||
+			intent.PublicationStamp != strings.TrimSpace(opt.PublicationStamp) ||
+			!strings.EqualFold(intent.PlanSHA256, opt.ExpectedPlanSHA256) {
+			continue
+		}
+		if commit.SchemaVersion != 1 || commit.Kind != "mission-successor-commit" || commit.State != "committed" ||
+			commit.TransitionID != intent.TransitionID || commit.Generation != intent.Generation || commit.MissionID != intent.MissionID ||
+			!strings.EqualFold(commit.PlanSHA256, intent.PlanSHA256) || !strings.EqualFold(commit.IntentSHA256, sha(intentBytes)) ||
+			!commit.NoAuthority || !commit.NoConfirmed || !commit.NoHeavyTool || !commit.NoAutoResume {
+			return nil, false, fmt.Errorf("interrupted successor transition commit does not bind its intent")
+		}
+		plan, err := successorPlanFromCommittedPublications(caseRoot, state.Path, intent, commit, true)
+		if err != nil {
+			return nil, false, err
+		}
+		matched = plan
+		matches++
+	}
+	if matches != 1 {
+		return nil, false, fmt.Errorf("interrupted active mission replacement does not bind one exact reviewed successor")
+	}
+	return matched.ApplyArgs, true, nil
+}
+
+func exactApplyArgsError(cause error) error {
+	const message = "successor mission Apply requires the exact fresh successorMission.applyArgs argv"
+	if cause != nil {
+		return fmt.Errorf("%s: %w", message, cause)
+	}
+	return errors.New(message)
 }
 
 func missionFactNames() []string {

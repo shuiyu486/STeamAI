@@ -15,6 +15,7 @@ import (
 
 const (
 	dailyCorrectionRouteReviewer = "reviewer-rejection"
+	dailyCorrectionRouteActive   = "active-lane"
 	dailyCorrectionRouteTerminal = "terminal-reopen"
 )
 
@@ -52,41 +53,38 @@ func resolveDailyCorrectionRoute(caseRoot, pack, correction, actor, selected str
 			return dailyCorrectionRoute{}, nil, err
 		}
 		if route.Kind == "" {
-			return dailyCorrectionRoute{}, nil, fmt.Errorf("selected daily correction lane %s has neither a canonical reviewer rejection nor a committed completion", selected)
+			return dailyCorrectionRoute{}, nil, fmt.Errorf("selected daily correction lane %s is not an eligible active, reviewer-rejected, or committed lane", selected)
 		}
 		return route, nil, nil
 	}
 
 	routes := make([]dailyCorrectionRoute, 0, len(board.Lanes))
-	choices := make([]DailyChoice, 0, len(board.Lanes))
+	routeChoices := make([]DailyChoice, 0, len(board.Lanes))
+	activeChoices := make([]DailyChoice, 0, len(board.Lanes))
 	for _, lane := range board.Lanes {
 		route, classifyErr := classifyDailyCorrectionLane(caseRoot, correction, actor, dailyCorrectionScope(caseRoot, inspection), lane)
 		if classifyErr != nil {
 			return dailyCorrectionRoute{}, nil, classifyErr
 		}
+		choice := DailyChoice{ID: lane.ID, Label: mission.BoardLaneLabel(lane)}
+		if route.Kind == dailyCorrectionRouteActive {
+			activeChoices = append(activeChoices, choice)
+			continue
+		}
 		if route.Kind == "" {
 			continue
 		}
 		routes = append(routes, route)
-		choices = append(choices, DailyChoice{ID: lane.ID, Label: mission.BoardLaneLabel(lane)})
-	}
-	if len(routes) > 1 {
-		return dailyCorrectionRoute{}, dailyLaneSelectionAction(choices), nil
+		routeChoices = append(routeChoices, choice)
 	}
 	if len(routes) == 1 {
 		return routes[0], nil, nil
 	}
-
-	// Preserve the zero-write lane choice for multiple active member lanes.
-	// The selected lane still has to pass canonical reviewer-lineage validation.
-	for _, lane := range mission.OpenBoardLanes(board.Lanes) {
-		if lane.Authority || strings.TrimSpace(lane.CurrentExecutor) == "" || lane.ExecutorGeneration < 1 {
-			continue
-		}
-		choices = append(choices, DailyChoice{ID: lane.ID, Label: mission.BoardLaneLabel(lane)})
+	if len(routes) > 1 {
+		return dailyCorrectionRoute{}, dailyLaneSelectionAction(append(routeChoices, activeChoices...)), nil
 	}
-	if len(choices) > 1 {
-		return dailyCorrectionRoute{}, dailyLaneSelectionAction(choices), nil
+	if len(activeChoices) > 0 {
+		return dailyCorrectionRoute{}, dailyLaneSelectionAction(activeChoices), nil
 	}
 	return dailyCorrectionRoute{}, dailyAction(DailyActionBlocked), nil
 }
@@ -142,6 +140,9 @@ func classifyDailyCorrectionLane(caseRoot, correction, actor, scope string, lane
 	}
 	if lifecycle.State == lanecompletion.StateComplete {
 		return dailyCorrectionRoute{}, fmt.Errorf("daily correction lane %s has a committed completion but is not closed", lane.ID)
+	}
+	if state == "open" && !lane.Authority && strings.TrimSpace(lane.CurrentExecutor) != "" && lane.ExecutorGeneration > 0 {
+		return dailyCorrectionRoute{Lane: lane.ID, Kind: dailyCorrectionRouteActive}, nil
 	}
 	return dailyCorrectionRoute{}, nil
 }

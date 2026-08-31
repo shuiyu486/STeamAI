@@ -31,6 +31,24 @@ import (
 
 const defaultDailyActor = "rekit-daily-front-door"
 
+const (
+	DailyInputArtifactAnalysis   = memberexecution.TaskBindingArtifactAnalysis
+	DailyInputWorkspaceInventory = memberexecution.TaskBindingWorkspaceInventory
+)
+
+type DailyInputRequest struct {
+	Mode         string `json:"mode"`
+	ArtifactPath string `json:"artifactPath,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+}
+
+type DailyInputReadiness struct {
+	State        string `json:"state"`
+	Mode         string `json:"mode,omitempty"`
+	ArtifactPath string `json:"artifactPath,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+}
+
 type DailyOptions struct {
 	Target                            string
 	Goal                              string
@@ -55,6 +73,7 @@ type DailyOptions struct {
 	Model                             string
 	Timeout                           time.Duration
 	MaxAttempts                       int
+	Input                             DailyInputRequest
 	onCaseReady                       func(string) error
 	beforeMemberRun                   func(caseRoot, pack, lane string) error
 	binaryREAdapterPath               string
@@ -98,6 +117,7 @@ type DailyResult struct {
 	SuccessorMission           *missionsuccessor.Result               `json:"successorMission,omitempty"`
 	BinaryREAdapter            *BinaryREAdapterLifecycleResult        `json:"binaryReAdapter,omitempty"`
 	WebSecurityAdapter         *WebSecurityAdapterLifecycleResult     `json:"webSecurityAdapter,omitempty"`
+	InputReadiness             *DailyInputReadiness                   `json:"inputReadiness,omitempty"`
 	Boundary                   []string                               `json:"boundary"`
 }
 
@@ -123,11 +143,11 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			failure.MutationBoundary = "durable-runtime-step-may-have-committed"
 			result.Failure = &failure
 		}
-		if result.Failure != nil || result.Action == nil {
-			result.Action = dailyUserAction(result)
-		}
 		if result.Mode != string(DailyOperationControl) && result.CaseRoot != "" && result.Pack != "" && result.FinalState != "not-started" {
 			bindDailyResultCurrentDriverRequest(&result)
+		}
+		if result.Failure != nil || result.Action == nil {
+			result.Action = dailyUserAction(result)
 		}
 	}()
 	request, requestErr := ResolveDailyRequest(opt)
@@ -334,6 +354,9 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			if completionErr != nil || !completion.Ready || !completion.OperationallyComplete || completion.State != "mission-complete" {
 				return result, fmt.Errorf("daily goal differs from the immutable committed mission intent")
 			}
+			if dailyInputRequested(opt.Input) {
+				return result, fmt.Errorf("typed daily input cannot be combined with an implicit successor mission")
+			}
 			if strings.TrimSpace(opt.SelectedLane) != "" || correction != "" {
 				return result, fmt.Errorf("successor mission goal does not accept a lane or correction")
 			}
@@ -471,13 +494,16 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 	}
 
 	if correction != "" {
-		if correctionRoute.Kind == dailyCorrectionRouteTerminal {
+		switch correctionRoute.Kind {
+		case dailyCorrectionRouteTerminal:
 			return runDailyTerminalCorrection(hostOpt, correction, result)
-		}
-		if correctionRoute.Kind != dailyCorrectionRouteReviewer {
+		case dailyCorrectionRouteActive:
+			return runDailyActiveCorrection(hostOpt, inspection, correction, result, opt)
+		case dailyCorrectionRouteReviewer:
+			return runDailyCorrection(parent, hostOpt, inspection, correction, result, opt)
+		default:
 			return result, fmt.Errorf("daily correction route is not executable: %s", correctionRoute.Kind)
 		}
-		return runDailyCorrection(parent, hostOpt, inspection, correction, result, opt)
 	}
 	if state, generation, terminal, err := dailyLaneTerminal(caseRoot, result.Lane); err != nil {
 		return result, err
@@ -512,6 +538,23 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 	if !adapterReady {
 		return result, nil
 	}
+	if pack == defaults.DefaultPack {
+		status, err := runPublicStatusWithLease(caseRoot, pack, result.Lane, opt.projectExecutionLease)
+		if err != nil {
+			return result, err
+		}
+		if currentDailyRequestRequiresMemberInput(status, result.Lane) {
+			inputReady, err := prepareDailyInputReadiness(caseRoot, pack, result.Lane, opt.Input, &result)
+			if err != nil {
+				return result, err
+			}
+			if !inputReady {
+				return result, nil
+			}
+		} else if dailyInputRequested(opt.Input) {
+			return result, fmt.Errorf("typed daily input requires the current member continuation request")
+		}
+	}
 	if goal != "" {
 		if opt.stopAfterMemberSegment {
 			hostOpt.StopAfterMemberIntake = true
@@ -528,7 +571,7 @@ func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (resu
 			return result, err
 		}
 	} else {
-		owner, err := newDailySessionTransitionOwner(caseRoot, pack, result.Lane)
+		owner, err := newDailySessionTransitionOwner(caseRoot, pack, result.Lane, opt.projectExecutionLease)
 		if err != nil {
 			return result, err
 		}
@@ -703,7 +746,7 @@ func dailySelectedLane(caseRoot, pack, selected string, lease *projectexecution.
 	choices := dailyStatusLaneChoices(status)
 	selected = strings.TrimSpace(selected)
 	explicit := selected != ""
-	if !explicit && len(fallback) > 0 {
+	if !explicit && len(choices) == 0 && len(fallback) > 0 {
 		fallbackLane := strings.TrimSpace(fallback[0])
 		if fallbackLane != "" {
 			board, readErr := mission.ReadBoard(caseRoot)
@@ -752,7 +795,7 @@ func dailySelectedLane(caseRoot, pack, selected string, lease *projectexecution.
 		if !explicit && state == "closed" {
 			return selected, nil, nil
 		}
-		if !explicit && state == "archived" {
+		if state == "archived" {
 			return "", nil, fmt.Errorf("daily terminal replay refuses archived lane %s because no durable archive transition is supported", selected)
 		}
 		if explicit && state == "open" {
@@ -854,7 +897,7 @@ func ensureDailyStartedWithLease(caseRoot, pack string, result *DailyResult, lea
 			}
 			result.DriverSteps = append(result.DriverSteps, "overview")
 		case "start":
-			step, err := runPublicDriverStep(caseRoot, pack, statusLane)
+			step, err := runPublicDriverStepWithLease(caseRoot, pack, lease, statusLane)
 			if err != nil {
 				return fmt.Errorf("daily public start route: %w", err)
 			}
@@ -880,11 +923,16 @@ func bindDailyResultCurrentDriverRequest(result *DailyResult) {
 	if result == nil {
 		return
 	}
-	owner, err := newDailySessionTransitionOwner(result.CaseRoot, result.Pack, result.Lane)
-	if err != nil {
-		return
+	for _, lane := range []string{"", strings.TrimSpace(result.Lane)} {
+		owner, err := newDailySessionTransitionOwner(result.CaseRoot, result.Pack, lane)
+		if err != nil {
+			return
+		}
+		owner.bindResultCurrentDriverRequest(result)
+		if result.CurrentDriverRequest != nil || lane != "" {
+			return
+		}
 	}
-	owner.bindResultCurrentDriverRequest(result)
 }
 
 func dailyLaneTerminal(caseRoot, laneID string) (string, int, bool, error) {

@@ -13,6 +13,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -106,6 +107,10 @@ func runDriverStep(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) (driverStepPlan, error) {
+	return applyDriverStepPlanWithLease(ctx, opt, plan, nil)
+}
+
+func applyDriverStepPlanWithLease(ctx runtime.Context, opt Options, plan driverStepPlan, lease *projectexecution.Lease) (driverStepPlan, error) {
 	result, err := applyDriverStep(
 		ctx,
 		plan.ApplyDriverRequest,
@@ -130,7 +135,7 @@ func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) 
 	if err != nil {
 		return plan, fmt.Errorf("refresh status after driver step: %w", err)
 	}
-	refreshed, err := buildInvocationStatusInventoryAfterMutation(ctx, refreshOpt)
+	refreshed, err := buildInvocationStatusInventoryAfterMutationWithLease(ctx, refreshOpt, lease)
 	if err != nil {
 		return plan, fmt.Errorf("refresh status after driver step: %w", err)
 	}
@@ -158,7 +163,10 @@ func buildDriverStepPlanFromStatus(ctx runtime.Context, status statusInventory) 
 	if status.MissionControlRunbook.Scope != "case" {
 		return driverStepPlan{}, fmt.Errorf("run-driver-step supports only case-scoped current driver requests; got %q", status.MissionControlRunbook.Scope)
 	}
-	request := *status.MissionControlRunbook.CurrentDriverRequest
+	return buildDriverStepPlanFromRequest(ctx, *status.MissionControlRunbook.CurrentDriverRequest)
+}
+
+func buildDriverStepPlanFromRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (driverStepPlan, error) {
 	if lane := strings.TrimSpace(request.Lane); lane != "" {
 		bindSelectedLaneDriverRequest(&request, lane)
 	}

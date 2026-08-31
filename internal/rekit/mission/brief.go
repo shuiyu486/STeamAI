@@ -118,6 +118,11 @@ type MissionCommanderRunLoopStep struct {
 	Boundary    []string `json:"boundary,omitempty"`
 }
 
+const (
+	MemberContinuationSource = "missionCommanderActions"
+	MemberContinuationState  = "ready-to-continue"
+)
+
 type MissionCommanderDriverRequest struct {
 	Kind              string                                   `json:"kind"`
 	RunLoopStepID     string                                   `json:"runLoopStepId"`
@@ -136,6 +141,13 @@ type MissionCommanderDriverRequest struct {
 	RequiresReview    bool                                     `json:"requiresReview,omitempty"`
 	ExpectedReceipt   MissionCommanderDriverReceiptExpectation `json:"expectedReceipt"`
 	Boundary          []string                                 `json:"boundary,omitempty"`
+}
+
+func MissionCommanderDriverRequestOwnsMemberContinuation(request MissionCommanderDriverRequest) bool {
+	return strings.TrimSpace(request.Source) == MemberContinuationSource &&
+		strings.TrimSpace(request.State) == MemberContinuationState &&
+		request.Invocation != nil && request.Invocation.Validate() == nil &&
+		request.Invocation.Command == commands.Continue
 }
 
 func MissionCommanderDriverRequestSHA256(request MissionCommanderDriverRequest) (string, error) {
@@ -1563,19 +1575,21 @@ func MissionCommanderActionQueueSummary(queue MissionCommanderActionQueue) strin
 }
 
 func firstMissionCommanderCurrentAction(items []MissionCommanderNextActionItem) (MissionCommanderNextActionItem, bool) {
-	if len(items) == 0 {
-		return MissionCommanderNextActionItem{}, false
-	}
-	current := items[0]
-	currentPriority := missionCommanderNextActionCurrentPriority(current)
-	for _, item := range items[1:] {
+	var current MissionCommanderNextActionItem
+	currentPriority := 0
+	found := false
+	for _, item := range items {
+		if !missionCommanderNextActionCanBeCurrent(item) {
+			continue
+		}
 		priority := missionCommanderNextActionCurrentPriority(item)
-		if priority < currentPriority {
+		if !found || priority < currentPriority {
 			current = item
 			currentPriority = priority
+			found = true
 		}
 	}
-	if len(missionCommanderCurrentLaneChoices(items, currentPriority)) > 1 {
+	if !found || len(missionCommanderCurrentLaneChoices(items, currentPriority)) > 1 {
 		return MissionCommanderNextActionItem{}, false
 	}
 	return current, true
@@ -1584,14 +1598,20 @@ func firstMissionCommanderCurrentAction(items []MissionCommanderNextActionItem) 
 func MissionCommanderActionQueueLaneChoices(queue MissionCommanderActionQueue) []MissionCommanderNextActionItem {
 	items := append([]MissionCommanderNextActionItem{}, queue.UnblockedActions...)
 	items = append(items, queue.BlockedActions...)
-	if len(items) == 0 {
-		return nil
-	}
-	currentPriority := missionCommanderNextActionCurrentPriority(items[0])
-	for _, item := range items[1:] {
-		if priority := missionCommanderNextActionCurrentPriority(item); priority < currentPriority {
-			currentPriority = priority
+	currentPriority := 0
+	found := false
+	for _, item := range items {
+		if !missionCommanderNextActionCanBeCurrent(item) {
+			continue
 		}
+		priority := missionCommanderNextActionCurrentPriority(item)
+		if !found || priority < currentPriority {
+			currentPriority = priority
+			found = true
+		}
+	}
+	if !found {
+		return nil
 	}
 	choices := missionCommanderCurrentLaneChoices(items, currentPriority)
 	if len(choices) < 2 {
@@ -1608,7 +1628,7 @@ func missionCommanderCurrentLaneChoices(items []MissionCommanderNextActionItem, 
 	lanes := map[string]bool{}
 	choices := []MissionCommanderNextActionItem{}
 	for _, item := range items {
-		if missionCommanderNextActionCurrentPriority(item) != currentPriority {
+		if !missionCommanderNextActionCanBeCurrent(item) || missionCommanderNextActionCurrentPriority(item) != currentPriority {
 			continue
 		}
 		lane := strings.TrimSpace(item.Lane)
@@ -1619,6 +1639,10 @@ func missionCommanderCurrentLaneChoices(items []MissionCommanderNextActionItem, 
 		choices = append(choices, item)
 	}
 	return choices
+}
+
+func missionCommanderNextActionCanBeCurrent(item MissionCommanderNextActionItem) bool {
+	return !strings.EqualFold(strings.TrimSpace(item.State), "lane-not-open")
 }
 
 func missionCommanderNextActionCurrentPriority(item MissionCommanderNextActionItem) int {

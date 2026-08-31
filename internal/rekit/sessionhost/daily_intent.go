@@ -65,6 +65,10 @@ func ResolveDailyRequest(opt DailyOptions) (DailyRequest, error) {
 	correction := request.Correction
 	controlRequested := request.ControlRequested
 	adoptionRequested := request.AdoptionRequested
+	inputRequested := dailyInputRequested(opt.Input)
+	successorRequested := opt.SuccessorWhatIf || opt.SuccessorApply ||
+		strings.TrimSpace(opt.SuccessorPublicationStamp) != "" ||
+		strings.TrimSpace(opt.ExpectedSuccessorPlanSHA256) != ""
 
 	if strings.TrimSpace(opt.Control.Lane) != "" {
 		return request, fmt.Errorf("daily control lane must use the daily selected lane")
@@ -83,6 +87,18 @@ func ResolveDailyRequest(opt DailyOptions) (DailyRequest, error) {
 	}
 	if adoptionRequested && correction != "" {
 		return request, fmt.Errorf("daily directory adoption cannot be combined with -correction")
+	}
+	if inputRequested && controlRequested {
+		return request, fmt.Errorf("typed daily input cannot be combined with lane control")
+	}
+	if inputRequested && adoptionRequested {
+		return request, fmt.Errorf("typed daily input cannot be combined with directory adoption controls")
+	}
+	if inputRequested && correction != "" {
+		return request, fmt.Errorf("typed daily input cannot be combined with -correction")
+	}
+	if inputRequested && successorRequested {
+		return request, fmt.Errorf("typed daily input cannot be combined with successor mission controls")
 	}
 	return request, nil
 }

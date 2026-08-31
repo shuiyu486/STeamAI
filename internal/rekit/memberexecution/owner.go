@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/capabilitycontract"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
@@ -1272,7 +1273,31 @@ func ValidateActionableTaskContext(caseRoot string, inspection Inspection) error
 	if inspection.TaskContext == nil || inspection.TaskContext.SchemaVersion != TaskContextSchemaVersion || inspection.TaskContext.OutputContract == nil {
 		return fmt.Errorf("legacy member execution task context is read-only; dispatch a current task-context generation before continuing execution")
 	}
-	return ValidateCurrentTaskContext(caseRoot, inspection)
+	if err := ValidateCurrentTaskContext(caseRoot, inspection); err != nil {
+		return err
+	}
+	task := *inspection.TaskContext
+	current, err := CurrentTaskBinding(caseRoot, task.Owner.Lane)
+	if err != nil {
+		return fmt.Errorf("read current member execution task binding: %w", err)
+	}
+	if strings.EqualFold(strings.TrimSpace(task.Pack), defaults.DefaultPack) && task.Binding == nil {
+		return fmt.Errorf("binary-re member execution requires a current owner-generation task binding")
+	}
+	if !equalTaskBinding(task.Binding, current) {
+		return fmt.Errorf("member execution task binding changed after dispatch")
+	}
+	if task.Binding != nil && IsTaskInputBinding(*task.Binding) {
+		return ValidateTaskInputBinding(caseRoot, *task.Binding)
+	}
+	return nil
+}
+
+func equalTaskBinding(left, right *TaskBinding) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Kind == right.Kind && reflect.DeepEqual(left.Values, right.Values)
 }
 
 func ValidateTaskContextPackContract(caseRoot string, inspection Inspection) error {
@@ -1292,7 +1317,13 @@ func ValidateTaskContextPackContract(caseRoot string, inspection Inspection) err
 	if err := validateTaskContextMission(caseRoot, task); err != nil {
 		return err
 	}
-	return validateTaskContextOutputContract(caseRoot, task)
+	if err := validateTaskContextOutputContract(caseRoot, task); err != nil {
+		return err
+	}
+	if task.Binding != nil && IsTaskInputBinding(*task.Binding) {
+		return ValidateTaskInputBinding(caseRoot, *task.Binding)
+	}
+	return nil
 }
 
 func validateTaskContextContract(caseRoot string, intent Intent, task TaskContext) error {

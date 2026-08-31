@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -403,6 +404,20 @@ func runningSessionhostAttemptFixture(t *testing.T, maxGeneration int) (Options,
 	}
 	bootstrap.Lane = inspection.Identity.InitialLane
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+
+	owner, err := laneowner.Read(caseRoot, bootstrap.Lane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := memberexecution.WorkspaceInventoryTaskBinding(caseRoot, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := memberexecution.WriteTaskBindingForOwner(
+		caseRoot, bootstrap.Lane, owner.CurrentExecutor, owner.ExecutorGeneration, binding,
+	); err != nil {
 		t.Fatal(err)
 	}
 

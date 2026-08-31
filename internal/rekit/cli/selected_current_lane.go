@@ -57,7 +57,11 @@ func buildInvocationStatusInventoryWithLease(ctx runtime.Context, opt Options, l
 }
 
 func buildInvocationStatusInventoryAfterMutation(ctx runtime.Context, opt Options) (statusInventory, error) {
-	return buildInvocationStatusInventoryWithExecutableRequirement(ctx, opt, false)
+	return buildInvocationStatusInventoryAfterMutationWithLease(ctx, opt, nil)
+}
+
+func buildInvocationStatusInventoryAfterMutationWithLease(ctx runtime.Context, opt Options, lease *projectexecution.Lease) (statusInventory, error) {
+	return buildInvocationStatusInventoryWithExecutableRequirementAndLease(ctx, opt, false, lease)
 }
 
 func buildControlBoundResultRecoveryStatusInventory(ctx runtime.Context, opt Options) (statusInventory, error) {
@@ -94,10 +98,6 @@ func buildControlBoundResultRecoveryStatusInventory(ctx runtime.Context, opt Opt
 	bindStatusCurrentLoopForControlRecovery(source.Target, source.CaseMission, source.MissionControlRunbook)
 	bindStatusSelectedCurrentLaneCommands(&source, selected)
 	return finalizeStatusDiagnostics(source, selected, true)
-}
-
-func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context, opt Options, requireExecutable bool) (statusInventory, error) {
-	return buildInvocationStatusInventoryWithExecutableRequirementAndLease(ctx, opt, requireExecutable, nil)
 }
 
 func buildInvocationStatusInventoryWithExecutableRequirementAndLease(ctx runtime.Context, opt Options, requireExecutable bool, lease *projectexecution.Lease) (statusInventory, error) {

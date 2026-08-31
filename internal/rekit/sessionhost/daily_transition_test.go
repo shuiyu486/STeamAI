@@ -4,13 +4,65 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/testfixture"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func TestRequireOrdinaryDirectoryTargetRejectsCurrentAndPartialState(t *testing.T) {
+	ordinary := t.TempDir()
+	got, err := RequireOrdinaryDirectoryTarget(ordinary)
+	if err != nil || !strings.EqualFold(got, ordinary) {
+		t.Fatalf("ordinary target = %q err=%v", got, err)
+	}
+
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:     testfixture.CurrentProject,
+		SourceRepo: sessionhostTestRepoRoot(t),
+		Pack:       "_template",
+	})
+	if _, err := RequireOrdinaryDirectoryTarget(project.CaseRoot); err == nil || !strings.Contains(err.Error(), "ordinary directory") {
+		t.Fatalf("current project admitted as ordinary target: %v", err)
+	}
+
+	partial := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(partial, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RequireOrdinaryDirectoryTarget(partial); err == nil || !strings.Contains(err.Error(), "partial .rekit state") {
+		t.Fatalf("partial state admitted as ordinary target: %v", err)
+	}
+}
+
+func TestDailySessionTransitionOwnerReusesHeldLeaseForStatus(t *testing.T) {
+	project := testfixture.NewProject(t, testfixture.ProjectOptions{
+		Layout:     testfixture.CurrentProject,
+		SourceRepo: sessionhostTestRepoRoot(t),
+		Pack:       "_template",
+	})
+	lease, err := projectexecution.AcquireShared(project.CaseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := newDailySessionTransitionOwner(project.CaseRoot, project.Pack, "", lease)
+	if err != nil {
+		_ = lease.Unlock()
+		t.Fatal(err)
+	}
+	if err := lease.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.readStatus(); err == nil || !strings.Contains(err.Error(), "lease is not held") {
+		t.Fatalf("transition owner did not reuse the supplied lease: %v", err)
+	}
+}
 
 func TestDailyCompletionSupervisorPreservesTerminalStatesWithoutIO(t *testing.T) {
 	for _, test := range []struct {

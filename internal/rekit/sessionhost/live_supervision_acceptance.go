@@ -118,6 +118,7 @@ func RunLiveSupervisionAcceptance(parent context.Context, opt LiveSupervisionAcc
 		ExpectedClaudeExecutableSHA256: claude.SHA256, ExpectedClaudeExecutablePublisher: claude.Publisher,
 		InitializationSourceExecutable: opt.InitializationSourceExecutable,
 		Model:                          opt.Model, Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts,
+		Input:                  DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		stopAfterMemberSegment: true,
 		onCaseReady: func(root string) error {
 			if err := captureLiveAcceptanceCaseRoot(root, &identity); err != nil {

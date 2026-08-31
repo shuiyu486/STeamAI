@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -17,6 +18,7 @@ type memberExecutionStatus struct {
 	Ready                  bool                                `json:"ready"`
 	State                  string                              `json:"state"`
 	Lane                   string                              `json:"lane,omitempty"`
+	InputReadiness         *memberInputReadinessStatus         `json:"inputReadiness,omitempty"`
 	AttemptID              string                              `json:"attemptId,omitempty"`
 	Inspection             *memberexecution.Inspection         `json:"inspection,omitempty"`
 	ReviewerRejection      *workstream.MemberReviewerRejection `json:"reviewerRejection,omitempty"`
@@ -29,11 +31,27 @@ type memberExecutionStatus struct {
 	Boundary               []string                            `json:"boundary"`
 }
 
+type memberInputReadinessStatus struct {
+	State        string `json:"state"`
+	Mode         string `json:"mode,omitempty"`
+	ArtifactPath string `json:"artifactPath,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+}
+
 func bindStatusMemberExecution(status *statusInventory) {
-	if status == nil || status.MissionControlRunbook == nil || status.MissionControlRunbook.Scope != "case" || status.MissionControlRunbook.CurrentDriverRequest == nil {
+	if status == nil || status.MissionControlRunbook == nil {
+		bindStatusSingleLaneInputRequired(status)
+		return
+	}
+	if status.MissionControlRunbook.Scope != "case" {
+		return
+	}
+	if status.MissionControlRunbook.CurrentDriverRequest == nil {
+		bindStatusSingleLaneInputRequired(status)
 		return
 	}
 	request := status.MissionControlRunbook.CurrentDriverRequest
+	memberContinuation := mission.MissionCommanderDriverRequestOwnsMemberContinuation(*request)
 	lane := strings.TrimSpace(request.Lane)
 	if lane == "" {
 		return
@@ -45,7 +63,11 @@ func bindStatusMemberExecution(status *statusInventory) {
 	}
 	base := []string{"status is read-only and does not spawn, poll, or stop member sessions", "observations must use run-current-step or run-current-loop with exact hash-bound Apply", "member intake does not write authority/confirmed state or execute heavy tools"}
 	if !ok {
+		if !memberContinuation {
+			return
+		}
 		status.MemberExecution = &memberExecutionStatus{Ready: true, State: "dispatch-preview-required", Lane: lane, PreviewCommand: memberStatusPreviewCommand(status.Target, status.Pack), Boundary: base}
+		bindStatusMemberInputReadiness(status, lane)
 		return
 	}
 	ownerCurrent, err := memberexecution.CurrentOwnerMatches(status.Target, status.Pack, inspection.Owner)
@@ -54,10 +76,20 @@ func bindStatusMemberExecution(status *statusInventory) {
 		return
 	}
 	if !ownerCurrent {
+		if !memberContinuation {
+			return
+		}
 		status.MemberExecution = &memberExecutionStatus{Ready: true, State: "dispatch-preview-required", Lane: lane, PreviewCommand: memberStatusPreviewCommand(status.Target, status.Pack), Boundary: append(base, "historical member results remain auditable but cannot drive the current owner generation")}
+		bindStatusMemberInputReadiness(status, lane)
 		return
 	}
 	status.MemberExecution = &memberExecutionStatus{Ready: true, State: inspection.State, Lane: lane, AttemptID: inspection.AttemptID, Inspection: &inspection, PreviewCommand: memberStatusPreviewCommand(status.Target, status.Pack), Boundary: base}
+	if memberContinuation {
+		bindStatusMemberInputReadiness(status, lane)
+		if status.MemberExecution.State == "input-stale" {
+			return
+		}
+	}
 	if inspection.State == "handoff-ready" || inspection.State == "accepted" {
 		controlRequired, rootErr := currentMemberExecutionControlRequired(status.Target)
 		if rootErr != nil {
@@ -151,6 +183,96 @@ func bindStatusMemberExecution(status *statusInventory) {
 			status.MemberExecution.Boundary = []string{err.Error(), "status remains read-only and does not repair reviewer planning state"}
 		}
 	}
+}
+
+func bindStatusSingleLaneInputRequired(status *statusInventory) {
+	if status == nil || status.Mode != "case" ||
+		!strings.EqualFold(strings.TrimSpace(status.Pack), defaults.DefaultPack) {
+		return
+	}
+	board, err := mission.ReadBoard(status.Target)
+	if err != nil {
+		return
+	}
+	lane := ""
+	for _, candidate := range board.Lanes {
+		state := strings.ToLower(strings.TrimSpace(candidate.Status))
+		if candidate.Authority || state == "closed" || state == "archived" ||
+			strings.TrimSpace(candidate.CurrentExecutor) == "" || candidate.ExecutorGeneration < 1 {
+			continue
+		}
+		if lane != "" {
+			return
+		}
+		lane = strings.TrimSpace(candidate.ID)
+	}
+	if lane == "" {
+		return
+	}
+	binding, err := memberexecution.CurrentTaskBinding(status.Target, lane)
+	if err != nil || binding != nil {
+		return
+	}
+	status.MemberExecution = &memberExecutionStatus{
+		State:          "input-required",
+		Lane:           lane,
+		InputReadiness: &memberInputReadinessStatus{State: "input-required"},
+		Boundary: []string{
+			"binary-re requires an explicit artifact-analysis or workspace-inventory binding before member dispatch",
+			"status is read-only and does not infer an artifact or rewrite the Mission Control action queue",
+		},
+	}
+}
+
+func bindStatusMemberInputReadiness(status *statusInventory, lane string) {
+	if status == nil || status.MemberExecution == nil || !strings.EqualFold(strings.TrimSpace(status.Pack), defaults.DefaultPack) {
+		return
+	}
+	binding, err := memberexecution.CurrentTaskBinding(status.Target, lane)
+	if err != nil {
+		status.MemberExecution.Ready = false
+		status.MemberExecution.State = "corrupt"
+		status.MemberExecution.PreviewCommand = ""
+		status.MemberExecution.Boundary = mission.UniqueStrings(append(
+			status.MemberExecution.Boundary,
+			"typed member input binding is unreadable: "+err.Error(),
+			"status remains read-only and does not infer or repair typed input",
+		))
+		return
+	}
+	if binding == nil {
+		status.MemberExecution.Ready = false
+		status.MemberExecution.State = "input-required"
+		status.MemberExecution.PreviewCommand = ""
+		status.MemberExecution.InputReadiness = &memberInputReadinessStatus{State: "input-required"}
+		status.MemberExecution.Boundary = mission.UniqueStrings(append(
+			status.MemberExecution.Boundary,
+			"binary-re requires an explicit artifact-analysis or workspace-inventory binding before member dispatch",
+			"status does not guess an artifact from natural language, filenames, or directory contents",
+		))
+		return
+	}
+	if !memberexecution.IsTaskInputBinding(*binding) {
+		return
+	}
+	readiness := &memberInputReadinessStatus{State: "ready", Mode: binding.Kind}
+	if binding.Kind == memberexecution.TaskBindingArtifactAnalysis {
+		readiness.ArtifactPath = binding.Values["artifact-path"]
+	} else {
+		readiness.Scope = binding.Values["workspace-scope"]
+	}
+	if err := memberexecution.ValidateTaskInputBinding(status.Target, *binding); err != nil {
+		readiness.State = "stale"
+		status.MemberExecution.Ready = false
+		status.MemberExecution.State = "input-stale"
+		status.MemberExecution.PreviewCommand = ""
+		status.MemberExecution.Boundary = mission.UniqueStrings(append(
+			status.MemberExecution.Boundary,
+			"typed member input is not current: "+err.Error(),
+			"refresh or replace the owner generation before member dispatch",
+		))
+	}
+	status.MemberExecution.InputReadiness = readiness
 }
 
 func currentMemberExecutionControlRequired(caseRoot string) (bool, error) {

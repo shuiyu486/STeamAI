@@ -46,6 +46,10 @@ func TestResolveDailyRequestRejectsCrossOperationFields(t *testing.T) {
 		{name: "control-adoption", options: DailyOptions{ControlWhatIf: true, Control: executioncontrol.Options{Action: executioncontrol.ActionPause}, DirectoryAdoptionAction: "initialize-in-place"}, want: "control cannot be combined with directory adoption"},
 		{name: "control-lane-second-owner", options: DailyOptions{ControlWhatIf: true, Control: executioncontrol.Options{Lane: "binary-analysis-main", Action: executioncontrol.ActionPause}}, want: "control lane must use the daily selected lane"},
 		{name: "control-actor-second-owner", options: DailyOptions{ControlWhatIf: true, Control: executioncontrol.Options{Actor: "another-owner", Action: executioncontrol.ActionPause}}, want: "control actor must use the daily actor"},
+		{name: "input-control", options: DailyOptions{Input: DailyInputRequest{Mode: DailyInputWorkspaceInventory}, ControlWhatIf: true, Control: executioncontrol.Options{Action: executioncontrol.ActionPause}}, want: "typed daily input cannot be combined with lane control"},
+		{name: "input-adoption", options: DailyOptions{Input: DailyInputRequest{Mode: DailyInputWorkspaceInventory}, DirectoryAdoptionAction: "initialize-in-place"}, want: "typed daily input cannot be combined with directory adoption"},
+		{name: "input-correction", options: DailyOptions{Input: DailyInputRequest{Mode: DailyInputWorkspaceInventory}, Correction: "recheck"}, want: "typed daily input cannot be combined with -correction"},
+		{name: "input-successor", options: DailyOptions{Input: DailyInputRequest{Mode: DailyInputWorkspaceInventory}, SuccessorWhatIf: true, Goal: "successor goal"}, want: "typed daily input cannot be combined with successor mission controls"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			_, err := ResolveDailyRequest(fixture.options)

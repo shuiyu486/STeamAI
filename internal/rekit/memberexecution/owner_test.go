@@ -441,6 +441,59 @@ func TestCurrentTaskContextRejectsPackManifestDrift(t *testing.T) {
 	}
 }
 
+func TestBinaryREActionableTaskContextRequiresCurrentOwnerBinding(t *testing.T) {
+	caseRoot := memberCaseForPack(t, "binary-re", "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{
+		CaseRoot: caseRoot, Pack: "binary-re", Lane: "feature-analysis",
+		RequestSHA256: strings.Repeat("a", 64), CreatedAt: "2026-08-03T01:02:03Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(caseRoot, "feature-analysis", plan.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateActionableTaskContext(caseRoot, inspection); err == nil ||
+		!strings.Contains(err.Error(), "requires a current owner-generation task binding") {
+		t.Fatalf("unbound binary-re task context remained actionable: %v", err)
+	}
+}
+
+func TestActionableTaskContextRejectsBindingPublishedAfterDispatch(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis",
+		RequestSHA256: strings.Repeat("b", 64), CreatedAt: "2026-08-03T01:02:03Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := WriteTaskBinding(caseRoot, "feature-analysis", TaskBinding{
+		Kind: "pack-memory-consumer",
+		Values: map[string]string{
+			"changeId":     "change-a",
+			"sourceSha256": strings.Repeat("c", 64),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(caseRoot, "feature-analysis", plan.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateActionableTaskContext(caseRoot, inspection); err == nil ||
+		!strings.Contains(err.Error(), "binding changed after dispatch") {
+		t.Fatalf("post-dispatch binding mutation remained actionable: %v", err)
+	}
+}
+
 func TestTaskBindingBindsRequestAndRotatesWithOwnerGeneration(t *testing.T) {
 	caseRoot := memberCase(t, "executor-a", 1)
 	baseRequestSHA := strings.Repeat("a", 64)

@@ -24,6 +24,7 @@ type publicStatusInteractionInput struct {
 	CaseMission           *publicStatusMissionInput    `json:"caseMission"`
 	Onboarding            *publicStatusOnboardingInput `json:"onboarding"`
 	MissionControlRunbook *publicStatusRunbookInput    `json:"missionControlRunbook"`
+	MemberExecution       *publicMemberExecutionInput  `json:"memberExecution"`
 }
 
 type publicStatusMissionInput struct {
@@ -58,6 +59,16 @@ type publicStatusDriverInput struct {
 	State             string `json:"state"`
 	CommandExecutable bool   `json:"commandExecutable"`
 	Blocked           bool   `json:"blocked"`
+}
+
+type publicMemberExecutionInput struct {
+	State          string                     `json:"state"`
+	InputReadiness *publicInputReadinessInput `json:"inputReadiness"`
+}
+
+type publicInputReadinessInput struct {
+	State string `json:"state"`
+	Mode  string `json:"mode"`
 }
 
 type publicContinueInteractionInput struct {
@@ -143,7 +154,16 @@ func reducePublicStatusInteraction(input publicStatusInteractionInput) publicInt
 		return publicInteraction{
 			Now:    summary,
 			Reason: "当前任务已完成",
-			Next:   "如需补充或纠正，请告诉主 Agent 具体内容；新的独立目标目前不能从这个已完成任务直接开始",
+			Next:   "如需补充或纠正，请告诉主 Agent 具体内容；也可以直接给出新的独立目标，系统会先生成零写入的 successor 预览，确认后再建立隔离任务代",
+		}
+	}
+	if input.MemberExecution != nil &&
+		input.MemberExecution.InputReadiness != nil &&
+		strings.EqualFold(strings.TrimSpace(input.MemberExecution.InputReadiness.State), "input-required") {
+		return publicInteraction{
+			Now:    summary,
+			Reason: "当前任务还缺少明确的 typed 输入；系统没有启动 member 或 Reviewer",
+			Next:   "请主 Agent 选择 artifact-analysis 并提供 case-local artifact，或选择 workspace-inventory；不要让系统从自然语言或目录内容猜测目标",
 		}
 	}
 

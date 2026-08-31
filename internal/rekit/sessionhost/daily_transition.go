@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessiontransition"
 )
 
@@ -25,25 +26,29 @@ type dailySessionTransitionOwner struct {
 	completionPublisher dailyCompletionPublisher
 }
 
-func newDailySessionTransitionOwner(caseRoot, pack, lane string) (dailySessionTransitionOwner, error) {
+func newDailySessionTransitionOwner(caseRoot, pack, lane string, held ...*projectexecution.Lease) (dailySessionTransitionOwner, error) {
 	caseRoot = strings.TrimSpace(caseRoot)
 	pack = strings.TrimSpace(pack)
 	lane = strings.TrimSpace(lane)
 	if caseRoot == "" || pack == "" {
 		return dailySessionTransitionOwner{}, fmt.Errorf("daily session transition requires an exact case root and pack")
 	}
+	var lease *projectexecution.Lease
+	if len(held) > 0 {
+		lease = held[0]
+	}
 	return dailySessionTransitionOwner{
-		caseRoot:            caseRoot,
-		pack:                pack,
-		lane:                lane,
-		statusExecutor:      runPublicStatus,
-		sessionExecutor:     Run,
-		completionPublisher: publishDailyCompletion,
+		caseRoot: caseRoot,
+		pack:     pack,
+		lane:     lane,
+		statusExecutor: func(caseRoot, pack, lane string) (publicStatus, error) {
+			return runPublicStatusWithLease(caseRoot, pack, lane, lease)
+		},
+		sessionExecutor: Run,
+		completionPublisher: func(caseRoot, pack, lane string) (publicDriverResult, error) {
+			return runPublicDriverStepWithLease(caseRoot, pack, lease, lane)
+		},
 	}, nil
-}
-
-func publishDailyCompletion(caseRoot, pack, lane string) (publicDriverResult, error) {
-	return runPublicDriverStep(caseRoot, pack, lane)
 }
 
 func (owner dailySessionTransitionOwner) readStatus() (publicStatus, error) {

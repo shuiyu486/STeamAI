@@ -21,6 +21,7 @@ type publicDriverRequest = mission.MissionCommanderDriverRequest
 type publicLaneAction struct {
 	Lane    string `json:"lane,omitempty"`
 	Label   string `json:"label,omitempty"`
+	State   string `json:"state,omitempty"`
 	Blocked bool   `json:"blocked,omitempty"`
 }
 
@@ -57,18 +58,6 @@ type publicNoteResult struct {
 	EventID     string   `json:"eventId"`
 	EventSHA256 string   `json:"eventSha256"`
 	RecordArgs  []string `json:"recordArgs,omitempty"`
-}
-
-type publicDriverStep struct {
-	IsMutation                   bool   `json:"isMutation"`
-	Applied                      bool   `json:"applied"`
-	ExpectedDriverStepPlanSHA256 string `json:"expectedDriverStepPlanSha256"`
-	PreviewResult                struct {
-		Command string `json:"command"`
-	} `json:"previewResult"`
-	Receipt *struct {
-		CommandResultCommand string `json:"commandResultCommand"`
-	} `json:"receipt,omitempty"`
 }
 
 type publicDriverResult struct {
@@ -234,7 +223,7 @@ func publicActionQueueLaneChoices(queues ...publicActionQueue) []DailyChoice {
 	for _, queue := range queues {
 		for _, item := range queue.UnblockedActions {
 			lane := strings.TrimSpace(item.Lane)
-			if lane == "" || item.Blocked || seen[lane] {
+			if lane == "" || item.Blocked || strings.EqualFold(strings.TrimSpace(item.State), "lane-not-open") || seen[lane] {
 				continue
 			}
 			seen[lane] = true
@@ -287,87 +276,109 @@ func runPublicStatus(caseRoot, pack, selected string) (publicStatus, error) {
 }
 
 func runPublicStatusWithLease(caseRoot, pack, selected string, lease *projectexecution.Lease) (publicStatus, error) {
-	args := []string{"-Command", "status", "-Target", caseRoot}
-	if strings.TrimSpace(pack) != "" {
-		args = append(args, "-Pack", pack)
-	}
-	args = appendSelectedLaneArg(args, selected)
-	args = append(args, "-Format", "json")
-	if lease == nil {
-		var status publicStatus
-		err := runPublicCLI(args, &status)
-		return status, err
-	}
-	var out bytes.Buffer
-	if err := cli.RunStatusWithProjectExecutionLease(args, &out, lease); err != nil {
+	snapshot, err := cli.ReadMissionSnapshot(cli.MissionSnapshotOptions{
+		CaseRoot:              caseRoot,
+		Pack:                  pack,
+		SelectedCurrentLane:   selected,
+		ProjectExecutionLease: lease,
+	})
+	if err != nil {
 		return publicStatus{}, err
 	}
-	var status publicStatus
-	decoder := json.NewDecoder(bytes.NewReader(out.Bytes()))
-	if err := decoder.Decode(&status); err != nil {
-		return publicStatus{}, fmt.Errorf("decode held-lease public status: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return publicStatus{}, fmt.Errorf("held-lease public status contains trailing JSON")
-	}
-	return status, nil
+	return publicStatusFromMissionSnapshot(snapshot), nil
 }
 
-func runPublicDriverStep(caseRoot, pack string, selected ...string) (publicDriverResult, error) {
-	lane := firstSelectedLane(selected)
-	previewArgs := []string{"-Command", "run-driver-step", "-Target", caseRoot}
-	if strings.TrimSpace(pack) != "" {
-		previewArgs = append(previewArgs, "-Pack", pack)
+func publicStatusFromMissionSnapshot(snapshot cli.MissionControlSnapshot) publicStatus {
+	status := publicStatus{}
+	if runbook := snapshot.MissionControl; runbook != nil {
+		status.MissionControlRunbook = &publicMissionControlRunbook{
+			Scope:                      runbook.Scope,
+			CurrentDriverRequest:       runbook.CurrentDriverRequest,
+			CurrentDriverRequestSHA256: runbook.CurrentDriverRequestSHA256,
+		}
 	}
-	previewArgs = appendSelectedLaneArg(previewArgs, lane)
-	previewArgs = append(previewArgs, "-WhatIf", "-Format", "json")
-	var preview publicDriverStep
-	if err := runPublicCLI(previewArgs, &preview); err != nil {
-		return publicDriverResult{}, err
+	if caseMission := snapshot.CaseMission; caseMission != nil {
+		status.CaseMission = &publicCaseMission{
+			MissionCommanderActionQueue:       publicActionQueueFromMissionQueue(caseMission.MissionCommanderActionQueue),
+			ReviewerDispatchIntakeActionQueue: publicActionQueueFromMissionQueue(caseMission.ReviewerDispatchIntakeActionQueue),
+		}
+		if completion := caseMission.MissionCompletion; completion != nil {
+			status.CaseMission.MissionCompletion = &struct {
+				Ready                 bool   `json:"ready"`
+				State                 string `json:"state"`
+				OperationallyComplete bool   `json:"operationallyComplete"`
+			}{
+				Ready:                 completion.Ready,
+				State:                 completion.State,
+				OperationallyComplete: completion.OperationallyComplete,
+			}
+		}
 	}
-	if preview.IsMutation || preview.Applied || len(strings.TrimSpace(preview.ExpectedDriverStepPlanSHA256)) != 64 || strings.TrimSpace(preview.PreviewResult.Command) == "" {
+	return status
+}
+
+func publicActionQueueFromMissionQueue(queue mission.MissionCommanderActionQueue) publicActionQueue {
+	return publicActionQueue{
+		UnblockedActions: publicLaneActionsFromMissionItems(queue.UnblockedActions),
+		BlockedActions:   publicLaneActionsFromMissionItems(queue.BlockedActions),
+	}
+}
+
+func publicLaneActionsFromMissionItems(items []mission.MissionCommanderNextActionItem) []publicLaneAction {
+	out := make([]publicLaneAction, 0, len(items))
+	for _, item := range items {
+		out = append(out, publicLaneAction{
+			Lane:    item.Lane,
+			Label:   item.Label,
+			State:   item.State,
+			Blocked: item.Blocked,
+		})
+	}
+	return out
+}
+
+func runPublicDriverStepWithLease(caseRoot, pack string, lease *projectexecution.Lease, selected ...string) (publicDriverResult, error) {
+	return runPublicExactDriverStepWithLease(caseRoot, pack, lease, nil, selected...)
+}
+
+func runPublicExactDriverStepWithLease(caseRoot, pack string, lease *projectexecution.Lease, request *mission.MissionCommanderDriverRequest, selected ...string) (publicDriverResult, error) {
+	preview, err := cli.PreviewDriverStep(cli.DriverStepPreviewOptions{
+		CaseRoot:              caseRoot,
+		Pack:                  pack,
+		SelectedCurrentLane:   firstSelectedLane(selected),
+		ExactDriverRequest:    request,
+		ProjectExecutionLease: lease,
+	})
+	if err != nil {
+		return publicDriverResult{}, fmt.Errorf("typed driver step preview: %w", err)
+	}
+	if strings.TrimSpace(preview.ExpectedDriverStepPlanSHA256) == "" ||
+		preview.ApplyDriverRequest.Invocation == nil {
 		return publicDriverResult{}, fmt.Errorf("public driver preview omitted the zero-write hash-bound route")
 	}
-	applyArgs := []string{"-Command", "run-driver-step", "-Target", caseRoot}
-	if strings.TrimSpace(pack) != "" {
-		applyArgs = append(applyArgs, "-Pack", pack)
+	command := preview.ApplyDriverRequest.Invocation.Command
+	if strings.TrimSpace(command) == "" {
+		return publicDriverResult{}, fmt.Errorf("public driver preview omitted its typed command")
 	}
-	applyArgs = appendSelectedLaneArg(applyArgs, lane)
-	applyArgs = append(applyArgs, "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json")
-	var applied struct {
-		publicDriverStep
-		PreviewResult json.RawMessage `json:"previewResult"`
+	applied, err := cli.ApplyDriverStep(preview, cli.DriverStepApplyOptions{
+		ProjectExecutionLease: lease,
+	})
+	if err != nil && !applied.Committed {
+		return publicDriverResult{}, fmt.Errorf("typed driver step Apply: %w", err)
 	}
-	if err := runPublicCLI(applyArgs, &applied); err != nil {
-		return publicDriverResult{}, err
-	}
-	command := preview.PreviewResult.Command
-	if applied.Receipt == nil || applied.Receipt.CommandResultCommand != command || !applied.IsMutation || !applied.Applied {
+	if err == nil && (applied.ReceiptCommand != command || !applied.Applied) {
 		return publicDriverResult{}, fmt.Errorf("public driver Apply did not return a matching refreshed receipt")
 	}
 	result := publicDriverResult{ResultCommand: command}
-	switch command {
-	case "reconcile":
-		var reconciled struct {
-			Actor              string `json:"actor"`
-			Executor           string `json:"executor"`
-			PreviousExecutor   string `json:"previousExecutor"`
-			ExecutorGeneration int    `json:"executorGeneration"`
-		}
-		if err := json.Unmarshal(applied.PreviewResult, &reconciled); err != nil {
-			return publicDriverResult{}, err
-		}
+	if reconciled := applied.Reconcile; reconciled != nil {
 		result.Actor = reconciled.Actor
 		result.Executor = reconciled.Executor
 		result.PreviousExecutor = reconciled.PreviousExecutor
 		result.ExecutorGeneration = reconciled.ExecutorGeneration
-	case "complete":
-		var completed workstream.CompleteResult
-		if err := json.Unmarshal(applied.PreviewResult, &completed); err != nil {
-			return publicDriverResult{}, err
-		}
-		result.Completion = &completed
+	}
+	result.Completion = applied.Completion
+	if err != nil {
+		return result, fmt.Errorf("typed driver step Apply committed before refresh failed: %w", err)
 	}
 	return result, nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/executioncontrol"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionsuccessor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packidentity"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -145,6 +146,9 @@ func run(args []string, stdout, stderr io.Writer, projectRoot, initializationSou
 	flags.StringVar(&opt.Target, "target", "", "fresh or attached case root")
 	flags.StringVar(&opt.Pack, "pack", "", "optional attached pack override")
 	flags.StringVar(&opt.SelectedLane, "lane", "", "exact current lane selected for this invocation")
+	inputMode := flags.String("input-mode", "", "typed binary-re input mode: artifact-analysis or workspace-inventory")
+	inputArtifact := flags.String("input-artifact", "", "case-relative artifact path for artifact-analysis")
+	inputScope := flags.String("input-scope", "", "case-relative directory for workspace-inventory")
 	flags.StringVar(&controlOpt.Action, "control-action", "", "typed lane control action: pause, resume, or stop")
 	flags.StringVar(&controlOpt.Reason, "control-reason", "", "bounded reason for the reviewed lane control")
 	controlWhatIf := flags.Bool("control-what-if", false, "preview the exact lane control without writing")
@@ -172,6 +176,17 @@ func run(args []string, stdout, stderr io.Writer, projectRoot, initializationSou
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
+	if *successorApply {
+		if err := missionsuccessor.ValidateApplyArgs(args, opt.Target, missionsuccessor.Options{
+			Goal:               liveOpt.Goal,
+			Actor:              opt.Actor,
+			PublicationStamp:   *successorPublicationStamp,
+			ExpectedPlanSHA256: *expectedSuccessorPlanSHA256,
+		}); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+	}
 	dailyRequest := sessionhost.ClassifyDailyRequest(sessionhost.DailyOptions{
 		Goal:                        liveOpt.Goal,
 		Correction:                  liveOpt.Correction,
@@ -193,8 +208,13 @@ func run(args []string, stdout, stderr io.Writer, projectRoot, initializationSou
 	maintenanceMode := *liveAcceptance || *liveSupervisionAcceptance || *livePackMemoryAcceptance || *liveSoakAcceptance ||
 		strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" ||
 		strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != ""
+	inputRequested := strings.TrimSpace(*inputMode) != "" || strings.TrimSpace(*inputArtifact) != "" || strings.TrimSpace(*inputScope) != ""
 	if laneSelected && maintenanceMode {
 		fmt.Fprintln(stderr, "-lane is supported only by the daily or ordinary host route")
+		return 2
+	}
+	if inputRequested && maintenanceMode {
+		fmt.Fprintln(stderr, "typed input readiness is supported only by the external daily front door")
 		return 2
 	}
 
@@ -353,7 +373,7 @@ func run(args []string, stdout, stderr io.Writer, projectRoot, initializationSou
 		return printResult(stdout, stderr, result, err)
 	}
 
-	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" || adoptionRequested || controlRequested || *successorWhatIf || *successorApply || strings.TrimSpace(*successorPublicationStamp) != "" || strings.TrimSpace(*expectedSuccessorPlanSHA256) != "" {
+	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" || adoptionRequested || controlRequested || inputRequested || *successorWhatIf || *successorApply || strings.TrimSpace(*successorPublicationStamp) != "" || strings.TrimSpace(*expectedSuccessorPlanSHA256) != "" {
 		if strings.TrimSpace(projectRoot) != "" {
 			resolved, err := rekitruntime.ResolveProjectLocalTarget(
 				projectRoot,
@@ -389,20 +409,23 @@ func run(args []string, stdout, stderr io.Writer, projectRoot, initializationSou
 			initializationRepoRoot = ctx.RepoRoot
 		}
 		result, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
-			Target:                         opt.Target,
-			Goal:                           liveOpt.Goal,
-			Correction:                     liveOpt.Correction,
-			SelectedLane:                   opt.SelectedLane,
-			Control:                        controlOpt,
-			ControlWhatIf:                  *controlWhatIf,
-			ControlApply:                   *controlApply,
-			DirectoryAdoptionAction:        *directoryAdoptionAction,
-			DirectoryAdoptionPack:          *directoryAdoptionPack,
-			ExpectedInitPlanSHA256:         *expectedInitPlanSHA256,
-			SuccessorWhatIf:                *successorWhatIf,
-			SuccessorApply:                 *successorApply,
-			SuccessorPublicationStamp:      *successorPublicationStamp,
-			ExpectedSuccessorPlanSHA256:    *expectedSuccessorPlanSHA256,
+			Target:                      opt.Target,
+			Goal:                        liveOpt.Goal,
+			Correction:                  liveOpt.Correction,
+			SelectedLane:                opt.SelectedLane,
+			Control:                     controlOpt,
+			ControlWhatIf:               *controlWhatIf,
+			ControlApply:                *controlApply,
+			DirectoryAdoptionAction:     *directoryAdoptionAction,
+			DirectoryAdoptionPack:       *directoryAdoptionPack,
+			ExpectedInitPlanSHA256:      *expectedInitPlanSHA256,
+			SuccessorWhatIf:             *successorWhatIf,
+			SuccessorApply:              *successorApply,
+			SuccessorPublicationStamp:   *successorPublicationStamp,
+			ExpectedSuccessorPlanSHA256: *expectedSuccessorPlanSHA256,
+			Input: sessionhost.DailyInputRequest{
+				Mode: *inputMode, ArtifactPath: *inputArtifact, Scope: *inputScope,
+			},
 			InitializationRepoRoot:         initializationRepoRoot,
 			InitializationSourceExecutable: initializationSourceExecutable,
 			Actor:                          opt.Actor,

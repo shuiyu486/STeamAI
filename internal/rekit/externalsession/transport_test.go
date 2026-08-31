@@ -957,6 +957,15 @@ func applyRemoteControlEndpoint(t *testing.T, fixture remoteControlFixture) {
 func remoteControlEvidenceFixture(t *testing.T, output []byte) (string, memberexecution.Plan, string) {
 	t.Helper()
 	caseRoot := remoteControlMemberCase(t, "executor-a", 1)
+	binding, err := memberexecution.WorkspaceInventoryTaskBinding(caseRoot, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := memberexecution.WriteTaskBindingForOwner(
+		caseRoot, "feature-analysis", "executor-a", 1, binding,
+	); err != nil {
+		t.Fatal(err)
+	}
 	plan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{
 		CaseRoot: caseRoot, Pack: defaults.DefaultPack, Lane: "feature-analysis",
 		RequestSHA256: strings.Repeat("a", 64), CreatedAt: "2026-08-12T00:01:00Z",

@@ -389,6 +389,46 @@ func TestReadinessLayersLocalReceiptReadyDoesNotPromoteRemoteCI(t *testing.T) {
 	}
 }
 
+func TestReadinessLayersActiveRouteReceiptsOverrideNumberedBatch(t *testing.T) {
+	result := Result{
+		ReleaseHandoff: ReleaseHandoff{
+			ActiveRoute: ReleaseHandoffActiveRoute{
+				Present: true,
+				LocalValidationReceipt: &LocalValidationReceiptInspection{
+					Ready: true,
+					State: "validated-implementation-commit",
+				},
+				PostPushReceipt: &ReleaseHandoffPostPushReceipt{
+					Ready: true,
+					State: "post-push-complete",
+				},
+			},
+			LatestBatch: ReleaseHandoffLatestBatch{Handoff: ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReceipt: &LocalValidationReceiptInspection{
+					Ready: true,
+					State: "stale-or-invalid",
+				},
+				PostPushReceipt: &ReleaseHandoffPostPushReceipt{
+					Ready: true,
+					State: "post-push-complete",
+				},
+			}},
+		},
+	}
+
+	layers := readinessLayers(result)
+	if !layers.LocalValidationReady || layers.LocalValidation.State != "validated-implementation-commit" || !layers.GitLocalPublication.Ready {
+		t.Fatalf("active-route receipts were not the canonical readiness owner: %+v", layers)
+	}
+
+	result.ReleaseHandoff.ActiveRoute.LocalValidationReceipt = nil
+	result.ReleaseHandoff.ActiveRoute.PostPushReceipt = nil
+	layers = readinessLayers(result)
+	if layers.LocalValidation.State != "not-observed" || layers.LocalValidation.ExactReceiptInspectionPresent || layers.GitLocalPublication.State != "not-observed" || layers.GitLocalPublication.ExactPostPushObservationPresent {
+		t.Fatalf("present active route fell back to stale numbered-batch receipts: %+v", layers)
+	}
+}
+
 func TestReadinessLayersPostPushReadyDoesNotPromoteRemoteCI(t *testing.T) {
 	result := Result{
 		ReleaseHandoff: ReleaseHandoff{LatestBatch: ReleaseHandoffLatestBatch{Handoff: ReleaseHandoffLatestBatchHandoff{
@@ -405,6 +445,33 @@ func TestReadinessLayersPostPushReadyDoesNotPromoteRemoteCI(t *testing.T) {
 	}
 	if layers.RemoteCI.State != "not-observed" || layers.RemoteCI.StructuredObservationPresent || layers.RemoteCI.CanClaimGreen {
 		t.Fatalf("post-push observation promoted remote CI truth: %+v", layers.RemoteCI)
+	}
+}
+
+func TestReadinessLayersAggregateBooleansDoNotOverclaimRelease(t *testing.T) {
+	result := Result{
+		Ready: true,
+		ReleaseHandoff: ReleaseHandoff{LatestBatch: ReleaseHandoffLatestBatch{Handoff: ReleaseHandoffLatestBatchHandoff{
+			LocalValidationReceipt: &LocalValidationReceiptInspection{
+				Ready: true,
+				State: "validated-implementation-commit",
+			},
+			PostPushReceipt: &ReleaseHandoffPostPushReceipt{
+				Ready: true,
+				State: "post-push-complete",
+			},
+		}}},
+	}
+
+	layers := readinessLayers(result)
+	if !layers.InventoryReady || !layers.LocalValidationReady {
+		t.Fatalf("verified inventory/local layers were not aggregated: %+v", layers)
+	}
+	if layers.RealWindowsAcceptanceReady || layers.RemoteCIGreen || layers.FormalReleaseReady {
+		t.Fatalf("local inventory/validation/publication overclaimed acceptance or release: %+v", layers)
+	}
+	if layers.RealWindowsAcceptance.State != "not-observed" || layers.RealWindowsAcceptance.StructuredObservationPresent || layers.RealWindowsAcceptance.Ready {
+		t.Fatalf("missing Windows acceptance receipt was not explicit: %+v", layers.RealWindowsAcceptance)
 	}
 }
 
@@ -477,17 +544,18 @@ func TestReleaseCheckJSONCompatibilityAddsExplicitReadinessLayers(t *testing.T) 
 	if err := json.Unmarshal(wire["readinessLayers"], &readinessWire); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"repositoryInventory", "localValidation", "gitLocalPublication", "remoteCI", "formalRelease"} {
+	for _, key := range []string{"inventoryReady", "localValidationReady", "realWindowsAcceptanceReady", "remoteCIGreen", "formalReleaseReady", "repositoryInventory", "localValidation", "realWindowsAcceptance", "gitLocalPublication", "remoteCI", "formalRelease"} {
 		if _, present := readinessWire[key]; !present {
 			t.Fatalf("readinessLayers JSON omitted layer %q", key)
 		}
 	}
 	for layer, keys := range map[string][]string{
-		"repositoryInventory": {"state", "ready"},
-		"localValidation":     {"state", "ready", "exactReceiptInspectionPresent"},
-		"gitLocalPublication": {"state", "ready", "exactPostPushObservationPresent", "localTrackingRefOnly"},
-		"remoteCI":            {"state", "structuredObservationPresent", "canClaimGreen", "documentedClaim"},
-		"formalRelease":       {"state", "canClaimReleased"},
+		"repositoryInventory":   {"state", "ready"},
+		"localValidation":       {"state", "ready", "exactReceiptInspectionPresent"},
+		"realWindowsAcceptance": {"state", "ready", "structuredObservationPresent"},
+		"gitLocalPublication":   {"state", "ready", "exactPostPushObservationPresent", "localTrackingRefOnly"},
+		"remoteCI":              {"state", "structuredObservationPresent", "canClaimGreen", "documentedClaim"},
+		"formalRelease":         {"state", "canClaimReleased"},
 	} {
 		var layerWire map[string]json.RawMessage
 		if err := json.Unmarshal(readinessWire[layer], &layerWire); err != nil {
@@ -519,7 +587,7 @@ func TestReleaseCheckJSONCompatibilityAddsExplicitReadinessLayers(t *testing.T) 
 	if err := json.Unmarshal(wire["readinessLayers"], &layersWire); err != nil {
 		t.Fatal(err)
 	}
-	if !layersWire.GitLocalPublication.LocalTrackingRefOnly || layersWire.RemoteCI.State != "not-observed" || layersWire.RemoteCI.StructuredObservationPresent || layersWire.RemoteCI.CanClaimGreen || layersWire.RemoteCI.DocumentedClaim.Authoritative || layersWire.FormalRelease.State != "not-evaluated" || layersWire.FormalRelease.CanClaimReleased {
+	if !layersWire.GitLocalPublication.LocalTrackingRefOnly || layersWire.RemoteCI.State != "not-observed" || layersWire.RemoteCI.StructuredObservationPresent || layersWire.RemoteCI.CanClaimGreen || layersWire.RemoteCI.DocumentedClaim.Authoritative || layersWire.FormalRelease.State != "not-evaluated" || layersWire.FormalRelease.CanClaimReleased || result.ReadinessLayers.RealWindowsAcceptanceReady || result.ReadinessLayers.RemoteCIGreen || result.ReadinessLayers.FormalReleaseReady {
 		t.Fatalf("readiness layer JSON semantics drifted: %+v", layersWire)
 	}
 }

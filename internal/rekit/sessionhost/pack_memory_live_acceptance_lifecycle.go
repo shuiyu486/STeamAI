@@ -108,6 +108,7 @@ func runPackMemoryLiveAcceptanceLifecycle(
 		Model:                             spec.Model,
 		Timeout:                           time.Duration(spec.TimeoutNanos),
 		MaxAttempts:                       spec.MaxAttempts,
+		Input:                             DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		stopAfterMemberSegment:            true,
 		beforeMemberRun: func(caseRoot, pack, _ string) error {
 			plan, err := rekitsync.Plan(spec.IsolatedKitRoot, caseRoot, pack)
@@ -458,6 +459,7 @@ func runPackMemoryLiveAcceptanceLifecycle(
 		ClaudePath:                     spec.ClaudePath, ExpectedClaudeExecutableSHA256: spec.ClaudeSHA256,
 		ExpectedClaudeExecutablePublisher: spec.ClaudePublisher, Model: spec.Model,
 		Timeout: time.Duration(spec.TimeoutNanos), MaxAttempts: spec.MaxAttempts,
+		Input:                  DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."},
 		stopAfterMemberSegment: true,
 		beforeMemberRun: func(caseRoot, pack, lane string) error {
 			preview, err := packmemoryconsumption.Preview(spec.IsolatedKitRoot, caseRoot, pack, change.ChangeID)

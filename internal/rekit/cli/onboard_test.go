@@ -597,10 +597,10 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 	var reconcilePreview struct {
 		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 	}
-	runCompletionJSON(t, &out, []string{"-Command", "reconcile", "analysis", "-Target", caseRoot, "-Pack", "_template", "-InterventionId", "int-onboard-journey", "-Actor", "operator", "-Reason", "reviewed operator correction", "-WhatIf", "-Format", "json"}, &reconcilePreview)
+	runCompletionJSON(t, &out, []string{"-Command", "reconcile", "analysis", "-Target", caseRoot, "-Pack", "_template", "-InterventionId", "int-onboard-journey", "-Actor", "operator", "-Executor", "executor-a", "-Reason", "reviewed operator correction", "-WhatIf", "-Format", "json"}, &reconcilePreview)
 	reconcileApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, reconcilePreview.MissionCommanderActionQueue.CurrentDriverRequest)
 	if !ok {
-		t.Fatal("onboard journey reconcile apply route is not executable")
+		t.Fatalf("onboard journey reconcile apply route is not executable: queue=%+v", reconcilePreview.MissionCommanderActionQueue)
 	}
 	runCompletionJSON(t, &out, append(reconcileApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json"), nil)
 

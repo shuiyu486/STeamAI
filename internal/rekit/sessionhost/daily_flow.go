@@ -36,7 +36,7 @@ func runDailyGoalFlow(
 	pack string,
 	result *DailyResult,
 ) error {
-	owner, err := newDailySessionTransitionOwner(caseRoot, pack, result.Lane)
+	owner, err := newDailySessionTransitionOwner(caseRoot, pack, result.Lane, hostOpt.projectExecutionLease)
 	if err != nil {
 		return err
 	}

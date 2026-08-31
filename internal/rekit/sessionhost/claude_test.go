@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
@@ -124,6 +125,19 @@ func TestValidateClaudeMemberLaunchInputKeepsAttemptNamespacesDistinct(t *testin
 	if err := ensureDailyStarted(caseRoot, pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
+	owner, err := laneowner.Read(caseRoot, bootstrap.Lane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := memberexecution.WorkspaceInventoryTaskBinding(caseRoot, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := memberexecution.WriteTaskBindingForOwner(
+		caseRoot, bootstrap.Lane, owner.CurrentExecutor, owner.ExecutorGeneration, binding,
+	); err != nil {
+		t.Fatal(err)
+	}
 	plan, err := memberexecution.PreviewDispatch(
 		memberexecution.DispatchOptions{
 			CaseRoot:      caseRoot,
@@ -230,6 +244,40 @@ func TestValidateClaudeMemberLaunchInputKeepsAttemptNamespacesDistinct(t *testin
 	if !strings.Contains(prompt, launch.Attempt.SubmissionOutputs) ||
 		!strings.Contains(prompt, "never return a case-relative .steamai or .rekit path") {
 		t.Fatalf("member prompt omitted exact output path contract: %s", prompt)
+	}
+}
+
+func TestMemberTaskBindingPolicyBoundsTypedInputs(t *testing.T) {
+	artifact := memberexecution.TaskContext{Binding: &memberexecution.TaskBinding{
+		Kind: memberexecution.TaskBindingArtifactAnalysis,
+		Values: map[string]string{
+			"artifact-path":   "inputs/sample.bin",
+			"artifact-sha256": strings.Repeat("a", 64),
+			"artifact-bytes":  "16",
+		},
+	}}
+	artifactInput, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactPolicy := memberTaskBindingPolicy(artifactInput)
+	if !strings.Contains(artifactPolicy, "exact case-relative artifact-path") ||
+		!strings.Contains(artifactPolicy, "do not substitute another file") {
+		t.Fatalf("artifact-analysis policy=%q", artifactPolicy)
+	}
+
+	inventory := memberexecution.TaskContext{Binding: &memberexecution.TaskBinding{
+		Kind:   memberexecution.TaskBindingWorkspaceInventory,
+		Values: map[string]string{"workspace-scope": "inputs"},
+	}}
+	inventoryInput, err := json.Marshal(inventory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventoryPolicy := memberTaskBindingPolicy(inventoryInput)
+	if !strings.Contains(inventoryPolicy, "empty directory is a valid inventory result") ||
+		!strings.Contains(inventoryPolicy, "Do not choose a candidate artifact") {
+		t.Fatalf("workspace-inventory policy=%q", inventoryPolicy)
 	}
 }
 

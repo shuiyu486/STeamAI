@@ -357,6 +357,7 @@ func TestRunDailyControlFlagBridgePreviewApplyWithoutClaude(t *testing.T) {
 		ClaudePath:                        filepath.Join(caseRoot, "missing-claude.exe"),
 		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
 		ExpectedClaudeExecutablePublisher: "Anthropic, PBC",
+		Input:                             sessionhost.DailyInputRequest{Mode: sessionhost.DailyInputWorkspaceInventory, Scope: "."},
 	})
 	if err == nil || !bootstrap.OnboardingApplied || bootstrap.Lane == "" || bootstrap.SessionLaunches != 0 {
 		t.Fatalf("host control fixture result=%+v err=%v", bootstrap, err)
@@ -455,6 +456,18 @@ func TestRunDailyControlFlagConflictsFailBeforeMutation(t *testing.T) {
 			args: []string{"-directory-adoption-action", "initialize-in-place", "-control-action", "pause", "-control-reason", "conflict", "-control-what-if"},
 			want: "mutually exclusive",
 			code: 2,
+		},
+		{
+			name: "typed input and control",
+			args: []string{"-input-mode", "workspace-inventory", "-control-action", "pause", "-control-reason", "conflict", "-control-what-if"},
+			want: "typed daily input cannot be combined with lane control",
+			code: 1,
+		},
+		{
+			name: "typed input and correction",
+			args: []string{"-input-mode", "workspace-inventory", "-correction", "conflict"},
+			want: "typed daily input cannot be combined with -correction",
+			code: 1,
 		},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {

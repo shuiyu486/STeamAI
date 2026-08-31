@@ -5,10 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1049,24 +1047,27 @@ func validateHostCurrentDriverRequest(opt Options) error {
 }
 
 func runStatus(opt Options) (statusPlan, error) {
-	args := []string{"-Command", "status", "-Target", opt.Target}
-	if strings.TrimSpace(opt.Pack) != "" {
-		args = append(args, "-Pack", opt.Pack)
-	}
-	args = appendSelectedLaneArg(args, opt.SelectedLane)
-	args = append(args, "-Format", "json")
-	var out bytes.Buffer
-	if err := cli.Run(args, &out); err != nil {
+	snapshot, err := cli.ReadMissionSnapshot(cli.MissionSnapshotOptions{
+		CaseRoot:              opt.Target,
+		Pack:                  opt.Pack,
+		SelectedCurrentLane:   opt.SelectedLane,
+		ProjectExecutionLease: opt.projectExecutionLease,
+	})
+	if err != nil {
 		return statusPlan{}, err
 	}
-	var status statusPlan
-	dec := json.NewDecoder(bytes.NewReader(out.Bytes()))
-	if err := dec.Decode(&status); err != nil {
-		return statusPlan{}, fmt.Errorf("decode status result: %w", err)
+	public := publicStatusFromMissionSnapshot(snapshot)
+	status := statusPlan{
+		MissionControlRunbook: public.MissionControlRunbook,
 	}
-	var trailing any
-	if err := dec.Decode(&trailing); err != io.EOF {
-		return statusPlan{}, fmt.Errorf("status returned trailing JSON")
+	status.CaseMission = public.CaseMission
+	if member := snapshot.MemberExecution; member != nil {
+		status.MemberExecution = &memberExecutionStatus{
+			State:                  member.State,
+			Lane:                   member.Lane,
+			ReviewerPlanCommand:    member.ReviewerPlanCommand,
+			ReviewerPlanInvocation: member.ReviewerPlanInvocation,
+		}
 	}
 	return status, nil
 }

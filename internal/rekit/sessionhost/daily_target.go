@@ -31,6 +31,19 @@ type dailyTarget struct {
 	Kind dailyTargetKind
 }
 
+// RequireOrdinaryDirectoryTarget exposes the canonical read-only daily target
+// classifier to external bootstrap coordinators without entering daily execution.
+func RequireOrdinaryDirectoryTarget(value string) (string, error) {
+	target, err := classifyDailyTarget(value)
+	if err != nil {
+		return "", err
+	}
+	if target.Kind != dailyTargetOrdinary {
+		return "", fmt.Errorf("bootstrap requires an ordinary directory target; got %s", target.Kind)
+	}
+	return target.Root, nil
+}
+
 func classifyDailyTarget(value string) (dailyTarget, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

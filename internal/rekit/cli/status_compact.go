@@ -30,6 +30,7 @@ type statusCompactInventory struct {
 	CaseMission           *statusCompactMission                    `json:"caseMission,omitempty"`
 	Onboarding            *statusCompactOnboarding                 `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusCompactMissionControlRunbook      `json:"missionControlRunbook,omitempty"`
+	MemberExecution       *statusCompactMemberExecution            `json:"memberExecution,omitempty"`
 	ExecutionControls     []statusCompactExecutionControl          `json:"executionControls,omitempty"`
 	CurrentSyncRecovery   *statusCompactCurrentSyncRecovery        `json:"currentSyncRecovery,omitempty"`
 	Choices               []mission.MissionCommanderNextActionItem `json:"choices,omitempty"`
@@ -82,6 +83,16 @@ type statusCompactPackChoice struct {
 	Recommended bool   `json:"recommended"`
 	Selected    bool   `json:"selected"`
 	Selectable  bool   `json:"selectable"`
+}
+
+type statusCompactMemberExecution struct {
+	State          string                             `json:"state"`
+	InputReadiness *statusCompactMemberInputReadiness `json:"inputReadiness,omitempty"`
+}
+
+type statusCompactMemberInputReadiness struct {
+	State string `json:"state"`
+	Mode  string `json:"mode,omitempty"`
 }
 
 type statusCompactExecutionControl struct {
@@ -159,6 +170,15 @@ func buildStatusCompactInventory(status statusInventory) (statusCompactInventory
 				State:                 completion.State,
 				OperationallyComplete: completion.OperationallyComplete,
 			}
+		}
+	}
+	if status.MemberExecution != nil && status.MemberExecution.InputReadiness != nil {
+		compact.MemberExecution = &statusCompactMemberExecution{
+			State: status.MemberExecution.State,
+			InputReadiness: &statusCompactMemberInputReadiness{
+				State: status.MemberExecution.InputReadiness.State,
+				Mode:  status.MemberExecution.InputReadiness.Mode,
+			},
 		}
 	}
 	if status.Case != nil {

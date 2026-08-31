@@ -34,6 +34,17 @@ func TestReducePublicStatusInteractionUsesOnlyTypedInteractionInput(t *testing.T
 			want: []string{"工作线已读取", "可以继续推进", "本次状态中给出的步骤"},
 		},
 		{
+			name: "typed input required",
+			input: publicStatusInteractionInput{
+				Summary: "等待分析输入",
+				MemberExecution: &publicMemberExecutionInput{
+					State:          "input-required",
+					InputReadiness: &publicInputReadinessInput{State: "input-required"},
+				},
+			},
+			want: []string{"等待分析输入", "typed 输入", "没有启动 member 或 Reviewer", "artifact-analysis", "workspace-inventory", "不要让系统"},
+		},
+		{
 			name: "blocked",
 			input: publicStatusInteractionInput{
 				MissionControlRunbook: &publicStatusRunbookInput{CurrentDriverRequest: &publicStatusDriverInput{
@@ -63,7 +74,7 @@ func TestReducePublicStatusInteractionUsesOnlyTypedInteractionInput(t *testing.T
 					},
 				},
 			},
-			want: []string{"全部工作线已完成", "当前任务已完成", "补充或纠正", "新的独立目标"},
+			want: []string{"全部工作线已完成", "当前任务已完成", "补充或纠正", "新的独立目标", "零写入", "隔离任务代"},
 		},
 		{
 			name:  "no current",

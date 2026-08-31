@@ -352,6 +352,32 @@ func TestMissionCommanderActionQueueKeepsSameLaneCurrentAction(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderActionQueueExcludesClosedLaneHandoffFromCurrentSelection(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{
+		{State: "lane-not-open", Source: "missionCommanderActions", Lane: "feature-closed", Command: "/rekit handoff feature-closed -WhatIf -Format json", RequiresReview: true},
+		{State: "ready-to-continue", Source: "missionCommanderActions", Lane: "main", Command: "/rekit continue main -WhatIf -Format json"},
+	})
+	if len(queue.UnblockedActions) != 2 || queue.UnblockedActions[0].State != "lane-not-open" {
+		t.Fatalf("closed lane handoff disappeared from diagnostics: %+v", queue)
+	}
+	if queue.CurrentAction == nil || queue.CurrentAction.Lane != "main" || queue.CurrentAction.State != "ready-to-continue" || queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Lane != "main" {
+		t.Fatalf("closed lane handoff displaced the open current action: %+v", queue)
+	}
+	if MissionCommanderActionQueueRequiresLaneChoice(queue) || len(MissionCommanderActionQueueLaneChoices(queue)) != 0 {
+		t.Fatalf("closed lane handoff created a false lane choice: %+v", queue)
+	}
+}
+
+func TestMissionCommanderActionQueueKeepsClosedLaneHandoffDiagnosticOnly(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		State: "lane-not-open", Source: "missionCommanderActions", Lane: "feature-closed",
+		Command: "/rekit handoff feature-closed -WhatIf -Format json", RequiresReview: true,
+	}})
+	if len(queue.UnblockedActions) != 1 || queue.CurrentAction != nil || queue.CurrentDriverRequest != nil || MissionCommanderActionQueueRequiresLaneChoice(queue) {
+		t.Fatalf("closed lane handoff became a current action: %+v", queue)
+	}
+}
+
 func TestMissionCommanderActionQueueBlocksInvalidPublicCommandText(t *testing.T) {
 	for _, command := range []string{"rekit-host -daily", "rekitfoo status", "/rekit unknown", "/rekit continue -Command status", "/steamai unknown", "/steamai continue -Command status"} {
 		t.Run(command, func(t *testing.T) {
@@ -751,6 +777,35 @@ func TestMissionCommanderActionQueueBuildsReadOnlyDriverRequestForExecutableComm
 	}
 	if !containsSubstring(queue.CurrentDriverRequest.Boundary, "does not spawn, poll, stop, or run external sessions") || !containsSubstring(queue.CurrentDriverRequest.ExpectedReceipt.Boundary, "do not write authority/confirmed") {
 		t.Fatalf("driver request lost no-spawn/no-authority boundaries: %+v", queue.CurrentDriverRequest)
+	}
+}
+
+func TestMissionCommanderDriverRequestOwnsMemberContinuationUsesTypedContract(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		Lane: "main", State: MemberContinuationState,
+		Command: "/rekit continue main", Source: MemberContinuationSource,
+	}})
+	if queue.CurrentDriverRequest == nil || !MissionCommanderDriverRequestOwnsMemberContinuation(*queue.CurrentDriverRequest) {
+		t.Fatalf("member continuation request was not recognized: %+v", queue.CurrentDriverRequest)
+	}
+	for name, mutate := range map[string]func(*MissionCommanderDriverRequest){
+		"source": func(request *MissionCommanderDriverRequest) { request.Source = "executionEvidenceReview.pending" },
+		"state":  func(request *MissionCommanderDriverRequest) { request.State = "review-required" },
+		"command": func(request *MissionCommanderDriverRequest) {
+			invocation, err := commands.NewPublicInvocation(commands.Status, "-Format", "json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Invocation = &invocation
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			copy := *queue.CurrentDriverRequest
+			mutate(&copy)
+			if MissionCommanderDriverRequestOwnsMemberContinuation(copy) {
+				t.Fatalf("non-member request was recognized: %+v", copy)
+			}
+		})
 	}
 }
 

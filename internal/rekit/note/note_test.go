@@ -341,6 +341,31 @@ func TestAppendInterventionRechecksOpenLaneInsideLease(t *testing.T) {
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
 }
 
+func TestAppendInterventionRejectsStaleOwnerInsideLease(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+	stateRoot := filepath.Join(caseRoot, projectstate.LegacyDir)
+	writeNoteText(t, filepath.Join(stateRoot, "board.json"), `{"lanes":[{"id":"main","status":"open","currentExecutor":"executor-a","executorGeneration":1}]}`+"\n")
+	writeNoteText(t, filepath.Join(stateRoot, "lanes", "main", "lane.json"), `{"schemaVersion":1,"id":"main","status":"open","authority":false,"currentExecutor":"executor-a","executorGeneration":1}`+"\n")
+
+	previous := interventionBeforeLeaseHook
+	interventionBeforeLeaseHook = func() error {
+		writeNoteText(t, filepath.Join(stateRoot, "board.json"), `{"lanes":[{"id":"main","status":"open","currentExecutor":"executor-b","executorGeneration":2}]}`+"\n")
+		writeNoteText(t, filepath.Join(stateRoot, "lanes", "main", "lane.json"), `{"schemaVersion":1,"id":"main","status":"open","authority":false,"currentExecutor":"executor-b","executorGeneration":2}`+"\n")
+		return nil
+	}
+	t.Cleanup(func() { interventionBeforeLeaseHook = previous })
+
+	_, err := Append(repoRoot, caseRoot, pack, Options{
+		Kind: "intervention", Lane: "main", Subject: "owner-bound correction",
+		Action: "override", Status: "open", EventID: "evt-stale-owner",
+		OwnerExecutor: "executor-a", OwnerGeneration: "1", OwnerBindingMode: "daily-active-correction",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "owner binding is stale") {
+		t.Fatalf("stale owner intervention error = %v", err)
+	}
+	assertNoteNotExists(t, filepath.Join(stateRoot, "facts", "interventions.jsonl"))
+}
+
 func TestAppendVerificationWithControlRejectsStaleHead(t *testing.T) {
 	repoRoot, caseRoot, pack := noteFixtureWithStateRoot(t, projectstate.CurrentDir)
 	writeNoteText(t, filepath.Join(caseRoot, projectstate.CurrentDir, "board.json"), `{"lanes":[{"id":"main","status":"open","currentExecutor":"executor-a","executorGeneration":1}]}`+"\n")

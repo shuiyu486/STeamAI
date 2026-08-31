@@ -51,11 +51,17 @@ type Result struct {
 }
 
 type ReadinessLayers struct {
-	RepositoryInventory RepositoryInventoryReadinessLayer `json:"repositoryInventory"`
-	LocalValidation     LocalValidationReadinessLayer     `json:"localValidation"`
-	GitLocalPublication GitLocalPublicationReadinessLayer `json:"gitLocalPublication"`
-	RemoteCI            RemoteCIReadinessLayer            `json:"remoteCI"`
-	FormalRelease       FormalReleaseReadinessLayer       `json:"formalRelease"`
+	InventoryReady             bool                              `json:"inventoryReady"`
+	LocalValidationReady       bool                              `json:"localValidationReady"`
+	RealWindowsAcceptanceReady bool                              `json:"realWindowsAcceptanceReady"`
+	RemoteCIGreen              bool                              `json:"remoteCIGreen"`
+	FormalReleaseReady         bool                              `json:"formalReleaseReady"`
+	RepositoryInventory        RepositoryInventoryReadinessLayer `json:"repositoryInventory"`
+	LocalValidation            LocalValidationReadinessLayer     `json:"localValidation"`
+	RealWindowsAcceptance      WindowsAcceptanceReadinessLayer   `json:"realWindowsAcceptance"`
+	GitLocalPublication        GitLocalPublicationReadinessLayer `json:"gitLocalPublication"`
+	RemoteCI                   RemoteCIReadinessLayer            `json:"remoteCI"`
+	FormalRelease              FormalReleaseReadinessLayer       `json:"formalRelease"`
 }
 
 type RepositoryInventoryReadinessLayer struct {
@@ -67,6 +73,12 @@ type LocalValidationReadinessLayer struct {
 	State                         string `json:"state"`
 	Ready                         bool   `json:"ready"`
 	ExactReceiptInspectionPresent bool   `json:"exactReceiptInspectionPresent"`
+}
+
+type WindowsAcceptanceReadinessLayer struct {
+	State                        string `json:"state"`
+	Ready                        bool   `json:"ready"`
+	StructuredObservationPresent bool   `json:"structuredObservationPresent"`
 }
 
 type GitLocalPublicationReadinessLayer struct {
@@ -318,11 +330,15 @@ func Build(repoRoot string) (Result, error) {
 
 func readinessLayers(result Result) ReadinessLayers {
 	layers := ReadinessLayers{
+		InventoryReady: result.Ready,
 		RepositoryInventory: RepositoryInventoryReadinessLayer{
 			State: "not-ready",
 			Ready: result.Ready,
 		},
 		LocalValidation: LocalValidationReadinessLayer{
+			State: "not-observed",
+		},
+		RealWindowsAcceptance: WindowsAcceptanceReadinessLayer{
 			State: "not-observed",
 		},
 		GitLocalPublication: GitLocalPublicationReadinessLayer{
@@ -343,15 +359,22 @@ func readinessLayers(result Result) ReadinessLayers {
 		layers.RepositoryInventory.State = "ready"
 	}
 	latest := result.ReleaseHandoff.LatestBatch.Handoff
-	if inspection := latest.LocalValidationReceipt; inspection != nil {
-		layers.LocalValidation.State = inspection.State
-		layers.LocalValidation.ExactReceiptInspectionPresent = true
-		layers.LocalValidation.Ready = inspection.Ready && inspection.State == "validated-implementation-commit"
+	validationReceipt := latest.LocalValidationReceipt
+	postPushReceipt := latest.PostPushReceipt
+	if active := result.ReleaseHandoff.ActiveRoute; active.Present {
+		validationReceipt = active.LocalValidationReceipt
+		postPushReceipt = active.PostPushReceipt
 	}
-	if receipt := latest.PostPushReceipt; receipt != nil {
-		layers.GitLocalPublication.State = receipt.State
+	if validationReceipt != nil {
+		layers.LocalValidation.State = validationReceipt.State
+		layers.LocalValidation.ExactReceiptInspectionPresent = true
+		layers.LocalValidation.Ready = validationReceipt.Ready && validationReceipt.State == "validated-implementation-commit"
+		layers.LocalValidationReady = layers.LocalValidation.Ready
+	}
+	if postPushReceipt != nil {
+		layers.GitLocalPublication.State = postPushReceipt.State
 		layers.GitLocalPublication.ExactPostPushObservationPresent = true
-		layers.GitLocalPublication.Ready = receipt.Ready && receipt.State == "post-push-complete"
+		layers.GitLocalPublication.Ready = postPushReceipt.Ready && postPushReceipt.State == "post-push-complete"
 	}
 	if claim := strings.TrimSpace(latest.RemoteReleaseGate); claim != "" && claim != "not-recorded" {
 		layers.RemoteCI.DocumentedClaim.Present = true

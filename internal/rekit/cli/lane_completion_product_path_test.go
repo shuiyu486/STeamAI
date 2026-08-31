@@ -112,7 +112,7 @@ func TestRunLaneCompletionProductPathRoutesNextLaneAndMissionComplete(t *testing
 		t.Fatal(err)
 	}
 	publicText := out.String()
-	for _, expected := range []string{"当前任务已完成", "补充或纠正", "新的独立目标"} {
+	for _, expected := range []string{"当前任务已完成", "补充或纠正", "新的独立目标", "零写入", "隔离任务代"} {
 		if !strings.Contains(publicText, expected) {
 			t.Fatalf("mission-complete public status omitted %q: %s", expected, publicText)
 		}

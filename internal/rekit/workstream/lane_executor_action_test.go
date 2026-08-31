@@ -160,6 +160,35 @@ func TestBindMissionCommanderNextActionAuthorityContinueCommandsRejectsStaleType
 	}
 }
 
+func TestBindLaneAuthorityContinueCommandsBindsReconcileToCurrentExecutor(t *testing.T) {
+	action := mission.ExecutorAction{
+		MissionCommanderAction: mission.MissionCommanderAction{
+			PrimaryCommand: "/rekit reconcile login -InterventionId correction-1 -WhatIf",
+			FollowUpCommands: []string{
+				"/rekit reconcile login -InterventionId correction-1 -Apply",
+				"/rekit continue login -WhatIf",
+			},
+		},
+	}
+	lane := mission.BoardLane{
+		ID:                 "feature-login",
+		CurrentExecutor:    "executor two",
+		ExecutorGeneration: 2,
+	}
+	bound := BindLaneAuthorityContinueCommands(action, lane)
+	wantPreview := `/rekit reconcile login -InterventionId correction-1 -Executor "executor two" -WhatIf`
+	wantApply := `/rekit reconcile login -InterventionId correction-1 -Executor "executor two" -Apply`
+	wantContinue := `/rekit continue login -Executor "executor two" -ExpectedExecutorGeneration 2 -WhatIf`
+	if bound.MissionCommanderAction.PrimaryCommand != wantPreview ||
+		bound.MissionCommanderAction.FollowUpCommands[0] != wantApply ||
+		bound.MissionCommanderAction.FollowUpCommands[1] != wantContinue {
+		t.Fatalf("current executor was not bound across reconcile/continue actions: %+v", bound)
+	}
+	if action.MissionCommanderAction.PrimaryCommand == bound.MissionCommanderAction.PrimaryCommand {
+		t.Fatalf("owner binding mutated or reused its input: before=%+v after=%+v", action, bound)
+	}
+}
+
 func TestBindLaneContinueCommandsTakeoverReplacesStaleDurableCommand(t *testing.T) {
 	stale := laneExecutorAction{
 		ResumeCommand:    "/rekit continue login -Executor executor-one -ExpectedExecutorGeneration 1",

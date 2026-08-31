@@ -210,7 +210,7 @@ func TestRunDailyPublicRouteBootstrapsFreshCaseWithoutLLMResultFixtures(t *testi
 	caseRoot := filepath.Join(t.TempDir(), "fresh-case")
 	goal := "Analyze a harmless synthetic acceptance target"
 	unifiedExecutable := buildSessionhostUnifiedRuntimeFixture(t, sessionhostTestRepoRoot(t))
-	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "live-public-route-test", InitializationSourceExecutable: unifiedExecutable, ClaudePath: filepath.Join(t.TempDir(), "missing-claude.exe"), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "live-public-route-test", InitializationSourceExecutable: unifiedExecutable, ClaudePath: filepath.Join(t.TempDir(), "missing-claude.exe"), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher, Input: DailyInputRequest{Mode: DailyInputWorkspaceInventory, Scope: "."}})
 	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
 		t.Fatalf("daily public route result=%+v err=%v", result, err)
 	}

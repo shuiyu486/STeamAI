@@ -1561,7 +1561,22 @@ func handoffCommandForArgs(args []string) string {
 	return strings.Join(parts, " ")
 }
 
+func continueExecutorBinding(command string) (string, bool) {
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil || invocation.Command != commands.Continue {
+		return "", false
+	}
+	executor, present, valid := invocation.FlagValue("-Executor", "--executor")
+	executor = strings.TrimSpace(executor)
+	return executor, present && valid && executor != ""
+}
+
 func bindHandoffLaneExecutorAction(action laneExecutorAction, laneID, laneLabel string) laneExecutorAction {
+	owner := Lane{ID: laneID, Name: laneLabel}
+	if executor, ok := continueExecutorBinding(action.ResumeCommand); ok {
+		owner.CurrentExecutor = executor
+		action.MissionCommanderAction = bindMissionCommanderActionReconcileExecutor(action.MissionCommanderAction, owner)
+	}
 	action.ResumeCommand = handoffLaneCommand(action.ResumeCommand, laneID, laneLabel)
 	action.HandoffCommand = handoffLaneCommand(action.HandoffCommand, laneID, laneLabel)
 	for index := range action.NextAgentActions {
@@ -1954,6 +1969,7 @@ func bindLaneContinueCommands(action laneExecutorAction, lane Lane) laneExecutor
 		action.NextAgentActions[idx] = bindContinueCommand(action.NextAgentActions[idx], lane)
 	}
 	action.MissionCommanderAction = bindMissionCommanderActionContinueCommands(action.MissionCommanderAction, lane)
+	action.MissionCommanderAction = bindMissionCommanderActionReconcileExecutor(action.MissionCommanderAction, lane)
 	return action
 }
 
@@ -2025,6 +2041,54 @@ func BindLaneAuthorityContinueCommand(command string, lane mission.BoardLane) st
 
 func BindLaneAuthorityContinueCommands(action mission.ExecutorAction, lane mission.BoardLane) mission.ExecutorAction {
 	return bindLaneContinueCommands(action, workstreamLanesFromBoard([]mission.BoardLane{lane})[0])
+}
+
+func bindMissionCommanderActionReconcileExecutor(action mission.MissionCommanderAction, lane Lane) mission.MissionCommanderAction {
+	action.PrimaryCommand = bindReconcileCommandExecutor(action.PrimaryCommand, lane)
+	for idx := range action.FollowUpCommands {
+		action.FollowUpCommands[idx] = bindReconcileCommandExecutor(action.FollowUpCommands[idx], lane)
+	}
+	return action
+}
+
+func bindReconcileCommandExecutor(command string, lane Lane) string {
+	executor := strings.TrimSpace(lane.CurrentExecutor)
+	if executor == "" {
+		return command
+	}
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil || invocation.Command != commands.Reconcile {
+		return command
+	}
+	if value, present, valid := invocation.FlagValue("-Executor", "--executor"); present {
+		if valid && strings.TrimSpace(value) == executor {
+			return command
+		}
+		return ""
+	}
+	arguments := append([]string{}, invocation.Arguments...)
+	insertAt := len(arguments)
+	for idx, argument := range arguments {
+		if strings.EqualFold(argument, "-WhatIf") || strings.EqualFold(argument, "--what-if") ||
+			strings.EqualFold(argument, "-Apply") || strings.EqualFold(argument, "--apply") {
+			insertAt = idx
+			break
+		}
+	}
+	arguments = append(arguments[:insertAt], append([]string{"-Executor", executor}, arguments[insertAt:]...)...)
+	bound, err := commands.NewPublicInvocation(commands.Reconcile, arguments...)
+	if err != nil {
+		return command
+	}
+	entrypoint := commands.LegacyPublicEntrypoint
+	if strings.HasPrefix(strings.TrimSpace(command), commands.CurrentPublicEntrypoint+" ") {
+		entrypoint = commands.CurrentPublicEntrypoint
+	}
+	rendered, err := bound.RenderForEntrypoint(entrypoint)
+	if err != nil {
+		return command
+	}
+	return rendered
 }
 
 func BindMissionCommanderNextActionAuthorityContinueCommands(items []mission.MissionCommanderNextActionItem, lane mission.BoardLane) ([]mission.MissionCommanderNextActionItem, error) {

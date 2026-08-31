@@ -3,6 +3,8 @@ package sessionhost
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 func TestDailyUserActionProjectsStableCodes(t *testing.T) {
@@ -14,9 +16,10 @@ func TestDailyUserActionProjectsStableCodes(t *testing.T) {
 		choiceIDs     []string
 	}{
 		{name: "mission completed", result: DailyResult{FinalState: "mission-complete"}, code: "completed"},
-		{name: "lane completed", result: DailyResult{FinalState: "lane-closed"}, code: "completed"},
+		{name: "lane completed", result: DailyResult{FinalState: "lane-closed"}, code: "ready-to-continue"},
 		{name: "member ready", result: DailyResult{FinalState: "member-intake-ready"}, code: "ready-to-continue"},
 		{name: "reviewer rejected", result: DailyResult{FinalState: "reviewer-rejected-awaiting-correction", Blocked: true}, code: "waiting-for-correction", requiresInput: true, choiceIDs: []string{"provide-correction", "stop"}},
+		{name: "typed input required", result: DailyResult{FinalState: "input-required", Blocked: true}, code: "input-required", requiresInput: true, choiceIDs: []string{"artifact-analysis", "workspace-inventory"}},
 		{name: "typed blocker", result: DailyResult{FinalState: "attention-required", Blocked: true}, code: "blocked"},
 		{name: "evidence review", result: DailyResult{FinalState: "ready-for-evidence-review"}, code: "ready-for-evidence-review", requiresInput: true, choiceIDs: []string{"review-evidence", "defer"}},
 		{name: "unknown state fails closed", result: DailyResult{FinalState: "future-state"}, code: "blocked"},
@@ -47,8 +50,11 @@ func TestDailyUserActionProjectsStableCodes(t *testing.T) {
 func TestDailyUserActionExplainsNowReasonAndNext(t *testing.T) {
 	for _, result := range []DailyResult{
 		{FinalState: "mission-complete"},
+		{FinalState: "lane-closed"},
+		{FinalState: "lane-closed", CurrentDriverRequest: &mission.MissionCommanderDriverRequest{State: "ready-to-continue"}},
 		{FinalState: "member-intake-ready"},
 		{FinalState: "reviewer-rejected-awaiting-correction", Blocked: true},
+		{FinalState: "input-required", Blocked: true},
 		{FinalState: "attention-required", Blocked: true},
 	} {
 		action := dailyUserAction(result)
@@ -301,7 +307,7 @@ func TestDailyResultActionIsAdditiveJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &roundTrip); err != nil {
 		t.Fatal(err)
 	}
-	if roundTrip.Action == nil || roundTrip.Action.Code != "completed" || roundTrip.Action.Now == "" || roundTrip.Action.Reason == "" || roundTrip.Action.Next == "" {
+	if roundTrip.Action == nil || roundTrip.Action.Code != DailyActionReadyToContinue || roundTrip.Action.Now == "" || roundTrip.Action.Reason == "" || roundTrip.Action.Next == "" {
 		t.Fatalf("round-trip action = %+v", roundTrip.Action)
 	}
 
