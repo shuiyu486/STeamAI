@@ -3,6 +3,7 @@ package vnextcontract
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -67,6 +68,9 @@ func TestCanonicalCurrentSurfacesDoNotInvokeRemovedRuntime(t *testing.T) {
 		".rekit/lanes",
 		"authorized-gate",
 		"project-local deterministic runtime",
+		"legacy-import.md",
+		"一次性只读 importer",
+		"legacy importer",
 	}
 	for _, rel := range paths {
 		data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))
@@ -76,8 +80,19 @@ func TestCanonicalCurrentSurfacesDoNotInvokeRemovedRuntime(t *testing.T) {
 		text := string(data)
 		for _, phrase := range forbidden {
 			if strings.Contains(text, phrase) {
-				t.Errorf("current surface %s invokes removed runtime phrase %q", rel, phrase)
+				t.Errorf("current surface %s invokes removed runtime or importer phrase %q", rel, phrase)
 			}
+		}
+	}
+
+	for _, removed := range []string{
+		"vnext/legacy-import.md",
+		"internal/steamai/vnextcontract/legacy_import_test.go",
+	} {
+		if _, err := os.Lstat(filepath.Join(repo, filepath.FromSlash(removed))); err == nil {
+			t.Errorf("removed legacy compatibility surface still exists: %s", removed)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("inspect removed compatibility surface %s: %v", removed, err)
 		}
 	}
 }
@@ -97,8 +112,12 @@ func TestCanonicalSkillAndDeliveryTemplateAreExactBytes(t *testing.T) {
 	}
 }
 
-func TestAllPackManifestsUseThinDeclarativeShape(t *testing.T) {
+func TestPackManifestV2Semantics(t *testing.T) {
 	repo := repoRoot(t)
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("locate git for tracked-path checks: %v", err)
+	}
 	packsRoot := filepath.Join(repo, "packs")
 	entries, err := os.ReadDir(packsRoot)
 	if err != nil {
@@ -110,6 +129,9 @@ func TestAllPackManifestsUseThinDeclarativeShape(t *testing.T) {
 		"subagentRoutes:",
 		"laneTypes:",
 		"mainAgentOwns:",
+		"learningDenyPatterns:",
+		"registry:",
+		"overlays:",
 		".rekit/",
 		".steamai/facts/",
 		"authorized-gate",
@@ -119,7 +141,8 @@ func TestAllPackManifestsUseThinDeclarativeShape(t *testing.T) {
 		if !entry.IsDir() {
 			continue
 		}
-		rel := filepath.ToSlash(filepath.Join("packs", entry.Name(), "manifest.yml"))
+		pack := entry.Name()
+		rel := filepath.ToSlash(filepath.Join("packs", pack, "manifest.yml"))
 		data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))
 		if os.IsNotExist(err) {
 			continue
@@ -131,57 +154,138 @@ func TestAllPackManifestsUseThinDeclarativeShape(t *testing.T) {
 		if !strings.HasPrefix(text, "schemaVersion: 2\n") {
 			t.Errorf("thin pack manifest %s must start with schemaVersion 2", rel)
 		}
-		for _, required := range []string{"name:", "entrypoints:", "teamHints:", "heavyActions:", "learningTargets:"} {
+		for _, key := range []string{
+			"schemaVersion", "name", "version", "description", "maturity", "entrypoints", "references", "templates", "policies", "tooling",
+			"teamHints", "heavyActions", "learningTargets", "denyPatterns", "budgets",
+		} {
+			if count := countManifestKeyAtIndent(text, 0, key); count != 1 {
+				t.Errorf("thin pack manifest %s top-level key %s count = %d, want 1", rel, key, count)
+			}
+		}
+		for _, required := range []string{
+			"ownerPerQuestion: 1", "verifierPerQuestion: 1", "durableTeamLimit: 3-executors-plus-1-reviewer", "requiredToolPermission: true",
+		} {
 			if !strings.Contains(text, required) {
 				t.Errorf("thin pack manifest %s missing %q", rel, required)
 			}
 		}
 		for _, phrase := range forbidden {
 			if strings.Contains(text, phrase) {
-				t.Errorf("thin pack manifest %s retains legacy field %q", rel, phrase)
+				t.Errorf("thin pack manifest %s retains unsupported field %q", rel, phrase)
 			}
+		}
+		for _, section := range []string{"references", "templates", "policies", "tooling"} {
+			for _, declared := range manifestListValues(text, section) {
+				assertDeclaredPackPath(t, repo, pack, rel, section, declared)
+			}
+		}
+		learningTargets := manifestListValues(text, "learningTargets")
+		if len(learningTargets) == 0 {
+			t.Errorf("thin pack manifest %s has no learning targets", rel)
+		}
+		for _, target := range learningTargets {
+			if filepath.Ext(target) != ".md" && !strings.HasSuffix(target, "*.md") {
+				t.Errorf("thin pack manifest %s learning target is not Markdown: %s", rel, target)
+				continue
+			}
+			matches, err := filepath.Glob(filepath.Join(packsRoot, pack, filepath.FromSlash(target)))
+			if err != nil || len(matches) == 0 {
+				t.Errorf("thin pack manifest %s learning target expands to no files: %s", rel, target)
+				continue
+			}
+			for _, match := range matches {
+				assertTrackedRegularFile(t, git, repo, match)
+			}
+		}
+		if len(manifestListValues(text, "denyPatterns")) == 0 {
+			t.Errorf("thin pack manifest %s has no deny patterns", rel)
 		}
 	}
 }
 
-func TestPackPolicyOverlaysExtendRegisteredCommonPolicies(t *testing.T) {
-	repo := repoRoot(t)
-	commonData, err := os.ReadFile(filepath.Join(repo, "common", "policies", "manifest.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	registered := map[string]bool{}
-	for line := range strings.SplitSeq(string(commonData), "\n") {
-		line = strings.TrimSpace(line)
-		if id, ok := strings.CutPrefix(line, "- id: "); ok {
-			registered[strings.TrimSpace(id)] = true
+func countManifestKeyAtIndent(text string, indent int, key string) int {
+	prefix := strings.Repeat(" ", indent) + key + ":"
+	count := 0
+	for line := range strings.SplitSeq(text, "\n") {
+		if strings.HasPrefix(line, prefix) && (line == prefix || strings.HasPrefix(line, prefix+" ")) {
+			count++
 		}
 	}
-	if len(registered) == 0 {
-		t.Fatal("common policy manifest registered no policies")
-	}
-	err = filepath.WalkDir(filepath.Join(repo, "packs"), func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+	return count
+}
+
+func manifestListValues(text, section string) []string {
+	lines := strings.Split(text, "\n")
+	start := -1
+	for i, line := range lines {
+		if line == section+":" {
+			if start >= 0 {
+				return nil
+			}
+			start = i + 1
 		}
-		if entry.IsDir() || entry.Name() != "manifest.yml" || filepath.Base(filepath.Dir(path)) != "policies" {
+	}
+	if start < 0 {
+		return nil
+	}
+	var values []string
+	for _, line := range lines[start:] {
+		if line == "" || strings.HasPrefix(line, "  #") {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") {
+			break
+		}
+		if strings.HasPrefix(line, "    ") || !strings.HasPrefix(line, "  - ") {
 			return nil
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
+		value := strings.Trim(strings.TrimPrefix(line, "  - "), "'\"")
+		if value == "" || strings.Contains(value, " #") {
+			return nil
 		}
-		for line := range strings.SplitSeq(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if base, ok := strings.CutPrefix(line, "extends: "); ok && !registered[strings.TrimSpace(base)] {
-				rel, _ := filepath.Rel(repo, path)
-				t.Errorf("pack policy manifest %s extends unregistered common policy %q", filepath.ToSlash(rel), strings.TrimSpace(base))
-			}
-		}
-		return nil
-	})
+		values = append(values, value)
+	}
+	return values
+}
+
+func assertDeclaredPackPath(t *testing.T, repo, pack, manifestRel, section, declared string) {
+	t.Helper()
+	packRoot := filepath.Join(repo, "packs", pack)
+	candidate := filepath.Clean(filepath.Join(packRoot, filepath.FromSlash(declared)))
+	allowedRoot := packRoot
+	if section == "policies" && strings.HasPrefix(declared, "../../common/policies/") {
+		allowedRoot = filepath.Join(repo, "common", "policies")
+	}
+	if !pathWithin(candidate, allowedRoot) {
+		t.Errorf("thin pack manifest %s %s path escapes allowed root: %s", manifestRel, section, declared)
+		return
+	}
+	assertRegularNonSymlink(t, candidate, manifestRel+" "+section+" path")
+}
+
+func assertTrackedRegularFile(t *testing.T, git, repo, path string) {
+	t.Helper()
+	assertRegularNonSymlink(t, path, "learning target")
+	rel, err := filepath.Rel(repo, path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	cmd := exec.Command(git, "ls-files", "--error-unmatch", "--", filepath.ToSlash(rel))
+	cmd.Dir = repo
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("learning target is not tracked %s: %v: %s", filepath.ToSlash(rel), err, strings.TrimSpace(string(output)))
+	}
+}
+
+func assertRegularNonSymlink(t *testing.T, path, label string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Errorf("%s is missing: %s: %v", label, path, err)
+		return
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		t.Errorf("%s is not a regular non-symlink file: %s", label, path)
 	}
 }
 

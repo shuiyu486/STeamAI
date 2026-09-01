@@ -10,8 +10,8 @@
 - 不保存真实样本、trace/dump/capture、payload、flag、凭据、客户信息、绝对 case 路径或 case 进度。
 - pack 只能建议职责；durable member 由 Commander 按需创建，active team 仍受 3 名执行成员 + 1 名 Reviewer 上限约束。
 - heavy action 不由 manifest 自动授权。必须同时落在明确 case scope、获得针对具体动作的用户确认，并通过 Claude Code 工具权限；范围、预算或副作用漂移时停止。
-- learning 只从 accepted finding/review 提炼，经 Reviewer 检查证据、通用性、冲突、重复与脱敏，再由用户确认完整 exact patch。
-- selected pack 与 `common/**` policy closure 从同一 exact Git revision 物化到 case-local 只读 snapshot；case 日常不读取 mutable source clone。
+- learning 只从 current accepted finding/review chain 提炼；Reviewer 先判断 candidate eligibility，再绑定最终 exact patch identity，用户只确认完整 exact tuple。candidate exact SHA 在创建后由 review/confirmation 外部记录，不写入 candidate 自身。
+- selected pack 与完整 `common/**` 从同一 exact Git revision 物化到 case-local 只读 snapshot；payload digest 覆盖排序后的 path、Git mode/blob、bytes 与 SHA-256，case 日常不读取 mutable source clone。
 
 ## 最小结构
 
@@ -37,61 +37,18 @@ packs/<pack>/
 
 ## Manifest
 
-新 pack 从 `packs/_template/manifest.yml` 复制，使用当前声明格式：
-
-```yaml
-schemaVersion: 2
-name: <pack-name>
-version: 1.0.0
-description: <one-line>
-maturity: declarative-vnext
-
-entrypoints:
-  router: references/<pack>/README.md
-  team: references/<pack>/agent-team.md
-  workflow: references/<pack>/workflow-template.md
-  tooling: references/<pack>/toolchain-router.md
-
-references: []
-templates: []
-policies: []
-tooling: []
-
-teamHints:
-  suggestedMembers: 1-2
-  reviewer: on-important-finding-or-delivery
-  ownerPerQuestion: 1
-  verifierPerQuestion: 1
-  durableTeamLimit: 3-executors-plus-1-reviewer
-
-heavyActions:
-  - id: <action>
-    title: <human-readable>
-    risk: high
-    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
-    requiredToolPermission: true
-    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
-
-learningTargets: []
-denyPatterns:
-  - real-case-identifiers
-  - raw-artifacts
-  - credentials-or-tokens
-  - absolute-case-paths
-  - customer-environment-details
-budgets:
-  CLAUDE.local.md: 8192
-  defaultMarkdown: 16384
-```
+`packs/_template/manifest.yml` 是 schema v2 的唯一 shape source。新增 pack 直接复制它，不在本指南维护第二份完整 YAML 样例，也不在 `policies/` 下建立平行 manifest。
 
 要求：
 
-- 所有路径相对、存在且位于 pack root 或显式 `../../common/policies/` closure。
+- `references`、`templates`、`policies`、`tooling` 都是 YAML string list；不允许 map/registry 方言。
+- 所有路径相对、存在且位于 pack root；`policies` 可显式引用 `../../common/policies/*.md`，其它字段不能逃逸 pack root。
 - `entrypoints` 指向可读的按需入口。
-- `teamHints` 是建议，不是 task/owner database。
-- `heavyActions` 只声明风险、授权条件与止损条件，不创建 gate、receipt、lease 或 durable autonomy 状态。
-- `learningTargets` 是可生成 exact patch 的 tracked Markdown 目标集合；未知路径不自动接受。
-- `denyPatterns` 必须覆盖领域特有的 case 私有信息和原始 artifact。
+- `teamHints` 使用 `suggestedMembers`、`reviewer`、`ownerPerQuestion`、`verifierPerQuestion` 和 `durableTeamLimit`，它是建议而非 task/owner database。
+- `heavyActions` 必须有唯一 `id`、具体标题、风险、授权条件、`requiredToolPermission: true` 和非空停止条件；它不创建 gate、receipt、lease 或 durable autonomy 状态。
+- `learningTargets` 只展开到 selected pack 内已有、tracked、regular、非 symlink 的 Markdown；不允许 YAML/JSON、目标外路径或新文件。
+- 唯一允许的脱敏字段是非空 `denyPatterns`；不得再引入 `learningDenyPatterns` 方言。
+- 顶层 pack manifest 是 policy/common closure 的唯一声明；不建立 `policies/manifest.yml` 平行 registry。
 - `_template` 只用于 authoring，不能作为真实 case 的 selected pack。
 
 ## 实施步骤
@@ -107,7 +64,7 @@ budgets:
 ## 验证
 
 ```text
-go test -count=1 -run 'TestAllPackManifestsUseThinDeclarativeShape|TestPackAndCommonSourcesDoNotExposeLegacyCommands' ./internal/steamai/vnextcontract
+go test -count=1 -run 'TestPackManifestV2Semantics|TestPackAndCommonSourcesDoNotExposeLegacyCommands' ./internal/steamai/vnextcontract
 go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...
 git diff --check

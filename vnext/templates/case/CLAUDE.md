@@ -9,9 +9,11 @@
 - 全局停止条件：`{{STOP_CONDITIONS}}`
 - Selected pack：`{{PACK_NAME}}`
 - Source revision：`{{PACK_REVISION}}`
-- Snapshot tree：`{{PACK_SNAPSHOT_TREE}}`
+- Pack tree：`{{PACK_SNAPSHOT_TREE}}`
+- Common tree：`{{COMMON_SNAPSHOT_TREE}}`
+- Snapshot digest：`{{SNAPSHOT_DIGEST}}`
 
-selected pack snapshot 是在 case 建立时从 exact source revision 导出的 case-local 只读目录；所有 pack 指令读取都使用该目录，不读取 mutable source pack。Snapshot tree 是该目录内容的确定性 Git tree identity。
+selected pack 与完整 `common/**` snapshot 是在 case 建立时从同一 exact source revision 导出的 case-pinned 目录；所有 pack/common 指令读取都使用该目录，不读取 mutable source pack。pack/common tree 是 source identity；Snapshot digest 由 `snapshot.yml` 的排序 file records 重算，覆盖每个 repo-relative path、Git mode/blob、bytes 与 SHA-256，并排除 metadata 文件自身。该目录禁止自动覆盖或重导出，但不声称 OS-level ACL。
 
 本目录对应一个明确授权的安全研究 case。不得把本 case 的真实 artifact、凭据、绝对路径、目标身份或会话内容带入其他 case 或共享 pack。
 
@@ -21,9 +23,25 @@ Commander 负责理解用户目标、按需组队、调整分工、解决冲突�
 
 ## 当前团队
 
-`{{TEAM_ROSTER}}`
+本表是 durable roster 的唯一 source。成员文件不复制 roster，session 是否存在也不改变本表。
 
-只有 Commander 可以创建 durable member。active durable team 最多 3 名执行成员和 1 名 Reviewer；达到上限时必须先复用、完成、停用或合并现有成员，改变该 case 的团队模型必须取得用户明确确认。新增成员必须有独立职责、明确输入、明确产出和退出条件。
+| Member | Kind | Durable state | Member source |
+|---|---|---|---|
+{{TEAM_ROSTER_ROWS}}
+
+- `active`：已分配当前正式任务，计入 3 名 execution + 1 名 Reviewer 上限；不表示当前存在可见 session。
+- `completed`：最近正式任务满足退出条件，成员目录保留，不计入 active 上限。
+- `inactive`：被暂停、合并或暂时不需要，成员目录保留，不计入 active 上限。
+
+只有 Commander 可以创建 durable member，并且只有 Commander 更新本 roster 的 lifecycle。不得使用 `running`、`online`、`offline`、PID、session ID 或消息状态作为 durable state。达到上限时必须先复用、完成、停用或合并现有成员，改变该 case 的团队模型必须取得用户明确确认。新增成员必须有独立职责、明确输入、明确产出和退出条件。
+
+## 事实来源
+
+- `durable`：来自本文件、成员 `CLAUDE.md` 或共享研究产物，引用时给出 case-relative source。
+- `observed-now`：来自本次原生 session 查询或用户当前观察，只对当前回答成立，不写回 case。
+- `unknown`：没有可靠 durable fact 或当前 observation；不得推断 `offline`、`delivered`、`stuck` 或 `completed`。
+
+roster `active` 与 session `unknown` 可以同时成立。native session 被观察到也不改变 roster lifecycle；不得创建 `status.md`、last-seen、session registry 或其它聚合状态。
 
 ## 协作章程
 

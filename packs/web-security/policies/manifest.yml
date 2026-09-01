@@ -1,6 +1,0 @@
-schemaVersion: 2
-pack: web-security
-overlays:
-  - id: web-security-boundary
-    path: README.md
-    purpose: Domain-specific evidence, privacy, and heavy-action boundaries

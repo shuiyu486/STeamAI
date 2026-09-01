@@ -20,13 +20,11 @@
 - 停止或升级条件：`{{STOP_OR_ESCALATE}}`
 - 完成/退出条件：`{{EXIT_CONDITIONS}}`
 
-本节是当前正式任务。Commander 的正式任务变更消息必须列出预期替换的当前任务和新任务；只有本节仍与预期一致时才更新并执行。若已被用户纠偏或其它更新改变，不得用延迟/重复消息覆盖，先 hold 并通知 Commander。
+本节是当前正式任务。Commander 只在首次创建、尚未启动本成员 session 时生成初始文件；首次启动后，本成员是本文件的产品单写者。Commander 的正式任务变更消息必须列出 expected current task 的全部七项与 new current task 的全部七项；只有本节仍逐项匹配 expected 时才由本成员更新并执行。若已被用户纠偏或其它更新改变，返回 `HOLD_STALE_TASK`，零覆盖并通知 Commander。
 
-## 团队
+Commander 不因本 session 不可达而代写本文件。重新激活时，成员先在 roster 仍为 `completed`/`inactive` 时 compare-before-update 写入新任务并报告 ready；Commander 收到 ready 后才把唯一 durable roster 改为 `active`。同一 member cwd 若当前观察到两个可写 session，所有 agent 发起的任务改写都 hold，直到用户直接选择一个 session；不创建 primary-session 状态。
 
-`{{TEAM_ROSTER}}`
-
-团队通用的协作、成员容量、用户纠偏和研究产物规则由父目录 `.steamai-vnext/CLAUDE.md` 统一拥有；不要在本文件复制或覆盖。角色特有例外：`{{ROLE_SPECIFIC_RULES}}`
+团队 roster、成员容量、用户纠偏和研究产物规则由父目录 `.steamai-vnext/CLAUDE.md` 唯一拥有；本文件不复制 roster。角色特有例外：`{{ROLE_SPECIFIC_RULES}}`
 
 ## 完成
 

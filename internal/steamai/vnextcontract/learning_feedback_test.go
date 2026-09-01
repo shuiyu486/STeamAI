@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,29 +17,32 @@ func TestLearningFeedbackContractRequiresExactReviewedGitPatch(t *testing.T) {
 	repo := repoRoot(t)
 	contract := readPrototypeFile(t, repo, "vnext/learning-feedback.md")
 	for _, required := range []string{
-		"accepted` finding/review",
-		"证据是否足以支持泛化后的经验",
-		"跨 case 通用",
-		"是否重复或冲突",
-		"是否通过脱敏",
+		"current accepted review",
+		"source finding/review",
+		"完整 snapshot digest",
+		"`learningTargets`",
+		"`denyPatterns`",
+		"immutable",
+		"Eligibility decision: eligible",
+		"无权威 exact proposal patch",
 		"用户确认前不得编辑 canonical source pack",
 		"git diff --binary --full-index --no-ext-diff",
 		"git apply --check <PATCH_PATH>",
 		"git apply --numstat -z",
-		"patch SHA-256",
-		"已跟踪、非 symlink 的 Markdown 文件",
-		"git hash-object --path=<PACK_TARGET>",
-		"filter-aware `git hash-object --path=<PACK_TARGET>` 的当前 target blob 必须等于 proposal 记录的 `HEAD:<PACK_TARGET>` base blob",
-		"不 fuzzy apply、不 retry、不覆盖",
-		"应用不自动 commit 或 push",
-		"从 selected pack 的 exact source revision 导出 case-local 只读 snapshot",
-		"只记录标签而未物化或未绑定读取路径不算 snapshot",
-		"所有 pack 指令读取都从该 snapshot 目录解析",
+		"Patch decision 为 `accepted`",
+		"manifest base blob",
+		"target base blob",
+		"candidate path/SHA、final learning review path/SHA、source finding/review path/SHA",
+		"canonical `HEAD` 等于 reviewed base revision",
+		"应用不自动 commit/push",
+		"完整排序 file manifest",
+		"当前 case 的完整 payload digest 必须保持旧值",
+		"candidate 文件不得包含自身 exact SHA 字段",
 	} {
 		assertContains(t, contract, required, "learning feedback contract")
 	}
-	for _, forbidden := range []string{"BoundedDiff", "/rekit promote", "writeback/reconcile 状态机"} {
-		assertContains(t, contract, forbidden, "explicitly forbidden legacy learning path")
+	for _, forbidden := range []string{"截断 diff", "fuzzy apply", "三方合并", "旧 promote/writeback 状态机"} {
+		assertContains(t, contract, forbidden, "explicitly forbidden learning path")
 	}
 }
 
@@ -117,8 +121,7 @@ func TestExactLearningPatchRequiresConfirmationAndCurrentBase(t *testing.T) {
 	writeLearningFixtureFile(t, filepath.Join(proposal, filepath.FromSlash(targetRel)), proposedText)
 	patch := runGit(t, git, proposal, "diff", "--binary", "--full-index", "--no-ext-diff", "--", targetRel)
 	if !strings.Contains(patch, "diff --git a/"+targetRel+" b/"+targetRel) ||
-		!strings.Contains(patch, "Record counterexamples") ||
-		strings.Contains(patch, "truncated") {
+		!strings.Contains(patch, "Record counterexamples") || strings.Contains(patch, "truncated") {
 		t.Fatalf("proposal is not a complete standard Git patch:\n%s", patch)
 	}
 	patchPath := filepath.Join(root, "current-case", ".steamai-vnext", "learnings", "patches", "L-001.patch")
@@ -179,6 +182,125 @@ func TestExactLearningPatchRequiresConfirmationAndCurrentBase(t *testing.T) {
 	}
 }
 
+func TestReviewedLearningPatchRequiresAcceptedExactBinding(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is required for reviewed learning patch contract")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, git, repo, "init", "--quiet")
+	runGit(t, git, repo, "config", "user.name", "STeamAI fixture")
+	runGit(t, git, repo, "config", "user.email", "fixture@example.invalid")
+	manifestRel := "packs/binary-re/manifest.yml"
+	targetRel := "packs/binary-re/references/binary-re/general-analysis.md"
+	baseText := "# Analysis\n\n- Keep claims bounded.\n"
+	manifest := "schemaVersion: 2\nlearningTargets:\n  - references/binary-re/*.md\ndenyPatterns:\n  - credentials-or-tokens\n"
+	writeLearningFixtureFile(t, filepath.Join(repo, filepath.FromSlash(manifestRel)), manifest)
+	writeLearningFixtureFile(t, filepath.Join(repo, filepath.FromSlash(targetRel)), baseText)
+	runGit(t, git, repo, "add", "--", ".")
+	runGit(t, git, repo, "commit", "--quiet", "-m", "base")
+	baseRevision := strings.TrimSpace(runGit(t, git, repo, "rev-parse", "HEAD"))
+	manifestBlob := strings.TrimSpace(runGit(t, git, repo, "rev-parse", "HEAD:"+manifestRel))
+	targetBlob := strings.TrimSpace(runGit(t, git, repo, "rev-parse", "HEAD:"+targetRel))
+
+	proposal := filepath.Join(root, "proposal")
+	runGit(t, git, root, "clone", "--quiet", "--no-local", repo, proposal)
+	writeLearningFixtureFile(t, filepath.Join(proposal, filepath.FromSlash(targetRel)), baseText+"- Record counterexamples.\n")
+	patch := runGit(t, git, proposal, "diff", "--binary", "--full-index", "--no-ext-diff", "--", targetRel)
+	patchPath := filepath.Join(root, "L-001.patch")
+	writeLearningFixtureFile(t, patchPath, patch)
+	candidate := []byte("synthetic immutable candidate")
+	review := renderLearningReviewFixture(learningReviewBinding{
+		Reviewer:         "reviewer",
+		CandidateSHA256:  learningSHA256(candidate),
+		TargetRel:        targetRel,
+		BaseRevision:     baseRevision,
+		ManifestBaseBlob: manifestBlob,
+		TargetBaseBlob:   targetBlob,
+		PatchSHA256:      learningSHA256([]byte(patch)),
+		Eligibility:      "eligible",
+		PatchDecision:    "accepted",
+	})
+	confirmation := learningConfirmation{CandidateSHA256: learningSHA256(candidate), ReviewSHA256: learningSHA256(review), PatchSHA256: learningSHA256([]byte(patch)), Confirmed: true}
+
+	rejected := bytes.Replace(review, []byte("Patch decision：`accepted`"), []byte("Patch decision：`rejected`"), 1)
+	rejectedConfirmation := confirmation
+	rejectedConfirmation.ReviewSHA256 = learningSHA256(rejected)
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, rejectedConfirmation, candidate, rejected); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("non-accepted exact patch returned %v", err)
+	}
+	wrongReviewer := bytes.Replace(review, []byte("Reviewer 单写者：`reviewer`"), []byte("Reviewer 单写者：`other-reviewer`"), 1)
+	wrongReviewerConfirmation := confirmation
+	wrongReviewerConfirmation.ReviewSHA256 = learningSHA256(wrongReviewer)
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, wrongReviewerConfirmation, candidate, wrongReviewer); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("Reviewer mismatch returned %v", err)
+	}
+	driftedReview := append(bytes.Clone(review), []byte("drift")...)
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, confirmation, candidate, driftedReview); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("review drift returned %v", err)
+	}
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, confirmation, candidate, review); err != nil {
+		t.Fatalf("apply current reviewed learning patch: %v", err)
+	}
+	if got := normalizeLearningText(readLearningFixtureFile(t, filepath.Join(repo, filepath.FromSlash(targetRel)))); got != normalizeLearningText(baseText+"- Record counterexamples.\n") {
+		t.Fatalf("reviewed learning patch output mismatch: %s", got)
+	}
+}
+
+func TestReviewedLearningPatchRejectsDisallowedPatchForms(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is required for patch-shape contract")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, "packs", "binary-re", "references", "binary-re"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, git, repo, "init", "--quiet")
+	runGit(t, git, repo, "config", "user.name", "STeamAI fixture")
+	runGit(t, git, repo, "config", "user.email", "fixture@example.invalid")
+	manifestRel := "packs/binary-re/manifest.yml"
+	targetRel := "packs/binary-re/references/binary-re/general-analysis.md"
+	outsideRel := "packs/binary-re/private.md"
+	writeLearningFixtureFile(t, filepath.Join(repo, filepath.FromSlash(manifestRel)), "schemaVersion: 2\nlearningTargets:\n  - references/binary-re/*.md\ndenyPatterns:\n  - credentials-or-tokens\n")
+	writeLearningFixtureFile(t, filepath.Join(repo, filepath.FromSlash(targetRel)), "# Analysis\n")
+	writeLearningFixtureFile(t, filepath.Join(repo, filepath.FromSlash(outsideRel)), "# Private\n")
+	runGit(t, git, repo, "add", "--", ".")
+	runGit(t, git, repo, "commit", "--quiet", "-m", "base")
+
+	cases := []struct {
+		name      string
+		targetRel string
+		mutate    func(string)
+	}{
+		{"delete", targetRel, func(clone string) { _ = os.Remove(filepath.Join(clone, filepath.FromSlash(targetRel))) }},
+		{"outside allowlist", outsideRel, func(clone string) {
+			writeLearningFixtureFile(t, filepath.Join(clone, filepath.FromSlash(outsideRel)), "# Private\n\n- bounded rule\n")
+		}},
+		{"deny pattern", targetRel, func(clone string) {
+			writeLearningFixtureFile(t, filepath.Join(clone, filepath.FromSlash(targetRel)), "# Analysis\n\n- credentials-or-tokens\n")
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			clone := filepath.Join(root, strings.ReplaceAll(test.name, " ", "-"))
+			runGit(t, git, root, "clone", "--quiet", "--no-local", repo, clone)
+			test.mutate(clone)
+			patch := runGit(t, git, clone, "diff", "--binary", "--full-index", "--no-ext-diff", "--", test.targetRel)
+			patchPath := filepath.Join(root, strings.ReplaceAll(test.name, " ", "-")+".patch")
+			writeLearningFixtureFile(t, patchPath, patch)
+			if err := requireReviewedLearningPatchScope(git, repo, manifestRel, patchPath, test.targetRel); !errors.Is(err, errLearningPatchScope) {
+				t.Fatalf("disallowed patch returned %v", err)
+			}
+		})
+	}
+}
+
 func materializePackSnapshot(t *testing.T, git, source, caseRoot, revision, targetRel string) string {
 	t.Helper()
 	snapshotRoot := filepath.Join(caseRoot, ".steamai-vnext", "pack-snapshot")
@@ -189,12 +311,7 @@ func materializePackSnapshot(t *testing.T, git, source, caseRoot, revision, targ
 	target := filepath.Join(snapshotRoot, filepath.FromSlash(targetRel))
 	writeLearningFixtureFile(t, target, content)
 	tree := strings.TrimSpace(runGit(t, git, source, "rev-parse", revision+":packs/binary-re"))
-	metadata := strings.Join([]string{
-		"pack: binary-re",
-		"revision: " + revision,
-		"tree: " + tree,
-		"",
-	}, "\n")
+	metadata := strings.Join([]string{"pack: binary-re", "revision: " + revision, "tree: " + tree, ""}, "\n")
 	writeLearningFixtureFile(t, filepath.Join(snapshotRoot, "snapshot.yml"), metadata)
 	return target
 }
@@ -203,11 +320,33 @@ func normalizeLearningText(text string) string {
 	return strings.ReplaceAll(text, "\r\n", "\n")
 }
 
+type learningReviewBinding struct {
+	Reviewer         string
+	CandidateSHA256  string
+	TargetRel        string
+	BaseRevision     string
+	ManifestBaseBlob string
+	TargetBaseBlob   string
+	PatchSHA256      string
+	Eligibility      string
+	PatchDecision    string
+}
+
+type learningConfirmation struct {
+	CandidateSHA256 string
+	ReviewSHA256    string
+	PatchSHA256     string
+	Confirmed       bool
+}
+
 var (
 	errLearningConfirmationRequired = errors.New("learning patch requires user confirmation")
 	errLearningBaseDrift            = errors.New("learning patch target base drifted")
 	errLearningPatchDrift           = errors.New("learning patch bytes drifted after confirmation")
 	errLearningPatchScope           = errors.New("learning patch target scope changed")
+	errLearningReviewBinding        = errors.New("learning patch is not bound to a current accepted review")
+	errLearningRevisionDrift        = errors.New("learning patch canonical revision drifted")
+	errLearningManifestDrift        = errors.New("learning patch manifest drifted")
 )
 
 func learningSHA256(data []byte) string {
@@ -238,6 +377,74 @@ func requireSingleLearningPatchTarget(git, repo, patchPath, targetRel string) er
 	return nil
 }
 
+func requireReviewedLearningPatchScope(git, repo, manifestRel, patchPath, targetRel string) error {
+	if filepath.Ext(targetRel) != ".md" || filepath.IsAbs(filepath.FromSlash(targetRel)) || strings.Contains(targetRel, "\\") {
+		return errLearningPatchScope
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(manifestRel)))
+	if err != nil {
+		return err
+	}
+	manifest := string(manifestBytes)
+	packRootRel := filepath.ToSlash(filepath.Dir(manifestRel))
+	packRoot := filepath.Join(repo, filepath.FromSlash(packRootRel))
+	target := filepath.Clean(filepath.Join(repo, filepath.FromSlash(targetRel)))
+	if !pathWithin(target, packRoot) {
+		return errLearningPatchScope
+	}
+	allowed := false
+	for _, pattern := range manifestListValues(manifest, "learningTargets") {
+		match, matchErr := filepath.Match(filepath.FromSlash(pattern), filepath.FromSlash(strings.TrimPrefix(targetRel, packRootRel+"/")))
+		if matchErr != nil {
+			return matchErr
+		}
+		if match {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return errLearningPatchScope
+	}
+	info, err := os.Lstat(target)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return errLearningPatchScope
+	}
+	tracked, err := gitOutput(git, repo, "ls-files", "--error-unmatch", "--", targetRel)
+	if err != nil || strings.TrimSpace(tracked) != targetRel {
+		return errLearningPatchScope
+	}
+	patch, err := os.ReadFile(patchPath)
+	if err != nil {
+		return err
+	}
+	text := string(patch)
+	for _, forbidden := range []string{"GIT binary patch", "Binary files ", "new file mode ", "deleted file mode ", "old mode ", "new mode ", "similarity index ", "rename from ", "rename to ", "copy from ", "copy to ", "/dev/null"} {
+		if strings.Contains(text, forbidden) {
+			return errLearningPatchScope
+		}
+	}
+	if strings.Count(text, "diff --git ") != 1 || !strings.Contains(text, "diff --git a/"+targetRel+" b/"+targetRel+"\n") ||
+		!strings.Contains(text, "--- a/"+targetRel+"\n") || !strings.Contains(text, "+++ b/"+targetRel+"\n") {
+		return errLearningPatchScope
+	}
+	if err := requireSingleLearningPatchTarget(git, repo, patchPath, targetRel); err != nil {
+		return err
+	}
+	for line := range strings.SplitSeq(text, "\n") {
+		if !strings.HasPrefix(line, "+") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+		added := strings.TrimPrefix(line, "+")
+		for _, deny := range manifestListValues(manifest, "denyPatterns") {
+			if deny != "" && strings.Contains(added, deny) {
+				return errLearningPatchScope
+			}
+		}
+	}
+	return nil
+}
+
 func applyLearningPatch(git, repo, targetRel, patchPath, expectedBaseBlob, expectedPatchSHA256 string, confirmed bool) error {
 	if !confirmed {
 		return errLearningConfirmationRequired
@@ -264,6 +471,125 @@ func applyLearningPatch(git, repo, targetRel, patchPath, expectedBaseBlob, expec
 	}
 	_, err = gitOutput(git, repo, "apply", patchPath)
 	return err
+}
+
+func applyReviewedLearningPatch(git, repo, manifestRel, patchPath string, confirmation learningConfirmation, candidate, review []byte) error {
+	if !confirmation.Confirmed {
+		return errLearningConfirmationRequired
+	}
+	if learningSHA256(candidate) != confirmation.CandidateSHA256 || learningSHA256(review) != confirmation.ReviewSHA256 {
+		return errLearningReviewBinding
+	}
+	binding, err := parseLearningReviewBinding(string(review))
+	if err != nil || binding.Reviewer != "reviewer" || binding.Eligibility != "eligible" || binding.PatchDecision != "accepted" ||
+		binding.CandidateSHA256 != confirmation.CandidateSHA256 || binding.PatchSHA256 != confirmation.PatchSHA256 {
+		return errLearningReviewBinding
+	}
+	patch, err := os.ReadFile(patchPath)
+	if err != nil {
+		return err
+	}
+	if learningSHA256(patch) != confirmation.PatchSHA256 {
+		return errLearningPatchDrift
+	}
+	currentRevision, err := gitOutput(git, repo, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(currentRevision) != binding.BaseRevision {
+		return errLearningRevisionDrift
+	}
+	manifestBlob, err := gitOutput(git, repo, "hash-object", "--path="+manifestRel, "--", manifestRel)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(manifestBlob) != binding.ManifestBaseBlob {
+		return errLearningManifestDrift
+	}
+	if err := requireReviewedLearningPatchScope(git, repo, manifestRel, patchPath, binding.TargetRel); err != nil {
+		return err
+	}
+	currentBlob, err := gitOutput(git, repo, "hash-object", "--path="+binding.TargetRel, "--", binding.TargetRel)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(currentBlob) != binding.TargetBaseBlob {
+		return errLearningBaseDrift
+	}
+	if _, err := gitOutput(git, repo, "apply", "--check", patchPath); err != nil {
+		return err
+	}
+	_, err = gitOutput(git, repo, "apply", patchPath)
+	return err
+}
+
+func renderLearningReviewFixture(binding learningReviewBinding) []byte {
+	return []byte(strings.Join([]string{
+		"# LR-001 — Review of L-001",
+		"",
+		"- Reviewer 单写者：`" + binding.Reviewer + "`",
+		"- Candidate SHA-256：`" + binding.CandidateSHA256 + "`",
+		"- Proposed destination：`" + binding.TargetRel + "`",
+		"",
+		"## Checkpoint A — Eligibility",
+		"",
+		"- Decision：`" + binding.Eligibility + "`",
+		"",
+		"## Checkpoint B — Exact proposal patch",
+		"",
+		"- Canonical target：`" + binding.TargetRel + "`",
+		"- Base revision：`" + binding.BaseRevision + "`",
+		"- Manifest base blob：`" + binding.ManifestBaseBlob + "`",
+		"- Target base blob：`" + binding.TargetBaseBlob + "`",
+		"- Patch SHA-256：`" + binding.PatchSHA256 + "`",
+		"- Patch target count：`1`",
+		"- Added-lines deny result：`clear`",
+		"- `git apply --check` result：`pass`",
+		"- Patch decision：`" + binding.PatchDecision + "`",
+		"",
+	}, "\n"))
+}
+
+func parseLearningReviewBinding(review string) (learningReviewBinding, error) {
+	fields := map[string]string{}
+	for line := range strings.SplitSeq(review, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- ") || !strings.HasSuffix(line, "`") {
+			continue
+		}
+		key, value, ok := strings.Cut(strings.TrimPrefix(line, "- "), "：`")
+		if !ok {
+			continue
+		}
+		if fields[key] != "" {
+			return learningReviewBinding{}, errLearningReviewBinding
+		}
+		fields[key] = strings.TrimSuffix(value, "`")
+	}
+	binding := learningReviewBinding{
+		Reviewer:         fields["Reviewer 单写者"],
+		CandidateSHA256:  fields["Candidate SHA-256"],
+		TargetRel:        fields["Canonical target"],
+		BaseRevision:     fields["Base revision"],
+		ManifestBaseBlob: fields["Manifest base blob"],
+		TargetBaseBlob:   fields["Target base blob"],
+		PatchSHA256:      fields["Patch SHA-256"],
+		Eligibility:      fields["Decision"],
+		PatchDecision:    fields["Patch decision"],
+	}
+	for name, value := range map[string]string{
+		"Reviewer": binding.Reviewer, "CandidateSHA256": binding.CandidateSHA256, "TargetRel": binding.TargetRel,
+		"BaseRevision": binding.BaseRevision, "ManifestBaseBlob": binding.ManifestBaseBlob, "TargetBaseBlob": binding.TargetBaseBlob,
+		"PatchSHA256": binding.PatchSHA256, "Eligibility": binding.Eligibility, "PatchDecision": binding.PatchDecision,
+	} {
+		if value == "" {
+			return learningReviewBinding{}, fmt.Errorf("%w: missing %s", errLearningReviewBinding, name)
+		}
+	}
+	if fields["Patch target count"] != "1" || fields["Added-lines deny result"] != "clear" || fields["`git apply --check` result"] != "pass" {
+		return learningReviewBinding{}, errLearningReviewBinding
+	}
+	return binding, nil
 }
 
 func runGit(t *testing.T, git, dir string, args ...string) string {

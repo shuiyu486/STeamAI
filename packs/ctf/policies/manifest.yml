@@ -1,6 +1,0 @@
-schemaVersion: 2
-pack: ctf
-overlays:
-  - id: ctf-boundary
-    path: README.md
-    purpose: Domain-specific evidence, privacy, and heavy-action boundaries

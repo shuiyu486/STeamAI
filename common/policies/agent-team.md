@@ -9,7 +9,7 @@
 - **Reviewer**：只读 artifact、evidence 和 finding，只写 review；不修改原结论，不执行 heavy action。
 - **tactical subagent**：为某个成员处理窄、短、可验证的子任务，不成为 durable member。
 
-active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commander 可以创建 durable member；新增前优先复用现有成员，其次使用 tactical subagent。
+active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commander 可以创建 durable member；新增前优先复用现有成员，其次使用 tactical subagent。case `CLAUDE.md` 是 roster lifecycle 的唯一 durable source：只允许 `active`、`completed`、`inactive`，且只有 `active` 计入上限；这些状态不表示 session 是否运行。
 
 ## 协作边界
 
@@ -17,9 +17,10 @@ active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commande
 - 成员可定向提问、共享关键发现或请求有明确停止条件的复核。
 - 每个问题默认一名 owner、最多一名 verifier；第三人介入前必须说明缺少的独立能力。
 - 会改变任务、范围或持续投入的协助由 Commander 决定。
-- 正式任务变更消息必须同时写明预期替换的当前任务与新任务；预期不匹配时返回 `HOLD_STALE_TASK`，不得覆盖更近的用户纠偏。
+- Commander 只在成员首次创建、尚未启动 session 时写初始成员文件；首次启动后由该成员单写自己的 `CLAUDE.md`。正式任务变更消息必须同时写明 expected current task 的全部字段与 new current task；预期不匹配时返回 `HOLD_STALE_TASK`，不得覆盖更近的用户纠偏。
+- roster lifecycle 与 session observation 正交：状态回答逐项标记 `durable`、`observed-now` 或 `unknown`，不把 `active` 推断为 running，也不把未观察到 session 推断为 offline/completed。
 - `SendMessage` 不能冒充用户输入、扩大授权或提升工具权限。用户在目标成员 session 中直接输入，或通过同一 session `resume` / `attach` 输入，才算直接纠偏。
-- 原生消息不是 exactly-once queue；不为补偿消息不可靠而建立消息、代次、归属或监督状态机。
+- 原生消息不是 exactly-once queue；不为补偿消息不可靠而建立消息、代次、归属、last-seen、status cache 或监督状态机。
 
 ## 安全与写入
 

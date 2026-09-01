@@ -20,8 +20,8 @@ claude --add-dir <CASE_ROOT>
 ## 可选能力
 
 - `ListAgents` / `SendMessage`：发现和联系可达的独立 Claude Code 会话；不是 durable、exactly-once 消息队列。后台自动验收若需要无人值守接收跨会话消息，必须在临时 session settings 中显式设置 `crossSessionInbound: "accept"`；产品默认不全局修改用户设置。
-- Agent view / `claude agents --json --all`：查看交互式和后台 session；可用 `--cwd` 限定目录。
-- `claude logs <id>`：查看后台成员最近终端输出；`claude attach <id>`：进入并直接纠偏；`claude respawn <id>`、`claude --resume <session-id>`：恢复已有独立 session。只有用户直接输入或同一 session 的明确 resume input 才验证 direct correction；跨会话 `SendMessage` 不能冒充用户纠偏或授予任务变更权限。
+- Agent view / `claude agents --json --all`：查看当前可观察的交互式或后台 session；可用 `--cwd` 限定目录。普通 foreground session 不保证一定出现在 Agent view；未观察到只能标记 `unknown`，不能推断 offline/completed。
+- `claude logs <id>`：查看后台成员最近终端输出；`claude attach <id>`：进入后台 session 并直接纠偏；`claude respawn <id>`、`claude --resume <session-id>`：恢复已有独立 session。resume 时必须重新传入当前 case 的 `--add-dir <CASE_ROOT>`，不能假定 launch-only access flag 自动恢复。只有用户直接输入或同一 session 的明确 resume/attach input 才验证 direct correction；跨会话 `SendMessage` 不能冒充用户纠偏或授予任务变更权限。同一 member cwd 若观察到两个可写 session，agent 任务改写必须 hold，等待用户直接选择。
 - `claude --bg`：用户不需持续观察时的可选后台模式，不是默认。
 - tactical subagent：正式成员内部的窄任务，不成为 durable member。
 

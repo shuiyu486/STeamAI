@@ -22,7 +22,7 @@
 | 前置 | `VNT-05` 旧控制面、旧文档入口与 current pack/common 旧语义已删除 |
 | 下一批 | 无；等待真实使用反馈 |
 
-最新结果：VNT-01～VNT-06 全部完成。canonical `/steamai`、case-local contracts、pack+common exact snapshot、fail-closed importer、accepted-only exact patch learning 与原生 Claude Code 多会话合同均已收口；fresh suite、vet、diff、Windows live context/file-access probe、依赖闭包和终审通过。
+最新结果：VNT-01～VNT-06 与后续 RGH-00～RGH-03 硬化均已完成。canonical `/steamai`、case-local contracts、schema v2、Fresh staged publication、pack+common complete payload digest、Day-2 hash-bound review、accepted-only exact patch learning 与原生 Claude Code 多会话合同均已收口；旧项目 importer 因无兼容需求已删除。RGH 收口的本地 default suite、vet、diff 与终审通过；Windows live context/file-access probe 和三平台 remote contract CI 是重构基线证据，不代表 RGH 改动的 product-path/persistent/manual live 或 remote green。
 
 ### Historical numbered handoff
 
@@ -40,6 +40,6 @@
 
 ## 风险与注意事项
 
-- legacy `.steamai` / `.rekit` 只作为一次性只读 importer source。
+- 当前产品只支持 fresh/current；旧项目 importer 与兼容路径已删除。
 - 真实 heavy action 仍要求明确 case 授权、具体用户确认与 Claude Code 工具权限。
 - 不因未来需求复活旧 runtime、双写、adapter 或任务状态机。

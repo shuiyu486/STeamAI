@@ -1,6 +1,6 @@
 # Common policies
 
-本目录保存可跨 pack 复用的薄核心规则。它是按需路由索引，不是默认必读清单；case 只物化 selected pack 实际引用的 exact-revision policy closure。
+本目录保存可跨 pack 复用的薄核心规则。它是按需路由索引，不是默认必读清单；case 从与 selected pack 相同的 exact revision 物化完整 `common/**`，以保持简单、自包含且不需要产品级 closure 解析器。
 
 | Policy | 何时读取 |
 |---|---|

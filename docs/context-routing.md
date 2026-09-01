@@ -23,7 +23,6 @@
 | case/member/research 模板 | `vnext/README.md`，再只读目标模板 | 不一次加载全部模板 |
 | Claude Code 原生能力 | `vnext/capabilities.md` | 不把 session ID 当身份或授权 |
 | 自动与 live acceptance | `vnext/acceptance.md` | 不把 synthetic probe 当真实用户确认 |
-| legacy `.steamai` / `.rekit` 导入 | `vnext/legacy-import.md` | 不运行旧 runtime，不迁移 lane/session/receipt/gate |
 | learning 回流 | `vnext/learning-feedback.md` | 不使用旧 promote/writeback，不自动写 pack |
 | pack 编写或内容 | `packs/<pack>/manifest.yml` 与目标 pack 文件 | 不读取真实 case artifact |
 | 历史旧架构事实 | Git history 或 `CHANGELOG.md` 按关键词/ID 查询 | 不把历史命令当当前产品路径 |
@@ -45,11 +44,11 @@ go vet ./...
 git diff --check
 ```
 
-涉及 Claude Code 原生行为时按需运行 `vnext/acceptance.md` 中的 opt-in live gate。未执行的 Windows live acceptance、remote CI 或 formal release 必须如实标注，不由 workflow definition、cross-compile 或 synthetic fixture代替。
+涉及 Claude Code 原生行为时按需运行 `vnext/acceptance.md` 中已经实际实现并明确给出命令的 opt-in live gate；specification-only gate 没有可执行命令，不能用 `go test -run` 零匹配结果冒充。未执行的 Windows live acceptance、product-path/persistent/manual gate、remote CI 或 formal release 必须如实标注，不由 workflow definition、cross-compile 或 synthetic fixture 代替。
 
 ## 风险与注意事项
 
-- legacy `.steamai` / `.rekit` 是只读 importer source，不是 current runtime。
+- 当前产品只支持 fresh/current，不提供旧项目导入、迁移、兼容 runtime 或双写路径。
 - `CLAUDE.md` 是角色上下文，不授予工具权限或扩展 case 授权。
 - actual heavy action 仍依赖明确 case 授权和 Claude Code 权限确认。
 - 不把真实样本、trace/dump/capture、payload、凭据、客户信息、绝对 case 路径或 case 进度写入仓库。

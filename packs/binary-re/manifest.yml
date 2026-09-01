@@ -1,13 +1,13 @@
 schemaVersion: 2
 name: binary-re
-version: 0.4.0
-description: Authorized binary reverse engineering with passive analysis, bounded sidecar review, and review-first escalation
-maturity: mature
+version: 1.0.0
+description: 面向已授权二进制逆向、静态分析、受控动态验证与 VMProtect 研究的声明式研究 pack。
+maturity: declarative-vnext
 
 entrypoints:
   router: references/binary-re/README.md
-  workflow: references/binary-re/general-workflow.md
   team: references/binary-re/general-agent-team.md
+  workflow: references/binary-re/general-workflow.md
   tooling: references/binary-re/general-toolchain-router.md
 
 references:
@@ -27,80 +27,76 @@ templates:
   - references/binary-re/task-handoff.template.md
 
 policies:
-  registry: policies/manifest.yml
-  overlays:
-    - policies/subagents.overlay.md
-    - policies/context-budget.overlay.md
-    - policies/review-first.overlay.md
-    - policies/verification.overlay.md
-    - policies/lane-collaboration.overlay.md
+  - policies/README.md
+  - policies/subagents.overlay.md
+  - policies/context-budget.overlay.md
+  - policies/review-first.overlay.md
+  - policies/verification.overlay.md
+  - policies/lane-collaboration.overlay.md
+  - ../../common/policies/agent-team.md
+  - ../../common/policies/subagents.md
+  - ../../common/policies/context-budget.md
+  - ../../common/policies/review-first.md
+  - ../../common/policies/write-boundaries.md
+  - ../../common/policies/verification.md
+  - ../../common/policies/evidence.md
 
 tooling:
-  catalog: tooling/catalog.yml
-  schema:
-    - tooling/schemas/binary-inventory-v1.schema.json
-  recipes:
-    - tooling/recipes/static-binary-triage.md
-    - tooling/recipes/function-behavior-review.md
-    - tooling/recipes/public-tool-triage.md
-    - tooling/recipes/focused-handler-review.md
-    - tooling/recipes/value-flow-mining.md
-    - tooling/recipes/vmenter-context-probe.md
-    - tooling/recipes/unicorn-trace.md
-    - tooling/recipes/ida-x64dbg-mcp.md
-    - tooling/recipes/ida-agent-bridge-readonly.md
-    - tooling/recipes/lane-collaboration.md
+  - tooling/README.md
+  - tooling/catalog.yml
+  - tooling/schemas/binary-inventory-v1.schema.json
+  - tooling/recipes/static-binary-triage.md
+  - tooling/recipes/function-behavior-review.md
+  - tooling/recipes/public-tool-triage.md
+  - tooling/recipes/focused-handler-review.md
+  - tooling/recipes/value-flow-mining.md
+  - tooling/recipes/vmenter-context-probe.md
+  - tooling/recipes/unicorn-trace.md
+  - tooling/recipes/ida-x64dbg-mcp.md
+  - tooling/recipes/ida-agent-bridge-readonly.md
+  - tooling/recipes/lane-collaboration.md
 
 teamHints:
-  executionMembers: 1-3
-  reviewer: recommended-for-important-findings
-  suggestedRoles:
-    - static-analysis
-    - focused-feature-analysis
-    - tooling-evaluation
-  rules:
-    - Commander creates durable members only for sustained independent work.
-    - One owner and at most one verifier per binary, function, or finding.
-    - Reviewer reads bounded evidence and finding, writes review only, and runs no heavy action.
-    - Shared analysis databases and confirmed tables have one explicit writer.
+  suggestedMembers: 1-3
+  reviewer: on-important-finding-or-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
 
 heavyActions:
   - id: debug-or-trace
+    title: 动态调试或 trace
     risk: high
-    requiredAuthorization: exact case-scoped user confirmation and Claude Code tool permission
-    requiredContext: [exact-target, isolation, runtime-budget, output-limit, rollback, stop-conditions]
-    stopConditions: [timeout, scope-drift, output-limit, unexpected-side-effect]
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, output-limit, unexpected-side-effect]
   - id: inject-patch-or-dump
+    title: 注入、patch 或 dump
     risk: critical
-    requiredAuthorization: exact case-scoped user confirmation and Claude Code tool permission
-    requiredContext: [exact-target, isolation, runtime-budget, output-limit, rollback, stop-conditions]
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
     stopConditions: [scope-drift, no-rollback-path, sensitive-output, unexpected-mutation]
   - id: network-or-external-service
+    title: 网络或外部服务
     risk: high
-    requiredAuthorization: exact case-scoped user confirmation and Claude Code tool permission
-    requiredContext: [exact-target, network-policy, request-budget, output-limit, stop-conditions]
-    stopConditions: [target-ambiguity, rate-limit, unexpected-outbound-request, scope-drift]
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [target-ambiguity, budget-exhausted, rate-limit, scope-drift]
 
 learningTargets:
   - references/binary-re/*.md
   - policies/*.md
-  - tooling/catalog.yml
   - tooling/recipes/*.md
 
-learningDenyPatterns:
-  - 'C:\\'
-  - 'samples[\\/]'
-  - 'artifacts[\\/]'
-  - 'captures[\\/]'
-  - 'dumps?[\\/]'
-  - 'traces?[\\/]'
-  - '(?i)sha256\s*[:=]\s*[0-9a-f]{64}'
-  - '(?i)(authorization|cookie|set-cookie)\s*[:=]'
-  - '(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]'
-  - '0x[0-9A-Fa-f]{6,}'
-  - 'Task #[0-9]+'
+denyPatterns:
+  - real-case-identifiers
+  - raw-artifacts
+  - credentials-or-tokens
+  - absolute-case-paths
+  - customer-environment-details
+  - unredacted-network-data
+  - binary-addresses-or-hashes
 
 budgets:
   CLAUDE.local.md: 8192
-  references/binary-re/task-handoff.md: 12288
   defaultMarkdown: 16384

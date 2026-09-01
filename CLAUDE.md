@@ -22,16 +22,16 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - durable member 通常为 1–3 名执行成员加 0–1 名 Reviewer。优先复用已有成员，其次 tactical subagent，只有持续且独立的工作流才新增成员。
 - Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。
 - 只持久化团队需要复核的 artifact、evidence、finding、review 和 learning candidate，不保存全部思考过程或聊天历史。
-- 经验由 Commander 自动提炼，经 Reviewer 检查证据、通用性、重复、冲突与脱敏后，向用户展示完整 exact Git patch；只有用户确认才回流 pack。
+- 经验由 Commander 从 current accepted evidence chain 自动提炼；Reviewer 先检查 candidate eligibility，再绑定最终 exact patch identity；用户查看完整 patch 并确认 exact tuple 后才回流 pack。
 - canonical `/steamai` 使用 skill、模板、目录、Markdown、Git 与 Claude Code 原生能力；仓库没有项目 runtime、旧 Go control plane、PowerShell façade 或 adapter host。
 
-## 初始化与兼容边界
+## 初始化边界
 
-- source clone 本身不是 case。首次接入外部项目时，从 canonical source clone 的 `/steamai` 生成零写入 preview；确认后只发布 canonical skill exact bytes、`.steamai-vnext/` 声明目录和 exact-revision pack snapshot。
-- 日常 quickstart 是 `cd <project> → claude → /steamai`；日常不依赖 source clone、机器 PATH、全局 plugin 或 executable。
-- legacy `.steamai` / `.rekit` 只作为一次性只读 importer source；不 dual-write、不运行旧 runtime、不迁移 session/lane/generation/receipt/gate/authority 状态。
-- importer 对双根、partial target、未知或 retired pack、绝对/逃逸路径、symlink/reparse、目标 skill 自定义冲突和 source drift 均 fail-closed。
-- case 初始化把 selected pack 与 `common/**` 从同一 exact revision 物化为只读 snapshot；learning feedback 通过用户确认的 exact patch 从 case 回流 pack。用户确认前 canonical pack 零写。
+- source clone 本身不是 case。首次接入普通外部项目时，从 canonical source clone 的 `/steamai` 生成零写入 exact preview；确认 envelope 绑定 source blob、target action/pre-state、case facts 与全部 planned writes。
+- 产品只支持 fresh/current：`.steamai-vnext/CLAUDE.md` 存在才是 completed current case；不存在时必须是普通 fresh 项目。任何已存在但不 exact-current 的 project-local skill 都是冲突；没有旧项目 importer、升级替换、迁移、dual-read、dual-write 或兼容 runtime。
+- partial `.steamai-vnext/`、来源不明的 STeamAI 状态或目标冲突均 fail-closed；不自动 repair、rollback、迁移或删除用户文件。
+- Apply 在同卷 sibling staging 中完整生成并验证 state tree，先 no-replace 发布并重验 project-local skill，最后才发布包含 marker 的 `.steamai-vnext/`；日常 quickstart 是 `cd <project> → claude → /steamai`，不依赖 source clone、机器 PATH、全局 plugin 或 executable。
+- case 初始化把 selected pack 与完整 `common/**` 从同一 exact revision 物化为 case-pinned snapshot；payload digest 覆盖排序后的 path、Git mode/blob、bytes 与 SHA-256。learning feedback 通过 Reviewer exact binding 和用户确认的 exact tuple 从 case 回流 pack；candidate exact SHA 由 review/confirmation 外部绑定，不写入 candidate 自身。用户确认前 canonical pack 零写。
 - 保持 source-clone-first，不做 installer、GUI/TUI、新 PowerShell runtime 或 production Go helper；只有真实原型证明存在重复且无法原生解决的机械问题，才允许增加窄职责、无状态 helper。
 
 ## 维护入口
@@ -59,4 +59,4 @@ git diff --check
 STEAMAI_VNEXT_LIVE_ACCEPTANCE=1 go test -count=1 -run TestLiveNativeContextAndFileAccess ./internal/steamai/vnextcontract
 ```
 
-默认测试不启动 Claude Code。remote workflow、cross-compile 或 synthetic fixture 不代表真实 Windows live acceptance、remote green 或 formal release。涉及 canonical skill、importer、pack snapshot 或 learning patch 时，追加对应 focused contract tests。
+默认测试不启动 Claude Code。remote workflow、cross-compile 或 synthetic fixture 不代表真实 Windows live acceptance 或 formal release。涉及 canonical skill、fresh distribution、pack snapshot 或 learning patch 时，追加对应 focused contract tests。

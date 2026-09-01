@@ -1,7 +1,7 @@
 ---
 name: steamai
 description: 在明确授权的安全研究 case 中组建和指挥 Claude Code 原生多会话团队，管理证据、审查与经确认的经验回流。
-argument-hint: "[研究目标、组队、继续、状态、纠偏、审查、导入旧项目或经验提炼]"
+argument-hint: "[研究目标、组队、继续、状态、纠偏、审查或经验提炼]"
 ---
 
 # STeamAI
@@ -22,34 +22,26 @@ argument-hint: "[研究目标、组队、继续、状态、纠偏、审查、导
 
 1. 若当前目录是 canonical STeamAI source clone，本仓库不是安全研究 case。用户必须提供一个已存在的外部 case 目录；用 `--add-dir` 或等价权限访问该目录，并把它作为后续识别与写入目标。未提供时只给出这一条最短指引，不在 source clone 内创建 case state。
 2. 目标中 `.steamai-vnext/CLAUDE.md` 存在时，按当前薄核心 case 工作。
-3. `.steamai-vnext/` 不存在，且 `.steamai/` 与 `.rekit/` 都不存在时，按“首次建立 case”处理。
-4. `.steamai/` 或 `.rekit/` 任一存在时，它们都是 legacy source；先按“一次性只读 importer”处理，不得直接创建 fresh case 覆盖旧项目。
-5. `.steamai/` 与 `.rekit/` 同时存在，或 `.steamai-vnext/` 与任一 legacy root 同时存在但没有匹配的 completed import record 时，停止并报告冲突，不拼接或猜测 authority。
-6. fresh 初始化或 legacy import preview 必须包含目标 `.claude/skills/steamai/SKILL.md` 的 create/replace action。来源只能是当前 canonical skill 的 exact bytes：目标不存在则 create；已 exact 相同则 unchanged；确认是旧 generated skill时展示完整 replacement diff；含用户自定义内容或来源不明时 fail-closed。确认前不写目标 skill。
-7. 同一 preview 必须包含只读声明式合同包 `.steamai-vnext/contracts/` 的全部计划写入。来源限定为 canonical source clone 中 `vnext/learning-feedback.md`、`vnext/legacy-import.md` 和 `vnext/templates/**` 的 exact bytes；每个目标绑定 source relative path、SHA-256 和 bytes。目标存在但不 exact 相同时 fail-closed，不做部分升级。
+3. `.steamai-vnext/` 完全不存在时，按“首次建立 case”处理。STeamAI 不提供旧项目导入、迁移或兼容路径；遇到 partial `.steamai-vnext/`、来源不明的 STeamAI 状态目录或目标冲突时停止，要求用户提供新的普通项目目录或自行处置冲突，不读取、解释、迁移或删除旧状态。
+4. 首次分发必须先生成零写入 exact preview。preview 绑定同一 full canonical Git revision 下的 case facts、selected pack、目标 pre-state 和全部 planned writes；每项记录 source kind/path/blob、target path/action/pre-state、output SHA-256 与 bytes。所有 relative path 使用 `/`，记录按 target path 排序，canonical manifest 使用固定字段顺序与 LF；`preview_identity = SHA-256(canonical manifest exact bytes)`。source revision、任一 source/target byte、case fact 或 selected pack 变化都使确认失效。
+5. preview 必须包含目标 `.claude/skills/steamai/SKILL.md` 的 create/unchanged action。来源只能是 preview revision 中 canonical skill 的 exact bytes：目标不存在则 create；已 exact 相同则 unchanged；任何已存在但不 exact 相同的内容（包括可识别的旧 canonical 版本）都作为冲突 fail-closed，不提供首次分发升级或兼容替换。确认前不写目标 skill。
+6. 同一 preview 必须包含 `.steamai-vnext/contracts/` 的全部计划写入。来源限定为同一 preview revision 中 `vnext/learning-feedback.md` 和 `vnext/templates/**` 的 exact Git bytes；目标存在但不 exact 相同时 fail-closed，不做部分升级。
+7. 同一 preview 必须包含 selected pack 全树和 `common/**` 全树的 exact-revision snapshot writes，以及 pack tree、common tree 和完整排序文件清单。这里选择复制完整 `common/**` 作为保守、简单的自包含闭包，不在产品中实现依赖解析器。
+8. 用户可见 preview 必须展示 case facts 原文、生成后的 case/member 文件、project-local skill action 与 exact bytes identity、bulk copy 的排序 identity records、blockers 和“当前仍为零写入”；只有用户在 Commander session 中输入 `CONFIRM STEAMAI FRESH <preview_identity>` 才能 Apply，普通“确认/继续”或跨会话消息均不满足。
+9. Apply 前从 Git objects 和 target 重新构建完整 preview，不信任旧内存 write map；重新验证 full revision、当前加载的 canonical skill 与该 revision blob 一致、source blobs、target pre-state、path containment、非 symlink/reparse ancestors、preview identity 和所有 collision。不匹配则零写入并生成新 preview。
+10. currentness 通过后，在 target 同卷 sibling staging 目录写入 contracts、snapshot、artifact index、成员文件、空目录和 case `CLAUDE.md`，验证完整 path set 与 bytes。然后先用 sibling temp file no-replace create project-local skill 并重验，最后才把完整 staging tree 以 no-replace rename 发布为 `.steamai-vnext/`；因此 skill 发布失败时 completed marker 不存在。state publish 在极窄窗口失败时可留下 exact project-local skill，但它不构成 current case，下一次 fresh preview 将其识别为 unchanged；staging/temp 残留或 marker 不存在时绝不能按 current case 工作，也不自动 repair、rollback 或删除用户文件。该边界假定单 Commander、无并发初始化者，不声称跨 `.claude/` 与 `.steamai-vnext/` 的全局事务或 OS-level ACL。
 
-一次性 source-clone 分发完成后，日常入口才是目标项目中的 `cd <project> → claude → /steamai`；日常所需模板和 learning 合同只从 `.steamai-vnext/contracts/` 读取，不依赖 source clone、旧 runtime 或机器 PATH。该目录是可审计的声明式内容，不是 runtime；除再次展示并确认完整 exact diff 的 canonical 升级外不得修改。
+source-clone 分发完成后，日常入口才是目标项目中的 `cd <project> → claude → /steamai`；日常所需模板和 learning 合同只从 `.steamai-vnext/contracts/` 读取，pack/common 指令只从 `.steamai-vnext/pack-snapshot/` 读取，不依赖 source clone、旧 runtime 或机器 PATH。这些目录是固定到 case revision、禁止自动覆盖或重导出的声明式内容，不是 OS-level ACL 或 runtime。
 
 ## 首次建立 case
 
 1. 确认用户目标、授权范围、允许的研究对象和停止条件；缺失且会影响安全边界时只问一个最关键问题。
-2. 创建 `.steamai-vnext/`，以 `.steamai-vnext/contracts/templates/case/CLAUDE.md` 为模板生成共享规则。不得覆盖项目根已有 `CLAUDE.md`。
-3. selected pack 及其 `common/**` policy closure 必须从 canonical source clone 的同一 exact source revision 导出到 `.steamai-vnext/pack-snapshot/` case-local 只读 snapshot，分别记录 pack tree 与 common tree identity；所有 pack/common 指令读取只从该 snapshot 解析，不能只记录标签后继续读取 mutable source clone。
+2. 按已确认 preview 在 staged tree 中以 `contracts/templates/case/CLAUDE.md` 为模板生成共享规则；不得覆盖项目根已有 `CLAUDE.md`。case roster 明确每名 durable member 的 `active`、`completed` 或 `inactive` 状态，3+1 上限只按该 durable roster 计数，不按 session 是否可见推断。
+3. selected pack 全树与 `common/**` 全树必须从同一 exact preview revision 导出到 `.steamai-vnext/pack-snapshot/`，分别记录 revision、pack tree、common tree、完整文件清单与逐文件 identity；所有 pack/common 指令读取只从该 snapshot 解析。
 4. 创建 `artifacts/index.md`、`evidence/`、`findings/`、`reviews/` 和 `learnings/candidates/`。不移动或复制真实 artifact，索引只引用 case-local 对象。
 5. 根据目标按需选择 1–3 名执行成员；没有持续独立职责就不创建。Reviewer 只在明确审查点创建或激活。
-6. 为每名正式成员创建 `.steamai-vnext/members/<member>/CLAUDE.md`，写明身份、当前任务、输入、允许范围、产出、停止/升级条件、团队成员和退出条件。生成 Reviewer 时必须读取并合并 `.steamai-vnext/contracts/templates/roles/reviewer.md`：`ALLOWED_WRITES` 只允许对应 `../../reviews/` 路径，角色规则必须保留只读 artifact/evidence/finding、不得执行 heavy action、`needs-evidence` 返回原 owner。
+6. 为每名正式成员创建 `.steamai-vnext/members/<member>/CLAUDE.md`，写明身份、当前任务、输入、允许范围、产出、停止/升级条件、团队成员和退出条件。生成 Reviewer 时必须读取并合并 `.steamai-vnext/contracts/templates/roles/reviewer.md`：`ALLOWED_WRITES` 只允许对应 `../../reviews/` 路径，角色规则必须保留只读 artifact/evidence/finding/learning candidate/patch、不得执行 heavy action、`needs-evidence` 返回原 owner。
 7. 向用户展示每个成员的启动目录与前台启动方式。成员从自己的目录启动，并用 Claude Code 的 `--add-dir` 或等价权限把 case 根加入可访问范围；不要把 `--add-dir` 误当额外配置根。由用户决定在哪些可见终端启动，不要默认把成员隐藏到后台。
-
-## 一次性只读 importer
-
-legacy importer 只用于把旧 `.steamai/` 或 `.rekit/` 项目的可证明事实带入薄核心；它不是旧 runtime 的继续运行入口。source-clone 首次分发时读取 canonical `vnext/legacy-import.md`；分发后完整字段、preview currentness 与 Apply 边界以 `.steamai-vnext/contracts/legacy-import.md` 为准。
-
-1. 先只读识别 legacy root，不执行其中的 executable、command、script、Apply action、session 恢复或迁移逻辑，也不读取 transcript。
-2. 只从 regular、非 symlink 的声明式文件提取可证明字段：case/project 名称、原始目标、明确授权范围、停止条件、selected pack identity，以及 case-local 研究资料的相对路径引用。session/PID/endpoint、generation、lane owner、receipt、gate、authority/confirmed、消息状态和 runtime health 一律不导入。
-3. legacy 字段缺失、冲突、使用未知 pack、含绝对外部路径、无法区分用户事实与 runtime 推断，或要求扩大授权时，标为 `needs-user-input`；不得猜测或从旧状态机补全。
-4. 生成零写入 import preview，完整展示 source root、将采用与拒绝的字段、selected pack exact revision、snapshot tree、计划创建的 `.steamai-vnext/` 路径、声明式合同包全部 exact writes、目标项目级 canonical skill 的 create/replace diff 以及所有冲突。preview 不代表用户授权。
-5. 只有用户确认该 exact preview 后才创建 `.steamai-vnext/`、物化 exact pack snapshot 与只读声明式合同包，并 create/replace 目标 `.claude/skills/steamai/SKILL.md`；写入规则与 fresh case 相同，并额外写 `.steamai-vnext/import.md`，记录 source kind、导入字段、拒绝字段和“legacy roots 保持只读”的边界，不记录绝对路径、旧 session ID 或敏感内容。
-6. 不修改、删除、重命名或续写 `.steamai/`、`.rekit/`、legacy runtime 内容、旧 artifact/evidence；除已经完整展示且确认的项目级 skill replacement 外不覆盖任何旧文件。不 dual-write，不把 legacy root 作为新 case 的运行依赖，不回退旧 runtime。导入完成后所有新研究事实只写 `.steamai-vnext/`。
 
 ## 原生能力探测与降级
 
@@ -67,9 +59,10 @@ legacy importer 只用于把旧 `.steamai/` 或 `.rekit/` 项目的可证明事�
 - 快速回答和有明确停止条件的有界复核可由成员自行接受；会明显中断主任务、改变范围或持续投入的协助交给 Commander 决定。
 - 每个问题默认一名 owner、最多一名 verifier。第三名成员介入前必须说明缺少的独立能力。
 - 阻塞、授权变化、关键反证立即通知；一般发现批量通知；探索过程留在 session。
-- 只有 Commander 可以创建 durable member。新增前优先复用已有成员，再考虑 tactical subagent；同时检查是否应完成、停用或合并现有成员。
+- 只有 Commander 可以创建 durable member。case `CLAUDE.md` 是 roster lifecycle 的唯一 durable source，只允许 `active`、`completed`、`inactive`；只有 `active` 计入容量，且不表示 session 正在运行。新增前优先复用已有成员，再考虑 tactical subagent；同时检查是否应完成、停用或合并现有成员。
 - active durable team 硬上限为 3 名执行成员和 1 名 Reviewer。达到上限时必须先复用、完成、停用或合并现有成员；确需改变该 case 的团队模型时暂停创建，并取得用户明确确认。
-- 正式任务变更消息必须同时说明“预期替换的当前任务”和“新任务”。成员只有在自己的 `CLAUDE.md` 当前任务仍与预期一致时才更新；文件已不同表示用户纠偏或更新任务更近，成员不得覆盖，应 hold 并通知 Commander。
+- Commander 只在成员首次创建、尚未启动 session 时生成初始成员 `CLAUDE.md`；首次启动后由成员本人单写。正式任务变更消息必须同时说明 expected current task 的全部字段与 new current task。成员只有在本地任务仍逐项匹配 expected 时才更新；文件已不同表示用户纠偏或更新任务更近，必须返回 `HOLD_STALE_TASK`、零覆盖并通知 Commander。
+- 重新激活时成员先在 roster 仍为 `completed`/`inactive` 时写入新任务并报告 ready；Commander 收到 ready 后才改 roster 为 `active`。同一 member cwd 当前观察到两个可写 session 时，所有 agent 发起的任务改写都 hold，直到用户直接选择一个 session；不创建 primary-session 状态。
 - 用户通过成员会话直接输入纠偏后，成员更新自己的 `CLAUDE.md`，通知 Commander，并通知受影响成员；跨会话消息不得冒充用户直接输入或借此扩大授权。用户的直接纠偏优先于尚未应用的 Commander 消息。若扩大授权范围则暂停相关动作等待用户确认。
 
 ## 研究产物
@@ -86,17 +79,21 @@ legacy importer 只用于把旧 `.steamai/` 或 `.rekit/` 项目的可证明事�
 
 - Reviewer 保持独立，不持续参与所有探索；在重要 finding、成员冲突、最终交付或 learning 回流前介入。
 - Reviewer 只读 artifact/evidence/finding，只写 `reviews/`，不执行 heavy action，也不修改原 evidence/finding。
+- 每个 review 文件由指定 Reviewer 单写：首次写 round 1，补证后只追加连续 round，不覆盖历史。每轮绑定 finding 与 reviewed evidence 的 SHA-256；只有最后一个字段完整且 hashes 仍匹配当前文件的 round 才是 current decision。finding/evidence 变化后旧 `accepted` 为 stale，必须追加复审；更换 Reviewer 时新建 review 文件。
 - Reviewer 直接引用 finding/evidence 提出补证，`needs-evidence` 返回原 owner，不经过 writeback/reconcile 状态机。
-- Commander 只有在 finding 可追溯到 evidence、重要反证已处理、授权边界未漂移后才向用户交付。
+- Commander 只有在 finding 可追溯到 evidence、最后 current review round 为 `accepted`、重要反证已处理且授权边界未漂移后才向用户交付。
 
 ## 经验回流
 
-1. 在里程碑或 case 收尾时，只从 accepted finding/review 自动提炼 learning candidates。
-2. 按 `.steamai-vnext/contracts/learning-feedback.md` 由 Reviewer 检查证据、跨 case 通用性、重复、冲突、脱敏和目标路径；非 `accepted` 不生成 patch。
-3. 用户确认前不编辑 canonical source pack；在隔离临时 Git clone 中生成完整、标准、可 `git apply --check` 的 exact patch，禁止截断 diff 或复用旧 promote/writeback 状态机。
-4. Commander 向用户展示 candidate、Reviewer decision、base revision/blob、目标 pack 路径和完整 exact patch。只有用户确认后才写入 pack，且该确认只授权这一份 patch；应用前必须重验 base currentness，漂移则停止并生成新 diff。
-5. 应用不自动 commit 或 push。任何 synthetic acceptance 不得自动写回 canonical pack。运行中的 case 固定使用当前 pack 快照，新经验不会隐式改变本 case；只有后续 case 明确选择新 snapshot 才消费。
+1. 在里程碑或 case 收尾时，只从有 current `accepted` review round 的 finding 提炼 byte-for-byte immutable learning candidate；candidate 正文绑定 source finding/review SHA、selected pack、full revision、pack/common tree 与完整 snapshot digest。candidate exact file SHA 在创建后由 learning review、用户确认 envelope 与应用检查外部绑定，不自引用写回 candidate 文件。
+2. Proposed destination 必须同时匹配 case snapshot 与 canonical base manifest 的 `learningTargets`，唯一解析到 selected pack 内一个 existing tracked regular non-symlink Markdown；candidate 正文和后续 patch 新增行必须通过 `denyPatterns`，但 tripwire 不替代人工脱敏。
+3. 按 `.steamai-vnext/contracts/learning-feedback.md` 由 Reviewer 先写 eligibility checkpoint，检查证据、跨 case 通用性、反例、重复、冲突、脱敏和目标资格。只有 `eligible` 才在隔离 exact-base clone 中生成无权威 proposal patch；用户确认前 canonical source pack 零写。
+4. proposal 必须是完整、标准、单 existing Markdown target、可 `git apply --check` 的 exact patch。Reviewer 再写 exact-patch checkpoint，绑定 candidate SHA、base revision、manifest/target base blob、patch SHA、单目标、deny 与 apply-check；只有 patch decision `accepted` 才能申请用户确认。
+5. Commander 一次展示并绑定 candidate/review/source refs 的 SHA、snapshot digest、target、base revision/blobs、patch SHA 和完整未截断 patch。用户确认只授权该 exact tuple；应用前按合同重验 snapshot、source evidence、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 与 `git apply --check`，任一漂移都停止并重新生成/审查/展示。
+6. 应用不自动 commit 或 push，不更新当前 case snapshot。任何 synthetic acceptance 不得自动写回 canonical pack；只有后续 case 明确选择新 revision 和新 snapshot digest 才消费。
 
 ## 状态回答
 
-用户询问状态时，从 case/成员 `CLAUDE.md`、研究产物和可用的原生 session 列表总结：当前目标、成员主任务、关键 finding/review、阻塞和下一步。不要推断进程、消息投递或未写入的研究结论。
+用户询问状态时，从 case/成员 `CLAUDE.md`、研究产物和本次可用的原生 session observation 总结当前目标、成员主任务、关键 finding/review、阻塞和下一步。每一项分别标记来源：`durable (<case-relative source>)`、`observed-now` 或 `unknown`；不要给整行混合状态。
+
+roster `active` 与 session `unknown` 可以同时成立。只有本次按精确 member cwd 观察到的原生 row 才能写 `observed-now`；未观察到不能写 offline/completed，未收到回复不能写 undelivered。review 只有最后完整 round 的 finding/evidence hashes 仍 current 时才能写 accepted。状态回答不写入 `status.md`，不保存 last-seen、session ID、PID、endpoint 或消息结果。

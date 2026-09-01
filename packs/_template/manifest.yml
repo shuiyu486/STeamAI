@@ -1,13 +1,13 @@
 schemaVersion: 2
 name: _template
-version: 0.2.0
+version: 0.3.0
 description: Template skeleton for authoring declarative STeamAI security research packs
 maturity: template
 
 entrypoints:
   router: references/template/README.md
-  workflow: references/template/workflow-template.md
   team: references/template/agent-team.md
+  workflow: references/template/workflow-template.md
   tooling: references/template/toolchain-router.md
 
 references:
@@ -19,42 +19,45 @@ references:
 templates:
   - references/template/task-handoff.template.md
 
-policies: []
+policies:
+  - policies/README.md
+  - ../../common/policies/agent-team.md
+  - ../../common/policies/subagents.md
+  - ../../common/policies/context-budget.md
+  - ../../common/policies/review-first.md
+  - ../../common/policies/write-boundaries.md
+  - ../../common/policies/verification.md
+  - ../../common/policies/evidence.md
 
 tooling:
-  catalog: tooling/catalog.yml
-  references:
-    - tooling/README.md
+  - tooling/README.md
+  - tooling/catalog.yml
 
 teamHints:
-  executionMembers: 1-3
-  reviewer: optional
-  suggestedRoles:
-    - focused-analysis
-    - tooling-evaluation
-  rules:
-    - Commander creates durable members only for sustained independent work.
-    - One owner and at most one verifier per question.
-    - Reviewer reads artifact, evidence, and finding, then writes review only.
+  suggestedMembers: 1-2
+  reviewer: on-important-finding-or-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
 
 heavyActions:
   - id: dynamic-or-external-action
+    title: Dynamic or external action
     risk: high
-    requiredAuthorization: exact case-scoped user confirmation and Claude Code tool permission
-    requiredContext: exact target, isolation, bounded runtime/output, rollback, stop conditions
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
     stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
 
 learningTargets:
   - references/template/*.md
-  - tooling/catalog.yml
-  - tooling/recipes/*.md
 
-learningDenyPatterns:
-  - 'C:\\'
-  - 'artifacts[\\/]'
-  - 'captures[\\/]'
-  - '(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]'
-  - 'Task #[0-9]+'
+denyPatterns:
+  - real-case-identifiers
+  - raw-artifacts
+  - credentials-or-tokens
+  - absolute-case-paths
+  - customer-environment-details
+  - unredacted-network-data
 
 budgets:
   CLAUDE.local.md: 8192

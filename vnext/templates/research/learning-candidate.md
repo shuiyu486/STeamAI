@@ -2,11 +2,17 @@
 
 - Kind：`{{KIND}}`
 - Applies to：`{{GENERAL_SCOPE}}`
-- Source findings/reviews：`{{CASE_LOCAL_REFS}}`
+- Source finding：`{{SOURCE_FINDING_REF}}`
+- Source finding SHA-256：`{{SOURCE_FINDING_SHA256}}`
+- Source accepted review：`{{SOURCE_REVIEW_REF}}`
+- Source review SHA-256：`{{SOURCE_REVIEW_SHA256}}`
 - Confidence：`{{CONFIDENCE}}`
 - Proposed destination：`{{PACK_RELATIVE_PATH}}`
-- Source pack snapshot：`{{PACK_SNAPSHOT}}`
-- Review state：`candidate`
+- Selected pack：`{{PACK_NAME}}`
+- Source revision：`{{PACK_REVISION}}`
+- Pack tree：`{{PACK_TREE}}`
+- Common tree：`{{COMMON_TREE}}`
+- Snapshot digest：`{{SNAPSHOT_DIGEST}}`
 
 ## 可复用经验
 
@@ -16,16 +22,15 @@
 
 `{{APPLICABILITY_AND_COUNTEREXAMPLES}}`
 
-## 脱敏检查
+## Eligibility 检查
 
-- [ ] 不含真实目标身份、客户信息或凭据
-- [ ] 不含 artifact、绝对路径、case-local hash/address 或会话标识
-- [ ] 不含未验证猜测或 case 流水账
-- [ ] 与现有 pack 内容完成去重和冲突检查
-- [ ] Reviewer 已检查证据与跨 case 通用性
-- [ ] Proposed destination 是 selected pack 下已跟踪的 Markdown 文件
-- [ ] exact patch 在隔离 Git clone 中生成，并通过 `git apply --check`
-- [ ] canonical target 当前 blob 仍匹配 patch base blob
-- [ ] 用户已查看完整 exact patch 并确认回流
+- [ ] finding 引用 evidence，且 supplied source review 明确针对该 finding 并为 current `accepted`
+- [ ] finding/review exact bytes 与上方 SHA-256 一致
+- [ ] case-local snapshot 的 pack/common tree 与完整 payload digest current
+- [ ] Proposed destination 同时匹配 case snapshot 与 canonical base revision 的 `learningTargets`
+- [ ] Proposed destination 是 selected pack 内已有、tracked、regular、非 symlink 的 Markdown
+- [ ] candidate 正文未命中 selected pack `denyPatterns`
+- [ ] 不含真实目标身份、客户信息、凭据、artifact、绝对路径、case-local hash/address、会话标识、未验证猜测或 case 流水账
+- [ ] 与现有 pack 内容完成去重、冲突、反例和不适用条件检查
 
-用户确认前不得写入共享 pack；确认后若 target base 漂移，必须重新生成并展示 patch。
+candidate 创建后保持 immutable。它只证明待审查的 generalized lesson，不包含用户确认状态，也不授权生成后的 patch；Reviewer 需先完成 eligibility，再对最终 exact proposal patch 单独绑定和接受。

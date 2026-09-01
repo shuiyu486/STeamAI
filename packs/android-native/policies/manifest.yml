@@ -1,6 +1,0 @@
-schemaVersion: 2
-pack: android-native
-overlays:
-  - id: android-native-boundary
-    path: README.md
-    purpose: Domain-specific evidence, privacy, and heavy-action boundaries
