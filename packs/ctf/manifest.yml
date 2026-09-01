@@ -1,187 +1,98 @@
-schemaVersion: 1
+schemaVersion: 2
 name: ctf
-version: 0.1.0
-description: CTF and lab challenge Agent Team pack skeleton
-maturity: skeleton
+version: 1.0.0
+description: 面向已授权 CTF、靶场、课程实验与本地 challenge 的声明式研究 pack。
+maturity: declarative-vnext
 
-managedFiles:
+entrypoints:
+  router: references/ctf/README.md
+  team: references/ctf/agent-team.md
+  workflow: references/ctf/workflow-template.md
+  tooling: references/ctf/toolchain-router.md
+
+references:
   - references/ctf/README.md
   - references/ctf/agent-team.md
-  - references/ctf/workflow-template.md
+  - references/ctf/task-handoff.template.md
   - references/ctf/toolchain-router.md
+  - references/ctf/workflow-template.md
 
-templateFiles:
+templates:
   - references/ctf/task-handoff.template.md
 
-localNeverOverwrite:
-  - CLAUDE.local.md
-  - references/ctf/task-handoff.md
-  - tools.local.yml
+policies:
+  - policies/README.md
+  - ../../common/policies/context-budget.md
+  - ../../common/policies/review-first.md
+  - ../../common/policies/write-boundaries.md
+  - ../../common/policies/verification.md
+  - ../../common/policies/evidence.md
 
-managedBlock:
-  file: CLAUDE.local.md
-  blockId: ctf:router
-  source: CLAUDE.local.snippet.md
-
-syncPolicy:
-  managedFiles: overwrite-with-backup
-  templateFiles: create-if-missing
-  localFiles: never-overwrite
-
-workstreamDefaults:
-  defaultAuthorityLane: main
-  defaultStartLaneType: challenge-analysis
-  handoffPath: references/ctf/task-handoff.md
-  backupRoot: .rekit/backups/sync
-  requestDefaultTargetLane: main
-
-authorityFiles:
-  - references/ctf/task-handoff.md
-
-commonPolicies:
-  - agent-team
-  - tool-adapters
-  - context-budget
-  - subagents
-  - lane-collaboration
-  - review-first
-  - write-boundaries
-  - verification
-  - evidence
-  - tool-output
-  - handoff
-
-policyOverlays: []
-
-subagentRoutes:
-  - id: ctf:bounded-review
-    taskTypes: solution-review,evidence-review,writeup-review,exploit-review,tooling-review
-    trigger: fixed-boundary read-only review for CTF solution candidates, evidence notes, exploit scripts, writeup drafts, or tooling notes
-    shardBasis: challenge-or-solution
-    targetItemsPerAgent: 4
-    maxParallel: 3
-    reference: references/ctf/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only
-    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,challenge_ref,category,artifact_ref,flag_status,candidate_path,defer_reason
-  - id: ctf:challenge-analysis
-    taskTypes: challenge-analysis,pwn-analysis,web-challenge,crypto-analysis,rev-analysis,forensics-analysis,misc-analysis
-    trigger: challenge workspace has artifacts, hypotheses, exploit/solver candidates, or needs bounded analysis before main merge
-    shardBasis: challenge-or-category
-    targetItemsPerAgent: 2
-    maxParallel: 2
-    reference: references/ctf/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only-or-workspace-only
-    mainAgentOwns: canonical-write,ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,challenge_ref,category,artifact_ref,flag_status,solver_ref,candidate_path,defer_reason
-
-promoteFiles:
-  - references/ctf/README.md
-  - references/ctf/agent-team.md
-  - references/ctf/workflow-template.md
-  - references/ctf/toolchain-router.md
-
-toolingFiles:
+tooling:
   - tooling/README.md
   - tooling/catalog.yml
   - tooling/recipes/challenge-triage.md
   - tooling/recipes/local-repro-review.md
 
-promptFiles: []
+teamHints:
+  suggestedMembers: 1-2
+  reviewer: on-important-finding-or-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
 
-laneTypes:
-  - id: main
-    title: CTF challenge mainline
-    authority: true
-    workspaceRoot: workspace/main
-    canWrite: references/ctf/task-handoff.md
-    readOnly: .rekit/facts/**
-    outputs: publication,decision,observation
-  - id: challenge-analysis
-    title: Challenge / solver analysis
-    authority: false
-    workspaceRoot: workspace/challenges
-    canWrite: own-workspace
-    readOnly: references/ctf/**,.rekit/facts/**
-    outputs: observation,request,candidate,summary
-  - id: tooling
-    title: Tooling and adapter evaluation
-    authority: false
-    workspaceRoot: workspace/tooling
-    canWrite: own-workspace
-    readOnly: references/ctf/**,.rekit/facts/**
-    outputs: observation,request,candidate,tooling-change
-
-toolingCandidateSources:
-  - references/ctf/toolchain-router.md
-
-heavyToolGates:
-  - id: full-trace
-    title: Full trace capture
-    sideEffects: full-trace,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: budget-exhausted,scope-drift,output-exceeds-bounded-evidence-packet
+heavyActions:
+  - id: remote-connect
+    title: 远程连接
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: fuzz
+    title: 有界 fuzz
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: exploit-replay
+    title: 利用复现
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: high-volume
+    title: 高流量请求
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
   - id: debug
-    title: Dynamic debug or attach
-    sideEffects: debug,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: timeout,unexpected-side-effect,scope-drift
-  - id: inject
-    title: Runtime injection or hook
-    sideEffects: inject,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: unexpected-mutation,scope-drift,budget-exhausted
+    title: 动态调试
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
   - id: patch
-    title: Binary or project patch
-    sideEffects: patch,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: overwrite-risk,scope-drift,no-rollback-path
-  - id: dump
-    title: Memory or artifact dump
-    sideEffects: dump,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: output-exceeds-bounded-evidence-packet,sensitive-artifact-detected,scope-drift
-  - id: network
-    title: Network access or replay
-    sideEffects: network,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift
-  - id: symex
-    title: Long symbolic execution
-    sideEffects: symex,filesystem-write
-    defaultRisk: medium
-    requiresConfirmation: true
-    stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
+    title: 本地修改
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
 
-promoteDenyPatterns:
-  - "C:\\"
-  - "artifacts[\\/]"
-  - "captures[\\/]"
-  - "pcaps?[\\/]"
-  - "dumps?[\\/]"
-  - "evidence[\\/]raw[\\/]"
-  - "challenge-files[\\/]"
-  - "remote[\\/]"
-  - "[A-Za-z0-9_.-]*(flag|payload|exploit|solver|pcap|capture|dump|trace|core)[A-Za-z0-9_.-]*\.(txt|log|json|xml|pcap|pcapng|dmp|core|raw|bin|dat|zip|7z|rar|py|sh)"
-  - "(?i)flag\{[^}]+\}"
-  - "(?i)(authorization|cookie|set-cookie)\s*[:=]"
-  - "(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]"
-  - "(?i)bearer\s+[A-Za-z0-9._~+\/-]+"
-  - "\b(10|172\.(1[6-9]|2[0-9]|3[0-1])|192\.168)\."
-  - "0x[0-9A-Fa-f]{6,}"
-  - "ctx[0-9]+"
-  - "round[0-9]+"
-  - "Task #[0-9]+"
+learningTargets:
+  - references/ctf/README.md
+  - references/ctf/workflow-template.md
+  - references/ctf/toolchain-router.md
+  - tooling/recipes/*.md
+
+denyPatterns:
+  - real-case-identifiers
+  - raw-artifacts
+  - credentials-or-tokens
+  - absolute-case-paths
+  - customer-environment-details
+  - unredacted-network-data
 
 budgets:
   CLAUDE.local.md: 8192
-  references/ctf/task-handoff.md: 12288
   defaultMarkdown: 16384

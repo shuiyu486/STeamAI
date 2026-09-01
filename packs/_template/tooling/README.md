@@ -1,32 +1,18 @@
 # Template tooling
 
-本目录保存新 pack 的工具 catalog、recipes、脚本接口和候选工具经验。
+本目录保存新 pack 的声明式 tool capability、recipes 与经审查的候选经验；不包含 adapter runtime、可执行脚本或命令调度器。
 
 ## 内容
 
 | 路径 | 用途 |
 |---|---|
-| `catalog.yml` | 工具 capability card、状态和止损条件。 |
-| `recipes/*.md` | 按任务阶段记录工具用法。 |
-| `candidates/` | 从 case 回流的候选工具经验。 |
-
-## Harmless read-only 验收 adapter
-
-`catalog.yml` 中的 `rekit-readonly-inspector` 是框架维护用的最小 Go-owned adapter：它只接受 `_template` 的 `inspect` action、strict durable preauthorization、current lane owner 和已落盘 immutable dispatch；读取 exact case-local bounded regular text fixture，并只在授权 output path 独占写入 `inspection.json` 与 `adapter-report.json`。它不访问网络，不执行 debug、patch、dump、hook 或目标修改，也不是领域分析工具。
-
-显式维护验收分别构建 unified `cmd/rekit` runtime 与 `rekit-adapter-host`，再运行 `rekit-adapter-acceptance` 并把 receipt 写到 disposable case 和模板仓库之外。`-runtime` 只接受 unified `cmd/rekit` image；host-only、adapter-only 或 acceptance-only image 会在创建 disposable case 前 fail-closed。Windows 验收器持有 adapter executable handle，`CREATE_SUSPENDED` 后验证 actual mapped image，再加入 kill-on-close Job Object并resume；timeout先关闭Job再有界回收进程树。验收链走 verified project-local runtime publication → dispatch → adapter process → receipt → validation → observation → acknowledgement → Mission Commander resume；失败输出只按exact handle删除owned object，disposable case先no-replace quarantine并拒绝replacement/reparse后再清理。普通 `/rekit gate` 仍只记录授权、dispatch、receipt 或 observation evidence，不启动 adapter。
-
-```text
-go build -o <temp>\steamai.exe ./cmd/rekit
-go build -o <temp>\rekit-adapter-host.exe ./cmd/rekit-adapter-host
-go run ./cmd/rekit-adapter-acceptance -repo . -adapter <temp>\rekit-adapter-host.exe -runtime <temp>\steamai.exe -receipt <outside-case-receipt.json>
-```
-
-receipt 路径与临时 executable 由维护者管理；已有 receipt 不覆盖，验收失败也返回 `passed=false` 的机器结果。普通测试不会自动运行此 live gate。
+| `catalog.yml` | 工具状态、输入输出、side effects、确认要求和止损。 |
+| `recipes/*.md` | 按任务阶段记录可复用工具流程。 |
+| `candidates/` | 经脱敏审查但尚未回流的 tooling candidate。 |
 
 ## 原则
 
-- 工具经验先 recipe 化，再考虑 adapter 化。
+- catalog 的 `entry` 或示例文本不得被解释为可执行命令。
+- 优先记录 passive/read-only 路线；heavy action 只记录风险、确认条件和止损。
 - 不硬编码本机路径；使用 `<caseRoot>`、`<toolsRoot>`、`<target>`。
-- adapter 必须先记录 immutable dispatch，并绑定 exact owner、session、catalog、budget、path 与 `authorized-gate`。
-- 不保存真实样本、trace、dump 或完整工具输出。
+- 不保存真实样本、trace、dump、凭据、客户信息或完整工具输出。

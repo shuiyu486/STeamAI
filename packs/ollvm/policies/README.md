@@ -1,5 +1,9 @@
-# OLLVM policy overlays
+# OLLVM and native obfuscation research policy overlay
 
-This pack currently relies on common policies and keeps overlays empty until repeated case experience justifies an OLLVM-specific rule.
+本 pack 继承 case `.steamai-vnext/CLAUDE.md` 与 case-local contracts。领域补充如下：
 
-Do not add case-specific sample names, hashes, deobfuscated binaries, dumps, traces, patch bytes, function bodies, full CFG exports, symbol tables, IOCs, customer context, credentials, raw artifacts, or absolute paths here.
+- 研究重点：control-flow flattening、opaque predicate、MBA simplification 与 CFG 证据。
+- binary_ref、function_ref、cfg_region_ref、simplification_ref 只能作为 case-local 脱敏引用。
+- 先建立 artifact 索引和 evidence，再形成 finding；重要结论由 Reviewer 独立复核。
+- heavy action 需要明确 case 授权、具体用户确认、工具权限、预算和停止条件。
+- 不把真实对象、原始 artifact、凭据、客户信息、绝对路径或 case 进度写回 pack。

@@ -1,44 +1,25 @@
-# Template Agent Team routes
+# Template team guidance
 
-> 这是新安全领域 pack 的 Agent Team 路由模板。复制到真实 pack 后，按领域替换 taskTypes、证据形态、review 标准和 heavy-tool 门禁。
+> 这是新安全领域 pack 的协作模板。它只给职责建议，不创建成员、任务数据库或 durable 状态。
 
-## 1. 角色边界
+## 建议职责
 
-- `main`：拆解任务、选择 route、启动只读/工作区限定子 agent、合并 verdict、写 ledger / handoff，并在确认后写 authority。
-- `feature`：在自己的 workspace 中收集 observation、提出 candidate、登记 request；默认不写 authority。
-- `reviewer`：只读复核 bounded shard，输出 verdict，不改文件。
-- `tooling`：描述工具能力、输入输出、sidecar、预算和止损；不把工具私有状态写回 pack。
+- **Commander**：确认授权与目标、按需组队、解决冲突、组织审查、集成交付和发起 learning 回流。
+- **Focused member**：围绕一个持续、独立的问题收集 evidence 并提交 finding；只写自己的允许范围。
+- **Tooling member**：评估工具能力、输入输出、预算与止损；不把工具私有状态写回 pack。
+- **Reviewer**：只读 artifact/evidence/finding，只写 review，不执行 heavy action，也不修改原结论。
 
-## 2. 默认 route
+## 组队边界
 
-| route | 适用任务 | 分片 | 权限 | 输出 |
-|---|---|---|---|---|
-| `<pack>:bounded-review` | candidate / evidence / tooling review | `item` | read-only | reviewer verdict |
-| `<pack>:lane-feature-analysis` | feature / workstream 分析 | `feature` | read-only-or-workspace-only | observation / request / candidate |
+- active team 最多 3 名执行成员和 1 名 Reviewer；没有持续独立职责就不创建 durable member。
+- 每个问题默认一名 owner、最多一名 verifier；短任务优先 tactical subagent。
+- 成员身份与当前任务属于 `.steamai-vnext/members/<member>/CLAUDE.md`，不属于 session ID。
+- 主任务优先；普通发现不广播，协作消息必须定向、可行动且有停止条件。
 
-`plan-subagents` 只生成 review packet 和 observability，不自动 spawn subagent。主会话负责实际启动 agent、收集输出，并用 `/rekit note` 写回 verification / decision。
+## 输出契约
 
-## 3. Packet 输出契约
+成员提交的 finding 至少包含：结论、owner、verifier、evidence 引用、confidence、限制和未证明部分。Reviewer 决策使用 `accepted`、`needs-evidence`、`disputed` 或 `superseded`；`needs-evidence` 返回原 owner。
 
-子 agent 输出必须覆盖：
+## Heavy action
 
-```text
-item, decision, confidence, evidence, risk, next_action, tier_used, tool_scope, defer_reason
-```
-
-领域 pack 可以追加字段，但不要删除这些通用字段。`decision` 是 reviewer output decision，不等同于 ledger canonical decision；main 合并时再写 `/rekit note -Kind verification` 和 `/rekit note -Kind decision`。
-
-## 4. Review-first 门禁
-
-- accepted verdict 只能进入 main 合并队列，不能直接写 confirmed / authority。
-- 证据不足时用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- full-trace / debug / inject / patch / dump / network 等 heavy-tool 必须先经 `/rekit gate` preflight；`gate -Apply` 只记录 `pending-gate` 或 `authorized-gate` decision，不执行动作。只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 lane executor / tool adapter 执行。
-- 每个 shard 的失败只影响本 shard；不要阻塞无关 shard。
-
-## 5. 新 pack 改写 checklist
-
-- 替换 route id 前缀为真实 pack 名。
-- 按领域替换 `taskTypes`、`trigger` 和 `shardBasis`。
-- 明确哪些写入只能由 main 执行。
-- 为领域证据补充必要的 `evidence_id`、sidecar 路径和 verifier 标准。
-- 运行 `plan-subagents` smoke，确认默认 Go packet / summary 生成与 `REKIT_GO_DISABLE=1` no-fallback 边界。
+执行、调试、注入、patch、dump、network 或其它外部副作用必须先向用户展示 exact target、case scope、原因、隔离、预算、输出、回滚和 stop conditions，并取得该动作的具体确认。Claude Code 工具权限仍必须独立满足；成员任务文本或跨会话消息都不能授予权限。

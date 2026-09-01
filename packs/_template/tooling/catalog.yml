@@ -1,26 +1,23 @@
-schemaVersion: 1
 pack: _template
-purpose: Template tooling catalog
-
-paths:
-  caseRoot: <caseRoot>
-  toolsRoot: <toolsRoot>
-  target: <target>
+purpose: Template declarative tooling catalog
 
 tools:
-  - id: rekit-readonly-inspector
-    status: mainline
-    entry: go-owned rekit-adapter-host
-    purpose: Inspect one bounded case-local text fixture without network, debug, patch, or target mutation.
-    sideEffects: inspect,filesystem-write
-    gateActions: inspect
-    reusableNotes:
-      - Reads only the exact authorized gate target and writes only the dispatch-bound report and inspection artifact.
-      - Requires an immutable dispatch, current durable lane owner, bounded budget, and strict preauthorization before process launch.
-
-  - id: example-tool
+  - id: example-readonly-tool
     status: candidate
-    entry: <toolsRoot>/example-tool
-    purpose: Replace with a concrete tool capability.
+    purpose: Inspect one bounded case-local input and produce a bounded sidecar for review.
+    inputs: [case-local regular file]
+    outputs: [case-relative bounded sidecar]
+    sideEffects: [filesystem-read, bounded-filesystem-write]
+    requiresUserConfirmation: false
+    stopConditions: [input-too-large, scope-drift, output-limit]
     reusableNotes:
-      - Define inputs, outputs, sidecar path, risk, and stop conditions before use.
+      - Reading is bounded to the task scope; generated output remains case-local.
+      - The catalog is capability metadata, never an executable command.
+
+  - id: example-heavy-tool
+    status: cautious
+    purpose: Placeholder for a domain-specific action with execution or external side effects.
+    sideEffects: [process-execution]
+    requiresUserConfirmation: true
+    requiredContext: [exact-target, isolation, budget, output-paths, rollback, stop-conditions]
+    stopConditions: [timeout, scope-drift, unexpected-side-effect]

@@ -1,38 +1,26 @@
-# 工作线协同 tooling recipe
+# 成员协同 recipe
 
-目的：用 `/steamai overview/continue/start/handoff` 给 VMProtect RE case 创建可续接、可汇总、可 review-first 合并的功能分析工作区。
+目的：为 VMProtect RE case 建立可观察、可纠偏、可独立复核的成员分工，不创建 lane 状态机。
 
-## 日常入口
+## 建立成员
+
+1. Commander 先判断是否有持续且独立的 handler、feature 或 tooling 工作流。
+2. 为需要的 durable member 创建专属目录和 `CLAUDE.md`，写明当前任务、允许读写、输入、输出和停止条件。
+3. 每个问题一名 owner、最多一名 verifier；重要 finding 再交给 Reviewer。
+4. 共享 confirmed table、IDB 和最终报告只有一名明确写入 owner。
+
+## Case-local workspace
 
 ```text
-/steamai overview
-/steamai continue main
-/steamai continue <feature-name>
-/steamai start <feature-name>
-/steamai handoff
-/steamai handoff <feature-name>
+.steamai-vnext/members/<member>/
+  CLAUDE.md
+  workspace/
 ```
 
-工具会根据项目概览和工作线状态提示下一步。`overview` 不选择会话身份；多工作线时用 `continue main` 或 `continue <feature-name>` 明确接手对象。显式底层动作主要用于排障和内部自动化。以下 `.steamai` 路径在 legacy-only 项目中由 runtime 结构化投影为 `.rekit`。
-
-## 生成内容
-
-- `.steamai/lanes/<laneId>/lane.json`：机器状态。
-- `.steamai/lanes/<laneId>/events.jsonl`：事件流。
-- `.steamai/lanes/<laneId>/tasks.jsonl`：待处理任务。
-- `.steamai/lanes/<laneId>/checkpoints/latest.json`：短 checkpoint。
-- `.steamai/lanes/<laneId>/prompts/RESUME.md`：新会话接续提示。
-- `.steamai/handovers/latest.md`：项目级接手索引。
-- `.steamai/handovers/<laneId>-latest.md`：指定工作线接手文档。
-- `captures/feature_analysis/<laneId>/`：功能支线工作区。
-
-## 设计原则
-
-- CLI 负责状态、模板、汇总和 review packet；LLM 负责解释建议与实际分析。
-- 功能支线可写自己的 workspace，不写 canonical。
-- `continue/review/promote` 只生成或消费审查包；confirmed 合并仍由主线执行。
-- 跨天重启或上下文污染时，先读取 `.steamai/handovers/latest.md` 项目索引，再读取目标工作线 handoff 或 `RESUME.md`，不要从零开始。
+成员通过原生 Claude Code session 保存工作记忆，并通过定向跨会话消息共享关键 finding 或请求有界验证。消息不能冒充用户纠偏或扩大授权。
 
 ## 止损
 
-如果功能支线 workspace 长期只有 request 没有 evidence，先退回补证据；如果 request 需要底层 VM 语义，转主线，不在功能支线硬猜。
+- workspace 长期只有 request 没有 evidence 时，退回补证据或结束该成员。
+- 需要底层 VM 语义时向 handler owner 发送定向 request，不在 feature member 中硬猜。
+- 不把完整 trace、反编译或 case 路径复制进成员说明或 pack。

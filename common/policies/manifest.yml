@@ -1,86 +1,25 @@
 schemaVersion: 1
 name: common-policies
-version: 0.1.0
-description: Cross-pack policies for re-context-kits
+version: 1.0.0
+description: Declarative cross-pack policies for the STeamAI thin core
 
 policies:
   - id: agent-team
     path: agent-team.md
-    title: Agent Team roles, packets, and confirmation gates
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
-  - id: tool-adapters
-    path: tool-adapters.md
-    title: External tool adapter contracts and heavy-tool gates
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
-  - id: context-budget
-    path: context-budget.md
-    title: Context budget and progressive disclosure
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
   - id: subagents
     path: subagents.md
-    title: Subagent delegation and bounded parallelism
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
-  - id: lane-collaboration
-    path: lane-collaboration.md
-    title: Workstream collaboration and continuity
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
+  - id: tool-adapters
+    path: tool-adapters.md
+  - id: context-budget
+    path: context-budget.md
   - id: review-first
     path: review-first.md
-    title: Review-first writes and user confirmation
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
   - id: write-boundaries
     path: write-boundaries.md
-    title: Write boundaries and external side effects
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
   - id: verification
     path: verification.md
-    title: Verification and completion criteria
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
   - id: evidence
     path: evidence.md
-    title: Evidence, citations, and claim quality
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
-  - id: tool-output
-    path: tool-output.md
-    title: Tool output and large artifact handling (deprecated; merged into tool-adapters)
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
-  - id: handoff
-    path: handoff.md
-    title: Handoff and session continuity
-    lifecycle:
-      sync: reference
-      promote: review-only
-      validate: true
 
 budgets:
   defaultMarkdown: 16384

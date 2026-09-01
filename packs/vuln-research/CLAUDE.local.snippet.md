@@ -1,16 +1,18 @@
 <!-- BEGIN vuln-research:router -->
-# Vulnerability research pack router
+# Authorized vulnerability research pack router
 
-本 pack 用于授权漏洞研究、防御性复现、补丁/崩溃分析和安全工程验证场景的 Agent Team 工作流。它是多安全领域 pack 的最小骨架，当前重点是 route、ledger、handoff、tooling adapter 和 review-first 契约，不是自动漏洞挖掘器、自动利用链生成器或攻击执行平台。
+本 pack 只用于明确授权的安全研究 case，提供 crash triage、root-cause hypothesis、repro evidence 与 patch analysis 的声明式方法与审查边界。
 
 - 路由入口：`references/vuln-research/README.md`
-- Agent Team route：`references/vuln-research/agent-team.md`
+- 团队协作：`references/vuln-research/agent-team.md`
 - 工作流：`references/vuln-research/workflow-template.md`
 - 工具路由：`references/vuln-research/toolchain-router.md`
 
 规则：
 
-- 目标名、崩溃样本、PoC/repro payload、真实请求/响应、core/minidump、pcap、trace、客户环境信息和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 主动扫描、fuzz、exploit replay、真实目标复现、调试、dump、patch、数据导出和外部副作用必须有预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
-- 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
+- 只从 case-local pack snapshot 读取本 pack；当前 case 不跟随 source pack 漂移。
+- Commander 按需创建 durable member；每个问题一名 owner、最多一名 verifier，重要 finding 由独立 Reviewer 复核。
+- target_ref、repro_ref、crash_ref、patch_ref 只能是 case-local 脱敏引用，不写入真实对象、原始 artifact、凭据、客户信息或绝对路径。
+- heavy action 必须同时满足明确 case 授权、针对具体动作的用户确认与 Claude Code 工具权限；范围、预算或副作用漂移时立即停止。
+- 研究结论写入 evidence/finding/review；只有 accepted finding/review 才能生成脱敏 learning candidate。
 <!-- END vuln-research:router -->

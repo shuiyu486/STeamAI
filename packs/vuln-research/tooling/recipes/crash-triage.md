@@ -1,25 +1,25 @@
-# Crash triage recipe
+# Crash Triage
 
-## 目标
+## 适用范围
 
-在不执行 exploit replay 或 fuzzing 的前提下，建立目标别名、crash id、版本信息、栈摘要、可疑 bug class 和 open questions 的最小索引。
+用于 crash triage、root-cause hypothesis、repro evidence 与 patch analysis 中的窄范围 `crash-triage` 任务。只处理 case-local 脱敏引用和已存在的有界输入。
 
 ## 输入
 
-- 授权范围摘要。
-- case-local 目标别名或 crash id。
-- 已脱敏的 crash / stack / build / patch summary sidecar。
+- exact scope 与要回答的问题；
+- case-local artifact alias；
+- 允许读取/写入范围；
+- 时间、请求、空间或输出预算；
+- 停止条件。
 
-## 输出
+## 步骤
 
-```text
-target_ref, crash_id, build_ref, stack_theme, suspected_bug_class, repro_status, evidence_ref, open_questions
-```
+1. 验证输入属于当前明确授权的 case，并记录来源与完整性信息。
+2. 优先执行只读、静态或 dry-run 观察；禁止无关扩展。
+3. 将关键观察写入 evidence，包含定位、方法、限制和不确定性。
+4. 需要 heavy action 时，先向用户展示具体动作、目标、预算、副作用和停止条件；得到针对该动作的确认且工具权限允许后才执行。
+5. 输出 finding candidate 或 `needs-evidence`，不自动修改原 artifact 或共享 pack。
 
-输出写入 case-local sidecar 或 lane workspace；聊天和 Markdown 只引用摘要与路径。
+## 停止条件
 
-## 止损
-
-- 发现真实目标、凭据、token、PoC payload、内部路径、客户敏感字段或未公开漏洞细节时停止提升到 pack，保留在 case-local 并标记 redaction needed。
-- stack、trace 或 crash corpus 过大时先按 bug class / component 分片，不把完整内容粘入聊天或 Markdown。
-- crash 证据不足以判断根因时产出 request，不直接升级为 confirmed。
+授权、目标或输入身份不清；范围漂移；预算耗尽；出现意外副作用；输出可能含真实对象、凭据、客户信息或不适合进入团队文档的敏感内容。

@@ -1,20 +1,28 @@
-# Evidence, citations, and claim quality
+# Evidence、finding 与 review
 
-本文件是 `agent-team.md` 的证据原则补充，不重复定义 packet schema。packet 字段、状态流、decision event schema 见 `agent-team.md` 与 `docs/evidence-ledger.md`。
+目标是让研究结论可追溯、可复核，并明确区分观察、推断和未证明部分。
 
-目标：让分析结论可追溯、可复核，避免把猜测当事实。
+## Artifact index
 
-## 证据原则
+artifact 保持 case-local。索引只记录 alias、相对路径、SHA-256、bytes、来源和授权范围；不把真实 artifact、dump、trace、capture、凭据或客户信息复制到 pack。
 
-- 结论应绑定文件、行号、命令输出、hash、trace 片段或明确来源。
-- 大段原始证据不进入主会话；只返回关键定位和摘要。
-- 低样本、高风险或存在歧义的结论应标记置信度。
-- 分歧结论默认 deferred，除非有独立验证。
+## Evidence
 
-## 子 agent 证据限制
+evidence 记录：
 
-每个 item 最多返回 3 条关键证据。需要更多证据时，返回证据文件路径和定位，让主 agent 按需读取。
+- 可重复的方法与观察；
+- artifact 引用和精确定位；
+- 限制、反例、样本量与不确定性；
+- 必要的完整性信息。
 
-## packet 与 event
+大段原始输出不进入主会话或 Markdown；只保存最短摘要与定位。来源不足、低样本或存在歧义时必须降低 confidence。
 
-evidence packet 是 agent 产出文件（带 `evidence_id`，写在 lane workspace）；runtime 从 packet 抽取 event append 到 `.rekit/facts/*.jsonl`。手动 append 入口是 `/rekit note`（见 `.claude/skills/rekit/SKILL.md`），auto 流程入口是 `/rekit continue`。event kind 与字段对齐 `docs/evidence-ledger.md` 草案（9 种 kind + 基础字段 + per-kind 扩展）。低样本、alias、未 cross-run 必须在 candidate `limitations` 写明。
+## Finding
+
+finding 必须引用 evidence，并写明 owner、可选 verifier、claim、confidence、重要反证和尚未证明部分。猜测不能伪装成事实；出现冲突时先补证或保留 disputed 状态。
+
+## Review
+
+Reviewer 直接引用 finding/evidence，给出 `accepted`、`needs-evidence`、`disputed` 或 `superseded`。Reviewer 不修改原 evidence/finding；`needs-evidence` 返回原 owner 补证。
+
+只有 `accepted` finding/review 才能成为 learning candidate 的来源。经验回流还必须通过证据支持、跨 case 通用性、重复、冲突和脱敏审查；用户查看并确认完整 exact Git patch 前，canonical pack 零写。

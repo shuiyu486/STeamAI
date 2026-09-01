@@ -1,43 +1,19 @@
-# Review-first writes and user confirmation
+# Review-first writes and learning feedback
 
-本文件偏**流程**（先 review 再 write、确认语义）；什么能写、子 agent 默认只读等**边界**规则见 `write-boundaries.md`。两者配合：边界决定是否需要审查，流程决定审查如何进行。
+覆盖、删除、移动、外部发布或向 canonical pack 回流经验前，必须先生成可审查事实，再取得与 exact action 绑定的用户确认。
 
-目标：所有可能覆盖、删除、回流模板、发布或影响外部状态的动作，都先生成可审查事实，再由 Claude 说明优劣和风险，最后等待用户明确确认。
+## 通用规则
 
-## 基本规则
+- review 展示目标、范围、完整 diff、收益、风险、冲突和推荐动作。
+- “继续”“好”或对另一动作的确认不能扩大授权。
+- preview 不是确认；source/target bytes 漂移后旧确认失效。
+- push、发布、远程 API 写入和不可逆本地动作都必须单独确认。
 
-- 先 review，再 write。
-- review 输出应包含：目标、方向、变更摘要、风险、冲突、推荐动作。
-- 用户确认必须绑定具体动作、目标、文件范围或候选范围。
-- “继续”“好”“confirm”不能扩大授权。
-- `WhatIf` 只是 dry run，不等同于结构化 review。
+## Learning feedback
 
-## 适用动作
-
-- sync / promote / template 回流。
-- 覆盖、删除、移动、重命名。
-- 外部发布、推送、提交 PR、调用远程服务。
-- 修改权威数据表、策略文档或跨 pack common policy。
-
-## 输出建议
-
-```text
-action:
-target:
-scope:
-benefit:
-risk:
-conflict:
-recommendation:
-requires_confirmation: yes | no
-```
-
-## promote 分类
-
-可复用经验应先分类：
-
-- common policy：影响所有 pack，必须严格 review。
-- pack overlay：领域化规则，可由 pack 维护。
-- reference doc：任务流程或路由。
-- tooling recipe：工具用法、参数、止损条件。
-- case-only：当前进度、路径、样本状态，不回流。
+1. Commander 只从 `accepted` finding/review 提炼脱敏 learning candidate。
+2. Reviewer 检查证据支持、跨 case 通用性、反例、重复、冲突、目标路径和脱敏。
+3. 在隔离 clone 中生成完整、标准、单目标 exact Git patch，并记录 base revision/blob 与 patch SHA-256。
+4. 用户查看 candidate、review 和完整 patch 后，确认只授权这一份 patch。
+5. Apply 前重验 patch、target scope、base currentness 和 `git apply --check`；漂移则停止并重新生成。
+6. 不自动 commit/push。当前 case 继续读取创建时的 pack snapshot，不随 source pack 更新漂移。

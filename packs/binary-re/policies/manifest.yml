@@ -1,49 +1,23 @@
-schemaVersion: 1
 name: binary-re-policy-overlays
-version: 0.1.0
-description: VMP RE policy overlays for re-context-kits common policies
+version: 0.2.0
+description: Declarative VMProtect and binary RE policy overlays
 
 overlays:
   - id: subagents-vmp
     extends: subagents
     path: subagents.overlay.md
-    title: VMP handler review subagent overlay
-    lifecycle:
-      sync: managed
-      promote: review-first
-      validate: true
-  - id: lane-collaboration-vmp
-    extends: lane-collaboration
+  - id: member-collaboration-vmp
+    extends: agent-team
     path: lane-collaboration.overlay.md
-    title: VMP feature workstream collaboration overlay
-    lifecycle:
-      sync: managed
-      promote: review-first
-      validate: true
   - id: context-budget-vmp
     extends: context-budget
     path: context-budget.overlay.md
-    title: VMP capture and trace context budget overlay
-    lifecycle:
-      sync: managed
-      promote: review-first
-      validate: true
   - id: review-first-vmp
     extends: review-first
     path: review-first.overlay.md
-    title: VMP RE review-first overlay
-    lifecycle:
-      sync: managed
-      promote: review-first
-      validate: true
   - id: verification-vmp
     extends: verification
     path: verification.overlay.md
-    title: VMP routine IR verification overlay
-    lifecycle:
-      sync: managed
-      promote: review-first
-      validate: true
 
 budgets:
   defaultMarkdown: 16384

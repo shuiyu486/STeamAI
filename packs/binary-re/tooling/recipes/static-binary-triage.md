@@ -16,7 +16,7 @@
 binary_ref, function_ref, artifact_ref, api_ref, behavior_hint, evidence_ref, open_questions
 ```
 
-输出写入 case-local sidecar 或 lane workspace；聊天和 Markdown 只引用摘要与路径。
+输出写入 case-local sidecar 或成员 workspace；聊天和 Markdown 只引用摘要与相对 evidence ref。
 
 ## 止损
 

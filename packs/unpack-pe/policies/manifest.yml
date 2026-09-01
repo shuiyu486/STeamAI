@@ -1,9 +1,6 @@
-schemaVersion: 1
-name: unpack-pe-policy-overlays
-version: 0.1.0
-description: Empty policy overlay registry for the unpack-pe pack skeleton
-
-overlays: []
-
-budgets:
-  defaultMarkdown: 16384
+schemaVersion: 2
+pack: unpack-pe
+overlays:
+  - id: unpack-pe-boundary
+    path: README.md
+    purpose: Domain-specific evidence, privacy, and heavy-action boundaries

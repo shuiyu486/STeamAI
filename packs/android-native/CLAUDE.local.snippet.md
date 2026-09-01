@@ -1,16 +1,18 @@
 <!-- BEGIN android-native:router -->
-# Android native pack router
+# Android native / JNI security research pack router
 
-本 pack 用于授权 Android native / JNI / NDK 分析、APK native library triage、Frida hook candidate review 与 emulator sidecar review 场景的 Agent Team 工作流。它是多安全领域 pack 的最小骨架，当前重点是 route、ledger、handoff、tooling adapter 和 review-first 契约，不是 APK 自动逆向平台、设备操控器、hook 执行器或移动端动态测试平台。
+本 pack 只用于明确授权的安全研究 case，提供 APK native library triage、JNI 边界、hook candidate 与 emulator 侧证据 的声明式方法与审查边界。
 
 - 路由入口：`references/android-native/README.md`
-- Agent Team route：`references/android-native/agent-team.md`
+- 团队协作：`references/android-native/agent-team.md`
 - 工作流：`references/android-native/workflow-template.md`
 - 工具路由：`references/android-native/toolchain-router.md`
 
 规则：
 
-- APK/AAB/DEX/SO、hook script、device/emulator id、traffic/capture、trace、dump、patch、keystore、token、账号凭据、包名、真实端点和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 设备连接、emulator run、Frida attach、hook 执行、网络请求、动态 trace、dump、patch、重签名、安装/卸载应用或外部副作用必须有隔离、预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
-- 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
+- 只从 case-local pack snapshot 读取本 pack；当前 case 不跟随 source pack 漂移。
+- Commander 按需创建 durable member；每个问题一名 owner、最多一名 verifier，重要 finding 由独立 Reviewer 复核。
+- app_ref、library_ref、jni_symbol_ref、component_ref 只能是 case-local 脱敏引用，不写入真实对象、原始 artifact、凭据、客户信息或绝对路径。
+- heavy action 必须同时满足明确 case 授权、针对具体动作的用户确认与 Claude Code 工具权限；范围、预算或副作用漂移时立即停止。
+- 研究结论写入 evidence/finding/review；只有 accepted finding/review 才能生成脱敏 learning candidate。
 <!-- END android-native:router -->

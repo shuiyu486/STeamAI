@@ -1,16 +1,18 @@
 <!-- BEGIN ctf:router -->
-# CTF pack router
+# CTF and lab challenge research pack router
 
-本 pack 用于授权 CTF、靶场、课程实验和本地 challenge 分析场景的 Agent Team 工作流。它是多安全领域 pack 的最小骨架，当前重点是 route、ledger、handoff、tooling adapter 和 review-first 契约，不是面向真实目标的攻击执行平台或自动利用链平台。
+本 pack 只用于明确授权的安全研究 case，提供 challenge triage、solver hypothesis、local reproduction 与 writeup review 的声明式方法与审查边界。
 
 - 路由入口：`references/ctf/README.md`
-- Agent Team route：`references/ctf/agent-team.md`
+- 团队协作：`references/ctf/agent-team.md`
 - 工作流：`references/ctf/workflow-template.md`
 - 工具路由：`references/ctf/toolchain-router.md`
 
 规则：
 
-- flag、payload、solver、challenge 原始文件、pcap、dump、trace、远程靶场地址、账号凭据和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 远程连接、bruteforce、fuzz、exploit replay、高流量请求、真实目标访问、debug/dump/patch 和外部副作用必须有预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
-- 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
+- 只从 case-local pack snapshot 读取本 pack；当前 case 不跟随 source pack 漂移。
+- Commander 按需创建 durable member；每个问题一名 owner、最多一名 verifier，重要 finding 由独立 Reviewer 复核。
+- challenge_ref、artifact_ref、solver_ref 只能是 case-local 脱敏引用，不写入真实对象、原始 artifact、凭据、客户信息或绝对路径。
+- heavy action 必须同时满足明确 case 授权、针对具体动作的用户确认与 Claude Code 工具权限；范围、预算或副作用漂移时立即停止。
+- 研究结论写入 evidence/finding/review；只有 accepted finding/review 才能生成脱敏 learning candidate。
 <!-- END ctf:router -->

@@ -1,26 +1,25 @@
 # Template pack route
 
-> 这是新 pack 的按需路由入口模板。复制为 `references/<pack>/README.md` 后再按领域改写。
+> 这是新 pack 的按需路由入口模板。复制为 `references/<pack>/README.md` 后按领域改写。
 
 ## 常驻原则
 
-- 先读 case 的 `CLAUDE.local.md`，再按本文件路由。
-- 本文件是 pack-local 路由入口，不是默认必读长清单；新增 reference 时说明何时读取、不要默认读取什么。
-- 不读取大 trace、大 CSV、完整反汇编或完整反编译；只读必要行范围或 sidecar 摘要。
-- 当前进度保存在 case-local handoff；pack reference 只保存可复用流程。
+- 先读 case 的 `.steamai-vnext/CLAUDE.md`，再按本文件只选择一个专项入口。
+- pack 只保存跨 case 可复用的流程、证据标准、工具能力和止损条件。
+- case 进度、目标和原始研究材料保留在 case-local artifact/evidence/finding/review 中。
+- 大 trace、完整反汇编、完整反编译和工具原始输出不进入 pack 或成员上下文。
 
 ## 路由表
 
 | 任务 | 读取文档 | 说明 |
 |---|---|---|
-| 了解本 pack 工作流 | `workflow-template.md` | 领域主流程、验证路线和升级条件。 |
-| 规划 Agent Team 分片 | `agent-team.md` | 默认 subagent routes、packet 输出契约和 review-first 合并边界。 |
-| 选择工具 | `toolchain-router.md` | 工具状态、适用阶段、止损条件和重型工具门禁。 |
-| 查看通用 Agent Team 规则 | `<templateRoot>/common/policies/agent-team.md` | 角色、packet、状态流和人工确认边界。 |
-| 查看工具 adapter 规则 | `<templateRoot>/common/policies/tool-adapters.md` | capability card、sidecar 输出和 heavy-tool gate。 |
+| 领域工作流 | `workflow-template.md` | 轻到重路线、证据和升级条件。 |
+| 组队与复核 | `agent-team.md` | 建议职责、owner/verifier 与 Reviewer 边界。 |
+| 工具选择 | `toolchain-router.md` | 工具状态、风险、用户确认和止损条件。 |
+| 当前 case 交接 | case-local handoff/finding/review | 不从 pack 推断当前进度。 |
 
 ## 维护规则
 
-- 新增可复用流程时，优先更新本 pack reference。
-- 新增工具经验时，优先更新 `tooling/catalog.yml` 或 `tooling/recipes/*`。
-- 横切规则再考虑提升到 `common/policies/*`。
+- 新增流程优先更新本 pack reference；横切规则才进入 common policy candidate。
+- 新增工具经验优先更新 `tooling/catalog.yml` 或 `tooling/recipes/*`。
+- learning 只从 accepted finding/review 提炼，经 Reviewer 检查并由用户确认 exact patch 后回流。

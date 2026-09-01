@@ -1,24 +1,11 @@
 # Verification and completion criteria
 
-目标：把“做了修改”和“修改可用”区分开。完成前应运行与改动类型匹配的验证。
+完成前运行与改动和风险直接匹配的最短验证。
 
-## 通用验证
+- 文档或模板：检查引用、预算、格式、source/snapshot 路径和 `git diff --check`。
+- 声明式 YAML/JSON：检查语法、引用文件存在性和 snapshot closure。
+- 代码或合同：运行 focused tests，再按影响面运行 canonical suite 与静态检查。
+- Claude Code 原生行为：区分 synthetic contract、自动 probe 和真实独立 session acceptance；不得相互冒充。
+- UI/交互：实际走受影响的用户路径。
 
-- 文档改动：检查链接、预算、格式和 `diff --check`。
-- 脚本改动：运行语法检查、smoke test 或目标命令。
-- 数据/表格改动：重建派生产物并检查统计。
-- 模板改动：运行对应 `doctor` / `validate`。
-
-## 无法验证时
-
-必须说明：
-
-- 为什么无法验证。
-- 哪些部分仍有风险。
-- 用户可以运行什么命令补充验证。
-
-## 完成标准
-
-- 相关验证通过。
-- 未留下非预期未跟踪文件或 orphan 改动。
-- 若有失败或跳过，已在最终汇报中明确说明。
+完成意味着相关验证通过、没有自己引入的 orphan 文件或旧 runtime fallback。未执行、失败或跳过的验证必须如实说明原因和剩余风险。

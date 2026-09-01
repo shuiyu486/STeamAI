@@ -2,208 +2,122 @@
 
 ## 读取指南
 
-本文件用于新增或维护 `packs/<pack>`。如果只使用现有 pack 或处理当前 batch，先读 `docs/context-routing.md` 和目标 pack 的 `references/<pack>/README.md` 顶部；只有 authoring / manifest / sync-promote policy 需要判断时，才读本文件对应小节，不要默认阅读全文。
+本文件用于新增或维护 `packs/<pack>`。普通 case 先读 selected pack snapshot 中的 `references/<pack>/README.md`；只有需要改变 pack 结构、团队建议、工具边界或 learning 目标时才读本文件。manifest 是声明式索引，不是 runtime schema。
 
-## 实施摘要
+## 原则
 
-新增 pack 应从最小路由入口、manifest 单一事实源、managed/local 边界和 review-first sync/promote 开始。pack reference 本身也必须按需路由、渐进披露：顶部说明何时读取、不要默认读取什么，长流程拆到专题文档或 tooling recipe。
+- 一个 pack 只保存可跨 case 复用、已脱敏的领域方法与边界。
+- 不保存真实样本、trace/dump/capture、payload、flag、凭据、客户信息、绝对 case 路径或 case 进度。
+- pack 只能建议职责；durable member 由 Commander 按需创建，active team 仍受 3 名执行成员 + 1 名 Reviewer 上限约束。
+- heavy action 不由 manifest 自动授权。必须同时落在明确 case scope、获得针对具体动作的用户确认，并通过 Claude Code 工具权限；范围、预算或副作用漂移时停止。
+- learning 只从 accepted finding/review 提炼，经 Reviewer 检查证据、通用性、冲突、重复与脱敏，再由用户确认完整 exact patch。
+- selected pack 与 `common/**` policy closure 从同一 exact Git revision 物化到 case-local 只读 snapshot；case 日常不读取 mutable source clone。
 
-## 执行清单
-
-- 先判断是否真的需要新 pack，还是更新现有 reference、tooling recipe 或 common policy。
-- 新 pack 首批至少有 `manifest.yml`、`README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md` 的清晰边界。
-- `references/<pack>/README.md` 必须是 pack-local 路由入口，不是长必读清单。
-- tooling 经验优先进入 `tooling/catalog.yml` / `tooling/recipes/*`，不要混入 case-local artifact。
-
-## 验证标准
-
-- `go run ./cmd/rekit -- -Command doctor -Pack <pack>` 通过，必要时用临时 fresh/attached case 验证 init/sync/promote。
-- manifest paths 不越界，managed/promote/local/tooling 边界明确。
-- pack docs 顶部具备按需读取说明，且不包含真实样本、trace、dump、capture、绝对路径、payload、flag 或客户信息。
-
-## 风险与注意事项
-
-- 不要盲目复制任一 mature production pack；先抽象领域共性，再补最小可验证路由。
-- 不把文档索引变成默认 read-first 清单；超过 5 个入口时压缩为 pack README + 当前场景顶部区。
-- 新增 pack 不等于授权执行 heavy-tool；heavy action 仍由 autonomy profile + authorized-gate decision 控制。
-
-新增 pack 前先确认：该能力是否真的是新的安全领域，还是应作为现有 pack 的 reference、tooling recipe 或 common policy 改进。当前 mature production 参考是 `binary-re` 与 `web-security`；其它领域应从 `_template` 的最小合同出发，不要复制某个成熟 pack 后只替换名字。
-
-## 最小 pack 结构
+## 最小结构
 
 ```text
 packs/<pack>/
   manifest.yml
   CLAUDE.local.snippet.md
-  references/<pack>/README.md
-  references/<pack>/agent-team.md
-  references/<pack>/workflow-template.md
-  references/<pack>/toolchain-router.md
-  policies/README.md
-  policies/*.overlay.md
-  prompts/*.md
-  tooling/README.md
-  tooling/catalog.yml
-  tooling/recipes/*.md
+  references/<pack>/
+    README.md
+    agent-team.md
+    workflow-template.md
+    toolchain-router.md
+    task-handoff.template.md
+  policies/
+    README.md
+  tooling/
+    README.md
+    catalog.yml
+    recipes/*.md
 ```
 
-不是每个目录第一天都要完整实现，但 `manifest.yml`、`README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md` 必须先有清晰边界。
+`README.md` 是按需路由入口，不是长必读清单。`agent-team.md` 只描述领域职责、owner/verifier/Reviewer 分工和产出；`workflow-template.md` 描述研究阶段与停止条件；`toolchain-router.md` 描述工具选择、风险与证据要求；tooling recipe 不执行动作，只给出可审查步骤。
 
-## manifest 必填方向
+## Manifest
 
-`manifest.yml` 是 pack 的单一事实源。至少应声明：
+新 pack 从 `packs/_template/manifest.yml` 复制，使用当前声明格式：
 
 ```yaml
-schemaVersion: 1
+schemaVersion: 2
 name: <pack-name>
-version: <semver-like>
+version: 1.0.0
 description: <one-line>
-# maturity: mature | skeleton | template | experimental
-maturity: skeleton
-managedFiles:
-  - references/<pack>/README.md
-  - references/<pack>/agent-team.md
-  - references/<pack>/workflow-template.md
-  - references/<pack>/toolchain-router.md
-templateFiles:
-  - references/<pack>/task-handoff.template.md
-localNeverOverwrite:
-  - CLAUDE.local.md
-  - references/<pack>/task-handoff.md
-  - tools.local.yml
-managedBlock:
-  file: CLAUDE.local.md
-  blockId: <pack>:router
-  source: CLAUDE.local.snippet.md
-syncPolicy:
-  managedFiles: overwrite-with-backup
-  templateFiles: create-if-missing
-  localFiles: never-overwrite
-workstreamDefaults:
-  defaultAuthorityLane: main
-  defaultStartLaneType: feature
-  handoffPath: references/<pack>/task-handoff.md
-  backupRoot: .rekit/backups/sync
-  requestDefaultTargetLane: main
-authorityFiles:
-  - references/<pack>/task-handoff.md
-commonPolicies: []
-policyOverlays: []
-subagentRoutes:
-  - id: <pack>:bounded-review
-    taskTypes: candidate-review,evidence-review,tooling-review,security-assessment
-    trigger: fixed-boundary read-only review for candidate evidence or tooling notes
-    shardBasis: item
-    targetItemsPerAgent: 4
-    maxParallel: 3
-    reference: references/<pack>/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only
-    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,defer_reason
-toolingFiles: []
-heavyToolGates:
-  - id: inspect
-    title: 只读检查
-    sideEffects: inspect
-    defaultRisk: medium
-    requiresConfirmation: true
-    stopConditions: timeout,unexpected-side-effect
-promoteFiles:
-  - references/<pack>/README.md
-  - references/<pack>/agent-team.md
-  - references/<pack>/workflow-template.md
-  - references/<pack>/toolchain-router.md
-promptFiles: []
-laneTypes:
-  - id: main
-    title: 主线
-    authority: true
-    workspaceRoot: workspace/main
-    canWrite: references/<pack>/task-handoff.md
-    readOnly: .rekit/facts/**
-    outputs: publication,decision,observation
-  - id: feature
-    title: 功能分析
-    authority: false
-    workspaceRoot: workspace/features
-    canWrite: own-workspace
-    readOnly: references/<pack>/**,.rekit/facts/**
-    outputs: observation,request,candidate,summary
-toolingCandidateSources:
-  - references/<pack>/toolchain-router.md
-promoteDenyPatterns:
-  - "C:\\"
-  - "artifacts[\\/]"
-  - "captures[\\/]"
-  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\\.(csv|jsonl|log|txt|bin)"
-  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\\.(dmp|bin|raw|exe|dll)"
-  - "\\.dmp\\b"
-  - "0x[0-9A-Fa-f]{6,}"
-  - "ctx[0-9]+"
-  - "round[0-9]+"
-  - "Task #[0-9]+"
+maturity: declarative-vnext
+
+entrypoints:
+  router: references/<pack>/README.md
+  team: references/<pack>/agent-team.md
+  workflow: references/<pack>/workflow-template.md
+  tooling: references/<pack>/toolchain-router.md
+
+references: []
+templates: []
+policies: []
+tooling: []
+
+teamHints:
+  suggestedMembers: 1-2
+  reviewer: on-important-finding-or-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
+
+heavyActions:
+  - id: <action>
+    title: <human-readable>
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+
+learningTargets: []
+denyPatterns:
+  - real-case-identifiers
+  - raw-artifacts
+  - credentials-or-tokens
+  - absolute-case-paths
+  - customer-environment-details
 budgets:
+  CLAUDE.local.md: 8192
   defaultMarkdown: 16384
 ```
 
-所有路径必须是相对路径，不能越出 pack root 或 case root。示例中的 `.rekit/backups/sync` 与 lane `readOnly` 内的 `.rekit/facts/**` 是 retained manifest policy compatibility spelling：sync owner 会剥离 `.steamai` / `.rekit` backup 前缀并锚定 resolved active state root，facts owner 也通过 `projectstate` 解析 active root；current 项目实际只读写 `.steamai`，legacy-only 项目才读写 `.rekit`。不要据此推断 public entrypoint，也不要对 manifest 做全局品牌替换。
+要求：
 
-## 文件职责
+- 所有路径相对、存在且位于 pack root 或显式 `../../common/policies/` closure。
+- `entrypoints` 指向可读的按需入口。
+- `teamHints` 是建议，不是 task/owner database。
+- `heavyActions` 只声明风险、授权条件与止损条件，不创建 gate、receipt、lease 或 durable autonomy 状态。
+- `learningTargets` 是可生成 exact patch 的 tracked Markdown 目标集合；未知路径不自动接受。
+- `denyPatterns` 必须覆盖领域特有的 case 私有信息和原始 artifact。
+- `_template` 只用于 authoring，不能作为真实 case 的 selected pack。
 
-| 文件 | 职责 |
-|---|---|
-| `references/<pack>/README.md` | case 内按需路由入口，不承载长教程全文。 |
-| `agent-team.md` | pack 默认 subagent routes、packet 输出契约和 review-first 合并边界。 |
-| `workflow-template.md` | 领域主流程和验证路线。 |
-| `toolchain-router.md` | 工具选择、状态、升级门禁和止损条件。 |
-| `CLAUDE.local.snippet.md` | case-local router block，不写 case 私有事实。 |
-| `policies/*.overlay.md` | 对 common policy 的领域化补充。 |
-| `prompts/*.md` | Agent 会话角色提示。 |
-| `tooling/catalog.yml` | 工具 capability card。 |
-| `tooling/recipes/*.md` | 按任务阶段组织的工具用法。 |
+## 实施步骤
 
-## `_template` 骨架
+1. 判断该能力是否确实需要独立领域 pack；单个方法优先更新现有 reference 或 tooling recipe。
+2. 从 `packs/_template/` 复制最小结构并替换名称、路径和领域边界。
+3. 先写 router、workflow、team 与 tooling 入口，再补最少必要 recipe。
+4. 为每个 heavy action 写明 exact scope、具体用户确认、工具权限和停止条件。
+5. 检查所有示例只有 synthetic placeholder，不含真实 case 数据。
+6. 运行 focused repository contract、完整 Go suite、`go vet ./...` 与 `git diff --check`。
+7. 经验回流遵循 `vnext/learning-feedback.md`；不直接从 case 整文覆盖 pack，不自动 commit/push。
 
-本仓库提供 `packs/_template/` 作为新 pack 的起点。`packs/binary-re/` 与 `packs/web-security/` 是 mature production 参考；`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/` 与 `packs/android-native/` 是 schema-valid skeleton 参考。`generic-binary-re` 已退役，不得作为新 pack 起点。创建真实 pack 时复制 `_template` 并替换：
+## 验证
 
-- `schemaVersion`、`name`、`version`、`description`、`maturity` 与 `managedBlock.file/blockId/source`；`schemaVersion` 必须显式声明为 `1`，不能缺失或使用未支持版本；`name` 必须是稳定 machine id，`version` 必须是 semver-like 值，二者都必须显式声明，不能依赖 runtime 用 pack id 或 `0.0.0` 补齐；`description` 必须显式声明一行用途摘要；managed block 三个字段必须显式声明，不能依赖 runtime 注入默认 host、blockId 或 source，且不能添加未支持 key，`blockId` 必须是 namespaced id。
-- `managedFiles`、`templateFiles`、`localNeverOverwrite`、`promoteFiles`、`commonPolicies`、`policyOverlays`、`subagentRoutes`、`toolingFiles`、`promptFiles`、`toolingCandidateSources`、`authorityFiles`、`promoteDenyPatterns`、`heavyToolGates` 与 `laneTypes`；这些 schema-critical list key 必须显式声明，允许空列表的字段也不能缺 key，runtime 不再用 loader 阶段 fallback 或非空检查替代 schema validation；`managedFiles`、`templateFiles`、`localNeverOverwrite`、`promoteFiles`、`commonPolicies`、`policyOverlays`、`toolingFiles`、`promptFiles`、`toolingCandidateSources`、`authorityFiles` 与 `promoteDenyPatterns` 项必须落在受支持范围内且不能重复；`templateFiles` 必须使用 `.template.md` 源文件。
-- `references/template/**` 路径和目录名。
-- `subagentRoutes` 的 namespaced route id（例如 `<pack>:bounded-review`，namespace 必须精确匹配当前 pack id，route 名必须是小写 slug）、taskTypes、trigger、shardBasis、policyOverlay、subagentPermissions 和 outputContract；trigger 必须显式非空，说明何时触发该 route；targetItemsPerAgent 必须是 1-64 的正整数，maxParallel 必须是 1-16 的正整数；shardBasis 必须是小写 slug 或由 `-or-` 分隔的小写 slug 组合，不能包含空分片项；非空 policyOverlay 必须来自当前 manifest 显式声明的 `policyOverlays` 列表；subagentPermissions 只能是 `read-only` 或 `read-only-or-workspace-only`；taskTypes、mainAgentOwns 与 outputContract 是逗号/分号分隔列表，每个 token 必须是小写 slug/snake token，不能包含空项、重复项或非法字符。
-- `tooling/catalog.yml` 的工具条目。
-- `commonPolicies`、`policyOverlays`、`subagentRoutes`、`toolingFiles`、`promptFiles`、`promoteFiles`、`syncPolicy`、`workstreamDefaults`、`toolingCandidateSources`、`authorityFiles`、`promoteDenyPatterns`、budgets、`heavyToolGates.requiresConfirmation` 和 `laneTypes`；可为空的 route/policy/tooling/prompt list 也必须显式声明；`managedFiles`、`templateFiles`、`localNeverOverwrite` 与 `promoteFiles` 路径项必须非空、相对安全且不重复，`templateFiles` 必须使用 `.template.md` 源文件；`commonPolicies` 只能包含去重后的小写 slug；`policyOverlays` 非空项必须是 pack-relative `policies/*.overlay.md`；`toolingFiles` 非空项必须在 pack-relative `tooling/` 下；`promptFiles` 非空项必须是 repo-relative `common/prompts/*.md` 或 `packs/<pack>/prompts/*.md`；`promoteFiles` 必须显式声明允许 case → kit 回流的非空 managed 文件子集，不能依赖 `managedFiles` fallback；`toolingCandidateSources`、`authorityFiles`、`promoteDenyPatterns`、`heavyToolGates` 与 `laneTypes` 必须显式声明且按 contract 保持非空；tooling/authority source path 必须非空、可定位且不重复，promote deny pattern 必须非空、可编译且不重复；`syncPolicy` 必须显式声明当前 runtime 支持的 managed/template/local 三项策略，不能缺 key、添加未支持 key 或使用未支持值；`workstreamDefaults` 必须显式声明默认 authority/start lane、backupRoot 与 request 默认路由，可选 `handoffPath`，不能依赖 runtime fallback 或添加未支持 key；budgets 必须显式声明 map 与 `defaultMarkdown` 正整数，非 defaultMarkdown key 必须是相对安全路径，不能依赖 runtime 注入默认预算；每个 heavy tool gate 必须使用小写 action slug id、支持的 lowercase `defaultRisk`，显式声明 `requiresConfirmation: true`，且 `sideEffects` 列表项不能为空或重复，`stopConditions` 列表项必须是小写 slug/snake token、不能为空或重复；`laneTypes` 必须显式声明小写 slug id、title、workspaceRoot、authority true/false、canWrite/readOnly/outputs，不能依赖 runtime 注入 lane 名称、workspace 默认值或把缺失 authority 当作 false；canWrite/readOnly/outputs 列表项不能为空或重复，outputs 必须是小写 slug/snake token；新增 pack 应从 `_template` 的通用 baseline 开始再按领域补充。
+```text
+go test -count=1 -run 'TestAllPackManifestsUseThinDeclarativeShape|TestPackAndCommonSourcesDoNotExposeLegacyCommands' ./internal/steamai/vnextcontract
+go test -count=1 -p=2 -timeout=30m ./...
+go vet ./...
+git diff --check
+```
 
-`_template` 只作为作者模板，不代表可直接用于真实 case 的领域 pack。
+还应人工确认：
 
-## 新 pack 实施步骤
-
-1. 写 `docs` 或 issue 级设计草案，明确 pack 目标和非目标。
-2. 从 `packs/_template/` 复制最小目录并改名。
-3. 写 `references/<pack>/README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md`。
-4. 写 `CLAUDE.local.snippet.md`，只放短 router block。
-5. 补 tooling catalog 和至少一个 recipe。
-6. 用 `plan-subagents` 验证 route packet / summary，再用临时 case 验证 `init/attach/sync/promote`；新增 pack smoke 时优先复用 `rekit/tests/pack-smoke-lib.ps1`，让 wrapper 只声明 pack id、safe case prefix、route task type、expected route 和 output contract 字段。Schema-valid skeleton 自动进入 discovery；需要长期保留的 production vertical-slice smoke 必须显式加入 production smoke allowlist 并验证其 manifest maturity。若要标记为 mature release capability，还必须通过统一 adapter/fixture/semantic-verifier/instruction-consumption admission；smoke 或 catalog 存在性不能替代该合同。
-7. 只有两个以上 pack 重复出现相同规则时，才抽到 `common/`、runtime 或测试 helper。
-
-## 禁止
-
-- 不复制 `binary-re`、`web-security` 或其它 pack 的全套文档后只替换名字。
-- 不把真实样本、客户信息、RVA/VA、trace/dump、artifact 路径写入 pack。
-- 不在 pack 中硬编码本机工具路径；使用 `<caseRoot>`、`<toolsRoot>`、`<target>` 占位。
-- 不让 pack script 复制 runtime 逻辑；旧脚本只能 wrapper 到 `rekit/rekit.ps1`。
-- 不把未验证 case 经验直接写成通用规则。
-
-## 验证标准
-
-更完整的 smoke 选择表见 `rekit/tests/README.md`；本节只列新增/维护 pack 的最低标准。
-
-- `git diff --check` 通过。
-- `go run ./cmd/rekit -- -Command packs` 能列出新 pack，且该行 `maturity` 来自 manifest 显式字段，`schema=ok`、route / managed / tooling / authority 计数符合预期；自动化检查可加 `-Format json` 消费同一 inventory。Project-local current 用户仍使用 `/steamai`，这里的 direct Go 命令只属于 kit maintainer 验证。
-- `manifest.yml` 路径均为相对路径。
-- managed/template/local 边界清晰。
-- `managedFiles`、`templateFiles`、`localNeverOverwrite`、`promoteFiles`、`commonPolicies`、`policyOverlays`、`toolingFiles`、`promptFiles` 的非空项满足 manifest contract：managed/template/local/promote 路径非空、相对安全且不重复，template 源使用 `.template.md`，policy id 是小写 slug，overlay/tooling/prompt 路径落在对应 allowlist 范围内且不重复；`subagentRoutes.reference` 指向 managed/template/local 文件，route id 使用精确匹配当前 pack id 的 namespaced 小写 slug 形式且唯一，非空 `policyOverlay` 来自 `policyOverlays`，`taskTypes`、`trigger`、`shardBasis`、`targetItemsPerAgent`、`maxParallel`、`subagentPermissions`、`mainAgentOwns`、`outputContract` 齐全，`targetItemsPerAgent` / `maxParallel` 在受支持范围内，`shardBasis` 使用小写 slug / `-or-` 组合，`subagentPermissions` 使用受支持值，且逗号/分号分隔字段只包含去重后的有效小写 slug/snake token；`heavyToolGates.id` 和 `defaultRisk` 使用明确小写值，`sideEffects` 包含 action id、使用小写 slug 且无空项/重复项，`stopConditions` 使用小写 slug/snake token 且无空项/重复项；`laneTypes.id` 是小写 slug，canWrite/readOnly/outputs 无空项/重复项，outputs 使用小写 slug/snake token；`toolingCandidateSources`、`authorityFiles` path 非空、可定位且不重复，`promoteDenyPatterns` 非空、可编译且不重复；`name` / `version`、`managedBlock`、`syncPolicy`、`workstreamDefaults` 与 `budgets` 的 scalar/map 字段满足 machine-consumable contract，不能携带未支持 key 或不安全 budget path。
-- 新 pack 初始化不会覆盖 case-local 文件。
-- pack smoke 通过 `rekit/tests/pack-smoke-lib.ps1` 或等价验证覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界；临时 case prefix 不能让 pack 名中的通用词触发 case-specific deny pattern 误拦截。需要全量、子集或机器可读回归时使用 `rekit/tests/pack-smoke-matrix.ps1`（支持 `-Format json`）；`-DiscoveryOnly` 检查全部 schema-valid skeleton 加显式 production smoke allowlist 与 matrix/wrapper/catalog 一致，修改 matrix 输出契约时运行 `pack-smoke-matrix-selftest.ps1`。
-- promote deny patterns 覆盖绝对路径、artifact/capture/trace/dump、地址快照和 case 状态。
-- 声称 `maturity: mature` 还必须通过 `release-check.productionRegistry` 与 `productionPacks[]`：mature manifest 集合、`internal/rekit/productioncontract` registry、typed verified catalog 和 `adapterhost` 逐 pack executable owner exact match；每个 pack 的 harmless/synthetic 或 loopback fixture与 semantic verifier Go symbol 可解析；prompt/policy packet 从 project-local verified bundle 构建稳定 identity，并由 dispatch ticket、adapter intent/result、Claude launch、detached supervisor spec 与 structured-output recovery receipt 原样绑定。`productionPacks[].ready` 的 typed meaning 仅为 `repository-contract-inventory`，maturity来源是manifest声明，`receiptKind`只是expected instruction-consumption receipt kind；synthetic fixture不等于real Claude或real target/tool receipt。任一 source、symbol、receipt kind、pack 或 aggregate SHA drift 都会 fail-closed；仍不能用 schema-valid、tooling catalog、production smoke 或 E2E 任一单项替代完整合同或提升未观察的证据层。
+- manifest 声明路径完整且没有旧 runtime、lane、ledger 或命令入口；
+- pack/common snapshot 来自同一 revision；
+- team 文档没有让成员自行创建 durable member 或改变 case 授权；
+- Reviewer 不修改原 evidence/finding；
+- heavy action 不能由模板、消息或 `CLAUDE.md` 自动授权；
+- learning candidate 与 patch 已脱敏、单目标且可复核。

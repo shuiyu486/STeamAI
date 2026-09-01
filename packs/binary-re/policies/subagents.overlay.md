@@ -38,26 +38,18 @@ Extends: `common/policies/subagents.md`
 
 L3 只用于少数高价值 blocker，例如：高频 handler、value-flow 与 instruction trace 冲突、handler 边界/静态结构必须确认、或该 blocker 阻止后续批量自动化。若没有可用 IDB/session，L3 agent 应返回 `needs_ida_session` 或由主 agent 显式后台启动，不要阻塞普通 batch。
 
-## Route id / trigger / planner hints
+## Tactical subagent 建议
 
-manifest route：`binary-re:bounded-review`。
+以下情况可由当前 owner 启动只读 tactical subagent：
 
-触发条件：
+- focused batch、top unknown、trace/value-flow 或 tooling diff 需要批量只读复核；
+- 候选数量不少于 4，或需要 instruction-level review；
+- 出现 `LOW_OCCURRENCE`、`POINTER_ALIAS`、`SOURCE_POINTER_ALIAS`、`NO_TEMPLATE_MATCH` 等需要独立复核的 blocker；
+- 主会话只需要短结论，长 instruction/memory/value-flow 证据应留在 subagent 上下文。
 
-- focused batch、top unknown、trace/value-flow 或 tooling diff 需要批量只读复核。
-- 候选数量 `>= 4`，或需要 instruction-level review。
-- 出现 `LOW_OCCURRENCE`、`POINTER_ALIAS`、`SOURCE_POINTER_ALIAS`、`NO_TEMPLATE_MATCH` 等需要独立复核的 blocker。
-- 主会话只需要短结论，长 instruction/memory/value-flow 证据应留在子 agent 上下文。
+默认按 handler 分片，每个 subagent 处理约 4 项，总并行度不超过 3，并保持只读。它们是 owner 的短命执行方式，不成为 durable member，不改变 task owner，也不自行招募。CSV 写入、验证和 handoff 更新仍由 owner 检查后执行。
 
-默认 planner 参数：
-
-- `shardBasis=handler`
-- `targetItemsPerAgent=4`
-- `maxParallel=3`
-- `subagentPermissions=read-only`
-- `mainAgentOwns=csv-backup,csv-write,validation,handoff-update`
-
-不满足固定分片边界时，先用脚本聚合/缩小输入，不启动无界子 agent。
+不满足固定分片边界时，先聚合或缩小输入，不启动无界 subagent。
 
 ## 输出契约
 

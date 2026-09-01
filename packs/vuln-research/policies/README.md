@@ -1,5 +1,9 @@
-# Vuln-research policy overlays
+# Authorized vulnerability research policy overlay
 
-This pack currently relies on common policies and keeps overlays empty until repeated case experience justifies a vulnerability-research-specific rule.
+本 pack 继承 case `.steamai-vnext/CLAUDE.md` 与 case-local contracts。领域补充如下：
 
-Do not add case-specific targets, crash files, PoC payloads, request/response bodies, customer names, environment paths, core/minidumps, pcaps, traces, exploit details, or raw artifacts here.
+- 研究重点：crash triage、root-cause hypothesis、repro evidence 与 patch analysis。
+- target_ref、repro_ref、crash_ref、patch_ref 只能作为 case-local 脱敏引用。
+- 先建立 artifact 索引和 evidence，再形成 finding；重要结论由 Reviewer 独立复核。
+- heavy action 需要明确 case 授权、具体用户确认、工具权限、预算和停止条件。
+- 不把真实对象、原始 artifact、凭据、客户信息、绝对路径或 case 进度写回 pack。

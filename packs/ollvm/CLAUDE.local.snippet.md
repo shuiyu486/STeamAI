@@ -1,16 +1,18 @@
 <!-- BEGIN ollvm:router -->
-# OLLVM pack router
+# OLLVM and native obfuscation research pack router
 
-本 pack 用于授权 OLLVM / native obfuscation analysis、control-flow flattening triage、opaque predicate review、MBA simplification 与 deobfuscation candidate review 场景的 Agent Team 工作流。它是多安全领域 pack 的最小骨架，当前重点是 route、ledger、handoff、tooling adapter 和 review-first 契约，不是自动反混淆引擎、patch 平台、符号恢复器或样本执行器。
+本 pack 只用于明确授权的安全研究 case，提供 control-flow flattening、opaque predicate、MBA simplification 与 CFG 证据 的声明式方法与审查边界。
 
 - 路由入口：`references/ollvm/README.md`
-- Agent Team route：`references/ollvm/agent-team.md`
+- 团队协作：`references/ollvm/agent-team.md`
 - 工作流：`references/ollvm/workflow-template.md`
 - 工具路由：`references/ollvm/toolchain-router.md`
 
 规则：
 
-- 样本、反混淆后二进制、patch、trace、dump、完整 CFG、函数体 raw dump、符号表、IOC、hash 和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 动态执行、调试、trace、dump、patch、批量反编译、自动重命名、自动写注释、自动导出反混淆二进制或外部联网必须有隔离、预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
-- 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
+- 只从 case-local pack snapshot 读取本 pack；当前 case 不跟随 source pack 漂移。
+- Commander 按需创建 durable member；每个问题一名 owner、最多一名 verifier，重要 finding 由独立 Reviewer 复核。
+- binary_ref、function_ref、cfg_region_ref、simplification_ref 只能是 case-local 脱敏引用，不写入真实对象、原始 artifact、凭据、客户信息或绝对路径。
+- heavy action 必须同时满足明确 case 授权、针对具体动作的用户确认与 Claude Code 工具权限；范围、预算或副作用漂移时立即停止。
+- 研究结论写入 evidence/finding/review；只有 accepted finding/review 才能生成脱敏 learning candidate。
 <!-- END ollvm:router -->

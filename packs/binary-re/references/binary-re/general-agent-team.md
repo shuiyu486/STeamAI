@@ -1,41 +1,27 @@
-# Binary RE 通用 Agent Team 路由
+# Binary RE 团队协作
 
-## 角色边界
+## 建议职责
 
-- `main`：确认授权范围、隔离和 gate 状态；合并 reviewer verdict，写 ledger/handoff，并控制 authority 写入。
-- `binary-analysis`：在自己的 workspace 中分析 binary/function/API/format/behavior hypothesis，提交 observation、request、candidate 或 summary。
-- `reviewer`：只读复核 bounded sidecar 与 hypothesis，输出 verdict；不执行样本、不 trace、不 patch、不写共享状态。
-- `tooling`：维护 capability、输入输出、sidecar、预算与止损；默认不执行动态动作或写回分析数据库。
+- **Commander**：确认授权与边界、按需组队、解决冲突、组织审查并集成交付。
+- **Static analysis member**：围绕一个 binary/function/API/format 问题收集 bounded evidence 并写 finding。
+- **Feature analysis member**：围绕一个持续独立功能收集入口、xref、wrapper 与阻塞点证据。
+- **Tooling member**：评估工具能力、输入输出、风险和止损；不把工具私有状态写回 pack。
+- **Reviewer**：只读 artifact/evidence/finding，只写 review，不执行样本、trace、patch 或其它 heavy action。
 
-## Routes
+## 组队与协作边界
 
-| route | 适用任务 | 分片 | 权限 | 输出 |
-|---|---|---|---|---|
-| `binary-re:binary-analysis` | static triage、function/API behavior、string/format 分析 | binary-function-or-behavior | read-only-or-workspace-only | observation/request/candidate |
-| `binary-re:bounded-review` | finding/evidence/function/API/tooling 及 VMP bounded review | function-or-finding | read-only | verifier verdict |
-| `binary-re:lane-feature-analysis` | VMP feature workspace 与 lowering request | feature | read-only-or-workspace-only | observation/request/candidate |
+- active team 最多 3 名执行成员和 1 名 Reviewer；没有持续独立职责就不创建 durable member。
+- 每个问题一名 owner、最多一名 verifier；第三人介入前说明缺少的独立能力。
+- 正式成员身份与当前任务属于成员目录 `CLAUDE.md`，会话只提供工作记忆。
+- 普通发现不广播；请求帮助必须定向、可行动、有边界和停止条件。
+- 共享 IDB、confirmed table 和最终报告有一名明确写入 owner；其他成员只提交 evidence/finding。
 
-`plan-subagents` 只生成 packet 和 observability，不自动 spawn agent。主会话启动短命 agent、收集结果，并通过 canonical typed action 写 verification/decision。
+## Finding 与 review
 
-## Packet contract
+finding 至少包含 subject、owner、verifier、evidence refs、claim、confidence、limitations 和未证明部分。Reviewer 使用 `accepted`、`needs-evidence`、`disputed` 或 `superseded`；`needs-evidence` 返回原 owner。
 
-所有输出必须包含：
+所有 ref 必须是 case-local 脱敏 alias 或 sidecar id，不得包含样本路径、hash、完整函数体、dump/trace 路径、patch bytes、IDB 路径或绝对路径。
 
-```text
-item, decision, confidence, evidence, risk, next_action, tier_used, tool_scope, defer_reason
-```
+## Heavy action
 
-通用分析可追加：
-
-```text
-binary_ref, function_ref, artifact_ref, behavior_hint, api_ref, candidate_path
-```
-
-这些 ref 必须是 case-local 脱敏 alias 或 sidecar id，不是样本路径、hash、完整函数体、dump/trace 路径、patch bytes、IDB 路径或绝对路径。子 agent 的 `decision` 不是 canonical ledger decision；main 合并后再写 verification 与 decision。
-
-## Review-first 门禁
-
-- accepted hypothesis 只能进入 main 合并队列，不能直接写 confirmed、authority 或发布报告。
-- 证据不足使用 `defer`/`needs-more-evidence`，并给出最小下一步。
-- heavy action 先走 `/steamai gate` preflight；只有 exact scope 的 fresh `authorized-gate` 加 strict durable profile 才允许 executor 执行。
-- 每个 shard 的失败只影响本 shard，不阻塞无关任务。
+执行、debug、trace、inject、patch、dump、network、bulk decompile 或 shared database writeback 必须展示 exact action/target、隔离、预算、输出、rollback 与 stop conditions，并取得用户具体确认和 Claude Code 工具权限。成员任务或跨会话消息都不能替代该确认。

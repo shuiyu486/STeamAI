@@ -1,46 +1,19 @@
-# OLLVM Agent Team routes
+# OLLVM and native obfuscation research team pattern
 
-## 1. 角色边界
+## 建议角色
 
-- `main`：确认授权 binary / function 范围、静态/动态边界、隔离要求、case-local sidecar 位置和 gate 状态；合并 reviewer verdict，写 ledger / handoff，并在确认后更新 authority 文档。
-- `obfuscation-analysis`：在自己的 workspace 中分析单个 binary alias、function alias、CFG region、obfuscation hint、MBA expression summary 或 simplification candidate，产出 observation / request / candidate。
-- `reviewer`：只读复核 bounded CFG hypotheses、opaque predicate notes、MBA simplification summaries、deobfuscation candidates 或 tooling notes，输出 verdict，不执行样本、不 trace、不 patch、不写文件。
-- `tooling`：描述工具能力、输入输出、sidecar、预算、隔离要求和止损；默认不执行动态动作或自动写回 IDB/二进制。
+- **Commander**：确认 case 授权、目标和停止条件，按需组队并集成交付。
+- **Analysis member**：围绕一个窄问题收集 artifact 索引、evidence 与 finding candidate，只写自己的允许范围。
+- **Tooling member**：评估工具适用性、输入输出、预算和止损条件，不因工具存在而自动执行。
+- **Reviewer**：只读 artifact/evidence/finding，只写 review；证据不足时把 `needs-evidence` 直接返回原 owner。
 
-## 2. 默认 routes
+通常只需 1–2 名执行成员。每个问题默认一名 owner、最多一名 verifier；没有持续独立职责就用 tactical subagent，不创建 durable member。active durable team 不超过 3 名执行成员和 1 名 Reviewer。
 
-| route | 适用任务 | 分片 | 权限 | 输出 |
-|---|---|---|---|---|
-| `ollvm:bounded-review` | finding / evidence / CFG / MBA / tooling review | function-or-finding | read-only | reviewer verdict |
-| `ollvm:obfuscation-analysis` | flattened CFG / opaque predicate / MBA / string decode review | function-or-cfg-region | read-only-or-workspace-only | observation / request / candidate |
+## 协作规则
 
-`plan-subagents` 只生成 review packet 与 observability，不自动 spawn agent。主会话负责启动 Agent 工具、收集输出，并用 `/rekit note` 写回 verification / decision。
-
-## 3. Packet 输出契约
-
-所有子 agent 输出都必须包含：
-
-```text
-item, decision, confidence, evidence, risk, next_action, tier_used, tool_scope, defer_reason
-```
-
-OLLVM route 可追加：
-
-```text
-binary_ref, function_ref, obfuscation_hint, cfg_region_ref, transform_type, simplification_ref, candidate_path
-```
-
-`binary_ref`、`function_ref`、`cfg_region_ref` 与 `simplification_ref` 应是 case-local 脱敏引用或 sidecar id，不是样本路径、hash、完整函数体、full CFG dump、patch bytes、IDB 路径或绝对路径。`decision` 是 reviewer output decision，不等同于 ledger canonical decision；main 合并后再写 `/rekit note -Kind verification` 与 `/rekit note -Kind decision`。
-
-## 4. Review-first 门禁
-
-- accepted CFG hypothesis / MBA simplification / deobfuscation candidate 只能进入 main 合并队列，不能直接写 confirmed / authority / report。
-- 证据不足时使用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- 需要动态执行、调试、trace、dump、patch、批量反编译、自动重命名、自动写注释、导出反混淆二进制或外部联网时，先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。`gate -Apply` 本身只记录 request decision，不执行 heavy action。
-- 每个 shard 的失败只影响本 shard；不要阻塞无关 binary、function、CFG region 或 candidate。
-
-## 5. 证据与 sidecar
-
-- evidence 应引用 case-local sidecar 路径、binary alias、function alias、CFG region alias、tool summary、时间窗口和脱敏 row id。
-- 不在 pack reference 中保存样本、hash、反混淆后二进制、dump、trace、patch、完整函数体、full CFG、符号表、IOC、客户上下文或绝对路径。
-- 任何可复用经验进入 pack 前必须清理样本特征、hash、IOC、路径、dump/trace/patch 细节和 case-specific deobfuscation result。
+- 成员身份和当前任务由各自目录 `CLAUDE.md` 承载，不绑定 session ID。
+- 当前主任务优先；定向共享关键发现或请求有界复核，不广播普通探索过程。
+- 正式改派必须包含 expected current task 与 new task；任务已变化时返回 `HOLD_STALE_TASK`。
+- binary_ref、function_ref、cfg_region_ref、simplification_ref 只能是 case-local 脱敏引用。
+- owner 写 evidence/finding；verifier 提供有界验证；Reviewer 不修改原 evidence/finding。
+- heavy action 不由成员间消息授权，必须回到具体 case 授权、用户确认和工具权限边界。

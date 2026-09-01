@@ -1,174 +1,60 @@
-schemaVersion: 1
+schemaVersion: 2
 name: _template
-version: 0.1.0
-description: Template pack skeleton for authoring new security Agent Team packs
+version: 0.2.0
+description: Template skeleton for authoring declarative STeamAI security research packs
 maturity: template
 
-managedFiles:
+entrypoints:
+  router: references/template/README.md
+  workflow: references/template/workflow-template.md
+  team: references/template/agent-team.md
+  tooling: references/template/toolchain-router.md
+
+references:
   - references/template/README.md
   - references/template/agent-team.md
   - references/template/workflow-template.md
   - references/template/toolchain-router.md
 
-templateFiles:
+templates:
   - references/template/task-handoff.template.md
 
-localNeverOverwrite:
-  - CLAUDE.local.md
-  - references/template/task-handoff.md
-  - tools.local.yml
+policies: []
 
-managedBlock:
-  file: CLAUDE.local.md
-  blockId: template-pack:router
-  source: CLAUDE.local.snippet.md
+tooling:
+  catalog: tooling/catalog.yml
+  references:
+    - tooling/README.md
 
-syncPolicy:
-  managedFiles: overwrite-with-backup
-  templateFiles: create-if-missing
-  localFiles: never-overwrite
+teamHints:
+  executionMembers: 1-3
+  reviewer: optional
+  suggestedRoles:
+    - focused-analysis
+    - tooling-evaluation
+  rules:
+    - Commander creates durable members only for sustained independent work.
+    - One owner and at most one verifier per question.
+    - Reviewer reads artifact, evidence, and finding, then writes review only.
 
-workstreamDefaults:
-  defaultAuthorityLane: main
-  defaultStartLaneType: feature
-  handoffPath: references/template/task-handoff.md
-  backupRoot: .rekit/backups/sync
-  requestDefaultTargetLane: main
+heavyActions:
+  - id: dynamic-or-external-action
+    risk: high
+    requiredAuthorization: exact case-scoped user confirmation and Claude Code tool permission
+    requiredContext: exact target, isolation, bounded runtime/output, rollback, stop conditions
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
 
-authorityFiles:
-  - references/template/task-handoff.md
-
-commonPolicies:
-  - agent-team
-  - tool-adapters
-  - context-budget
-  - subagents
-  - lane-collaboration
-  - review-first
-  - write-boundaries
-  - verification
-  - evidence
-  - tool-output
-  - handoff
-
-policyOverlays: []
-
-subagentRoutes:
-  - id: _template:bounded-review
-    taskTypes: candidate-review,evidence-review,tooling-review,security-assessment,workstream-review
-    trigger: fixed-boundary read-only review for candidate evidence, tooling notes, or security assessment slices
-    shardBasis: item
-    targetItemsPerAgent: 4
-    maxParallel: 3
-    reference: references/template/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only
-    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,defer_reason
-  - id: _template:lane-feature-analysis
-    taskTypes: feature-analysis,workstream-analysis,request-review,candidate-analysis
-    trigger: feature workspace has requests/candidates or needs bounded analysis before main merge
-    shardBasis: feature
-    targetItemsPerAgent: 1
-    maxParallel: 2
-    reference: references/template/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only-or-workspace-only
-    mainAgentOwns: canonical-write,ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,feature,request_id,candidate_path,defer_reason
-
-promoteFiles:
-  - references/template/README.md
-  - references/template/agent-team.md
-  - references/template/workflow-template.md
-  - references/template/toolchain-router.md
-
-toolingFiles:
-  - tooling/README.md
+learningTargets:
+  - references/template/*.md
   - tooling/catalog.yml
+  - tooling/recipes/*.md
 
-promptFiles: []
-
-laneTypes:
-  - id: main
-    title: 主线
-    authority: true
-    workspaceRoot: workspace/main
-    canWrite: references/template/task-handoff.md
-    readOnly: .rekit/facts/**
-    outputs: publication,decision,observation
-  - id: feature
-    title: 功能分析
-    authority: false
-    workspaceRoot: workspace/features
-    canWrite: own-workspace
-    readOnly: references/template/**,.rekit/facts/**
-    outputs: observation,request,candidate,summary
-
-toolingCandidateSources:
-  - references/template/toolchain-router.md
-
-heavyToolGates:
-  - id: inspect
-    title: Bounded read-only fixture inspection
-    sideEffects: inspect,filesystem-write
-    defaultRisk: medium
-    requiresConfirmation: true
-    stopConditions: timeout,scope-drift,budget-exhausted
-  - id: full-trace
-    title: Full trace capture
-    sideEffects: full-trace,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: budget-exhausted,scope-drift,output-exceeds-bounded-evidence-packet
-  - id: debug
-    title: Dynamic debug or attach
-    sideEffects: debug,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: timeout,unexpected-side-effect,scope-drift
-  - id: inject
-    title: Runtime injection or hook
-    sideEffects: inject,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: unexpected-mutation,scope-drift,budget-exhausted
-  - id: patch
-    title: Binary or project patch
-    sideEffects: patch,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: overwrite-risk,scope-drift,no-rollback-path
-  - id: dump
-    title: Memory or artifact dump
-    sideEffects: dump,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: output-exceeds-bounded-evidence-packet,sensitive-artifact-detected,scope-drift
-  - id: network
-    title: Network access or replay
-    sideEffects: network,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift
-  - id: symex
-    title: Long symbolic execution
-    sideEffects: symex,filesystem-write
-    defaultRisk: medium
-    requiresConfirmation: true
-    stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
-
-promoteDenyPatterns:
-  - "C:\\"
-  - "artifacts[\\/]"
-  - "captures[\\/]"
-  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)"
-  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)"
-  - "\.dmp\b"
-  - "0x[0-9A-Fa-f]{6,}"
-  - "ctx[0-9]+"
-  - "round[0-9]+"
-  - "Task #[0-9]+"
+learningDenyPatterns:
+  - 'C:\\'
+  - 'artifacts[\\/]'
+  - 'captures[\\/]'
+  - '(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]'
+  - 'Task #[0-9]+'
 
 budgets:
   CLAUDE.local.md: 8192

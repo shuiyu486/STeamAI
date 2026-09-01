@@ -1,23 +1,16 @@
-# <PROJECT_NAME> Web/API security handoff
+# Authorized Web and API security research task handoff
 
-Project root: `<PROJECT_ROOT>`
+- Case goal：
+- Authorization boundary：
+- Prohibited actions：
+- Stop conditions：
+- Current owner：
+- Current task：
+- Artifact aliases：
+- Evidence references：
+- Findings：
+- Reviews：
+- Blockers / uncertainty：
+- Next bounded action：
 
-## 当前范围
-
-- 授权目标：<case-local summary>
-- 允许动作：<case-local summary>
-- 禁止动作：<case-local summary>
-
-## 当前状态
-
-- 主线：main
-- 开放工作线：<lanes>
-- 最近 decision / verification：见 `.rekit/facts/*.jsonl`
-
-## Pending gates
-
-- <pending-gate request ids>
-
-## 下一步
-
-- <next action>
+不得写入真实对象名、原始 artifact、凭据、客户信息或绝对路径。研究事实以 case-local artifact/evidence/finding/review 为准，session 对话不是 durable source of truth。

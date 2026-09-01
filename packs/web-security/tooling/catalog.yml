@@ -1,36 +1,24 @@
-schemaVersion: 1
+schemaVersion: 2
 pack: web-security
-purpose: Web/API security tooling catalog
-
-paths:
-  caseRoot: <caseRoot>
-  toolsRoot: <toolsRoot>
-  target: <target>
-  sidecar: <caseRoot>/evidence/sidecars
-
-tools:
-  - id: openapi-v3-json-inventory
-    status: supported
-    entry: compiled-in rekit-adapter-host child; catalog entry is provenance only and is never executed
-    purpose: Build a bounded typed endpoint, server, parameter, and auth inventory from one case-local OpenAPI 3 JSON document without network access or secret-value persistence.
-    sideEffects: filesystem-read,bounded-packet-write
-    gateActions: inspect
-    reusableNotes:
-      - Emit tooling/schemas/openapi-inventory-v1.schema.json through the fixed compiled-in adapter; do not fetch remote refs, execute catalog entry text, or retain descriptions, examples, defaults, credentials, tokens, cookies, or response bodies.
-      - Store the typed inventory as a case-local sidecar and cite only bounded paths and hashes in Markdown.
-  - id: bounded-http-replay
-    status: supported
-    entry: compiled-in rekit-adapter-host child; catalog entry is provenance only and is never executed
-    purpose: Replay exactly one inventoried GET, HEAD, or OPTIONS request to an exact loopback IP origin and emit a deterministic digest-only response diff.
-    sideEffects: network,bounded-packet-write
-    gateActions: network
-    reusableNotes:
-      - Requires strict durable profile plus exact authorized gate, one request, zero redirects, no ambient proxy, no retries, bounded runtime/body bytes, and an authRef environment reference rather than secret bytes.
-      - Uncertain delivery is terminal and is never retried or replaced; result sidecars contain only status, byte counts, and SHA-256 digests, never credential or response bytes.
-  - id: proxy-export-review
-    status: auxiliary
-    entry: Burp/ZAP/HAR export summary sidecar
-    purpose: Review saved proxy summaries without importing full project files into chat.
-    sideEffects: none when reviewing saved exports
-    reusableNotes:
-      - Sanitize target names and secrets before promoting any recipe.
+mode: declarative
+entries:
+  - id: passive-triage
+    recipe: tooling/recipes/passive-triage.md
+    purpose: Bounded passive triage for web-security
+    inputs: [case-local-alias, explicit-scope, stop-conditions]
+    outputs: [evidence-summary, limitations, next-action]
+    risk: review-before-use
+  - id: request-replay
+    recipe: tooling/recipes/request-replay.md
+    purpose: Bounded request replay for web-security
+    inputs: [case-local-alias, explicit-scope, stop-conditions]
+    outputs: [evidence-summary, limitations, next-action]
+    risk: review-before-use
+schemas:
+  - tooling/schemas/bounded-replay-request-v1.schema.json
+  - tooling/schemas/bounded-replay-result-v1.schema.json
+  - tooling/schemas/openapi-inventory-v1.schema.json
+constraints:
+  - No entry executes automatically.
+  - Heavy actions require exact case scope, specific user confirmation, and tool permission.
+  - Stop on scope drift, budget exhaustion, unexpected side effects, or sensitive output.

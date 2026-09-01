@@ -1,80 +1,73 @@
-# STeamAI 架构与产品收敛路线
+# STeamAI vNext 薄核心路线
 
 ## 读取指南
 
-本文件是当前已批准路线的唯一 active source。新会话先由 `docs/context-routing.md` 路由到这里，只读取顶部执行区与当前批次卡；`docs/batch-plan.md` 只是短投影，不是第二选题源。上一条 `steamai-product-optimization-v1` 已完成，其实现与验证事实按需从 `CHANGELOG.md`、`docs/batch-history.md` 和 Git history 追溯，不重新成为当前工作。
+本文件是已完成 `steamai-vnext-thin-core-v1` 的验收事实源。新会话先由 `docs/context-routing.md` 路由到这里，只读取顶部完成区与验收卡；`docs/batch-plan.md` 只是短投影，不是第二选题源。新的条件卡只在真实反馈或明确目标出现时按需读取 `docs/real-usage-hardening-backlog.md`。更早历史从 Git history 或 `CHANGELOG.md` 追溯。
 
 ## 实施摘要
 
-当前路线是 `steamai-architecture-product-convergence-v1`，由用户于 2026-08-29 明确批准。目标不是继续增加字段、summary、inventory 或 projection，而是按证据修复正确性断点，消除重复 command/projection owner，补齐普通用户任务生命周期与恢复体验，并以真实产品路径证明改造有效。
+`steamai-vnext-thin-core-v1` 已完成。当前产品是薄的安全研究团队核心：复用 Claude Code 原生会话、消息、恢复和工具；用成员目录与 `CLAUDE.md` 承载身份和当前任务；用 artifact、evidence、finding、review 与经确认的 learning 回流形成研究闭环。canonical `/steamai` 已切换，旧产品控制面已整体删除。
 
-路线采用四个锁定阶段：`APC-01` 正确性与验证可信度 → `APC-02` typed command / projection 单一 owner → `APC-03` mission 生命周期与公开 UX → `APC-04` 真实产品验收与架构收口。每阶段必须形成可运行闭环或删除旧 owner；不得用拆文件、增加 DTO、补文案或新增平行兼容层冒充架构收敛。
-
-产品获取方式继续保持 `source-clone-first`；不实现 installer，不新增 GUI/TUI 或 PowerShell runtime logic，并明确拒绝 PATH/外部 kit fallback。默认 quickstart 只保留 `cd <project> → claude → /steamai`；本路线也不改写 authority/confirmed、strict gate、generation、receipt 与 execution-control 安全边界。
+保持 `source-clone-first`，不实现 installer、GUI/TUI 或新 PowerShell runtime logic，并拒绝 PATH/外部 kit fallback。切换后默认 quickstart 只保留 `cd <project> → claude → /steamai`。vNext 不以长期无人值守自治为目标，不自建 Agent runtime、session supervisor、消息总线、任务数据库或通用事务框架。
 
 ### 当前指针
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-architecture-product-convergence-v1` |
-| 当前批次 | `APC-04 真实产品验收与架构收口` |
+| 路线 | `steamai-vnext-thin-core-v1` |
+| 当前批次 | `VNT-06 收尾发布验证` |
 | 状态 | `completed` |
-| 唯一允许领取 | `none` |
-| 上一批 | `APC-03` 已完成 |
-| 下一批 | `none`；等待新的明确批准路线 |
+| 唯一允许领取 | 无；批准路线已完成 |
+| 前置 | `VNT-05` 已完成旧控制面物理删除、pack/common 声明式收敛、policy closure 与终审修复 |
+| 下一批 | 无；后续仅按真实使用反馈立项 |
 | canonical repository | `https://github.com/shuiyu486/STeamAI` |
-| 暂保留兼容身份 | Go module `github.com/shuiyu486/re-context-kits`、内部 `rekit` names、legacy `/rekit` / `.rekit` |
+| canonical module | `github.com/shuiyu486/STeamAI`；仅承载 test-only acceptance |
+| legacy inputs | 旧 `.steamai` / `.rekit` 只读 importer source，不是兼容 runtime |
 
 ## 执行清单
 
-- [x] **APC-01 — 正确性与验证可信度**：已修复 standalone host/unified runtime image role 与 stable-byte publication、`continue` partial-prefix recovery 和 semantic dedup、Git-local receipt/Git fixture隔离；真实 subprocess、fault-injection、focused/affected/full canonical validation均通过。
-- [x] **APC-02 — typed command / projection 单一 owner**：typed invocation 已成为 executable selector/carrier/rendering 的事实源；Overview 与 direct step/current-loop diagnostics 统一先做 detached typed projection，current/legacy × text/table/JSON 隔离通过；shadow command catalog/parser 和绕过 projector 的 direct response 已删除。
-- [x] **APC-03 — mission 生命周期与公开 UX**：`details-required`、review-first continue、missing-board recovery、mature pack/source-clone guidance与 completed mission successor generation 已形成单一公开闭环；successor exact recovery、project identity/commit chain与 status shared read fence 已通过对抗性和产品回归。
-- [x] **APC-04 — 真实产品验收与架构收口**：Windows fresh canonical/vet/diff/contract/public gates、自包含/复制/篡改/双根、`binary-re`/`web-security`、successor generation与两条显式 real-Claude 产品路径均有直接运行证据；独立终审无 Important/Blocker。
+- [x] 删除 `cmd/**`、`internal/rekit/**`、legacy `/rekit`/`verify` skills、PowerShell façade、adapter/runtime assets 与旧生产 Go package。
+- [x] 将 project-local skill template 迁入 `vnext/project-skill/`，保持 canonical exact bytes，不保留 generator 或第二运行入口。
+- [x] 重写 CI 与 stop-hook，不再调用已删除 CLI、release-check、doctor、sync/promote 或 runtime smoke。
+- [x] 将 `common/**` 收敛为 Claude Code 原生团队、evidence/review/learning 与权限确认语义。
+- [x] 将 `packs/**` 收敛为声明式领域资产，删除旧 lane/ledger/gate/runtime schema、失效命令与 executable 脚本。
+- [x] 增加 repository no-legacy-production、manifest/policy closure 与 pack/common exact snapshot 验收；fresh suite、vet、diff、Windows live probe 与终审通过。
 
-### 锁定顺序
+## 完成验收卡
 
-| 阶段 | 解锁条件 |
-|---|---|
-| `APC-01` | 当前唯一允许实施 |
-| `APC-02` | `APC-01` focused/fault-injection/affected/full validation 全部通过 |
-| `APC-03` | `APC-02` 删除旧 owner 且 current/legacy × text/table/JSON 一致性通过 |
-| `APC-04` | `APC-03` 的普通用户闭环通过临时项目产品验收 |
-| 路线总体完成 | 四阶段全部完成；fresh machine validation、direct commit 与本地 tracking ref独立证明 publication truth |
+### VNT-06：收尾发布验证
 
-## 当前批次卡
+**状态**：completed。
 
-### APC-04：真实产品验收与架构收口
+**目标结果**：
 
-**状态**：completed；无当前 owner，不自动创建下一路线。
+1. 仓库不再包含旧 mega CLI、session/driver/reviewer 状态机、unified runtime、adapter host、PowerShell façade 或可发现的 legacy `/rekit` skill。
+2. 产品源只保留 canonical skill、vNext 声明式模板/合同、声明式 pack/common 与 test-only acceptance；生产 Go package 数量为零。
+3. selected pack snapshot 包含 pack 及其 current common closure，全部来自同一 exact Git revision；case 日常不读取 mutable source clone。
+4. CI、README、router、stop-hook 和 current pack/common 不引用已删除命令、状态根或旧 runtime authority/gate/ledger 语义。
 
-**收口结论**：
+**非目标**：本批不抹除 Git history 中的旧架构事实，不引入 installer、GUI/TUI、生产 helper 或新控制状态机，不执行真实 heavy action，不自动 commit/push。
 
-1. APC-01～APC-03 已整体通过 fresh canonical/public gates；actor-bound exact `applyArgs` 最后修复后再次全仓通过。
-2. Windows、source-clone/self-contained、copy/tamper/dual-root、mature pack和显式real-Claude路径均有直接证据；synthetic、cross-compile、workflow definition与`release-check.ready`未被提升。
-3. typed invocation与mission namespace各有单一production owner，status完整DTO受同一shared lease保护。production Go规模仍高，尤其`cli`、`workstream`、`sessionhost`和`releasecheck`；没有为减行数合并不同安全状态机。独立复审无Important/Blocker。
-4. 本路线不声称remote CI green、非Windows runtime E2E或formal release，也不自动合并`main`。
+**验收结果**：tracked production paths 无 `cmd/**`、`internal/rekit/**`、`rekit/**`、legacy skills 或 PowerShell runtime；唯一 Go package 为 test-only `internal/steamai/vnextcontract`，module 为 canonical `github.com/shuiyu486/STeamAI`；canonical/template exact、importer、pack/common snapshot、manifest/policy closure、repository no-legacy contracts、fresh suite、vet、diff、Windows live probe 与终审均通过。未执行 remote CI、跨机器 Remote Control E2E 或 formal release，不将 workflow definition 冒充这些结果。
 
 ## 路线级验证标准
 
-- 每阶段必须修复一个可复现缺陷、删除一个重复 owner、走通一个真实用户闭环，或产生可量化的复杂度净减；只增加字段/summary/inventory不算完成。
-- current `.steamai` live command carrier只显示 `/steamai`；legacy `.rekit`保留 `/rekit`。不得全局替换 prose 或 durable/source identity。
-- 普通用户不填写 SHA、generation、session ID、内部路径或 maintenance flags；需要 exact binding时由主 Agent消费 typed carrier。
-- 架构收口不是把 `cli.go` 拆文件：`cli` 包与重复 projection/parser 必须有实际净减，旧 owner必须删除。
-- `release-check.ready`、文档勾选、cross-compile、synthetic fixture或一次测试通过都不能单独证明路线完成。
+- 一个项目对应一个明确授权的安全研究 case；不同 case 只共享经 Reviewer 审查、脱敏和用户确认的 pack 经验。
+- Commander 按需组队；成员身份和当前任务由专属目录 `CLAUDE.md` 承载，默认可见独立 Claude Code 会话。
+- 成员直接定向协作但主任务优先；每个问题默认一名 owner、最多一名 verifier；durable member 创建只由 Commander 决定。
+- artifact 有 case-local 引用与完整性信息；finding 可追溯到 evidence；review 直接引用 finding/evidence。
+- learning 只有通过证据、通用性、冲突、重复和脱敏审查，并由用户确认精确变更后才能回流。
+- 新核心不得引入 global Options、通用 action transaction、session supervisor 或 durable message queue。
+- 当前不保留双写、旧 runtime fallback、legacy skill 或第三套 adapter。
 
 ## 风险与注意事项
 
-- 保留真正不同的安全状态机：workstream durable mission、external session provenance、execution control generation、sessionhost process lifecycle不得为减少行数而合并。
-- authority/confirmed、heavy action、sync/promote、schema migration与公共 façade 删除仍遵守既有升级门禁。
-- 不写真实样本、trace/dump/capture、artifact、绝对 case路径、payload、客户信息或 case-specific进度。
-- 不声称未实际运行的 remote CI green、非 Windows runtime E2E、真实跨机器 Remote Control E2E或 formal release。
+- `CLAUDE.md` 是角色上下文，不是授权边界；危险动作仍依赖用户权限确认和 case 授权。
+- 原生消息不是 exactly-once 队列；人在环模式不以消息状态机补洞。
+- 正式成员是从专属目录启动的独立 Claude Code 会话，不依赖 experimental Agent Team teammate。
+- 不写真实样本、trace/dump/capture、artifact、绝对 case 路径、payload、凭据、客户信息或 case 进度到模板仓库。
+- 不声称未实际运行的 remote CI green、Linux/macOS product-path acceptance、真实跨机器 Remote Control E2E 或 formal release。
 
 ## 路线变更记录
 
-- 2026-08-31：`APC-04` 与四阶段路线完成。Windows fresh canonical suite、vet、diff/skill/default-doc合同和public release commands通过；source-clone/self-contained、copy/tamper/dual-root、`binary-re`/`web-security`、generation 1→2→3 successor及中断恢复有直接运行证据，两条显式 installed real-Claude E2E实际通过。终审发现并关闭non-default actor未进入successor exact `applyArgs`的最后断点，compiled unified host原样执行回归及修复后全仓门禁通过；独立复核无Important/Blocker。未运行或声称remote CI green、非Windows runtime E2E或formal release。
-- 2026-08-30：`APC-03` 完成。完成后的不同新目标现走 review-first successor generation；active pointer/manifest/generation commit/transition intent/project identity形成 fail-closed chain，任意 durable prefix可 exact recovery，pack authority projection纳入 reviewed plan。current status聚合持有 shared project lease，sessionhost复用既有 lease避免Windows非重入。focused/affected、CLI生命周期夹具、vet、skill/default-doc合同与文档预算通过；进入`APC-04`最终验收。
-- 2026-08-30：`APC-02` 完成。executable typed invocation、selector与command rendering owner完成收敛；Overview和direct current-loop/step/external diagnostics统一detached projection，current/legacy × text/table/JSON及深层typed request矩阵通过；shadow catalog/parser与旧direct response owner已删除。focused、full CLI、canonical full suite、vet、module、skill-contract及public release commands通过；独立只读审计无correctness finding。唯一当前owner推进到`APC-03`。
-- 2026-08-29：`APC-01` 完成。unified runtime stable-byte role/publication、onboarding recovery、adapter formal receipt、`continue` component recovery + semantic dedup、hermetic Git/receipt fixtures及Windows executable cleanup均已闭合；四轮独立复验无finding，focused/affected/full canonical gates通过。唯一当前owner推进到`APC-02`。
-- 2026-08-29：用户明确批准完整四阶段架构与产品收敛实施；建立 `steamai-architecture-product-convergence-v1`，以 `APC-01` 为唯一初始 owner。路线基于 fresh code audit、临时项目实测与 full Review Panel：保留有效安全状态机，停止字段/projection微批次，按正确性 → owner收敛 → 产品 UX → 真实验收推进。
-- 2026-08-28：上一条 `steamai-product-optimization-v1` 完成 P0～P3 residual closure并切换为 completed/no-next；其事实保留在历史、CHANGELOG 与 Git-local receipts中，不再拥有当前选题。
+- 2026-09-01：用户批准完整 `steamai-vnext-thin-core-v1` 路线并授权各批次连续实施、每批自行审核复评后继续。路线基于当前控制面审查和 Claude Code 原生能力核验，选择替换式薄核心而非继续逐层拆旧架构。

@@ -1,191 +1,92 @@
-schemaVersion: 1
+schemaVersion: 2
 name: ollvm
-version: 0.1.0
-description: Authorized OLLVM and native obfuscation analysis Agent Team pack skeleton
-maturity: skeleton
+version: 1.0.0
+description: 面向已授权 OLLVM、native obfuscation 与 deobfuscation candidate review 的声明式研究 pack。
+maturity: declarative-vnext
 
-managedFiles:
+entrypoints:
+  router: references/ollvm/README.md
+  team: references/ollvm/agent-team.md
+  workflow: references/ollvm/workflow-template.md
+  tooling: references/ollvm/toolchain-router.md
+
+references:
   - references/ollvm/README.md
   - references/ollvm/agent-team.md
-  - references/ollvm/workflow-template.md
+  - references/ollvm/task-handoff.template.md
   - references/ollvm/toolchain-router.md
+  - references/ollvm/workflow-template.md
 
-templateFiles:
+templates:
   - references/ollvm/task-handoff.template.md
 
-localNeverOverwrite:
-  - CLAUDE.local.md
-  - references/ollvm/task-handoff.md
-  - tools.local.yml
+policies:
+  - policies/README.md
+  - ../../common/policies/context-budget.md
+  - ../../common/policies/review-first.md
+  - ../../common/policies/write-boundaries.md
+  - ../../common/policies/verification.md
+  - ../../common/policies/evidence.md
 
-managedBlock:
-  file: CLAUDE.local.md
-  blockId: ollvm:router
-  source: CLAUDE.local.snippet.md
-
-syncPolicy:
-  managedFiles: overwrite-with-backup
-  templateFiles: create-if-missing
-  localFiles: never-overwrite
-
-workstreamDefaults:
-  defaultAuthorityLane: main
-  defaultStartLaneType: obfuscation-analysis
-  handoffPath: references/ollvm/task-handoff.md
-  backupRoot: .rekit/backups/sync
-  requestDefaultTargetLane: main
-
-authorityFiles:
-  - references/ollvm/task-handoff.md
-
-commonPolicies:
-  - agent-team
-  - tool-adapters
-  - context-budget
-  - subagents
-  - lane-collaboration
-  - review-first
-  - write-boundaries
-  - verification
-  - evidence
-  - tool-output
-  - handoff
-
-policyOverlays: []
-
-subagentRoutes:
-  - id: ollvm:bounded-review
-    taskTypes: finding-review,evidence-review,cfg-review,mba-review,tooling-review
-    trigger: fixed-boundary read-only review for native obfuscation findings, CFG hypotheses, MBA simplification notes, or tooling notes
-    shardBasis: function-or-finding
-    targetItemsPerAgent: 4
-    maxParallel: 3
-    reference: references/ollvm/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only
-    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,binary_ref,function_ref,obfuscation_hint,cfg_region_ref,candidate_path,defer_reason
-  - id: ollvm:obfuscation-analysis
-    taskTypes: obfuscation-analysis,control-flow-triage,flattened-cfg,opaque-predicate-review,mba-simplification,string-decode-review
-    trigger: native obfuscation workspace has function aliases, CFG regions, transform hypotheses, simplification candidates, or needs bounded analysis before main merge
-    shardBasis: function-or-cfg-region
-    targetItemsPerAgent: 2
-    maxParallel: 2
-    reference: references/ollvm/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only-or-workspace-only
-    mainAgentOwns: canonical-write,ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,binary_ref,function_ref,obfuscation_hint,cfg_region_ref,transform_type,simplification_ref,candidate_path,defer_reason
-
-promoteFiles:
-  - references/ollvm/README.md
-  - references/ollvm/agent-team.md
-  - references/ollvm/workflow-template.md
-  - references/ollvm/toolchain-router.md
-
-toolingFiles:
+tooling:
   - tooling/README.md
   - tooling/catalog.yml
   - tooling/recipes/control-flow-triage.md
   - tooling/recipes/mba-simplification-review.md
 
-promptFiles: []
+teamHints:
+  suggestedMembers: 1-2
+  reviewer: on-important-finding-or-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
 
-laneTypes:
-  - id: main
-    title: OLLVM analysis mainline
-    authority: true
-    workspaceRoot: workspace/main
-    canWrite: references/ollvm/task-handoff.md
-    readOnly: .rekit/facts/**
-    outputs: publication,decision,observation
-  - id: obfuscation-analysis
-    title: Obfuscation / CFG analysis
-    authority: false
-    workspaceRoot: workspace/obfuscation
-    canWrite: own-workspace
-    readOnly: references/ollvm/**,.rekit/facts/**
-    outputs: observation,request,candidate,summary
-  - id: tooling
-    title: Tooling and adapter evaluation
-    authority: false
-    workspaceRoot: workspace/tooling
-    canWrite: own-workspace
-    readOnly: references/ollvm/**,.rekit/facts/**
-    outputs: observation,request,candidate,tooling-change
-
-toolingCandidateSources:
-  - references/ollvm/toolchain-router.md
-
-heavyToolGates:
-  - id: full-trace
-    title: Full trace capture
-    sideEffects: full-trace,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: budget-exhausted,scope-drift,output-exceeds-bounded-evidence-packet
-  - id: debug
-    title: Dynamic debug or attach
-    sideEffects: debug,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: timeout,unexpected-side-effect,scope-drift
-  - id: inject
-    title: Runtime injection or hook
-    sideEffects: inject,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: unexpected-mutation,scope-drift,budget-exhausted
+heavyActions:
+  - id: dynamic-debug
+    title: 动态调试
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: trace
+    title: 动态 trace
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
   - id: patch
-    title: Binary or project patch
-    sideEffects: patch,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: overwrite-risk,scope-drift,no-rollback-path
-  - id: dump
-    title: Memory or artifact dump
-    sideEffects: dump,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: output-exceeds-bounded-evidence-packet,sensitive-artifact-detected,scope-drift
+    title: 二进制或项目修改
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: bulk-rewrite
+    title: 批量重命名或注释
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
   - id: network
-    title: Network access or replay
-    sideEffects: network,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift
-  - id: symex
-    title: Long symbolic execution
-    sideEffects: symex,filesystem-write
-    defaultRisk: medium
-    requiresConfirmation: true
-    stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
+    title: 网络访问
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
 
-promoteDenyPatterns:
-  - "C:\\"
-  - "samples[\\/]"
-  - "artifacts[\\/]"
-  - "captures[\\/]"
-  - "dumps?[\\/]"
-  - "traces?[\\/]"
-  - "evidence[\/]raw[\\/]"
-  - "memory[\\/]"
-  - "deobfuscated[\\/]"
-  - "patched[\\/]"
-  - "[A-Za-z0-9_.-]*(sample|malware|payload|deobfuscated|patched|dump|trace|pcap|capture|memory|binary)[A-Za-z0-9_.-]*\.(exe|dll|sys|so|dylib|bin|dat|raw|dmp|mem|pcap|pcapng|zip|7z|rar|log|json)"
-  - "(?i)sha256\s*[:=]\s*[0-9a-f]{64}"
-  - "(?i)sha1\s*[:=]\s*[0-9a-f]{40}"
-  - "(?i)md5\s*[:=]\s*[0-9a-f]{32}"
-  - "(?i)(authorization|cookie|set-cookie)\s*[:=]"
-  - "(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]"
-  - "(?i)bearer\s+[A-Za-z0-9._~+\/-]+"
-  - "\b(10|172\.(1[6-9]|2[0-9]|3[0-1])|192\.168)\."
-  - "0x[0-9A-Fa-f]{6,}"
-  - "ctx[0-9]+"
-  - "round[0-9]+"
-  - "Task #[0-9]+"
+learningTargets:
+  - references/ollvm/README.md
+  - references/ollvm/workflow-template.md
+  - references/ollvm/toolchain-router.md
+  - tooling/recipes/*.md
+
+denyPatterns:
+  - real-case-identifiers
+  - raw-artifacts
+  - credentials-or-tokens
+  - absolute-case-paths
+  - customer-environment-details
+  - unredacted-network-data
 
 budgets:
   CLAUDE.local.md: 8192
-  references/ollvm/task-handoff.md: 12288
   defaultMarkdown: 16384

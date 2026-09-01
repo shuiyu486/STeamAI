@@ -1,48 +1,20 @@
-# VMP 工作线协同 overlay
+# VMP 成员协同 overlay
 
-本 overlay 扩展 `common/policies/lane-collaboration.md`，用于 VMProtect x64 trace-based devirtualization case。current 项目的功能支线公开入口使用 `/steamai start <name>`，日常继续使用 `/steamai continue`；legacy-only 项目由 `/rekit` compatibility 投影同一 typed command。
+本 overlay 补充 VMProtect x64 trace/devirtualization 的目录成员协作边界，不定义 lane/runtime 状态。
 
-## VMP 角色边界
+## 角色边界
 
-- 主线：维护 handler role/opcode semantics confirmed CSV、routine IR、superinstruction、task-handoff 和最终验证。
-- 功能支线：分析某个业务功能的入口、native wrapper、字符串/import/xref、证据与 VM 阻塞点。
-- 合入审查：只读审查功能支线产物，给主线提供 lowering 优先级和候选合并建议。
+- handler owner：维护 handler role/opcode semantics candidate、routine IR 与验证计划。
+- feature owner：分析功能入口、native wrapper、字符串/import/xref、证据与 VM 阻塞点。
+- Reviewer：只读 finding/evidence，给出 lowering 优先级和审查判断，只写 review。
 
-## VMP 单写者
+## 单写者
 
-功能支线默认不得写：
-
-```text
-captures/vm_opcode_semantics_confirmed.csv
-captures/vm_handler_roles_confirmed.csv
-captures/routine_ir.*
-captures/routine_ir.superinstructions.*
-references/binary-re/task-handoff.md
-```
-
-共享 IDB 注释、rename、type 也按单写者处理。
-
-## VMP request 字段
-
-`lowering_requests.csv` 用于把功能支线遇到的 VM 阻塞点交给主线：
-
-```csv
-request_id,feature,rva,handler,reason,evidence,priority,status,main_response,notes
-```
-
-`vm_blockers.csv` 用于记录更宽泛的阻塞点：
-
-```csv
-blocker_id,feature,rva,va,kind,evidence,need,status,owner,notes
-```
-
-## standalone 规则
-
-主线完成后，功能支线可以 standalone 继续 native 周边分析和证据整理；新的 VM 语义需求保留在 request CSV，未来由主线或临时主线会话处理。
+shared IDB、confirmed CSV、routine IR 和最终交付必须由 Commander 指定一名 owner。其他成员只提交 evidence、finding 或定向 lowering request。
 
 ## 回流分类
 
-- 通用多会话提示词 / 生命周期：common policy 或 common prompt。
-- VMP 阻塞点、handler lowering、trace/IR 协作规则：本 overlay 或 `references/binary-re/lane-collaboration.md`。
-- 可参数化工具流程：`tooling/recipes/lane-collaboration.md`。
-- 具体 RVA/VA、ctx、round、coverage、captures/artifacts：只留 case。
+- 通用多会话协作：common policy candidate。
+- VMP handler/trace/value-flow 规则：本 overlay 或 `references/binary-re/*.md`。
+- 可参数化工具流程：`tooling/recipes/*.md`。
+- 具体 RVA/VA、ctx、round、coverage、artifact：只留 case。

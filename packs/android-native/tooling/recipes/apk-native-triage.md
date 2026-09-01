@@ -1,25 +1,25 @@
-# APK native triage recipe
+# Apk Native Triage
 
-## 目标
+## 适用范围
 
-在不安装应用、不连接设备、不执行 hook、不抓包、不 dump、不 patch 的前提下，建立 app/library/JNI symbol 别名、manifest / ABI / native library / exported component 摘要、JNI bridge hypothesis 和 open questions 的最小索引。
+用于 APK native library triage、JNI 边界、hook candidate 与 emulator 侧证据 中的窄范围 `apk-native-triage` 任务。只处理 case-local 脱敏引用和已存在的有界输入。
 
 ## 输入
 
-- 授权范围摘要。
-- case-local app alias、library alias 或 JNI symbol id。
-- 已脱敏的 manifest summary、native library inventory、ABI summary、JNI symbol summary、component summary、string/import summary 或 static tool sidecar。
+- exact scope 与要回答的问题；
+- case-local artifact alias；
+- 允许读取/写入范围；
+- 时间、请求、空间或输出预算；
+- 停止条件。
 
-## 输出
+## 步骤
 
-```text
-app_ref, library_ref, jni_symbol_ref, abi, component_ref, native_hypothesis, evidence_ref, open_questions
-```
+1. 验证输入属于当前明确授权的 case，并记录来源与完整性信息。
+2. 优先执行只读、静态或 dry-run 观察；禁止无关扩展。
+3. 将关键观察写入 evidence，包含定位、方法、限制和不确定性。
+4. 需要 heavy action 时，先向用户展示具体动作、目标、预算、副作用和停止条件；得到针对该动作的确认且工具权限允许后才执行。
+5. 输出 finding candidate 或 `needs-evidence`，不自动修改原 artifact 或共享 pack。
 
-输出写入 case-local sidecar 或 lane workspace；聊天和 Markdown 只引用摘要与路径。
+## 停止条件
 
-## 止损
-
-- 发现 APK/package/hash、真实 endpoint、device/emulator id、hook script、traffic/capture、token、keystore、账号凭据、客户上下文或绝对路径时停止提升到 pack，保留在 case-local 并标记 redaction needed。
-- APK、DEX、SO、logcat、capture、trace、dump 或工具 raw output 过大时先按 app / library / symbol / evidence row 分片，不把完整内容粘入聊天或 Markdown。
-- 证据不足以判断 JNI/native 路线时产出 request，不直接升级为 confirmed。
+授权、目标或输入身份不清；范围漂移；预算耗尽；出现意外副作用；输出可能含真实对象、凭据、客户信息或不适合进入团队文档的敏感内容。

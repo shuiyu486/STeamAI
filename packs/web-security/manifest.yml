@@ -1,191 +1,101 @@
-schemaVersion: 1
+schemaVersion: 2
 name: web-security
-version: 0.1.0
-description: Mature Web and API security assessment Agent Team pack with bounded OpenAPI inventory and loopback replay
-maturity: mature
+version: 1.0.0
+description: 面向已授权 Web/API 安全评估、靶场与防御性验证的声明式研究 pack。
+maturity: declarative-vnext
 
-managedFiles:
+entrypoints:
+  router: references/web-security/README.md
+  team: references/web-security/agent-team.md
+  workflow: references/web-security/workflow-template.md
+  tooling: references/web-security/toolchain-router.md
+
+references:
   - references/web-security/README.md
   - references/web-security/agent-team.md
-  - references/web-security/workflow-template.md
+  - references/web-security/task-handoff.template.md
   - references/web-security/toolchain-router.md
+  - references/web-security/workflow-template.md
 
-templateFiles:
+templates:
   - references/web-security/task-handoff.template.md
 
-localNeverOverwrite:
-  - CLAUDE.local.md
-  - references/web-security/task-handoff.md
-  - tools.local.yml
+policies:
+  - policies/README.md
+  - ../../common/policies/context-budget.md
+  - ../../common/policies/review-first.md
+  - ../../common/policies/write-boundaries.md
+  - ../../common/policies/verification.md
+  - ../../common/policies/evidence.md
 
-managedBlock:
-  file: CLAUDE.local.md
-  blockId: web-security:router
-  source: CLAUDE.local.snippet.md
-
-syncPolicy:
-  managedFiles: overwrite-with-backup
-  templateFiles: create-if-missing
-  localFiles: never-overwrite
-
-workstreamDefaults:
-  defaultAuthorityLane: main
-  defaultStartLaneType: feature
-  handoffPath: references/web-security/task-handoff.md
-  backupRoot: .rekit/backups/sync
-  requestDefaultTargetLane: main
-
-authorityFiles:
-  - references/web-security/task-handoff.md
-
-commonPolicies:
-  - agent-team
-  - tool-adapters
-  - context-budget
-  - subagents
-  - lane-collaboration
-  - review-first
-  - write-boundaries
-  - verification
-  - evidence
-  - tool-output
-  - handoff
-
-policyOverlays: []
-
-subagentRoutes:
-  - id: web-security:bounded-review
-    taskTypes: finding-review,evidence-review,endpoint-review,api-flow-review,tooling-review
-    trigger: fixed-boundary read-only review for findings, endpoint evidence, API flows, or tooling notes
-    shardBasis: finding-or-endpoint
-    targetItemsPerAgent: 4
-    maxParallel: 3
-    reference: references/web-security/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only
-    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,endpoint,method,impact,defer_reason
-  - id: web-security:feature-analysis
-    taskTypes: feature-analysis,endpoint-analysis,api-flow-analysis,authz-review,input-validation-review
-    trigger: feature or endpoint workspace has requests, hypotheses, candidate findings, or needs bounded analysis before main merge
-    shardBasis: endpoint-or-flow
-    targetItemsPerAgent: 2
-    maxParallel: 2
-    reference: references/web-security/agent-team.md
-    policyOverlay:
-    subagentPermissions: read-only-or-workspace-only
-    mainAgentOwns: canonical-write,ledger-writeback,validation,handoff-update,authority-confirmation
-    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,feature,endpoint,request_id,candidate_path,defer_reason
-
-promoteFiles:
-  - references/web-security/README.md
-  - references/web-security/agent-team.md
-  - references/web-security/workflow-template.md
-  - references/web-security/toolchain-router.md
-
-toolingFiles:
+tooling:
   - tooling/README.md
   - tooling/catalog.yml
   - tooling/recipes/passive-triage.md
   - tooling/recipes/request-replay.md
-  - tooling/schemas/openapi-inventory-v1.schema.json
   - tooling/schemas/bounded-replay-request-v1.schema.json
   - tooling/schemas/bounded-replay-result-v1.schema.json
+  - tooling/schemas/openapi-inventory-v1.schema.json
 
-promptFiles: []
+teamHints:
+  suggestedMembers: 1-2
+  reviewer: on-important-finding-or-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
 
-laneTypes:
-  - id: main
-    title: Web/API 安全主线
-    authority: true
-    workspaceRoot: workspace/main
-    canWrite: references/web-security/task-handoff.md
-    readOnly: .rekit/facts/**
-    outputs: publication,decision,observation
-  - id: feature
-    title: Endpoint / 功能分析
-    authority: false
-    workspaceRoot: workspace/features
-    canWrite: own-workspace
-    readOnly: references/web-security/**,.rekit/facts/**
-    outputs: observation,request,candidate,summary
-  - id: tooling
-    title: 工具与 adapter 评估
-    authority: false
-    workspaceRoot: workspace/tooling
-    canWrite: own-workspace
-    readOnly: references/web-security/**,.rekit/facts/**
-    outputs: observation,request,candidate,tooling-change
+heavyActions:
+  - id: network-request
+    title: 网络请求
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: request-replay
+    title: 请求重放
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: scan
+    title: 主动扫描
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: fuzz
+    title: 有界 fuzz
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: high-volume
+    title: 高流量访问
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+  - id: state-change
+    title: 服务端状态修改
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
 
-toolingCandidateSources:
+learningTargets:
+  - references/web-security/README.md
+  - references/web-security/workflow-template.md
   - references/web-security/toolchain-router.md
+  - tooling/recipes/*.md
 
-heavyToolGates:
-  - id: inspect
-    title: OpenAPI 3 JSON inventory
-    sideEffects: inspect,filesystem-read,bounded-packet-write
-    defaultRisk: medium
-    requiresConfirmation: true
-    stopConditions: scope-drift,source-drift,output-exceeds-bounded-evidence-packet
-  - id: full-trace
-    title: Full trace capture
-    sideEffects: full-trace,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: budget-exhausted,scope-drift,output-exceeds-bounded-evidence-packet
-  - id: debug
-    title: Dynamic debug or attach
-    sideEffects: debug,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: timeout,unexpected-side-effect,scope-drift
-  - id: inject
-    title: Runtime injection or hook
-    sideEffects: inject,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: unexpected-mutation,scope-drift,budget-exhausted
-  - id: patch
-    title: Binary or project patch
-    sideEffects: patch,filesystem-write
-    defaultRisk: critical
-    requiresConfirmation: true
-    stopConditions: overwrite-risk,scope-drift,no-rollback-path
-  - id: dump
-    title: Memory or artifact dump
-    sideEffects: dump,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: output-exceeds-bounded-evidence-packet,sensitive-artifact-detected,scope-drift
-  - id: network
-    title: Network access or replay
-    sideEffects: network,filesystem-write
-    defaultRisk: high
-    requiresConfirmation: true
-    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift,delivery-uncertain,response-body-limit,response-read
-  - id: symex
-    title: Long symbolic execution
-    sideEffects: symex,filesystem-write
-    defaultRisk: medium
-    requiresConfirmation: true
-    stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
-
-promoteDenyPatterns:
-  - "C:\\"
-  - "artifacts[\\/]"
-  - "captures[\\/]"
-  - "evidence[\\/]raw[\\/]"
-  - "[A-Za-z0-9_.-]*(har|pcap|burp|zap|request|response)[A-Za-z0-9_.-]*\.(har|pcap|json|xml|log|txt)"
-  - "(?i)authorization\s*[:=]\s*(bearer|basic|digest|negotiate|ntlm|token)\s+"
-  - "(?i)(cookie|set-cookie|api[_-]?key|token|secret|password)\s*[:=]"
-  - "(?i)bearer\s+[A-Za-z0-9._~+\/-]+"
-  - "\b(10|172\.(1[6-9]|2[0-9]|3[0-1])|192\.168)\."
-  - "0x[0-9A-Fa-f]{6,}"
-  - "ctx[0-9]+"
-  - "round[0-9]+"
-  - "Task #[0-9]+"
+denyPatterns:
+  - real-case-identifiers
+  - raw-artifacts
+  - credentials-or-tokens
+  - absolute-case-paths
+  - customer-environment-details
+  - unredacted-network-data
 
 budgets:
   CLAUDE.local.md: 8192
-  references/web-security/task-handoff.md: 12288
   defaultMarkdown: 16384

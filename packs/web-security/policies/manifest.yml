@@ -1,9 +1,6 @@
-schemaVersion: 1
-name: web-security-policy-overlays
-version: 0.1.0
-description: Empty policy overlay registry for the mature web-security pack
-
-overlays: []
-
-budgets:
-  defaultMarkdown: 16384
+schemaVersion: 2
+pack: web-security
+overlays:
+  - id: web-security-boundary
+    path: README.md
+    purpose: Domain-specific evidence, privacy, and heavy-action boundaries

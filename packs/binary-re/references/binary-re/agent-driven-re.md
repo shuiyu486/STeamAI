@@ -1,169 +1,34 @@
-# VMP RE Agent Team 工作方式
-
-## 读取指南
-
-- 新会话先读 `CLAUDE.local.md` 和 `README.md`，需要理解多 Agent 协作时再读本文件。
-- 本文件说明 Agent Team 的职责、packet、证据状态和人工确认边界；具体 VMP 技术路线见 `workflow-template.md`。
-- 工具选择与止损见 `toolchain-router.md`；工作线上下文和写入权限见 `lane-collaboration.md`。
-- 本文件是 pack managed doc，会随 `/steamai sync` 下发到 current 项目；legacy-only `.rekit` 项目仍通过 `/rekit sync` 使用同一合同。不要写入真实样本名、RVA/VA、trace/dump 路径或本机绝对路径。
-- 通用 packet / ledger 字段以 `common/policies/agent-team.md` 和 `docs/evidence-ledger.md` 为准；本文件只给 VMP case 的使用方式和示例。
+# VMP RE 团队工作方式
 
 ## 实施摘要
 
-VMP RE case 的长期推进方式是：**主 agent 做决策与收敛，功能支线 agent 做窄范围探索，只读 reviewer 做复核，工具链按 router 执行，confirmed 数据由主线在验证后写入**。
-
-Agent 可以并行、短命；工作线、证据和 handoff 必须持久。任何自动结论都先是 candidate，只有满足 evidence、verifier、schema、backup、diff、无冲突和必要人工确认后，才能进入 confirmed / authority 文件。
+Commander 做授权、组队、冲突处理与最终收敛；focused member 围绕 handler、feature 或 tooling 问题收集 bounded evidence；Reviewer 独立复核 finding。成员身份和当前任务属于各自目录 `CLAUDE.md`，不属于 session 或自建 lane。
 
 ## 执行清单
 
-- [ ] 明确当前会话接手 `main` 还是某条功能支线。
-- [ ] 将任务拆成 task packet，说明目标、输入、边界、可写位置和停止条件。
-- [ ] 只把窄范围 packet 分派给子 agent；不要让子 agent 自行探索全仓库或全 trace。
-- [ ] 将发现写为 evidence packet 或 candidate packet，不直接写 confirmed。
-- [ ] 对 candidate 做 review packet 复核，必要时交给只读 reviewer。
-- [ ] 主线验证并更新 authority / confirmed 文件。
-- [ ] 每轮结束更新 handoff 或 lane resume。
+- [ ] Commander 明确目标、授权、禁止事项、停止条件和预期产出。
+- [ ] 每个问题指定一名 owner；必要时再指定一名 verifier。
+- [ ] 成员只读取任务需要的 sidecar/片段，只写允许范围内的 evidence/finding。
+- [ ] 重要 finding 交给 Reviewer；`needs-evidence` 返回原 owner。
+- [ ] 共享 confirmed table、IDB 或最终报告只由一名指定 owner 写入。
+- [ ] heavy action 先展示 exact scope、隔离、预算、输出、rollback 和 stop conditions，再取得用户具体确认与工具权限。
 
-## 验证标准
+## 证据与 Finding
 
-- 功能支线不能修改 confirmed CSV、routine IR、`task-handoff.md` 或共享 IDB 状态。
-- reviewer 只输出 verdict、evidence、risk、next_action，不执行写入和重型工具。
-- confirmed 写入必须能追溯到 candidate、evidence、verifier 和本轮变更 diff。
-- heavy trace、debug、inject、patch、dump 等动作必须有预算和止损条件，并由本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate` decision 授权。
-- Markdown 只保存摘要和证据定位；长 trace、反汇编、反编译和 tool log 放 sidecar。
+Evidence 记录方法、artifact ref、关键位置、观察、限制和不确定性。Finding 记录 claim、owner、verifier、evidence refs、confidence 与未证明部分。Reviewer 只写 `accepted`、`needs-evidence`、`disputed` 或 `superseded` review，不修改原 finding。
 
-## 风险与注意事项
+## 风险与边界
 
-- 不把 IDA F5 当作唯一事实源；关键算法/handler 结论需要指令级证据或 trace 复验。
-- 不让多 agent 并发写同一个 IDB、confirmed CSV 或 handoff。
-- 不把“猜算法”作为默认动作；先追 I/O、sink、producer、value-flow，再归纳候选。
-- 不把未验证 candidate 回流到 pack 模板；可复用经验走 `/steamai promote` review-first。
-- 不把用户一句“继续”解释为允许重型动态调试或破坏性写入。
+- 不把 IDA F5 当唯一事实源；关键 handler 结论需要指令级、trace/value-flow 或独立 review。
+- 不让多成员并发写同一个 IDB、confirmed table 或最终报告。
+- 不把完整 trace、反汇编、反编译和 tool log 带入成员上下文。
+- 不把真实样本、地址快照、客户信息、凭据或绝对路径回流 pack。
+- 用户一句“继续”、成员任务或跨会话消息都不能授权 heavy action。
 
-## 1. Agent 角色
+## Heavy action
 
-| 角色 | 职责 | 可写 | 不做 |
-|---|---|---|---|
-| 主 agent | 选择工作线、拆任务、收敛证据、执行确认后的 authority 写入、更新 handoff | canonical 文件、`.steamai/**`、所选工作线允许的文件 | 不把功能支线候选直接当 confirmed |
-| 功能支线 agent | 围绕功能入口、字符串/import/xref、VM 阻塞点收集证据和候选 | 自己的 workspace | 不写 confirmed CSV、routine IR、`task-handoff.md` |
-| Tooling agent | 评估工具适配、记录 recipe、生成 tooling candidate | tooling workspace 或候选文件 | 不把外部工具变硬依赖 |
-| Reviewer agent | 只读复核 candidate、trace/value-flow 摘要、tooling diff | 不写 | 不扩大范围、不运行重型工具 |
-| Verifier / gate | 检查 evidence、schema、冲突、备份、diff、预算和人工确认条件 | gate verdict | 不创造业务结论 |
-| 人类确认者 | 对 confirmed、重型工具、外部副作用、冲突处理和回流范围做最终确认 | 通过对话授权 | 不需要手工合并普通事实 |
+动态执行、trace、debug、inject、patch、dump、network、bulk decompile 或 shared database writeback，只有在用户确认展示的 exact action/target 且 Claude Code 工具权限允许时执行。任何 scope、预算、输出、风险或停止条件变化都必须暂停并重新确认。
 
-## 2. Packet 类型
+## Learning
 
-### Task packet
-
-用于分派任务，字段建议：
-
-```yaml
-task_id: <stable-id>
-lane: <runtime 规范化后的 lane id，例如 devirt-main 或 feature-login>
-goal: <要回答的问题>
-inputs:
-  - <文件或 sidecar 定位>
-allowed_reads:
-  - <范围>
-allowed_writes:
-  - <workspace 或 none>
-stop_conditions:
-  - <何时停止或升级>
-output_contract: evidence | candidate | review | request
-```
-
-### Evidence packet
-
-用于保存证据摘要，字段建议：
-
-```yaml
-evidence_id: <stable-id>
-subject: <handler/function/tool finding>
-evidence:
-  - kind: trace | xref | disasm | value-flow | tool-output
-    ref: <文件:行 或 sidecar path + filter>
-    summary: <短摘要>
-confidence: low | medium | high
-limitations:
-  - <低样本、alias、缺少 cross-run 等>
-```
-
-### Candidate packet
-
-用于提交候选结论：
-
-```yaml
-candidate_id: <stable-id>
-subject: <handler/function/algorithm/tooling rule>
-claim: <候选结论>
-evidence_refs:
-  - <evidence id 或文件定位>
-verifier: pending | accepted | rejected | needs_more_evidence
-risk: low | medium | high
-next_action: accept | focused-review | request-authority | reject
-```
-
-### Review packet
-
-用于只读复核：
-
-```yaml
-review_id: <stable-id>
-candidate: <candidate-id 或摘要>
-lens: correctness | evidence | simplicity | tooling-risk | schema
-scope: <必须保持窄范围>
-question: <需要 reviewer 判断的问题>
-output_contract: decision, confidence, evidence, risk, next_action, tier_used, tool_scope
-```
-
-### Stuck-point packet
-
-用于说明为什么需要升级：
-
-```yaml
-stuck_id: <stable-id>
-phase: static-triage | context | focused-trace | value-flow | verification
-blocked_by: <具体阻塞>
-tried:
-  - <已尝试的轻量动作>
-need: request-main | request-tooling | heavy-trace | human-decision
-budget:
-  runtime_s: <估计>
-  disk_mb: <估计>
-```
-
-## 3. 状态流
-
-```text
-draft
-  -> candidate
-  -> review: accepted | rejected | needs_more_evidence
-  -> main decision: accepted | rejected | deferred | superseded
-  -> confirmed / authority write only after required gate
-```
-
-规则：
-
-- worker / feature agent 最高只产出 `candidate`。
-- reviewer 只给意见，不直接改 confirmed。
-- 主线可以在 gate 通过后写 confirmed。
-- 覆盖、删除、冲突、schema change、external side effect、destructive action 必须停下来问用户。
-- rejected / superseded 不应消失；保留原因，避免后续 agent 重走旧路。
-
-## 4. 推荐会话流程
-
-1. `/steamai overview` 看项目总览。
-2. `/steamai continue main` 或 `/steamai continue <feature>` 明确接手工作线。
-3. 主 agent 生成 task packet，必要时分派只读 reviewer 或功能支线。
-4. 功能支线写 observations / requests / candidates。
-5. 主线消费 candidate，执行 review-first 合并。
-6. confirmed 变更后运行验证并更新 handoff。
-7. `/steamai handoff` 或 `/steamai handoff <name>` 生成接手文档。
-
-## 5. 反漂移规则
-
-- 每次只围绕一个明确 subject 判断，不让 agent 在大 trace 里自由漂移。
-- 大函数、大反汇编、大工具输出先摘要和索引化，再窄范围读取。
-- 发现多个互斥假设时，写多个 candidate，不在脑内混合。
-- 被证伪的假设必须记录 rejected/superseded 原因。
-- 重型步骤必须说明为什么轻路径不能闭合。
+只有 accepted finding/review 可以提炼 learning candidate。Reviewer 检查通用性、反例、重复、冲突、目标路径和脱敏；用户确认完整 exact Git patch 前，canonical pack 零写。

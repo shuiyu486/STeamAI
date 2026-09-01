@@ -1,34 +1,20 @@
-# Android native pack
+# Android native / JNI security research route
 
-`android-native` 是面向授权 Android native / JNI / NDK 分析、APK native library triage、Frida hook candidate review 与 emulator sidecar review 的最小 Agent Team pack 骨架。它用于验证 STeamAI 在移动端 native 安全分析子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
+`android-native` 是已授权 Android native、JNI、NDK 与本地库分析的声明式研究 pack。它只提供 APK native library triage、JNI 边界、hook candidate 与 emulator 侧证据 的按需 reference、tooling recipe 与安全边界，不执行研究动作。
 
-当前不是 APK 自动逆向平台、设备操控器、hook 执行器、移动端动态测试平台或真实设备取证系统；它只提供 case workspace 组织规则与工具经验入口。
+## 读取顺序
 
-## 读取指南
-
-本文件是 `android-native` case 的 pack-local 路由入口，不是默认必读长清单。先读 case 的 `CLAUDE.local.md` 和 `/rekit status` 第一屏；只有进入 Android native/JNI/NDK 分析、APK native library triage、Frida hook candidate review 或 emulator sidecar review 任务时，再按下方路由读取对应顶部区，不要默认串读全部 reference。
-
-新增 reference、tooling 或示例文档时，必须说明何时读取、不要默认读取什么；APK/AAB/DEX/SO、hook script、device/emulator id、traffic/capture、trace、dump、token 和 case-specific 进度只保存在 case-local artifacts。
-
-## 路由表
-
-| 任务 | 读取文档 | 说明 |
-|---|---|---|
-| 接手本 pack | `workflow-template.md` | scope、轻到重路线、candidate/review/confirmed 流程。 |
-| 规划多 Agent 分片 | `agent-team.md` | subagent routes、packet 输出契约、review-first 合并边界。 |
-| 选择工具或 adapter | `toolchain-router.md` | APK/native triage、emulator/hook review、dynamic/gated action 边界。 |
-| 查看通用规则 | `<templateRoot>/common/policies/agent-team.md` | 角色、packet、状态流和人工确认边界。 |
-| 查看工具 adapter 规则 | `<templateRoot>/common/policies/tool-adapters.md` | capability card、sidecar 输出、heavy-tool gate。 |
+| 场景 | 读取 |
+|---|---|
+| 规划领域流程 | `workflow-template.md` |
+| 组建成员或请求复核 | `agent-team.md` |
+| 选择工具或判断 heavy action | `toolchain-router.md` |
+| 交接当前研究 | `task-handoff.template.md` |
 
 ## 常驻边界
 
-- 不把 APK/AAB/DEX/SO、hook script、device/emulator id、traffic/capture、trace、dump、patch、keystore、token、账号凭据、包名、真实端点、客户上下文或绝对路径写入 pack。
-- 设备连接、emulator run、Frida attach、hook 执行、网络请求、动态 trace、dump、patch、重签名、安装/卸载应用或外部副作用必须在授权范围内，并记录隔离、预算、止损和确认。
-- 子 agent 输出 candidate / verification；main agent 负责 ledger、handoff、review merge 和 authority 确认。
-- 大输出必须保存为 case-local sidecar，只在聊天和 Markdown 中引用摘要与路径。
-
-## 维护规则
-
-- 新工具先进入 `tooling/catalog.yml` 的 `candidate`、`auxiliary` 或 `cautious` 状态。
-- 至少两个授权 case 重复出现的通用 Android native 工作流规则，才考虑提升到 common policy 或 runtime。
-- 本 pack 的目的首先是验证多安全领域 pack 架构，不要复制 `binary-re` 的领域细节或把具体 APK、hash、package name、hook、device id、traffic、trace、dump 和动态结论写入模板。
+- 先读 case `.steamai-vnext/CLAUDE.md`，再从 case-local pack snapshot 按需读取本文件。
+- 真实对象、原始 artifact、敏感日志、凭据、客户信息、绝对路径与 case 进度只留在 case 内。
+- app_ref、library_ref、jni_symbol_ref、component_ref 使用 case-local 脱敏引用；finding 必须引用 evidence，review 必须引用 finding/evidence。
+- heavy action 必须有明确 case 授权、针对该具体动作的用户确认与 Claude Code 工具权限；任何范围或预算漂移都停止。
+- 可复用经验只从 accepted finding/review 提炼，经 Reviewer 检查并由用户确认 exact patch 后才回流。

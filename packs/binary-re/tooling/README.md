@@ -1,29 +1,22 @@
 # binary-re tooling
 
-本目录同时承载通用 binary/function/API passive analysis tooling、compiled static triage，以及对已有 IDA TSV export 的 bounded inspection。VMProtect trace/devirtualization 当前仅保留 recipe/template，不是已启用 producer；case 私有目标与 raw output 始终留在 project-local artifact/sidecar。
+本目录保存通用 binary/function/API passive analysis、已有 IDA sidecar 的 bounded review，以及 VMProtect trace/devirtualization 的声明式 recipe。它不包含 runtime、adapter host 或命令调度器。
 
-## 内容分层
+## 内容
 
 | 路径 | 用途 |
 |---|---|
-| `catalog.yml` | capability、状态、输入输出、side effect 和止损。 |
+| `catalog.yml` | capability、状态、输入输出、side effects、确认要求和止损。 |
 | `recipes/static-binary-triage.md` | passive metadata/section/import/string sidecar。 |
 | `recipes/function-behavior-review.md` | saved function/API summary 的只读复核。 |
-| 其余 `recipes/*.md` | VMP/IDA、trace、value-flow、lane 协同与公开工具短测。 |
-| `scripts/README.md` | 已验证、值得模板化的脚本接口与参数化要求。 |
+| 其余 `recipes/*.md` | VMP/IDA、trace、value-flow 与成员协同。 |
+| `schemas/*.json` | case-local sidecar 的数据形状。 |
 | `patches/*.md` | 第三方工具补丁/适配经验。 |
-| `candidates/` | `/steamai promote` 生成的 review-first tooling 候选。 |
+| `candidates/` | 经脱敏审查、尚未回流的 tooling candidate。 |
 
-## 可进入 pack 的内容
+## 边界
 
-- passive sidecar schema、bounded query、tool capability 与 stop conditions。
-- 通用 trace/context/value-flow/routine IR 流程，以及 VMP/IDA 专项 recipe。
-- 可参数化接口、输入输出、预算、隔离和失败特征。
-
-## 不得进入 pack 的内容
-
-- 样本、客户信息、hash、IOC、RVA/VA/seed/context/coverage 等 case-specific 数据。
-- 完整二进制、function body、symbol table、dump、trace、patch、probe 成品或 raw tool output。
-- 本机绝对路径；使用 `<caseRoot>`、`<toolsRoot>`、`<target.exe>` 等占位。
-
-catalog 只描述能力，不是命令解释器。actual heavy action 仍要求 strict durable profile、fresh `authorized-gate` 和 executor observation。
+- catalog 只描述能力，永远不作为可解释执行命令。
+- passive sidecar、bounded query 和 tool capability 可以进入 pack；真实样本、hash、IOC、完整函数、dump、trace、patch bytes、凭据与绝对路径不得进入。
+- actual heavy action 需要 exact case scope 的用户具体确认、Claude Code 工具权限、隔离、预算、输出、rollback 和 stop conditions。
+- learning 只从 accepted finding/review 提炼，用户确认完整 exact patch 前不写 canonical pack。

@@ -1,178 +1,30 @@
-# Agent Team policy
+# Claude Code 原生团队协作
 
-## 目的
+本 policy 定义各 pack 共用的薄核心协作边界。成员身份、当前任务和权限范围由 case-local `CLAUDE.md` 承载；Claude Code session 只保存工作上下文，不是身份或授权依据。
 
-定义跨 pack 复用的 Agent Team 协作边界。具体领域流程放在 pack reference 或 overlay 中；本文件只规定通用角色、packet、状态流和人工确认边界。
+## 角色
 
-## 角色边界
+- **Commander**：确认 case 目标与授权边界，按需组队，解决冲突，组织审查和最终交付。
+- **执行成员**：围绕一个持续且独立的主任务工作，写入自己的允许范围。
+- **Reviewer**：只读 artifact、evidence 和 finding，只写 review；不修改原结论，不执行 heavy action。
+- **tactical subagent**：为某个成员处理窄、短、可验证的子任务，不成为 durable member。
 
-| 角色 | 职责 | 默认权限 |
-|---|---|---|
-| Main agent | 拆解任务、分派 packet、收敛结论、维护 handoff、执行确认后的 authority 写入 | 可写当前授权范围内的 canonical / case state |
-| Feature agent | 围绕一个窄功能或问题收集 evidence、request、candidate | 只写自己的 workspace |
-| Tooling agent | 评估工具能力、适配成本、止损条件和 tooling candidate | 只写 tooling workspace 或候选 |
-| Reviewer agent | 只读复核 candidate、evidence、tooling diff 或 packet | 不写文件 |
-| Verifier / gate | 检查 schema、evidence、冲突、备份、diff、预算和确认条件 | 输出 verdict，不创造业务结论 |
-| Human confirmer | 对高风险动作、confirmed/authority、外部副作用和架构取舍做最终授权 | 通过对话授权 |
+active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commander 可以创建 durable member；新增前优先复用现有成员，其次使用 tactical subagent。
 
-Agent 可以短命，工作线和账本必须持久。最终产品方向中，长期成员身份绑定 durable member lane，而不是绑定旧 Claude Code session；session 只是当前 executor，可因上下文污染、模型切换或用户要求被新会话接手。任何 agent 的输出都应能被下一会话通过 packet、facts、handoff 继续消费。
+## 协作边界
 
-## Packet 类型
+- 每名成员的当前主任务优先；普通发现不广播。
+- 成员可定向提问、共享关键发现或请求有明确停止条件的复核。
+- 每个问题默认一名 owner、最多一名 verifier；第三人介入前必须说明缺少的独立能力。
+- 会改变任务、范围或持续投入的协助由 Commander 决定。
+- 正式任务变更消息必须同时写明预期替换的当前任务与新任务；预期不匹配时返回 `HOLD_STALE_TASK`，不得覆盖更近的用户纠偏。
+- `SendMessage` 不能冒充用户输入、扩大授权或提升工具权限。用户在目标成员 session 中直接输入，或通过同一 session `resume` / `attach` 输入，才算直接纠偏。
+- 原生消息不是 exactly-once queue；不为补偿消息不可靠而建立消息、代次、归属或监督状态机。
 
-### Task packet
+## 安全与写入
 
-用于分派任务：
-
-```yaml
-task_id: <stable-id>
-lane: <workstream-id>
-goal: <要回答的问题>
-inputs:
-  - <文件、sidecar 或事实引用>
-allowed_reads:
-  - <范围>
-allowed_writes:
-  - <workspace 或 none>
-stop_conditions:
-  - <停止、升级或询问条件>
-output_contract: evidence | candidate | review | request | handoff
-```
-
-### Evidence packet
-
-用于短证据摘要：
-
-```yaml
-evidence_id: <stable-id>
-subject: <对象>
-evidence:
-  - kind: source | trace | disasm | decompile | xref | tool-output | test
-    ref: <文件:行 或 sidecar + filter>
-    summary: <短摘要>
-confidence: low | medium | high
-limitations:
-  - <缺失、低样本、alias、未 cross-run 等>
-```
-
-`evidence_id` 必填，供 candidate 的 `evidence_refs` 引用。
-
-### Candidate packet
-
-用于候选结论：
-
-```yaml
-candidate_id: <stable-id>
-subject: <对象>
-claim: <候选结论>
-evidence_refs:
-  - <evidence id 或文件定位>
-verifier: pending | accepted | rejected | needs_more_evidence
-risk: low | medium | high
-next_action: accept | review | request-authority | reject | defer
-```
-
-### Review packet
-
-用于只读复核：
-
-```yaml
-review_id: <stable-id>
-candidate: <candidate-id 或摘要>
-lens: correctness | evidence | simplicity | tooling-risk | schema | security
-scope: <必须保持窄范围>
-question: <需要判断的问题>
-output_contract: decision,confidence,evidence,risk,next_action
-```
-
-### Stuck-point packet
-
-用于升级或请求帮助：
-
-```yaml
-stuck_id: <stable-id>
-phase: <当前阶段>
-blocked_by: <具体阻塞>
-tried:
-  - <已尝试的轻量动作>
-need: request-main | request-tooling | heavy-tool | human-decision
-budget:
-  runtime_s: <估计>
-  disk_mb: <估计>
-```
-
-## 状态流
-
-```text
-draft -> candidate -> review -> accepted | rejected | superseded | needs_more_evidence
-```
-
-规则：
-
-- Worker / feature agent 最高只产出 candidate。
-- Reviewer 只出 verdict 和 evidence，不直接写 accepted/confirmed 结论。
-- accepted decision 只表示 main agent 接受该 candidate；confirmed / authority 写入仍必须由 main agent 在 gate 通过后执行。
-- rejected / superseded 必须保留原因，避免后续重复走旧路。
-
-### Reviewer verdict 与 ledger decision
-
-Reviewer output contract 中的 `decision` 是分片复核结论，不是最终 ledger decision。主 agent 合并时按下表转换：
-
-| reviewer output | main agent ledger 写入 | 说明 |
-|---|---|---|
-| `accept` | 先写 `verification.verdict=accepted`；满足 gate 后才写 `decision=accept` | `decision=accept` 不等于自动写 confirmed/authority。 |
-| `reject` | 写 `verification.verdict=rejected`，通常再写 `decision=reject` | 保留 evidence/reason，避免重复复核。 |
-| `defer` | 写 `verification.verdict=inconclusive` 或 `decision=defer` | 表示当前证据不足或暂不合并。 |
-| `needs_l2` / `needs_l3` | 写 `verification.verdict=needs-more-evidence` 或 `request` | 升级前仍需遵守 tool_scope 与 heavy-tool gate。 |
-
-### Decision event
-
-每次 review 后，若 main agent 对 candidate 做出合并判断，应产出 decision event 持久化到 `.rekit/facts/decisions.jsonl`（即使手动写入也要对齐此格式）：
-
-```yaml
-event_id: <stable-id>
-kind: decision
-lane: <runtime 规范化后的 lane id>
-subject: <candidate-id 或对象>
-decision: accept | reject | defer | supersede
-reason: <短理由>
-superseded_by: <新 candidate-id 或 null>
-status: accepted | rejected | deferred | superseded
-evidence_refs:
-  - <evidence-id>
-created_at: <ISO 时间>
-```
-
-`decision=accept` / `status=accepted` 是当前 canonical 写法；历史事件中可能存在 `confirm`、`confirmed` 或自动流程旧字段 `action`，读层可兼容展示，但新写入不应继续使用旧值。
-
-`status=deferred` 的 decision 仍要写入账本，让下一会话知道"为什么不再走旧路"。
-
-## Human-in-the-Lane 与预授权 autonomy
-
-用户可以随时进入任意 member lane 打断、纠错、补充上下文、改向、硬切模型或要求新会话接手。成员 lane 下一次继续时必须先 reconcile：总结用户干预，标记被废弃的假设或 candidate，更新 status / outbox / intervention event，并在影响全局计划时通知 main agent。用户不需要在切模型前手写 checkpoint。
-
-lane 文档和 task packet 只能表达预授权意图，不能单独构成 heavy-action grant。成员 lane 只有在 strict validated `.rekit/lanes/<lane>/autonomy.json` 与覆盖本次 action、exact target、typed budget、stop conditions、output paths、record/notify 边界的 `authorized-gate` decision 同时有效时，才可在该范围内自主执行较重动作；否则必须先就具体动作取得显式用户确认。超出范围、出现新风险或需要最终发布/authority 时必须升级。
-
-## 必须询问用户的情况
-
-- confirmed / authority 写入、覆盖或删除。
-- 未被 strict validated durable autonomy profile 与对应 `authorized-gate` decision 完整覆盖，也尚未获得本次显式用户确认的外部副作用：网络、发布、上传、安装、进程注入、patch、dump、hook、动态调试、exploit replay、扫描或 fuzz。
-- runtime schema 迁移或破坏兼容性的 manifest 变更。
-- 需要扩大授权范围的架构取舍。
-- 工具运行成本、输出规模、目标范围或风险明显超出当前 packet/autonomy profile。
-
-## packet 文件与 facts event 的关系
-
-- **packet 文件**是 agent 产出物，写在 lane workspace（路径由 manifest `workstreamDefaults` 驱动，以 `/rekit start` 输出为准，不写死 `.rekit/lanes/<id>/workspace`）。
-- **facts event**是 runtime 视图，append 到 `.rekit/facts/*.jsonl`，供 `overview`、`handoff` 和 `note -List` 聚合。
-- 当前有两条写入路径：`/rekit continue` 自动从 lane CSV/workspace 抽取低风险 event；`/rekit note` 手动 append 单条 observation/candidate/verification/decision/request/publication/intervention/rollback/hypothesis event。
-- packet 仍是 agent 产出 source of truth；event 是可聚合索引。手动 packet 若需要进入 `overview` / `handoff`，主 agent 应通过 `/rekit note` 写入对应 facts event，而不是让 reviewer 直接写 authority。
-
-## lane id 规范化
-
-lane id 由 runtime 规范化（小写）。packet 字段中 `lane` 沿用 runtime 实际 id，不要用原始输入大小写。
-
-## 维护要求
-
-- Packet 必须小、结构化、可 diff。
-- 长输出放 sidecar，Markdown 只放摘要和定位。
-- 每批自动化都应生成 digest，说明输入、输出、决策和未决风险。
+- 一个项目只对应一个明确授权的安全研究 case。
+- `CLAUDE.md` 只提供角色上下文，不授予工具权限或扩大 case 授权。
+- 网络、执行、调试、注入、patch、dump、扫描、fuzz、上传或发布等 heavy action，必须绑定当前具体目标、范围、预算和停止条件，并取得用户明确确认与 Claude Code 工具权限。
+- 阻塞、授权变化和关键反证立即升级；无法证明的结论保持为假设。
+- 临时思考、聊天记录和长工具输出留在 session；团队只持久化需要复核的 artifact、evidence、finding、review 和 learning candidate。

@@ -1,46 +1,19 @@
-# Android native Agent Team routes
+# Android native / JNI security research team pattern
 
-## 1. 角色边界
+## 建议角色
 
-- `main`：确认授权 app / library / device 范围、静态/动态边界、隔离要求、case-local sidecar 位置和 gate 状态；合并 reviewer verdict，写 ledger / handoff，并在确认后更新 authority 文档。
-- `native-analysis`：在自己的 workspace 中分析单个 app alias、native library alias、JNI symbol、ABI、component、hook candidate 或 emulator summary，产出 observation / request / candidate。
-- `reviewer`：只读复核 bounded JNI hypotheses、native library notes、hook candidates、emulator summaries 或 tooling notes，输出 verdict，不连接设备、不 attach Frida、不执行 hook、不写文件。
-- `tooling`：描述工具能力、输入输出、sidecar、预算、隔离要求和止损；默认不执行动态动作或自动写回 app/device 状态。
+- **Commander**：确认 case 授权、目标和停止条件，按需组队并集成交付。
+- **Analysis member**：围绕一个窄问题收集 artifact 索引、evidence 与 finding candidate，只写自己的允许范围。
+- **Tooling member**：评估工具适用性、输入输出、预算和止损条件，不因工具存在而自动执行。
+- **Reviewer**：只读 artifact/evidence/finding，只写 review；证据不足时把 `needs-evidence` 直接返回原 owner。
 
-## 2. 默认 routes
+通常只需 1–2 名执行成员。每个问题默认一名 owner、最多一名 verifier；没有持续独立职责就用 tactical subagent，不创建 durable member。active durable team 不超过 3 名执行成员和 1 名 Reviewer。
 
-| route | 适用任务 | 分片 | 权限 | 输出 |
-|---|---|---|---|---|
-| `android-native:bounded-review` | finding / evidence / JNI / hook / tooling review | library-or-finding | read-only | reviewer verdict |
-| `android-native:native-analysis` | APK native / SO / JNI / Frida hook / emulator sidecar 分析 | app-library-or-symbol | read-only-or-workspace-only | observation / request / candidate |
+## 协作规则
 
-`plan-subagents` 只生成 review packet 与 observability，不自动 spawn agent。主会话负责启动 Agent 工具、收集输出，并用 `/rekit note` 写回 verification / decision。
-
-## 3. Packet 输出契约
-
-所有子 agent 输出都必须包含：
-
-```text
-item, decision, confidence, evidence, risk, next_action, tier_used, tool_scope, defer_reason
-```
-
-Android native route 可追加：
-
-```text
-app_ref, library_ref, jni_symbol_ref, abi, component_ref, hook_candidate_ref, candidate_path
-```
-
-`app_ref`、`library_ref`、`jni_symbol_ref`、`component_ref` 与 `hook_candidate_ref` 应是 case-local 脱敏引用或 sidecar id，不是 APK 路径、包名、hash、真实 device id、hook script、endpoint、token、traffic capture、dump 路径或绝对路径。`decision` 是 reviewer output decision，不等同于 ledger canonical decision；main 合并后再写 `/rekit note -Kind verification` 与 `/rekit note -Kind decision`。
-
-## 4. Review-first 门禁
-
-- accepted JNI hypothesis / hook candidate / emulator finding 只能进入 main 合并队列，不能直接写 confirmed / authority / report。
-- 证据不足时使用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- 需要设备连接、emulator run、Frida attach、hook 执行、网络请求、动态 trace、dump、patch、重签名、安装/卸载应用或外部副作用时，先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。`gate -Apply` 本身只记录 request decision，不执行 heavy action。
-- 每个 shard 的失败只影响本 shard；不要阻塞无关 app、library、JNI symbol、component 或 hook candidate。
-
-## 5. 证据与 sidecar
-
-- evidence 应引用 case-local sidecar 路径、app alias、library alias、JNI symbol alias、ABI、component alias、tool summary、时间窗口和脱敏 row id。
-- 不在 pack reference 中保存 APK/AAB/DEX/SO、hash、包名、真实端点、device/emulator id、hook script、traffic/capture、dump、trace、patch、keystore、token、账号凭据、客户上下文或绝对路径。
-- 任何可复用经验进入 pack 前必须清理样本特征、hash、package name、endpoint、device id、hook/traffic/trace/dump/patch 细节和 case-specific dynamic result。
+- 成员身份和当前任务由各自目录 `CLAUDE.md` 承载，不绑定 session ID。
+- 当前主任务优先；定向共享关键发现或请求有界复核，不广播普通探索过程。
+- 正式改派必须包含 expected current task 与 new task；任务已变化时返回 `HOLD_STALE_TASK`。
+- app_ref、library_ref、jni_symbol_ref、component_ref 只能是 case-local 脱敏引用。
+- owner 写 evidence/finding；verifier 提供有界验证；Reviewer 不修改原 evidence/finding。
+- heavy action 不由成员间消息授权，必须回到具体 case 授权、用户确认和工具权限边界。

@@ -2,69 +2,61 @@
 
 ## 项目定位
 
-本仓库是 STeamAI canonical 实现（`https://github.com/shuiyu486/STeamAI`）：安全研究向 Claude Code Agent Team Mission Control，组织 Mission Commander、lanes、sessions、subagents、pack、证据和门禁。`github.com/shuiyu486/re-context-kits` 只是 Go module compatibility identity。
+本仓库是 STeamAI canonical 实现（`https://github.com/shuiyu486/STeamAI`）。Go module 只承载 test-only acceptance，使用同一 canonical identity。
 
-产品北极星见 `docs/mission-control-product-direction.md`：一个真实项目目录就是一个自包含 STeamAI 项目。用户在目录内启动已有 Claude Code，主要指挥主 Agent；新项目用 `/steamai`、`.steamai` 和随项目发布的 runtime/selected pack。`/rekit`、`.rekit`、中央 kit/thin-shim 仅用于迁移兼容。成员身份绑定 lane；heavy action 只认 active root 的 strict autonomy profile + `authorized-gate`。
+STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协作与经验学习层：一个真实项目目录对应一个明确授权的 case；用户主要指挥 Commander，也可观察和纠偏成员；成员身份与当前任务由专属目录的 `CLAUDE.md` 承载；会话、消息、恢复和工具调用复用 Claude Code 原生能力；STeamAI 只补团队协作、artifact/evidence/finding/review 与经确认的经验回流。
 
-本仓库不是安全/RE case 或自动分析、漏洞挖掘、渗透引擎；只为验证产品行为创建临时 case。
+本仓库不是安全/RE case、自动分析器、漏洞挖掘或渗透引擎。模板和测试不得包含真实样本、trace/dump/capture、payload、凭据、客户信息、绝对 case 路径或 case 进度。
 
 ## 文档不变量 / 上下文路由
 
-本项目文档必须做成按需路由、渐进式披露的样式；`docs/context-routing.md` 是唯一完整路由表。只读必要边界、router、仓库状态，不串读路线图、batch plan、CHANGELOG、release readiness 或历史；active docs 只留当前决策/短指针。
+本项目文档必须做成按需路由、渐进式披露的样式。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
+
+`steamai-vnext-thin-core-v1` 已完成，验收事实保存在 `docs/real-usage-hardening-roadmap.md`；`docs/batch-plan.md` 只作完成态短投影。当前没有自动推进的后续批次；只有真实使用反馈、明确新目标或授权边界变化时才建立新路线。
+
+## 薄核心边界
+
+- 一个 STeamAI 项目对应一个明确授权的安全研究 case；不同 case 只通过审查、脱敏且用户确认的 pack 经验共享。
+- Commander 按需组队；正式成员使用专属目录与目录级 `CLAUDE.md`，默认启动用户可见的独立 Claude Code 会话。
+- 成员可直接定向沟通、请求有界验证和共享关键发现；当前主任务默认优先。每个问题默认一名 owner、最多一名 verifier；实质改派和 durable member 创建只由 Commander 决定。
+- durable member 通常为 1–3 名执行成员加 0–1 名 Reviewer。优先复用已有成员，其次 tactical subagent，只有持续且独立的工作流才新增成员。
+- Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。
+- 只持久化团队需要复核的 artifact、evidence、finding、review 和 learning candidate，不保存全部思考过程或聊天历史。
+- 经验由 Commander 自动提炼，经 Reviewer 检查证据、通用性、重复、冲突与脱敏后，向用户展示完整 exact Git patch；只有用户确认才回流 pack。
+- canonical `/steamai` 使用 skill、模板、目录、Markdown、Git 与 Claude Code 原生能力；仓库没有项目 runtime、旧 Go control plane、PowerShell façade 或 adapter host。
+
+## 初始化与兼容边界
+
+- source clone 本身不是 case。首次接入外部项目时，从 canonical source clone 的 `/steamai` 生成零写入 preview；确认后只发布 canonical skill exact bytes、`.steamai-vnext/` 声明目录和 exact-revision pack snapshot。
+- 日常 quickstart 是 `cd <project> → claude → /steamai`；日常不依赖 source clone、机器 PATH、全局 plugin 或 executable。
+- legacy `.steamai` / `.rekit` 只作为一次性只读 importer source；不 dual-write、不运行旧 runtime、不迁移 session/lane/generation/receipt/gate/authority 状态。
+- importer 对双根、partial target、未知或 retired pack、绝对/逃逸路径、symlink/reparse、目标 skill 自定义冲突和 source drift 均 fail-closed。
+- case 初始化把 selected pack 与 `common/**` 从同一 exact revision 物化为只读 snapshot；learning feedback 通过用户确认的 exact patch 从 case 回流 pack。用户确认前 canonical pack 零写。
+- 保持 source-clone-first，不做 installer、GUI/TUI、新 PowerShell runtime 或 production Go helper；只有真实原型证明存在重复且无法原生解决的机械问题，才允许增加窄职责、无状态 helper。
 
 ## 维护入口
 
-- `/steamai` canonical skill：`.claude/skills/steamai/SKILL.md`；legacy `/rekit` compatibility skill：`.claude/skills/rekit/SKILL.md`
-- Go front door：`cmd/rekit/main.go`、`internal/rekit/**`；public owner 是 `internal/rekit/cli/public_frontdoor.go`，dispatch 不重建状态机
-- session/external/adapter：`cmd/rekit-host/**`、`internal/rekit/{sessionhost,externalsession}/**`、`cmd/rekit-adapter-{host,acceptance}/**`
-- compatibility：`rekit/rekit.ps1`（不新增业务 runtime）；pack/common：`packs/<pack>/**`、`common/**`
-- release/docs：`docs/context-routing.md`、`docs/release-readiness.md`、`docs/powershell-deprecation.md`
+- canonical skill：`.claude/skills/steamai/SKILL.md`
+- project-local delivery template：`vnext/project-skill/SKILL.md`
+- 薄核心合同与模板：`vnext/**`
+- contract tests：`internal/steamai/vnextcontract/**`
+- pack/common：`packs/<pack>/**`、`common/**`
+- 已完成路线与验收事实：`docs/real-usage-hardening-roadmap.md`
 
-## CodeGraph 使用边界
+维护源码、模板和文档时先用 CodeGraph 查看结构、调用链与影响面；其返回源码视为已读。不得用 CodeGraph 处理样本、二进制或 case artifact。
 
-维护源码、模板、文档时优先用 CodeGraph 查看结构、调用链与影响面；返回源码视为已读。不得用于样本、二进制、trace/dump/capture 或 case artifact；安全/RE case 仍走 pack、lane packet、工具链、证据和授权边界。
-
-## 当前推进原则
-
-当前已批准路线是 `steamai-architecture-product-convergence-v1`；四阶段已完成，当前无 owner/next batch。source-clone-first，不做 installer，兼容 legacy `/rekit`/`.rekit`。Machine publication 认 Git-local typed receipt、direct commit、本地 tracking ref；cross-compile 不是运行证据。
-
-保持 PowerShell-free/Go-native，不增 PowerShell runtime logic。避免单字段微批次；公共入口删除门禁不完整则升级。
-
-## 关键边界
-
-- `sync` 是 kit -> case；`promote` 是 case -> kit；均 review-first，写前确认范围。
-- `continue -Apply` 不写 authority/confirmed、不执行 heavy-tool。
-- Executable Mission Commander request 携带与 command/receipt 一致的 bounded typed invocation；多 lane 未选时不发布，selected artifact 只用 exact `-Lane`。Request SHA 只证明 currentness，不授权。
-- 普通 public `continue` 只按 `-WhatIf -Format json` preview → 同 selector/owner/generation 的 exact `-Apply` → fresh status 推进。`continuePlanSha256` 绑定完整 mutation snapshot，Apply 原样携带 `-ExpectedContinuePlanSha256`；blocked preview 不发布 Apply。不得手工拼 phase、复用已执行 request，或分开改写 command/typed invocation。
-- daily 自然语言 operation 只由一个 classifier 选择 resume/goal/correction/control/adoption；`-Lane` 只是 selector，不得被解释为 control intent。
-- 自然语言纠偏从 fresh typed state 唯一选路：Reviewer rejection 走既有 correction/reconcile；committed completion 只走 `reopen` preview/exact Apply，返回 `ready-to-continue` + `NoAutoResume`，不自动接管或启动 Claude。普通 active-lane correction 即使只有一个候选也必须显式选择 current open non-authority lane；append 的 typed intervention 绑定旧 executor/generation，exact reconcile 保持 executor、generation 只推进一次，旧结果 stale/held，不终止进程、不启动 Claude。
-- `mission-complete` 后的新目标只走 successor preview/exact Apply：绑定 predecessor intent/closure，commit 与 active pointer 最后发布，激活 `.steamai/missions/gNNNNNN` 并保留旧 audit tree；返回 `ready-to-continue` + `NoAutoResume`，不启动 Claude。用户不填 SHA；same-goal 只 committed replay，legacy/stale/corrupt partial transition fail-closed。
-- `gate -Apply` 只写 gate decision 或 authorized execution observation，不执行 heavy action；actual heavy action 由 executor/adapter 在 strict profile + `authorized-gate` 内执行并留证。
-- transport/endpoint/delivery observation 不授予权限；Remote Control uncertain delivery 不重发或 same-job replacement；opaque endpoint 不是 durable identity。
-- authority/confirmed、schema migration、公共 façade 删除门禁、未授权副作用或难判断架构取舍，需要升级。
-- 模板仓库不得写入真实样本、trace/dump/capture、artifact、绝对 case 路径、payload、flag 或 case 进度。
-- 新项目 `/steamai` 只用 project-local verified runtime bundle，不得回退机器 PATH 或外部 kit；legacy `/rekit` thin shim 只兼容旧 `.rekit`。
-- `.steamai`/`.rekit` dual-read/single-write：current-only 写 `.steamai`，legacy-only 写 `.rekit`，neither 选 `.steamai`，both fail-closed；不双写、合并、择优或接受 reparse alias。
-- case public JSON 的 project-local typed command 由 resolved state root 统一投影：current 只显示 `/steamai`，legacy 只显示 `/rekit`；只遍历显式 typed structure，不替换 JSON prose 或 durable/source identity。
-- project-local no-mode `help/status/continue` 只做用户摘要；diagnostics 与 exact preview/apply 规则见 `.claude/skills/steamai/SKILL.md`，current 默认不得泄漏 `/rekit`。
-- fresh 未接入 status 只读发布 schema-valid、非 template pack choices；pending onboarding publication 不重新选 pack，只发布绑定既有 identity/stamp/plan 的唯一 exact Apply recovery；committed missing-board 仍走 `overview` bootstrap。三者不得混用，status 不写项目。Windows source-clone-first external `bootstrap` 只由 unified `cmd/rekit` image 提供：交互确认仅接受同进程刚展示计划的精确 `APPLY`，JSON 固定 preview-only，成功返回 `NoAutoResume` typed continuation，不做 installer、PATH/plugin 写入或 Claude launch。
-- `binary-re` member continuation 在启动前必须有 owner-generation-bound typed input：`artifact-analysis` 绑定并重验 case-local artifact/alias/sidecar 的 path/SHA/bytes，`workspace-inventory` 只绑定明确目录 scope；缺模式或目标返回 `input-required`，不得靠自然语言关键词或目录扫描猜测，也不得启动 member/Reviewer。
-- `bounded-autonomous-v1` 只显式 opt-in 单 lane/exact action/exact target/有限预算/短 expiry，每次仍重验并留证；不授予无限权限、authority/confirmed、sync/promote 或 schema migration。
-- exact lane `control` 使用独立 append-only generation + review-first stamp/hash Apply；pause 不做 OS suspend；stop 先 durable 提交，仅 exact local supervisor owner 可关闭其 containment。actuation 失败不回滚 stopped，process termination 不证明 durable stop，opaque Remote Control 不受管。current member handoff/checkpoint/attempt/observation 共用 birth control lineage，missing/stale 只读或 held、不补采 generation；legacy nil 兼容。旧 generation 不推进 live output、Reviewer、completion/checkpoint。
-- current-sync Apply 与 current `.steamai` detached-supervisor handoff 依赖 handle-bound exact filesystem mutation；Windows 提供，非 Windows 持久化副作用前 fail-closed；read-only/preview 与 legacy compatibility 保持可用。
-
-## 验证命令
+## 验证
 
 ```text
-go run ./cmd/rekit -- -Command release-check -Format json
-go run ./cmd/rekit -- -Command status
-go run ./cmd/rekit -- -Command packs
-go run ./cmd/rekit -- -Command doctor
 go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...
 git diff --check
 ```
 
-Canonical Go tests 用 `-count=1`、`-p=2`、`-timeout=30m`；`release-run` 整步上限 45 分钟，其余命令 5 分钟。Windows Job／Unix 进程组清理子孙，64 MiB 输出后仅 drain 5 秒。远程 workflow 先 vet 后 tests；顶层 `release-check.ready` / `readinessLayers.inventoryReady` 只表示 repository inventory，`ciReleaseGate.ready` 只验证 workflow 定义，均不代表 Windows live acceptance、remote green 或 formal release；分别看 `localValidationReady`、`realWindowsAcceptanceReady`、`remoteCIGreen`、`formalReleaseReady`。完整边界见 `docs/release-readiness.md`。
+显式 live gate：
 
-按需追加：改 façade/compatibility 时运行 `rekit/tests/facade-smoke.ps1`；改 pack wrapper 时运行对应 validate/smoke；涉及 workstream/ledger/gate/sync/promote 写入时用临时 case 验证。
+```text
+STEAMAI_VNEXT_LIVE_ACCEPTANCE=1 go test -count=1 -run TestLiveNativeContextAndFileAccess ./internal/steamai/vnextcontract
+```
+
+默认测试不启动 Claude Code。remote workflow、cross-compile 或 synthetic fixture 不代表真实 Windows live acceptance、remote green 或 formal release。涉及 canonical skill、importer、pack snapshot 或 learning patch 时，追加对应 focused contract tests。
