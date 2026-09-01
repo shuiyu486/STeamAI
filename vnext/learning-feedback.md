@@ -4,10 +4,13 @@
 
 ## 1. Candidate eligibility
 
+若 project-local Commander 当前不能访问 canonical source clone，先向用户询问其路径，并让用户以 `--add-dir <CANONICAL_SOURCE_CLONE>` 恢复或重新进入同一 Commander 上下文；验证该目录是预期 canonical repository 后再继续。clone path 只作为本次访问范围，不写入 case 状态，不自动搜索、安装或复制 source clone。
+
 Commander 创建 immutable `learnings/candidates/L-*.md` 前必须证明：
 
 - finding 引用至少一项 evidence；
-- supplied source review 明确针对该 finding，最后完整 round 为 `accepted`，且 finding/evidence SHA-256 仍 current；
+- 每项 evidence 记录 artifact alias、case-relative path、SHA-256、bytes 与 authorized use；该 tuple 同时匹配当前 artifact index 的同 alias entry 和实际 case-local artifact bytes；
+- supplied source review 明确针对该 finding，最后完整 round 为 `accepted`，且 finding/evidence SHA-256 与传递 artifact bindings 仍 current；
 - candidate 记录 source finding/review 的 case-relative path 与 SHA-256；
 - candidate 绑定 selected pack、full source revision、pack tree、common tree 与完整 snapshot digest；
 - snapshot digest 重算后仍匹配；
@@ -73,17 +76,18 @@ Commander 一次性展示并绑定：candidate path/SHA、final learning review 
 按以下顺序 fail-closed；任一失败都不继续、不 retry 覆盖，并重新生成、审查、展示：
 
 1. case snapshot payload digest current；
-2. source finding/review SHA current；
-3. candidate SHA current；
-4. learning review SHA current；
-5. patch SHA current；
-6. canonical `HEAD` 等于 reviewed base revision；
-7. manifest filter-aware blob 等于 reviewed manifest base blob；
-8. current manifest 仍允许唯一 target，denyPatterns 未改变；
-9. target 及所有 ancestors 仍在 pack root 内且非 symlink/reparse；
-10. target staged/unstaged content 与 reviewed base 一致，filter-aware target blob 等于 reviewed target base blob；
-11. patch 仍为单一 existing Markdown target，无 create/delete/rename/copy/mode/binary/path traversal；
-12. `git apply --check <PATCH_PATH>` 通过。
+2. source finding/review SHA current，并解析 source review 最后完整 accepted round；
+3. 该 round 列出的全部 evidence path/SHA current；每项 evidence 的 artifact alias/path/SHA-256/bytes/authorized-use tuple 与当前 artifact index 同 alias entry 及实际 artifact bytes 一致；
+4. candidate SHA current；
+5. learning review SHA current；
+6. patch SHA current；
+7. canonical `HEAD` 等于 reviewed base revision；
+8. manifest filter-aware blob 等于 reviewed manifest base blob；
+9. current manifest 仍允许唯一 target，denyPatterns 未改变；
+10. target 及所有 ancestors 仍在 pack root 内且非 symlink/reparse；
+11. target staged/unstaged content 与 reviewed base 一致，filter-aware target blob 等于 reviewed target base blob；
+12. patch 仍为单一 existing Markdown target，无 create/delete/rename/copy/mode/binary/path traversal；
+13. `git apply --check <PATCH_PATH>` 通过。
 
 重验通过后才执行：
 

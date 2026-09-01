@@ -142,6 +142,65 @@ func TestReviewRoundsAreAppendOnlyAndCurrentnessBound(t *testing.T) {
 	}
 }
 
+func TestReviewCurrentnessRequiresArtifactBinding(t *testing.T) {
+	root := t.TempDir()
+	caseRoot := filepath.Join(root, "case")
+	artifactPath := filepath.Join(caseRoot, "fixtures", "primary.bin")
+	artifact := []byte("synthetic artifact")
+	writeDay2Fixture(t, artifactPath, string(artifact))
+	artifactSHA := day2SHA(artifact)
+	indexPath := filepath.Join(caseRoot, ".steamai-vnext", "artifacts", "index.md")
+	index := "# Artifact Index\n\n## `fixture-primary`\n\n- 相对路径：`fixtures/primary.bin`\n- SHA-256：`" + artifactSHA + "`\n- Bytes：`18`\n- 授权范围：`read-only contract test`\n"
+	writeDay2Fixture(t, indexPath, index)
+	evidencePath := filepath.Join(caseRoot, ".steamai-vnext", "evidence", "E-001.md")
+	evidence := "# E-001\n\n- Artifact alias：`fixture-primary`\n- Artifact path：`fixtures/primary.bin`\n- Artifact SHA-256：`" + artifactSHA + "`\n- Artifact bytes：`18`\n- Authorized use：`read-only contract test`\n"
+	writeDay2Fixture(t, evidencePath, evidence)
+	if !day2ArtifactBindingCurrent(index, evidence, caseRoot) {
+		t.Fatal("current artifact binding was rejected")
+	}
+	writeDay2Fixture(t, artifactPath, "replacement artifact")
+	if day2ArtifactBindingCurrent(index, evidence, caseRoot) {
+		t.Fatal("artifact byte drift kept the review binding current")
+	}
+	writeDay2Fixture(t, artifactPath, string(artifact))
+	rebound := strings.Replace(index, "fixtures/primary.bin", "fixtures/other.bin", 1)
+	if day2ArtifactBindingCurrent(rebound, evidence, caseRoot) {
+		t.Fatal("artifact alias rebinding kept the review binding current")
+	}
+}
+
+func day2ArtifactBindingCurrent(index, evidence, caseRoot string) bool {
+	field := func(name string) string {
+		prefix := "- " + name + "：`"
+		_, value, ok := strings.Cut(evidence, prefix)
+		if !ok {
+			return ""
+		}
+		value, _, ok = strings.Cut(value, "`")
+		if !ok {
+			return ""
+		}
+		return value
+	}
+	alias := field("Artifact alias")
+	path := field("Artifact path")
+	sha := field("Artifact SHA-256")
+	bytesText := field("Artifact bytes")
+	authorizedUse := field("Authorized use")
+	entry := "## `" + alias + "`"
+	if alias == "" || path == "" || sha == "" || bytesText == "" || authorizedUse == "" || !strings.Contains(index, entry) ||
+		!strings.Contains(index, "相对路径：`"+path+"`") || !strings.Contains(index, "SHA-256：`"+sha+"`") ||
+		!strings.Contains(index, "Bytes：`"+bytesText+"`") || !strings.Contains(index, "授权范围：`"+authorizedUse+"`") {
+		return false
+	}
+	artifactPath := filepath.Clean(filepath.Join(caseRoot, filepath.FromSlash(path)))
+	if !pathWithin(artifactPath, caseRoot) {
+		return false
+	}
+	data, err := os.ReadFile(artifactPath)
+	return err == nil && fmt.Sprintf("%d", len(data)) == bytesText && day2SHA(data) == sha
+}
+
 func TestRepositoryDoesNotAddParallelDay2StateSurfaces(t *testing.T) {
 	repo := repoRoot(t)
 	for _, rel := range []string{

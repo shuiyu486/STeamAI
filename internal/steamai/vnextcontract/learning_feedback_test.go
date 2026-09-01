@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -19,6 +21,8 @@ func TestLearningFeedbackContractRequiresExactReviewedGitPatch(t *testing.T) {
 	for _, required := range []string{
 		"current accepted review",
 		"source finding/review",
+		"artifact alias、case-relative path、SHA-256、bytes 与 authorized use",
+		"实际 artifact bytes 一致",
 		"完整 snapshot digest",
 		"`learningTargets`",
 		"`denyPatterns`",
@@ -225,25 +229,83 @@ func TestReviewedLearningPatchRequiresAcceptedExactBinding(t *testing.T) {
 		Eligibility:      "eligible",
 		PatchDecision:    "accepted",
 	})
-	confirmation := learningConfirmation{CandidateSHA256: learningSHA256(candidate), ReviewSHA256: learningSHA256(review), PatchSHA256: learningSHA256([]byte(patch)), Confirmed: true}
+	caseRoot := filepath.Join(root, "case")
+	snapshotMetadataPath, snapshotDigest := writeLearningSnapshotFixture(t, caseRoot)
+	artifactPath := filepath.Join(caseRoot, "fixtures", "primary.bin")
+	artifactBytes := []byte("synthetic artifact")
+	writeLearningFixtureFile(t, artifactPath, string(artifactBytes))
+	artifactSHA := learningSHA256(artifactBytes)
+	artifactIndexPath := filepath.Join(caseRoot, ".steamai-vnext", "artifacts", "index.md")
+	writeLearningFixtureFile(t, artifactIndexPath, "# Artifact Index\n\n## `fixture-primary`\n\n- 相对路径：`fixtures/primary.bin`\n- SHA-256：`"+artifactSHA+"`\n- Bytes：`18`\n- 来源说明：`synthetic fixture`\n- 授权范围：`read-only contract test`\n- 备注：`none`\n")
+	evidencePath := filepath.Join(caseRoot, ".steamai-vnext", "evidence", "E-001.md")
+	evidenceText := "# E-001\n\n- Owner：`owner`\n- Artifact alias：`fixture-primary`\n- Artifact path：`fixtures/primary.bin`\n- Artifact SHA-256：`" + artifactSHA + "`\n- Artifact bytes：`18`\n- Authorized use：`read-only contract test`\n"
+	writeLearningFixtureFile(t, evidencePath, evidenceText)
+	findingPath := filepath.Join(caseRoot, ".steamai-vnext", "findings", "F-001.md")
+	findingText := "# F-001\n\n## Evidence\n\n- `../evidence/E-001.md`\n"
+	writeLearningFixtureFile(t, findingPath, findingText)
+	sourceReviewPath := filepath.Join(caseRoot, ".steamai-vnext", "reviews", "R-001.md")
+	sourceReviewText := renderLearningSourceReviewRound("1", "none", "accepted", learningSHA256([]byte(findingText)), learningSHA256([]byte(evidenceText)))
+	writeLearningFixtureFile(t, sourceReviewPath, sourceReviewText)
+	sourceChain := learningSourceChain{
+		ArtifactIndexPath:      artifactIndexPath,
+		FindingPath:            findingPath,
+		SourceReviewPath:       sourceReviewPath,
+		SnapshotMetadataPath:   snapshotMetadataPath,
+		ExpectedSnapshotDigest: snapshotDigest,
+	}
+	confirmation := learningConfirmation{
+		CandidateSHA256:   learningSHA256(candidate),
+		ReviewSHA256:      learningSHA256(review),
+		PatchSHA256:       learningSHA256([]byte(patch)),
+		SnapshotDigest:    snapshotDigest,
+		SourceFindingPath: filepath.ToSlash(findingPath),
+		SourceFindingSHA:  learningSHA256([]byte(findingText)),
+		SourceReviewPath:  filepath.ToSlash(sourceReviewPath),
+		SourceReviewSHA:   learningSHA256([]byte(sourceReviewText)),
+		Confirmed:         true,
+	}
 
 	rejected := bytes.Replace(review, []byte("Patch decision：`accepted`"), []byte("Patch decision：`rejected`"), 1)
 	rejectedConfirmation := confirmation
 	rejectedConfirmation.ReviewSHA256 = learningSHA256(rejected)
-	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, rejectedConfirmation, candidate, rejected); !errors.Is(err, errLearningReviewBinding) {
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, rejectedConfirmation, candidate, rejected); !errors.Is(err, errLearningReviewBinding) {
 		t.Fatalf("non-accepted exact patch returned %v", err)
 	}
 	wrongReviewer := bytes.Replace(review, []byte("Reviewer 单写者：`reviewer`"), []byte("Reviewer 单写者：`other-reviewer`"), 1)
 	wrongReviewerConfirmation := confirmation
 	wrongReviewerConfirmation.ReviewSHA256 = learningSHA256(wrongReviewer)
-	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, wrongReviewerConfirmation, candidate, wrongReviewer); !errors.Is(err, errLearningReviewBinding) {
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, wrongReviewerConfirmation, candidate, wrongReviewer); !errors.Is(err, errLearningReviewBinding) {
 		t.Fatalf("Reviewer mismatch returned %v", err)
 	}
 	driftedReview := append(bytes.Clone(review), []byte("drift")...)
-	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, confirmation, candidate, driftedReview); !errors.Is(err, errLearningReviewBinding) {
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, driftedReview); !errors.Is(err, errLearningReviewBinding) {
 		t.Fatalf("review drift returned %v", err)
 	}
-	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, confirmation, candidate, review); err != nil {
+	writeLearningFixtureFile(t, evidencePath, evidenceText+"drift\n")
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("source evidence drift returned %v", err)
+	}
+	writeLearningFixtureFile(t, evidencePath, evidenceText)
+	writeLearningFixtureFile(t, artifactPath, "replacement artifact")
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("source artifact drift returned %v", err)
+	}
+	writeLearningFixtureFile(t, artifactPath, string(artifactBytes))
+	disputedReview := sourceReviewText + renderLearningSourceReviewRound("2", "1", "disputed", learningSHA256([]byte(findingText)), learningSHA256([]byte(evidenceText)))
+	writeLearningFixtureFile(t, sourceReviewPath, disputedReview)
+	disputedConfirmation := confirmation
+	disputedConfirmation.SourceReviewSHA = learningSHA256([]byte(disputedReview))
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, disputedConfirmation, candidate, review); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("non-current historical accepted round returned %v", err)
+	}
+	writeLearningFixtureFile(t, sourceReviewPath, sourceReviewText)
+	snapshotPayloadPath := filepath.Join(filepath.Dir(snapshotMetadataPath), "packs", "binary-re", "references", "binary-re", "general-analysis.md")
+	writeLearningFixtureFile(t, snapshotPayloadPath, "# Drifted pinned instruction\n")
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("source snapshot drift returned %v", err)
+	}
+	writeLearningFixtureFile(t, snapshotPayloadPath, "# Synthetic pinned instruction\n")
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); err != nil {
 		t.Fatalf("apply current reviewed learning patch: %v", err)
 	}
 	if got := normalizeLearningText(readLearningFixtureFile(t, filepath.Join(repo, filepath.FromSlash(targetRel)))); got != normalizeLearningText(baseText+"- Record counterexamples.\n") {
@@ -320,6 +382,36 @@ func normalizeLearningText(text string) string {
 	return strings.ReplaceAll(text, "\r\n", "\n")
 }
 
+func renderLearningSourceReviewRound(round, previous, decision, findingSHA, evidenceSHA string) string {
+	return strings.Join([]string{
+		"## Review round `" + round + "`",
+		"",
+		"- Previous round：`" + previous + "`",
+		"- Reviewer：`reviewer`",
+		"- Finding：`../findings/F-001.md`",
+		"- Finding SHA-256：`" + findingSHA + "`",
+		"- Decision：`" + decision + "`",
+		"- Confidence：`high`",
+		"",
+		"### 判断",
+		"",
+		"Synthetic source review.",
+		"",
+		"### 检查的证据",
+		"",
+		"- ../evidence/E-001.md — " + evidenceSHA,
+		"",
+		"### 风险或缺口",
+		"",
+		"Synthetic-only scope.",
+		"",
+		"### 下一步",
+		"",
+		"Apply only while current.",
+		"",
+	}, "\n")
+}
+
 type learningReviewBinding struct {
 	Reviewer         string
 	CandidateSHA256  string
@@ -333,10 +425,31 @@ type learningReviewBinding struct {
 }
 
 type learningConfirmation struct {
-	CandidateSHA256 string
-	ReviewSHA256    string
-	PatchSHA256     string
-	Confirmed       bool
+	CandidateSHA256   string
+	ReviewSHA256      string
+	PatchSHA256       string
+	SnapshotDigest    string
+	SourceFindingPath string
+	SourceFindingSHA  string
+	SourceReviewPath  string
+	SourceReviewSHA   string
+	Confirmed         bool
+}
+
+type learningSourceChain struct {
+	ArtifactIndexPath      string
+	FindingPath            string
+	SourceReviewPath       string
+	SnapshotMetadataPath   string
+	ExpectedSnapshotDigest string
+}
+
+type learningArtifactBinding struct {
+	Alias         string
+	Path          string
+	SHA256        string
+	Bytes         int
+	AuthorizedUse string
 }
 
 var (
@@ -473,11 +586,208 @@ func applyLearningPatch(git, repo, targetRel, patchPath, expectedBaseBlob, expec
 	return err
 }
 
-func applyReviewedLearningPatch(git, repo, manifestRel, patchPath string, confirmation learningConfirmation, candidate, review []byte) error {
+func writeLearningSnapshotFixture(t *testing.T, caseRoot string) (string, string) {
+	t.Helper()
+	snapshotRoot := filepath.Join(caseRoot, ".steamai-vnext", "pack-snapshot")
+	payloadRel := "packs/binary-re/references/binary-re/general-analysis.md"
+	payload := []byte("# Synthetic pinned instruction\n")
+	payloadPath := filepath.Join(snapshotRoot, filepath.FromSlash(payloadRel))
+	writeLearningFixtureFile(t, payloadPath, string(payload))
+	blob := strings.Repeat("1", 40)
+	record := strings.Join([]string{payloadRel, "100644", blob, strconv.Itoa(len(payload)), learningSHA256(payload)}, "\x00")
+	digest := "sha256:" + learningSHA256([]byte(record+"\n"))
+	metadata := strings.Join([]string{
+		"pack: binary-re",
+		"revision: " + strings.Repeat("2", 40),
+		"pack-tree: " + strings.Repeat("3", 40),
+		"common-tree: " + strings.Repeat("4", 40),
+		"payload-digest: " + digest,
+		"files:",
+		"  - path: " + payloadRel,
+		"    git-mode: 100644",
+		"    git-blob: " + blob,
+		"    sha256: " + learningSHA256(payload),
+		"    bytes: " + strconv.Itoa(len(payload)),
+		"",
+	}, "\n")
+	metadataPath := filepath.Join(snapshotRoot, "snapshot.yml")
+	writeLearningFixtureFile(t, metadataPath, metadata)
+	return metadataPath, digest
+}
+
+func validateLearningSnapshot(chain learningSourceChain) error {
+	if chain.SnapshotMetadataPath == "" || chain.ExpectedSnapshotDigest == "" {
+		return errLearningReviewBinding
+	}
+	metadataBytes, err := os.ReadFile(chain.SnapshotMetadataPath)
+	if err != nil {
+		return err
+	}
+	var declaredDigest string
+	type record struct {
+		path, mode, blob, sha, bytes string
+	}
+	var records []record
+	for line := range strings.SplitSeq(string(metadataBytes), "\n") {
+		switch {
+		case strings.HasPrefix(line, "payload-digest: "):
+			declaredDigest = strings.TrimSpace(strings.TrimPrefix(line, "payload-digest: "))
+		case strings.HasPrefix(line, "  - path: "):
+			records = append(records, record{path: strings.TrimSpace(strings.TrimPrefix(line, "  - path: "))})
+		case len(records) > 0 && strings.HasPrefix(line, "    git-mode: "):
+			records[len(records)-1].mode = strings.TrimSpace(strings.TrimPrefix(line, "    git-mode: "))
+		case len(records) > 0 && strings.HasPrefix(line, "    git-blob: "):
+			records[len(records)-1].blob = strings.TrimSpace(strings.TrimPrefix(line, "    git-blob: "))
+		case len(records) > 0 && strings.HasPrefix(line, "    sha256: "):
+			records[len(records)-1].sha = strings.TrimSpace(strings.TrimPrefix(line, "    sha256: "))
+		case len(records) > 0 && strings.HasPrefix(line, "    bytes: "):
+			records[len(records)-1].bytes = strings.TrimSpace(strings.TrimPrefix(line, "    bytes: "))
+		}
+	}
+	if declaredDigest != chain.ExpectedSnapshotDigest || len(records) == 0 {
+		return errLearningReviewBinding
+	}
+	snapshotRoot := filepath.Dir(chain.SnapshotMetadataPath)
+	var canonical []string
+	for _, item := range records {
+		path := filepath.Clean(filepath.Join(snapshotRoot, filepath.FromSlash(item.path)))
+		if item.path == "" || !pathWithin(path, snapshotRoot) || (item.mode != "100644" && item.mode != "100755") || len(item.blob) != 40 {
+			return errLearningReviewBinding
+		}
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return errLearningReviewBinding
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || strconv.Itoa(len(data)) != item.bytes || learningSHA256(data) != item.sha {
+			return errLearningReviewBinding
+		}
+		canonical = append(canonical, strings.Join([]string{filepath.ToSlash(item.path), item.mode, item.blob, item.bytes, item.sha}, "\x00"))
+	}
+	sort.Strings(canonical)
+	actualDigest := "sha256:" + learningSHA256([]byte(strings.Join(canonical, "\n")+"\n"))
+	if actualDigest != declaredDigest {
+		return errLearningReviewBinding
+	}
+	return nil
+}
+
+func validateLearningSourceChain(chain learningSourceChain) error {
+	if err := validateLearningSnapshot(chain); err != nil {
+		return errLearningReviewBinding
+	}
+	indexBytes, err := os.ReadFile(chain.ArtifactIndexPath)
+	if err != nil {
+		return err
+	}
+	findingBytes, err := os.ReadFile(chain.FindingPath)
+	if err != nil {
+		return err
+	}
+	sourceReviewBytes, err := os.ReadFile(chain.SourceReviewPath)
+	if err != nil {
+		return err
+	}
+	rounds, ok := parseDay2ReviewRounds(string(sourceReviewBytes))
+	if !ok || len(rounds) == 0 {
+		return errLearningReviewBinding
+	}
+	last := rounds[len(rounds)-1]
+	if !day2ReviewCurrent(string(sourceReviewBytes), last.Reviewer, learningSHA256(findingBytes), last.EvidenceRefs, "accepted") {
+		return errLearningReviewBinding
+	}
+
+	stateRoot := filepath.Dir(filepath.Dir(chain.ArtifactIndexPath))
+	caseRoot := filepath.Dir(stateRoot)
+	reviewRoot := filepath.Dir(chain.SourceReviewPath)
+	for evidenceRef, evidenceSHA := range last.EvidenceRefs {
+		evidencePath := filepath.Clean(filepath.Join(reviewRoot, filepath.FromSlash(evidenceRef)))
+		if !pathWithin(evidencePath, stateRoot) {
+			return errLearningReviewBinding
+		}
+		evidenceBytes, err := os.ReadFile(evidencePath)
+		if err != nil || learningSHA256(evidenceBytes) != evidenceSHA {
+			return errLearningReviewBinding
+		}
+		binding, err := parseLearningArtifactBinding(string(evidenceBytes))
+		if err != nil || !artifactIndexContainsBinding(string(indexBytes), binding) {
+			return errLearningReviewBinding
+		}
+		artifactPath := filepath.Clean(filepath.Join(caseRoot, filepath.FromSlash(binding.Path)))
+		if !pathWithin(artifactPath, caseRoot) {
+			return errLearningReviewBinding
+		}
+		info, err := os.Lstat(artifactPath)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return errLearningReviewBinding
+		}
+		artifactBytes, err := os.ReadFile(artifactPath)
+		if err != nil || len(artifactBytes) != binding.Bytes || learningSHA256(artifactBytes) != binding.SHA256 {
+			return errLearningReviewBinding
+		}
+		findingRef := "- `../evidence/" + filepath.Base(evidencePath) + "`"
+		if !strings.Contains(string(findingBytes), findingRef) {
+			return errLearningReviewBinding
+		}
+	}
+	return nil
+}
+
+func parseLearningArtifactBinding(evidence string) (learningArtifactBinding, error) {
+	fields := map[string]string{}
+	for line := range strings.SplitSeq(evidence, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- ") || !strings.HasSuffix(line, "`") {
+			continue
+		}
+		key, value, ok := strings.Cut(strings.TrimPrefix(line, "- "), "：`")
+		if ok {
+			fields[key] = strings.TrimSuffix(value, "`")
+		}
+	}
+	bytesCount, err := strconv.Atoi(fields["Artifact bytes"])
+	binding := learningArtifactBinding{
+		Alias:         fields["Artifact alias"],
+		Path:          fields["Artifact path"],
+		SHA256:        fields["Artifact SHA-256"],
+		Bytes:         bytesCount,
+		AuthorizedUse: fields["Authorized use"],
+	}
+	if err != nil || binding.Alias == "" || binding.Path == "" || len(binding.SHA256) != 64 || binding.Bytes < 0 || binding.AuthorizedUse == "" {
+		return learningArtifactBinding{}, errLearningReviewBinding
+	}
+	return binding, nil
+}
+
+func artifactIndexContainsBinding(index string, binding learningArtifactBinding) bool {
+	marker := "## `" + binding.Alias + "`"
+	start := strings.Index(index, marker)
+	if start < 0 {
+		return false
+	}
+	entry := index[start:]
+	if next := strings.Index(entry[len(marker):], "\n## `"); next >= 0 {
+		entry = entry[:len(marker)+next]
+	}
+	return strings.Contains(entry, "相对路径：`"+binding.Path+"`") &&
+		strings.Contains(entry, "SHA-256：`"+binding.SHA256+"`") &&
+		strings.Contains(entry, "Bytes：`"+strconv.Itoa(binding.Bytes)+"`") &&
+		strings.Contains(entry, "授权范围：`"+binding.AuthorizedUse+"`")
+}
+
+func applyReviewedLearningPatch(git, repo, manifestRel, patchPath string, sourceChain learningSourceChain, confirmation learningConfirmation, candidate, review []byte) error {
 	if !confirmation.Confirmed {
 		return errLearningConfirmationRequired
 	}
-	if learningSHA256(candidate) != confirmation.CandidateSHA256 || learningSHA256(review) != confirmation.ReviewSHA256 {
+	findingBytes, findingErr := os.ReadFile(sourceChain.FindingPath)
+	sourceReviewBytes, sourceReviewErr := os.ReadFile(sourceChain.SourceReviewPath)
+	if learningSHA256(candidate) != confirmation.CandidateSHA256 || learningSHA256(review) != confirmation.ReviewSHA256 ||
+		confirmation.SnapshotDigest != sourceChain.ExpectedSnapshotDigest ||
+		confirmation.SourceFindingPath != filepath.ToSlash(sourceChain.FindingPath) || findingErr != nil || learningSHA256(findingBytes) != confirmation.SourceFindingSHA ||
+		confirmation.SourceReviewPath != filepath.ToSlash(sourceChain.SourceReviewPath) || sourceReviewErr != nil || learningSHA256(sourceReviewBytes) != confirmation.SourceReviewSHA {
+		return errLearningReviewBinding
+	}
+	if validateLearningSourceChain(sourceChain) != nil {
 		return errLearningReviewBinding
 	}
 	binding, err := parseLearningReviewBinding(string(review))

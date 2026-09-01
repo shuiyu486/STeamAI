@@ -27,7 +27,7 @@
 ## 执行清单
 
 - [x] 删除 `cmd/**`、`internal/rekit/**`、legacy `/rekit`/`verify` skills、PowerShell façade、adapter/runtime assets 与旧生产 Go package。
-- [x] 将 project-local skill template 迁入 `vnext/project-skill/`，保持 canonical exact bytes，不保留 generator 或第二运行入口。
+- [x] canonical 与 project-local skill 只使用 `.claude/skills/steamai/SKILL.md` 这一 source blob；删除无消费者的 exact-byte mirror，不保留 generator 或第二运行入口。
 - [x] 重写 CI 与 stop-hook，不再调用已删除 CLI、release-check、doctor、sync/promote 或 runtime smoke。
 - [x] 将 `common/**` 收敛为 Claude Code 原生团队、evidence/review/learning 与权限确认语义。
 - [x] 将 `packs/**` 收敛为声明式领域资产，删除旧 lane/ledger/gate/runtime schema、失效命令与 executable 脚本。

@@ -20,7 +20,8 @@
 - `capabilities.md`：必需/可选 Claude Code 原生能力和降级边界。
 - `acceptance.md`：自动 capability/context/file-access probe 与真实独立 session live acceptance。
 - `learning-feedback.md`：accepted finding/review 到 exact Git patch、用户确认与 snapshot 不漂移的回流合同。
-- `project-skill/SKILL.md`：分发到外部 case 的 canonical skill exact byte mirror。
+
+project-local `/steamai` 直接来自 preview revision 中 `.claude/skills/steamai/SKILL.md` 的 exact Git blob；`vnext/` 不保存第二份 skill mirror。
 
 外部 case 同时得到 `.steamai-vnext/contracts/` 中的模板与 learning 合同，以及 selected pack 与完整 `common/**` 的同 revision snapshot。Fresh preview 绑定 source blob 与 target pre-state；Apply 先在 sibling staging 验证完整 state tree 和 payload digest，再发布 exact project-local skill，最后发布 completed marker。分发后日常不读取 mutable source clone。
 

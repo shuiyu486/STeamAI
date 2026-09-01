@@ -44,9 +44,21 @@ $env:STEAMAI_VNEXT_LIVE_ACCEPTANCE = '1'; go test -count=1 -run TestLiveNativeCo
 
 ### 3. Persistent multi-session 与人工可见验收
 
-自动 probe 不能证明 session persistence、用户可见性、attach 或成员直连。证据再分三层：
+自动 persistent gate 运行：
 
-- 自动 persistent opt-in：使用 `STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1` 启动两个不同 member cwd 的 persistent synthetic sessions，验证上下文隔离及逐一 resume；session ID 只留在 test process memory，resume 重传 `--add-dir <CASE_ROOT>`，不解析 transcript JSONL，也不声称用户看见 terminal/attach。仓库只有在能稳定调用当前 Claude Code persistent CLI 时才实现该 gate；不得用 non-persistent probe 冒充。
+```text
+STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLivePersistentMemberContextAndCorrection ./internal/steamai/vnextcontract
+```
+
+Windows PowerShell：
+
+```text
+$env:STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE = '1'; go test -count=1 -run TestLivePersistentMemberContextAndCorrection ./internal/steamai/vnextcontract
+```
+
+自动 probe 不能证明用户实际看到 terminal/attach 或成员直连。证据再分三层：
+
+- 自动 persistent opt-in：使用 `STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1` 运行 `TestLivePersistentMemberContextAndCorrection`，从两个不同 member cwd 建立 persistent synthetic sessions，验证上下文隔离、逐一 resume、direct-session correction 与旧 expected task 的 `HOLD_STALE_TASK`；test 不把 session ID 写入仓库或 case，resume 重传 `--add-dir <CASE_ROOT>`，不解析 transcript JSONL，也不声称用户看见 terminal/attach。Claude Code 仍会按原生 session 生命周期保存会话记录，重复验收后应通过原生 session 管理界面删除这些 synthetic sessions。该 gate 不发送跨会话消息，不替代人工 attach。
 - 人工 visible foreground：用户实际从两个 member cwd 启动普通可见 session，观察、暂停和直接输入；普通 foreground 不保证出现在 Agent view。
 - 人工 background/attach：明确把 synthetic session 放到后台，按精确 cwd 观察，并由用户实际 `attach` 输入 correction；自动 `--resume` 不能替代这一体验。
 
@@ -72,4 +84,4 @@ $env:STEAMAI_VNEXT_LIVE_ACCEPTANCE = '1'; go test -count=1 -run TestLiveNativeCo
 
 ## 清理
 
-验收结束后停止本次创建的后台 session，并删除临时 case；验收摘要只记录通过/失败及必要的能力边界，不保留 session ID、绝对 case 路径、artifact 内容或 case-local hash。停止 session 只清理运行资源，不证明 durable member 完成；研究结论只以存续 case 文件为准。
+验收结束后停止本次创建的后台 session，并删除临时 case；自动 persistent gate 创建的原生 synthetic session 记录不会由 `t.TempDir` 清除，应通过 Claude Code 原生 session 管理界面删除。验收摘要只记录通过/失败及必要的能力边界，不保留 session ID、绝对 case 路径、artifact 内容或 case-local hash。停止或删除 session 只清理运行资源/会话记录，不证明 durable member 完成；研究结论只以存续 case 文件为准。

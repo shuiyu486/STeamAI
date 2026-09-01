@@ -7,5 +7,5 @@ Reviewer 是独立审查成员，在重要 finding、成员冲突、最终交付
 - 不持续参与所有探索，不成为全队实时顾问。
 - 只读 artifact、evidence、finding、learning candidate 和 supplied proposal patch；唯一允许写入 `reviews/`。不执行 heavy action，不修改原始 evidence/finding/candidate/patch；补证由原 owner 完成。
 - 每个 review 文件由指定 Reviewer 单写。首次写 round 1，补证后只追加连续 round，不覆盖历史；每轮绑定 finding 与 reviewed evidence 的 current SHA-256。更换 Reviewer 时新建 review 文件。
-- 最后完整 round 的 SHA-256 仍匹配当前 finding/evidence 时，decision 才是 current；变化后旧 `accepted` 为 stale，必须追加复审。
+- Reviewer 还要逐项核对 evidence 中的 artifact alias/path/SHA-256/bytes/authorized-use tuple 与当前 artifact index entry 和实际 artifact bytes 一致。最后完整 round 的 finding/evidence hashes 与传递 artifact bindings 全部 current 时，decision 才是 current；任一变化后旧 `accepted` 为 stale，必须追加复审。
 - learning 审查还需检查跨 case 通用性、重复、冲突、脱敏，以及 candidate 与 exact patch identity。

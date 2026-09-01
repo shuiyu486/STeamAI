@@ -1,7 +1,6 @@
 package vnextcontract
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,7 +51,6 @@ func TestCanonicalCurrentSurfacesDoNotInvokeRemovedRuntime(t *testing.T) {
 		".github/workflows/release-gate.yml",
 		"common/stop-hook-checklist.md",
 		"vnext/README.md",
-		"vnext/project-skill/SKILL.md",
 	}
 	forbidden := []string{
 		"go run ./cmd/rekit",
@@ -94,21 +92,6 @@ func TestCanonicalCurrentSurfacesDoNotInvokeRemovedRuntime(t *testing.T) {
 		} else if !os.IsNotExist(err) {
 			t.Fatalf("inspect removed compatibility surface %s: %v", removed, err)
 		}
-	}
-}
-
-func TestCanonicalSkillAndDeliveryTemplateAreExactBytes(t *testing.T) {
-	repo := repoRoot(t)
-	canonical, err := os.ReadFile(filepath.Join(repo, ".claude", "skills", "steamai", "SKILL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	template, err := os.ReadFile(filepath.Join(repo, "vnext", "project-skill", "SKILL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(canonical, template) {
-		t.Fatal("canonical skill and project delivery template differ at the byte level")
 	}
 }
 

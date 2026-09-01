@@ -12,7 +12,7 @@ git clone https://github.com/shuiyu486/STeamAI.git
 
 前提只有两个：本机已能正常使用 Claude Code；目标目录是明确授权的安全研究 case。STeamAI 不安装 Claude Code、不管理登录、不要求全局 plugin，也不发布项目内 runtime。
 
-第一次使用一个尚无项目级 `/steamai` 的普通目录时，从 canonical source clone 启动 Claude Code，调用 `/steamai` 并提供外部 case 目录。Commander 先生成零写入 exact preview；用户输入与 preview identity 完全匹配的确认后，才发布 canonical skill exact bytes、`.steamai-vnext/contracts/` 声明合同和 selected pack + 完整 `common/**` 的同 revision snapshot。source clone 本身不是 case，不能在仓库内创建 case state。
+第一次使用一个尚无项目级 `/steamai` 的普通目录时，执行 `cd <SOURCE_CLONE> → claude --add-dir <CASE_ROOT> → /steamai`，并把这个外部目录作为 case 目标。Commander 先生成零写入 exact preview；用户输入与 preview identity 完全匹配的确认后，才发布 canonical skill exact bytes、`.steamai-vnext/contracts/` 声明合同和 selected pack + 完整 `common/**` 的同 revision snapshot。source clone 本身不是 case，不能在仓库内创建 case state。
 
 preview 同时绑定 project-local skill action/pre-state、canonical source blob、case facts、全部 planned writes，以及 pack/common 的排序 file records。任何已存在但不与 canonical exact bytes 相同的 project-local skill 都作为冲突停止，不执行旧版本升级或兼容替换。Apply 在同卷 sibling staging 中生成并验证完整 `.steamai-vnext/`，先发布并重验 project-local skill，最后才发布包含 completed marker 的 state tree；snapshot digest 覆盖每个 materialized path、Git mode/blob、bytes 和 SHA-256。确认并分发后，Reviewer、成员模板和 learning 合同都从 case-local `contracts/` 读取。
 
@@ -101,12 +101,13 @@ Commander 在里程碑或 case 收尾时，只从 accepted finding/review 提炼
 
 通过审查后：
 
-1. 在隔离临时 Git clone 中生成完整、标准、可 `git apply --check` 的 exact patch；
-2. Reviewer 先接受 candidate eligibility，再绑定最终 proposal patch 的 candidate SHA、base revision、manifest/target blob、patch SHA、单目标、deny 与 apply-check；
-3. 向用户展示 candidate/review/source refs identities、snapshot digest、目标、base revision/blobs 和完整 patch；
-4. 用户确认前 canonical source pack 零写；确认只授权该 exact tuple；
-5. 应用前重验 snapshot、source evidence、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 和 `git apply --check`；漂移则停止并重新生成、审查和展示；
-6. 不自动 commit 或 push。
+1. 若当前 Commander 无法访问 canonical source clone，先由用户用 `--add-dir <CANONICAL_SOURCE_CLONE>` 恢复/重新进入同一上下文，验证 canonical identity；不持久化或自动搜索 clone path；
+2. 在隔离临时 Git clone 中生成完整、标准、可 `git apply --check` 的 exact patch；
+3. Reviewer 先接受 candidate eligibility，再绑定最终 proposal patch 的 candidate SHA、base revision、manifest/target blob、patch SHA、单目标、deny 与 apply-check；
+4. 向用户展示 candidate/review/source refs identities、snapshot digest、目标、base revision/blobs 和完整 patch；
+5. 用户确认前 canonical source pack 零写；确认只授权该 exact tuple；
+6. 应用前重验 snapshot、source review → evidence → artifact 传递链、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 和 `git apply --check`；漂移则停止并重新生成、审查和展示；
+7. 不自动 commit 或 push。
 
 运行中的 case 固定读取建立时的 exact-revision snapshot；pack 回流不会隐式改变当前 case，只有后续 case 明确选择新 revision 才消费新经验。
 
@@ -127,8 +128,7 @@ claude --resume <session-id>
 
 维护者入口：
 
-- canonical skill：`.claude/skills/steamai/SKILL.md`
-- project-local delivery template：`vnext/project-skill/SKILL.md`
+- canonical 与 project-local skill 唯一 source：`.claude/skills/steamai/SKILL.md`
 - case/member/research templates：`vnext/templates/**`
 - 原生能力合同：`vnext/capabilities.md`
 - live acceptance：`vnext/acceptance.md`

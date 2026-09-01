@@ -15,7 +15,7 @@
 - 允许读取：`{{ALLOWED_READS}}`
 - 允许写入：`{{ALLOWED_WRITES}}`
 
-以上文件路径都以本成员启动目录 `.steamai-vnext/members/{{MEMBER_NAME}}/` 为解析基准；共享研究产物必须使用 `../../artifacts/`、`../../evidence/`、`../../findings/`、`../../reviews/` 或 `../../learnings/`，不得在成员目录下创建同名影子目录。
+以上文件路径都以本成员启动目录 `.steamai-vnext/members/{{MEMBER_NAME}}/` 为解析基准；共享研究产物必须使用 `../../artifacts/`、`../../evidence/`、`../../findings/`、`../../reviews/` 或 `../../learnings/`，不得在成员目录下创建同名影子目录。领域输入必须列出 Commander 按需选择的 `../../pack-snapshot/packs/<selected-pack>/manifest.yml`、router 和当前任务入口；common policy 使用 `../../pack-snapshot/common/...`。只读取任务列出的 case-pinned paths，不回读 source clone，也不默认遍历整个 snapshot。
 - 交付：`{{DELIVERABLES}}`
 - 停止或升级条件：`{{STOP_OR_ESCALATE}}`
 - 完成/退出条件：`{{EXIT_CONDITIONS}}`

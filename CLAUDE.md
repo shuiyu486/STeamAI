@@ -36,8 +36,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 
 ## 维护入口
 
-- canonical skill：`.claude/skills/steamai/SKILL.md`
-- project-local delivery template：`vnext/project-skill/SKILL.md`
+- canonical 与 project-local skill 唯一 source：`.claude/skills/steamai/SKILL.md`
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`

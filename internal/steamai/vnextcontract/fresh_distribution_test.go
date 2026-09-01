@@ -62,6 +62,32 @@ var (
 	errFreshInjectedFailure      = errors.New("fresh distribution injected failure before publication")
 )
 
+func TestFreshDistributionRejectsAuthoringOrInvalidPack(t *testing.T) {
+	git := requireFreshGit(t)
+	repo := repoRoot(t)
+	source := buildFreshCanonicalFixture(t, git, repo)
+	base := freshCaseFacts{
+		Name:          "synthetic-case",
+		Goal:          "verify selected pack eligibility",
+		Authorization: "temporary fixture files only",
+		Prohibited:    "network or real artifacts",
+		Stop:          "invalid pack selection",
+	}
+	for _, pack := range []string{"", "_template", "binary-re/nested", "../binary-re"} {
+		t.Run(strings.ReplaceAll(pack, "/", "-"), func(t *testing.T) {
+			caseRoot := filepath.Join(t.TempDir(), "case")
+			if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			facts := base
+			facts.Pack = pack
+			if _, err := previewFreshDistribution(git, source, caseRoot, facts); !errors.Is(err, errFreshCollision) {
+				t.Fatalf("invalid selected pack %q returned %v", pack, err)
+			}
+		})
+	}
+}
+
 func TestFreshDistributionPreviewIsZeroWriteAndApplyIsExact(t *testing.T) {
 	git := requireFreshGit(t)
 	repo := repoRoot(t)
@@ -296,6 +322,48 @@ func TestFreshDistributionRejectsDriftAndNeverPublishesPartialState(t *testing.T
 	})
 }
 
+func validateFreshSelectedPack(git, source, revision, pack string) error {
+	if pack == "" || strings.HasPrefix(pack, "_") || strings.ContainsAny(pack, `/\\`) || filepath.Base(pack) != pack {
+		return errFreshCollision
+	}
+	packRoot := "packs/" + pack
+	manifestRel := packRoot + "/manifest.yml"
+	manifestEntry, err := freshGitEntryForPath(git, source, revision, manifestRel)
+	if err != nil || manifestEntry.Mode != "100644" {
+		return errFreshCollision
+	}
+	manifestBytes, err := freshGitBytes(git, source, "show", revision+":"+manifestRel)
+	if err != nil {
+		return err
+	}
+	fields := map[string]string{}
+	inEntrypoints := false
+	for line := range strings.SplitSeq(string(manifestBytes), "\n") {
+		switch {
+		case strings.HasPrefix(line, "name: "):
+			fields["name"] = strings.TrimSpace(strings.TrimPrefix(line, "name: "))
+		case line == "entrypoints:":
+			inEntrypoints = true
+		case inEntrypoints && strings.HasPrefix(line, "  router: "):
+			fields["router"] = strings.TrimSpace(strings.TrimPrefix(line, "  router: "))
+		case inEntrypoints && line != "" && !strings.HasPrefix(line, "  "):
+			inEntrypoints = false
+		}
+	}
+	if fields["name"] != pack || fields["router"] == "" || filepath.IsAbs(filepath.FromSlash(fields["router"])) || strings.Contains(fields["router"], "\\") {
+		return errFreshCollision
+	}
+	routerRel := filepath.ToSlash(filepath.Clean(filepath.Join(packRoot, filepath.FromSlash(fields["router"]))))
+	if !strings.HasPrefix(routerRel, packRoot+"/") {
+		return errFreshCollision
+	}
+	routerEntry, err := freshGitEntryForPath(git, source, revision, routerRel)
+	if err != nil || routerEntry.Mode != "100644" {
+		return errFreshCollision
+	}
+	return nil
+}
+
 func previewFreshDistribution(git, source, caseRoot string, facts freshCaseFacts) (freshDistributionPreview, error) {
 	if err := validateFreshCaseRoot(caseRoot); err != nil {
 		return freshDistributionPreview{}, err
@@ -319,6 +387,9 @@ func previewFreshDistribution(git, source, caseRoot string, facts freshCaseFacts
 	}
 	revision := strings.TrimSpace(string(revisionBytes))
 	if err := validateFreshCanonicalSkill(git, source, revision); err != nil {
+		return freshDistributionPreview{}, err
+	}
+	if err := validateFreshSelectedPack(git, source, revision, facts.Pack); err != nil {
 		return freshDistributionPreview{}, err
 	}
 	packRoot := "packs/" + facts.Pack
@@ -791,12 +862,13 @@ func publishFreshSkill(caseRoot, identity string, write freshPlannedWrite) error
 	if err != nil || freshSHA256(data) != write.SHA256 {
 		return errFreshTargetDrift
 	}
-	if _, err := os.Lstat(target); err == nil {
-		return errFreshTargetDrift
-	} else if !os.IsNotExist(err) {
+	if err := os.Link(temporary, target); err != nil {
+		if _, targetErr := os.Lstat(target); targetErr == nil {
+			return errFreshTargetDrift
+		}
 		return err
 	}
-	return os.Rename(temporary, target)
+	return nil
 }
 
 func verifyFreshStaging(staging string, writes []freshPlannedWrite) error {

@@ -24,13 +24,7 @@
 
 最新结果：VNT-01～VNT-06 与后续 RGH-00～RGH-03 硬化均已完成。canonical `/steamai`、case-local contracts、schema v2、Fresh staged publication、pack+common complete payload digest、Day-2 hash-bound review、accepted-only exact patch learning 与原生 Claude Code 多会话合同均已收口；旧项目 importer 因无兼容需求已删除。RGH 收口的本地 default suite、vet、diff 与终审通过；Windows live context/file-access probe 和三平台 remote contract CI 是重构基线证据，不代表 RGH 改动的 product-path/persistent/manual live 或 remote green。
 
-### Historical numbered handoff
-
-### Batch 833：binary-re actual analysis
-
-状态：这是旧控制面时期已完成的 numbered handoff identity，仅用于 Git history/`CHANGELOG.md` 查询，不代表当前产品能力或待执行批次。
-
-当前 vNext 路线不再创建 numbered batch 来冒充产品进度。旧 Batch 833 的命令、adapter、gate 和 release-run 事实仅保留在 Git history/`CHANGELOG.md`，不能作为薄核心验收。
+历史 numbered batch 只从 Git history/`CHANGELOG.md` 按需查询，不在当前完成态投影中固化旧 identity。
 
 ## 验证标准
 

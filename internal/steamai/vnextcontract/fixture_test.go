@@ -33,8 +33,8 @@ func TestTemplatesRenderCompleteCaseFixture(t *testing.T) {
 	memberReplacements["{{ROLE}}"] = "analysis member"
 	memberReplacements["{{RESPONSIBILITY}}"] = "bounded static evidence collection"
 	memberReplacements["{{TASK_GOAL}}"] = "produce E-001 and draft F-001"
-	memberReplacements["{{INPUTS}}"] = "../../artifacts/index.md alias fixture-primary"
-	memberReplacements["{{ALLOWED_READS}}"] = "../../artifacts/index.md and case-local synthetic fixture"
+	memberReplacements["{{INPUTS}}"] = "../../artifacts/index.md alias fixture-primary; ../../pack-snapshot/packs/binary-re/manifest.yml; ../../pack-snapshot/packs/binary-re/references/binary-re/README.md; ../../pack-snapshot/packs/binary-re/references/binary-re/general-analysis.md"
+	memberReplacements["{{ALLOWED_READS}}"] = "../../artifacts/index.md; ../../pack-snapshot/packs/binary-re/manifest.yml; ../../pack-snapshot/packs/binary-re/references/binary-re/README.md; ../../pack-snapshot/packs/binary-re/references/binary-re/general-analysis.md; ../../pack-snapshot/common/policies/evidence.md; case-local synthetic fixture"
 	memberReplacements["{{ALLOWED_WRITES}}"] = "../../evidence/E-001.md and ../../findings/F-001.md"
 	memberReplacements["{{DELIVERABLES}}"] = "../../evidence/E-001.md and ../../findings/F-001.md"
 	memberReplacements["{{STOP_OR_ESCALATE}}"] = "requesting heavy action or scope expansion"
@@ -94,6 +94,16 @@ func TestTemplatesRenderCompleteCaseFixture(t *testing.T) {
 	assertMemberTaskPath(t, analysisMemberPath, stateRoot, "../../artifacts/index.md", "artifacts/index.md")
 	assertMemberTaskPath(t, analysisMemberPath, stateRoot, "../../evidence/E-001.md", "evidence/E-001.md")
 	assertMemberTaskPath(t, analysisMemberPath, stateRoot, "../../findings/F-001.md", "findings/F-001.md")
+	assertMemberTaskPath(t, analysisMemberPath, stateRoot, "../../pack-snapshot/packs/binary-re/manifest.yml", "pack-snapshot/packs/binary-re/manifest.yml")
+	assertMemberTaskPath(t, analysisMemberPath, stateRoot, "../../pack-snapshot/packs/binary-re/references/binary-re/README.md", "pack-snapshot/packs/binary-re/references/binary-re/README.md")
+	assertMemberTaskPath(t, analysisMemberPath, stateRoot, "../../pack-snapshot/packs/binary-re/references/binary-re/general-analysis.md", "pack-snapshot/packs/binary-re/references/binary-re/general-analysis.md")
+	assertMemberTaskPath(t, analysisMemberPath, stateRoot, "../../pack-snapshot/common/policies/evidence.md", "pack-snapshot/common/policies/evidence.md")
+	analysisText := readFixtureFile(t, stateRoot, "members/static-analysis/CLAUDE.md")
+	for _, forbidden := range []string{"C:/canonical-source", "packs/binary-re/references/binary-re/general-workflow.md", "tooling/catalog.yml"} {
+		if strings.Contains(analysisText, forbidden) {
+			t.Fatalf("member fixture routed beyond the selected case-pinned task entry: %q", forbidden)
+		}
+	}
 
 	reviewerText := readFixtureFile(t, stateRoot, "members/reviewer/CLAUDE.md")
 	for _, required := range []string{
@@ -145,6 +155,8 @@ func TestNativeCapabilityContractKeepsVisibleSessionDefault(t *testing.T) {
 	acceptance := readPrototypeFile(t, repo, "vnext/acceptance.md")
 	for _, required := range []string{
 		"STEAMAI_VNEXT_LIVE_ACCEPTANCE=1",
+		"STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1",
+		"TestLivePersistentMemberContextAndCorrection",
 		"完整产品验收还必须在同一临时 case 中完成以下旅程",
 		"compare-before-update",
 		"一名 owner 和最多一名 verifier",
@@ -199,10 +211,14 @@ func researchFixtureReplacements() map[string]string {
 	return map[string]string{
 		"{{ARTIFACT_ALIAS}}":                     "fixture-primary",
 		"{{CASE_RELATIVE_PATH}}":                 "fixtures/primary.bin",
+		"{{ARTIFACT_CASE_RELATIVE_PATH}}":        "fixtures/primary.bin",
 		"{{SHA256}}":                             strings.Repeat("a", 64),
+		"{{ARTIFACT_SHA256}}":                    strings.Repeat("a", 64),
 		"{{BYTES}}":                              "16",
+		"{{ARTIFACT_BYTES}}":                     "16",
 		"{{SOURCE_NOTE}}":                        "synthetic fixture",
 		"{{AUTHORIZED_USE}}":                     "read-only contract test",
+		"{{ARTIFACT_AUTHORIZED_USE}}":            "read-only contract test",
 		"{{LIMITATIONS}}":                        "synthetic evidence only",
 		"{{EVIDENCE_ID}}":                        "E-001",
 		"{{SUBJECT}}":                            "fixture behavior",

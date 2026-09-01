@@ -30,4 +30,4 @@
 
 `{{NEXT_ACTION}}`
 
-当前有效判断只取最后一个字段完整、round 连续且 finding/evidence SHA-256 仍匹配当前文件的 round。发生补证或任一被审查文件变化后，旧 `accepted` 变为 stale，必须追加复审。Reviewer 不直接修改原 finding；`needs-evidence` 返回 finding owner。
+当前有效判断只取最后一个字段完整、round 连续且 finding/evidence SHA-256 仍匹配当前文件的 round；每项 evidence 绑定的 artifact tuple 还必须匹配当前 artifact index entry 与实际 artifact bytes。发生补证、alias 重绑、artifact 漂移或任一被审查文件变化后，旧 `accepted` 变为 stale，必须追加复审。Reviewer 不直接修改原 finding；`needs-evidence` 返回 finding owner。

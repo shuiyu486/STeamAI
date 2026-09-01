@@ -11,7 +11,6 @@ func TestThinCoreSourcesAreDeclarativeAndHaveNoRuntimeImplementation(t *testing.
 	repo := repoRoot(t)
 	paths := []string{
 		".claude/skills/steamai/SKILL.md",
-		"vnext/project-skill/SKILL.md",
 		"vnext/README.md",
 		"vnext/capabilities.md",
 		"vnext/acceptance.md",
@@ -73,6 +72,10 @@ func TestPrototypeSkillDefinesNativeTeamBoundary(t *testing.T) {
 		"可 `git apply --check` 的 exact patch",
 		"应用前按合同重验 snapshot",
 		"只有后续 case 明确选择新 revision 和新 snapshot digest 才消费",
+		"## Case-pinned pack 按需路由",
+		"entrypoints.router",
+		"../../pack-snapshot/packs/<selected-pack>/...",
+		"不得默认扫描或串读整个 pack/common",
 	} {
 		assertContains(t, skill, required, "vNext skill")
 	}
@@ -121,6 +124,8 @@ func TestCaseAndMemberTemplatesKeepTeamBounded(t *testing.T) {
 		"返回 `HOLD_STALE_TASK`，零覆盖",
 		"角色特有例外",
 		"由父目录 `.steamai-vnext/CLAUDE.md` 唯一拥有",
+		"领域输入必须列出 Commander 按需选择的",
+		"只读取任务列出的 case-pinned paths",
 	} {
 		assertContains(t, memberTemplate, required, "member template")
 	}
@@ -144,11 +149,15 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 	for _, required := range []string{"相对路径", "SHA-256", "Bytes", "授权范围"} {
 		assertContains(t, artifact, required, "artifact template")
 	}
+	evidence := readPrototypeFile(t, repo, "vnext/templates/research/evidence.md")
+	for _, required := range []string{"Artifact alias", "Artifact path", "Artifact SHA-256", "Artifact bytes", "Authorized use", "artifact bytes 漂移都会使本 evidence stale"} {
+		assertContains(t, evidence, required, "evidence template")
+	}
 	for _, required := range []string{"Owner", "Verifier", "Evidence", "尚未证明"} {
 		assertContains(t, finding, required, "finding template")
 	}
 	role := readPrototypeFile(t, repo, "vnext/templates/roles/reviewer.md")
-	for _, required := range []string{"{{DECISION}}", "{{REVIEW_ROUND}}", "{{FINDING_SHA256}}", "{{REVIEWED_EVIDENCE_REFS_WITH_SHA256}}", "只在文件末尾追加完整 round", "Reviewer 不直接修改原 finding"} {
+	for _, required := range []string{"{{DECISION}}", "{{REVIEW_ROUND}}", "{{FINDING_SHA256}}", "{{REVIEWED_EVIDENCE_REFS_WITH_SHA256}}", "只在文件末尾追加完整 round", "artifact tuple", "Reviewer 不直接修改原 finding"} {
 		assertContains(t, review, required, "review template")
 	}
 	round := readPrototypeFile(t, repo, "vnext/templates/research/review-round.md")
@@ -156,7 +165,7 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 		assertContains(t, round, required, "review round template")
 	}
 	assertContains(t, learning, "{{KIND}}", "learning template")
-	for _, required := range []string{"只读 artifact、evidence、finding", "唯一允许写入 `reviews/`", "不执行 heavy action"} {
+	for _, required := range []string{"只读 artifact、evidence、finding", "唯一允许写入 `reviews/`", "不执行 heavy action", "artifact alias/path/SHA-256/bytes/authorized-use tuple"} {
 		assertContains(t, role, required, "Reviewer role")
 	}
 	for _, required := range []string{"Source finding SHA-256", "Source accepted review", "Pack tree", "Common tree", "Snapshot digest", "Eligibility 检查", "`learningTargets`", "`denyPatterns`", "candidate 创建后保持 immutable"} {
