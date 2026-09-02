@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -291,6 +292,24 @@ func TestReviewedLearningPatchRequiresAcceptedExactBinding(t *testing.T) {
 		t.Fatalf("source artifact drift returned %v", err)
 	}
 	writeLearningFixtureFile(t, artifactPath, string(artifactBytes))
+	t.Run("artifact symlink ancestor", func(t *testing.T) {
+		outside := filepath.Join(root, "outside-artifacts")
+		writeLearningFixtureFile(t, filepath.Join(outside, "primary.bin"), string(artifactBytes))
+		fixturesPath := filepath.Join(caseRoot, "fixtures")
+		if err := os.RemoveAll(fixturesPath); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_ = os.RemoveAll(fixturesPath)
+			writeLearningFixtureFile(t, artifactPath, string(artifactBytes))
+		}()
+		if err := os.Symlink(outside, fixturesPath); err != nil {
+			t.Skipf("symlink creation is unavailable: %v", err)
+		}
+		if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); !errors.Is(err, errLearningReviewBinding) {
+			t.Fatalf("artifact symlink ancestor returned %v", err)
+		}
+	})
 	disputedReview := sourceReviewText + renderLearningSourceReviewRound("2", "1", "disputed", learningSHA256([]byte(findingText)), learningSHA256([]byte(evidenceText)))
 	writeLearningFixtureFile(t, sourceReviewPath, disputedReview)
 	disputedConfirmation := confirmation
@@ -305,6 +324,14 @@ func TestReviewedLearningPatchRequiresAcceptedExactBinding(t *testing.T) {
 		t.Fatalf("source snapshot drift returned %v", err)
 	}
 	writeLearningFixtureFile(t, snapshotPayloadPath, "# Synthetic pinned instruction\n")
+	undeclaredSnapshotPath := filepath.Join(filepath.Dir(snapshotMetadataPath), "common", "policies", "undeclared.md")
+	writeLearningFixtureFile(t, undeclaredSnapshotPath, "# Undeclared payload\n")
+	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); !errors.Is(err, errLearningReviewBinding) {
+		t.Fatalf("undeclared source snapshot file returned %v", err)
+	}
+	if err := os.Remove(undeclaredSnapshotPath); err != nil {
+		t.Fatal(err)
+	}
 	if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); err != nil {
 		t.Fatalf("apply current reviewed learning patch: %v", err)
 	}
@@ -648,12 +675,18 @@ func validateLearningSnapshot(chain learningSourceChain) error {
 		return errLearningReviewBinding
 	}
 	snapshotRoot := filepath.Dir(chain.SnapshotMetadataPath)
+	declaredPaths := make(map[string]bool, len(records))
 	var canonical []string
 	for _, item := range records {
-		path := filepath.Clean(filepath.Join(snapshotRoot, filepath.FromSlash(item.path)))
-		if item.path == "" || !pathWithin(path, snapshotRoot) || (item.mode != "100644" && item.mode != "100755") || len(item.blob) != 40 {
+		cleanRel := filepath.ToSlash(filepath.Clean(filepath.FromSlash(item.path)))
+		path := filepath.Clean(filepath.Join(snapshotRoot, filepath.FromSlash(cleanRel)))
+		if item.path == "" || cleanRel != item.path || declaredPaths[cleanRel] ||
+			(!strings.HasPrefix(cleanRel, "packs/") && !strings.HasPrefix(cleanRel, "common/")) ||
+			!pathWithin(path, snapshotRoot) || !learningPathHasNoSymlinkAncestors(path, snapshotRoot) ||
+			(item.mode != "100644" && item.mode != "100755") || len(item.blob) != 40 {
 			return errLearningReviewBinding
 		}
+		declaredPaths[cleanRel] = true
 		info, err := os.Lstat(path)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return errLearningReviewBinding
@@ -662,7 +695,43 @@ func validateLearningSnapshot(chain learningSourceChain) error {
 		if err != nil || strconv.Itoa(len(data)) != item.bytes || learningSHA256(data) != item.sha {
 			return errLearningReviewBinding
 		}
-		canonical = append(canonical, strings.Join([]string{filepath.ToSlash(item.path), item.mode, item.blob, item.bytes, item.sha}, "\x00"))
+		canonical = append(canonical, strings.Join([]string{cleanRel, item.mode, item.blob, item.bytes, item.sha}, "\x00"))
+	}
+	actualPaths := map[string]bool{}
+	for _, payloadRoot := range []string{"packs", "common"} {
+		root := filepath.Join(snapshotRoot, payloadRoot)
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !learningPathHasNoSymlinkAncestors(path, snapshotRoot) {
+				return errLearningReviewBinding
+			}
+			rel, err := filepath.Rel(snapshotRoot, path)
+			if err != nil {
+				return err
+			}
+			actualPaths[filepath.ToSlash(rel)] = true
+			return nil
+		})
+		if err != nil {
+			return errLearningReviewBinding
+		}
+	}
+	if len(actualPaths) != len(declaredPaths) {
+		return errLearningReviewBinding
+	}
+	for path := range actualPaths {
+		if !declaredPaths[path] {
+			return errLearningReviewBinding
+		}
 	}
 	sort.Strings(canonical)
 	actualDigest := "sha256:" + learningSHA256([]byte(strings.Join(canonical, "\n")+"\n"))
@@ -672,7 +741,35 @@ func validateLearningSnapshot(chain learningSourceChain) error {
 	return nil
 }
 
+func learningPathHasNoSymlinkAncestors(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	if !pathWithin(path, root) {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	current := root
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func validateLearningSourceChain(chain learningSourceChain) error {
+	stateRoot := filepath.Dir(filepath.Dir(chain.ArtifactIndexPath))
+	caseRoot := filepath.Dir(stateRoot)
+	for _, path := range []string{chain.ArtifactIndexPath, chain.FindingPath, chain.SourceReviewPath, chain.SnapshotMetadataPath} {
+		if !learningPathHasNoSymlinkAncestors(path, caseRoot) {
+			return errLearningReviewBinding
+		}
+	}
 	if err := validateLearningSnapshot(chain); err != nil {
 		return errLearningReviewBinding
 	}
@@ -697,12 +794,11 @@ func validateLearningSourceChain(chain learningSourceChain) error {
 		return errLearningReviewBinding
 	}
 
-	stateRoot := filepath.Dir(filepath.Dir(chain.ArtifactIndexPath))
-	caseRoot := filepath.Dir(stateRoot)
 	reviewRoot := filepath.Dir(chain.SourceReviewPath)
+	evidenceRoot := filepath.Join(stateRoot, "evidence")
 	for evidenceRef, evidenceSHA := range last.EvidenceRefs {
 		evidencePath := filepath.Clean(filepath.Join(reviewRoot, filepath.FromSlash(evidenceRef)))
-		if !pathWithin(evidencePath, stateRoot) {
+		if !pathWithin(evidencePath, evidenceRoot) || !learningPathHasNoSymlinkAncestors(evidencePath, caseRoot) {
 			return errLearningReviewBinding
 		}
 		evidenceBytes, err := os.ReadFile(evidencePath)
@@ -714,7 +810,7 @@ func validateLearningSourceChain(chain learningSourceChain) error {
 			return errLearningReviewBinding
 		}
 		artifactPath := filepath.Clean(filepath.Join(caseRoot, filepath.FromSlash(binding.Path)))
-		if !pathWithin(artifactPath, caseRoot) {
+		if !pathWithin(artifactPath, caseRoot) || !learningPathHasNoSymlinkAncestors(artifactPath, caseRoot) {
 			return errLearningReviewBinding
 		}
 		info, err := os.Lstat(artifactPath)
