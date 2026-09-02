@@ -75,9 +75,9 @@ Commander 一次性展示并绑定：candidate path/SHA、final learning review 
 
 按以下顺序 fail-closed；任一失败都不继续、不 retry 覆盖，并重新生成、审查、展示：
 
-1. case snapshot payload digest current；
+1. case snapshot payload digest current，`snapshot.yml` 的完整排序 file manifest 与实际 `packs/**`、`common/**` 路径集合完全一致；任何内容漂移、缺失或未声明新增文件都停止；
 2. source finding/review SHA current，并解析 source review 最后完整 accepted round；
-3. 该 round 列出的全部 evidence path/SHA current；每项 evidence 的 artifact alias/path/SHA-256/bytes/authorized-use tuple 与当前 artifact index 同 alias entry 及实际 artifact bytes 一致；
+3. 该 round 列出的全部 evidence path/SHA current；每项 evidence 的 artifact alias/path/SHA-256/bytes/authorized-use tuple 与当前 artifact index 同 alias entry 及实际 artifact bytes 一致；artifact index、finding、source review、evidence、snapshot metadata、snapshot payload 与实际 artifact 从 case root 到最终文件的全部 ancestors 都必须留在 case 内，且非 symlink/reparse；
 4. candidate SHA current；
 5. learning review SHA current；
 6. patch SHA current；

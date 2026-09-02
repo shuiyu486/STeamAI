@@ -106,7 +106,7 @@ Commander 在里程碑或 case 收尾时，只从 accepted finding/review 提炼
 3. Reviewer 先接受 candidate eligibility，再绑定最终 proposal patch 的 candidate SHA、base revision、manifest/target blob、patch SHA、单目标、deny 与 apply-check；
 4. 向用户展示 candidate/review/source refs identities、snapshot digest、目标、base revision/blobs 和完整 patch；
 5. 用户确认前 canonical source pack 零写；确认只授权该 exact tuple；
-6. 应用前重验 snapshot、source review → evidence → artifact 传递链、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 和 `git apply --check`；漂移则停止并重新生成、审查和展示；
+6. 应用前重验 snapshot manifest 与实际 pack/common 完整路径集合、source review → evidence → artifact 传递链及其全部非 symlink/reparse ancestors、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 和 `git apply --check`；缺失、未声明新增或其它漂移都停止并重新生成、审查和展示；
 7. 不自动 commit 或 push。
 
 运行中的 case 固定读取建立时的 exact-revision snapshot；pack 回流不会隐式改变当前 case，只有后续 case 明确选择新 revision 才消费新经验。

@@ -71,4 +71,4 @@
 ## 路线变更记录
 
 - 2026-09-01：用户批准完整 `steamai-vnext-thin-core-v1` 路线并授权各批次连续实施、每批自行审核复评后继续。路线基于当前控制面审查和 Claude Code 原生能力核验，选择替换式薄核心而非继续逐层拆旧架构。
-- 2026-09-02：按明确的无 legacy 兼容边界完成 RGH-00～RGH-03 终审：删除 importer 与平行 manifest registry，统一 schema v2，并补齐 Fresh staged publication / complete snapshot digest、Day-2 review currentness 和 Learning exact binding。default suite、vet、diff 通过；本轮未新增或执行 product-path/persistent/manual live gate，也未形成新的 remote CI 证据。
+- 2026-09-02：按明确的无 legacy 兼容边界完成 RGH-00～RGH-03 终审：删除 importer、无消费者 skill mirror 与平行 manifest registry，统一 schema v2，并补齐 Fresh staged no-replace publication / complete snapshot digest、case-pinned pack routing、Day-2 review currentness、artifact binding 和 Learning exact source-chain binding。persistent synthetic owner/Reviewer context、resume、direct correction 与 `HOLD_STALE_TASK` gate 已通过；Fresh black-box preview 在 dirty source 时正确零写入 fail-closed，clean-revision 重试超时，仍不冒充完整 product-path gate。最终 default suite、vet、diff 与 exact-commit Ubuntu/Windows/macOS CI 均通过。

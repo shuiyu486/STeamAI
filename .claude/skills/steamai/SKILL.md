@@ -96,7 +96,7 @@ source-clone 分发完成后，日常入口才是目标项目中的 `cd <project
 2. Proposed destination 必须同时匹配 case snapshot 与 canonical base manifest 的 `learningTargets`，唯一解析到 selected pack 内一个 existing tracked regular non-symlink Markdown；candidate 正文和后续 patch 新增行必须通过 `denyPatterns`，但 tripwire 不替代人工脱敏。
 3. 按 `.steamai-vnext/contracts/learning-feedback.md` 由 Reviewer 先写 eligibility checkpoint，检查证据、跨 case 通用性、反例、重复、冲突、脱敏和目标资格。只有 `eligible` 才在隔离 exact-base clone 中生成无权威 proposal patch；用户确认前 canonical source pack 零写。
 4. proposal 必须是完整、标准、单 existing Markdown target、可 `git apply --check` 的 exact patch。Reviewer 再写 exact-patch checkpoint，绑定 candidate SHA、base revision、manifest/target base blob、patch SHA、单目标、deny 与 apply-check；只有 patch decision `accepted` 才能申请用户确认。
-5. Commander 一次展示并绑定 candidate/review/source refs 的 SHA、snapshot digest、target、base revision/blobs、patch SHA 和完整未截断 patch。用户确认只授权该 exact tuple；应用前按合同重验 snapshot、source review 最后 accepted round、其中全部 evidence SHA、每项 evidence 绑定的 artifact index entry 与实际 bytes、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 与 `git apply --check`，任一漂移都停止并重新生成/审查/展示。
+5. Commander 一次展示并绑定 candidate/review/source refs 的 SHA、snapshot digest、target、base revision/blobs、patch SHA 和完整未截断 patch。用户确认只授权该 exact tuple；应用前按合同重验 snapshot manifest 与实际 `packs/**`/`common/**` 完整路径集合（包括缺失或未声明新增文件）、source review 最后 accepted round、其中全部 evidence SHA、每项 evidence 绑定的 artifact index entry 与实际 bytes、上述 case-local source chain 全部 ancestors 非 symlink/reparse、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 与 `git apply --check`，任一漂移都停止并重新生成/审查/展示。
 6. 应用不自动 commit 或 push，不更新当前 case snapshot。任何 synthetic acceptance 不得自动写回 canonical pack；只有后续 case 明确选择新 revision 和新 snapshot digest 才消费。
 
 ## 状态回答
