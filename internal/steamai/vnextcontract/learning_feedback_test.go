@@ -310,6 +310,27 @@ func TestReviewedLearningPatchRequiresAcceptedExactBinding(t *testing.T) {
 			t.Fatalf("artifact symlink ancestor returned %v", err)
 		}
 	})
+	if os.PathSeparator == '\\' {
+		t.Run("artifact junction ancestor", func(t *testing.T) {
+			outside := filepath.Join(root, "outside-junction-artifacts")
+			writeLearningFixtureFile(t, filepath.Join(outside, "primary.bin"), string(artifactBytes))
+			fixturesPath := filepath.Join(caseRoot, "fixtures")
+			if err := os.RemoveAll(fixturesPath); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("cmd", "/c", "mklink", "/J", fixturesPath, outside)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("create artifact junction: %v: %s", err, strings.TrimSpace(string(output)))
+			}
+			defer func() {
+				_ = os.Remove(fixturesPath)
+				writeLearningFixtureFile(t, artifactPath, string(artifactBytes))
+			}()
+			if err := applyReviewedLearningPatch(git, repo, manifestRel, patchPath, sourceChain, confirmation, candidate, review); !errors.Is(err, errLearningReviewBinding) {
+				t.Fatalf("artifact junction ancestor returned %v", err)
+			}
+		})
+	}
 	disputedReview := sourceReviewText + renderLearningSourceReviewRound("2", "1", "disputed", learningSHA256([]byte(findingText)), learningSHA256([]byte(evidenceText)))
 	writeLearningFixtureFile(t, sourceReviewPath, disputedReview)
 	disputedConfirmation := confirmation
@@ -751,11 +772,19 @@ func learningPathHasNoSymlinkAncestors(path, root string) bool {
 	if err != nil {
 		return false
 	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return false
+	}
 	current := root
-	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i, part := range parts {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+		if i < len(parts)-1 && !info.IsDir() {
 			return false
 		}
 	}
