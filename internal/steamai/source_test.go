@@ -9,10 +9,7 @@ import (
 
 func TestCanonicalGitSourceAcceptsDirtyTrackedSkill(t *testing.T) {
 	source := makeCanonicalSource(t)
-	git, err := exec.LookPath("git.exe")
-	if err != nil {
-		t.Fatal(err)
-	}
+	git := testGit(t)
 	skill := filepath.Join(source, ".claude", "skills", "steamai", "SKILL.md")
 	if err := os.WriteFile(skill, []byte("# Dirty but tracked canonical skill\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -27,10 +24,7 @@ func TestCanonicalGitSourceAcceptsDirtyTrackedSkill(t *testing.T) {
 
 func TestCanonicalGitSourceRejectsNestedCheckoutAndUntrackedSkill(t *testing.T) {
 	source := makeCanonicalSource(t)
-	git, err := exec.LookPath("git.exe")
-	if err != nil {
-		t.Fatal(err)
-	}
+	git := testGit(t)
 	if err := validateCanonicalGitSource(git, filepath.Join(source, ".claude")); err == nil {
 		t.Fatal("nested directory accepted as canonical root")
 	}

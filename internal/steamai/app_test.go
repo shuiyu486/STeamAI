@@ -262,6 +262,34 @@ func testApp(t *testing.T, p platform, cwd, claude string) *app {
 	return a
 }
 
+func testGit(t *testing.T) string {
+	t.Helper()
+	for _, name := range []string{"git.exe", "git"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	t.Skip("git is required")
+	return ""
+}
+
+func nativeTestGit(t *testing.T) string {
+	t.Helper()
+	git := testGit(t)
+	if strings.EqualFold(filepath.Ext(git), ".exe") {
+		return git
+	}
+	data, err := os.ReadFile(git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "git.exe")
+	if err := os.WriteFile(alias, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return alias
+}
+
 func makeCanonicalSource(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -274,10 +302,7 @@ func makeCanonicalSource(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(root, ".claude", "skills", "steamai", "SKILL.md"), []byte("# Skill\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	git, err := exec.LookPath("git.exe")
-	if err != nil {
-		t.Fatal(err)
-	}
+	git := testGit(t)
 	for _, args := range [][]string{
 		{"init", "--quiet"},
 		{"config", "user.name", "STeamAI fixture"},

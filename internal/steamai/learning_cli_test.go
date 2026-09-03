@@ -3,7 +3,6 @@ package steamai
 import (
 	"errors"
 	"io"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -15,10 +14,7 @@ func TestLearningBatchHiddenCommandsRequireCurrentCaseAndStrictRequest(t *testin
 	a := newApp(p, strings.NewReader(`{"unknown":true}`), io.Discard, io.Discard, "test")
 	a.cwd = func() (string, error) { return caseRoot, nil }
 	a.validateSource = func(string) error { return nil }
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is required")
-	}
+	git := nativeTestGit(t)
 	a.lookPath = func(name string) (string, error) {
 		if name == "git.exe" {
 			return git, nil

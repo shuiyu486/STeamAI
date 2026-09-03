@@ -38,16 +38,16 @@ func TestFreshRejectsCanonicalSourceAsCaseOrAncestor(t *testing.T) {
 }
 
 func TestFreshHiddenCommandsUseStdinFactsAndExactConfirmation(t *testing.T) {
-	git, source := canonicalFreshFixture(t)
+	_, source := canonicalFreshFixture(t)
 	caseRoot := t.TempDir()
 	facts := `{"name":"synthetic-case","goal":"verify hidden fresh commands","authorization":"temporary fixture files only","prohibited":"network or real artifacts","stop":"scope drift","pack":"fixture-pack","members":[]}`
-	gitExe := filepath.Base(git)
+	nativeGit := nativeTestGit(t)
 	p := &fakePlatform{supported: true, source: source}
 	a := newApp(p, strings.NewReader(facts), io.Discard, io.Discard, "test")
 	a.cwd = func() (string, error) { return caseRoot, nil }
 	a.lookPath = func(name string) (string, error) {
-		if name == "git.exe" || name == gitExe {
-			return git, nil
+		if name == "git.exe" {
+			return nativeGit, nil
 		}
 		return "", errors.New("not found")
 	}
