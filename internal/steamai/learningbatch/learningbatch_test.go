@@ -60,6 +60,32 @@ func TestMultiCandidateMultiTargetPreviewAndApply(t *testing.T) {
 	}
 }
 
+func TestPatchScopeAllowsTargetsWithSamePreimageBlob(t *testing.T) {
+	fixture := newBatchFixture(t)
+	first := filepath.Join(fixture.source, "packs", "fixture-pack", "method-a.md")
+	second := filepath.Join(fixture.source, "packs", "fixture-pack", "method-b.md")
+	data := mustRead(t, first)
+	writeFile(t, second, data)
+	runGit(t, fixture.git, fixture.source, "add", "--", "packs/fixture-pack/method-b.md")
+	runGit(t, fixture.git, fixture.source, "commit", "--quiet", "-m", "equal preimages")
+
+	proposal := filepath.Join(filepath.Dir(fixture.source), "same-preimage-proposal")
+	runGit(t, fixture.git, filepath.Dir(fixture.source), "clone", "--quiet", "--no-local", fixture.source, proposal)
+	writeFile(t, filepath.Join(proposal, "packs", "fixture-pack", "method-a.md"), append(data, []byte("- First change.\n")...))
+	writeFile(t, filepath.Join(proposal, "packs", "fixture-pack", "method-b.md"), append(data, []byte("- Second change.\n")...))
+	patchPath := filepath.Join(fixture.caseRoot, ".steamai-vnext", filepath.FromSlash(fixture.request.Patch))
+	patch := runGitRaw(t, fixture.git, proposal, "diff", "--binary", "--full-index", "--no-ext-diff", "--", "packs/fixture-pack/method-a.md", "packs/fixture-pack/method-b.md")
+	writeFile(t, patchPath, patch)
+
+	targets, err := validatePatchScope(fixture.git, fixture.source, patchPath, "fixture-pack", []string{"method-*.md"}, []string{"forbidden-marker"})
+	if err != nil {
+		t.Fatalf("same-preimage multi-target patch rejected: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("targets = %#v", targets)
+	}
+}
+
 func TestPatchScopeRequiresFullIndexCurrentPreimage(t *testing.T) {
 	fixture := newBatchFixture(t)
 	patchPath := filepath.Join(fixture.caseRoot, ".steamai-vnext", filepath.FromSlash(fixture.request.Patch))

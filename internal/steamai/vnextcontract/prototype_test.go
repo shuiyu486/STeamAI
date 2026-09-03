@@ -180,6 +180,11 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 	for _, required := range []string{"## Candidates", "Eligibility review SHA-256", "## Targets", "Preimage SHA-256", "Postimage SHA-256", "Patch SHA-256", "`git apply --check` result", "Decision"} {
 		assertContains(t, batchReview, required, "learning batch review template")
 	}
+	for _, forbidden := range []string{"- Candidate：`learnings/candidates/L-*.md`", "- Target：`packs/<selected-pack>/**/*.md`"} {
+		if strings.Contains(batchReview, forbidden) {
+			t.Fatalf("learning batch review template 包含会被 parser 当成真实记录的示例 %q", forbidden)
+		}
+	}
 }
 
 func repoRoot(t *testing.T) string {

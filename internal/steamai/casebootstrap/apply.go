@@ -99,6 +99,9 @@ func applyPreview(git, source, caseRoot string, preview Preview) error {
 func publishSkill(caseRoot, identity string, write PlannedWrite) error {
 	target := filepath.Join(caseRoot, filepath.FromSlash(write.TargetPath))
 	if write.TargetAction == "unchanged" {
+		if err := rejectReparse(target); err != nil {
+			return ErrTargetDrift
+		}
 		data, err := os.ReadFile(target)
 		if err != nil || hashBytes(data) != write.SHA256 {
 			return ErrTargetDrift

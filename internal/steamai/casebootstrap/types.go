@@ -130,8 +130,8 @@ func (facts Facts) Validate() error {
 		"name": facts.Name, "goal": facts.Goal, "authorization": facts.Authorization,
 		"prohibited": facts.Prohibited, "stop": facts.Stop,
 	} {
-		if strings.TrimSpace(value) == "" || strings.ContainsRune(value, '\x00') {
-			return fmt.Errorf("Fresh facts 字段 %s 为空或无效", name)
+		if strings.TrimSpace(value) == "" || strings.ContainsAny(value, "\x00\r\n") {
+			return fmt.Errorf("Fresh facts 字段 %s 为空、包含换行或无效", name)
 		}
 	}
 	if !packNamePattern.MatchString(facts.Pack) || strings.HasPrefix(facts.Pack, "_") {

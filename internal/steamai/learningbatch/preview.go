@@ -469,9 +469,15 @@ func destinationAllowed(destination, pack string, patterns []string) bool {
 	return false
 }
 
-func hasExactFullIndexLine(patch, oldBlob string) bool {
+func hasExactFullIndexLine(patch, target, oldBlob string) bool {
+	header := "diff --git a/" + target + " b/" + target + "\n"
+	_, section, found := strings.Cut(patch, header)
+	if !found {
+		return false
+	}
+	section, _, _ = strings.Cut(section, "\ndiff --git ")
 	count := 0
-	for line := range strings.SplitSeq(patch, "\n") {
+	for line := range strings.SplitSeq(section, "\n") {
 		if !strings.HasPrefix(line, "index ") {
 			continue
 		}
@@ -481,7 +487,7 @@ func hasExactFullIndexLine(patch, oldBlob string) bool {
 		}
 		oldNew := strings.Split(fields[1], "..")
 		if len(oldNew) != 2 || oldNew[0] != oldBlob || !hexGit.MatchString(oldNew[1]) {
-			continue
+			return false
 		}
 		count++
 	}
@@ -533,7 +539,7 @@ func validatePatchScope(git, source, patchPath, pack string, patterns, denyPatte
 			return nil, ErrScope
 		}
 		workingBlob = strings.TrimSpace(workingBlob)
-		if !hexGit.MatchString(workingBlob) || indexBlob == "" || !hasExactFullIndexLine(text, workingBlob) {
+		if !hexGit.MatchString(workingBlob) || indexBlob == "" || !hasExactFullIndexLine(text, target, workingBlob) {
 			return nil, ErrScope
 		}
 		if strings.Count(text, "diff --git a/"+target+" b/"+target+"\n") != 1 ||

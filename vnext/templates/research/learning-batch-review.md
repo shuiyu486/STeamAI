@@ -19,13 +19,7 @@
 
 {{CANDIDATE_BINDINGS}}
 
-每项格式：
-
-- Candidate：`learnings/candidates/L-*.md`
-- Candidate SHA-256：`{{CANDIDATE_SHA256}}`
-- Eligibility review：`reviews/R-L-*.md`
-- Eligibility review SHA-256：`{{ELIGIBILITY_REVIEW_SHA256}}`
-- Destination：`packs/<selected-pack>/**/*.md`
+`CANDIDATE_BINDINGS` 必须替换为连续的实际记录；每项依次填写 Candidate、Candidate SHA-256、Eligibility review、Eligibility review SHA-256 与 Destination，不保留示例或占位符。
 
 ## Targets
 
@@ -33,13 +27,7 @@
 
 {{TARGET_BINDINGS}}
 
-每项格式：
-
-- Target：`packs/<selected-pack>/**/*.md`
-- Preimage SHA-256：`{{PREIMAGE_SHA256}}`
-- Preimage bytes：`{{PREIMAGE_BYTES}}`
-- Postimage SHA-256：`{{POSTIMAGE_SHA256}}`
-- Postimage bytes：`{{POSTIMAGE_BYTES}}`
+`TARGET_BINDINGS` 必须替换为连续的实际记录；每项依次填写 Target、Preimage SHA-256/bytes 与 Postimage SHA-256/bytes，不保留示例或占位符。
 
 ## Final decision
 

@@ -150,6 +150,9 @@ func annotateTarget(caseRoot string, write *PlannedWrite) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("%w: %s", ErrCollision, write.TargetPath)
 	}
+	if err := rejectReparse(target); err != nil {
+		return fmt.Errorf("%w: %s", ErrCollision, write.TargetPath)
+	}
 	data, err := os.ReadFile(target)
 	if err != nil {
 		return err

@@ -69,6 +69,29 @@ func TestPreviewApplyAndCurrentValidation(t *testing.T) {
 	}
 }
 
+func TestFactsRejectMarkerBreakingLineBreaks(t *testing.T) {
+	for _, field := range []string{"name", "goal", "authorization", "prohibited", "stop"} {
+		t.Run(field, func(t *testing.T) {
+			facts := fixtureFacts()
+			switch field {
+			case "name":
+				facts.Name = "line one\nline two"
+			case "goal":
+				facts.Goal = "line one\nline two"
+			case "authorization":
+				facts.Authorization = "line one\r\nline two"
+			case "prohibited":
+				facts.Prohibited = "line one\nline two"
+			case "stop":
+				facts.Stop = "line one\rline two"
+			}
+			if err := facts.Validate(); err == nil {
+				t.Fatalf("field %s accepted a line break", field)
+			}
+		})
+	}
+}
+
 func TestApplyRejectsSourceAndTargetDrift(t *testing.T) {
 	t.Run("source working tree", func(t *testing.T) {
 		git, source := canonicalFixture(t)

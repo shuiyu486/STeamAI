@@ -77,6 +77,18 @@ func TestActivateUpdateSwitchesSourceAndExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	originalCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(source); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(originalCWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	}()
 	result, err := (nativePlatform{}).ActivateUpdate(updateInstall{
 		Source: source, StagedSource: staged, ReplaceSource: true, Executable: newExe, Version: "v2",
 		ExpectedHead: baseline.Head, ExpectedStatus: baseline.Status, ExpectedRefs: baseline.Refs,

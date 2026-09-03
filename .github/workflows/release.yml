@@ -50,20 +50,34 @@ jobs:
           sha="$(sha256sum dist/steamai-windows-amd64.exe | cut -d ' ' -f 1)"
           printf '{"schemaVersion":1,"version":"%s","revision":"%s","windowsAmd64Sha256":"%s"}\n' \
             "${GITHUB_REF_NAME}" "${GITHUB_SHA}" "${sha}" > dist/steamai-release.json
-          sha256sum dist/steamai-windows-amd64.exe dist/steamai-release.json > dist/SHA256SUMS
+          (cd dist && sha256sum steamai-windows-amd64.exe steamai-release.json > SHA256SUMS)
 
       - name: Verify manifest and executable
         shell: bash
         run: |
           test "$(./dist/steamai-windows-amd64.exe --version)" = "${GITHUB_REF_NAME}"
-          sha256sum --check dist/SHA256SUMS
+          (cd dist && sha256sum --check SHA256SUMS)
           go run ./cmd/steamai-release-manifest dist/steamai-release.json "${GITHUB_REF_NAME}"
+
+      - name: Classify release
+        id: release
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+            echo "make_latest=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+            echo "make_latest=true" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Publish GitHub Release assets
         uses: softprops/action-gh-release@v2
         with:
           fail_on_unmatched_files: true
           generate_release_notes: true
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          make_latest: ${{ steps.release.outputs.make_latest }}
           files: |
             dist/steamai-windows-amd64.exe
             dist/steamai-release.json
