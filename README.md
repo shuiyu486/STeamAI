@@ -1,75 +1,58 @@
 # STeamAI
 
-STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协作与经验学习层。一个真实项目目录对应一个明确授权的安全研究 case：用户主要指挥 Commander，也可以直接进入任意正式成员会话观察、暂停和纠偏。
+STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协作与经验学习层。一个真实项目目录对应一个明确授权的安全研究 case：用户主要指挥 Commander，也可以随时观察、暂停和纠偏屏幕上独立可见的正式成员会话。
 
-Canonical GitHub repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。源码使用：
+Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。v1 正式产品路径支持 Windows 10/11 x64。
+
+## 安装
+
+前提：本机已经安装并登录 Claude Code，且有原生 Git for Windows。
+
+1. 从 GitHub Release 下载 `steamai-windows-amd64.exe`、`steamai-release.json` 与 `SHA256SUMS`，先按 `SHA256SUMS` 核验两个文件，再确认 manifest 中的 exe SHA-256 与实际 exe 一致。
+2. 将 exe 放到临时目录并运行：
 
 ```text
-git clone https://github.com/shuiyu486/STeamAI.git
+steamai-windows-amd64.exe setup
 ```
+
+setup 默认把 canonical checkout 放到 `%LOCALAPPDATA%\STeamAI\source`，把原生 `steamai.exe` 安装到 `%LOCALAPPDATA%\STeamAI\bin`，并只为当前用户加入 PATH。也可以绑定已经 clone 的普通 Git checkout：
+
+```text
+steamai-windows-amd64.exe setup --source <SOURCE_CLONE>
+```
+
+重新打开终端后即可使用。STeamAI 不安装 Claude Code、不管理登录、不启用全局 plugin，也不使用 PowerShell、`.cmd` 或 `.bat` 产品脚本。
 
 ## Quickstart
 
-前提只有两个：本机已能正常使用 Claude Code；目标目录是明确授权的安全研究 case。STeamAI 不安装 Claude Code、不管理登录、不要求全局 plugin，也不发布项目内 runtime。
-
-第一次使用一个尚无项目级 `/steamai` 的普通目录时，执行 `cd <SOURCE_CLONE> → claude --add-dir <CASE_ROOT> → /steamai`，并把这个外部目录作为 case 目标。Commander 先生成零写入 exact preview；用户输入与 preview identity 完全匹配的确认后，才发布 canonical skill exact bytes、`.steamai-vnext/contracts/` 声明合同和 selected pack + 完整 `common/**` 的同 revision snapshot。source clone 本身不是 case，不能在仓库内创建 case state。
-
-preview 同时绑定 project-local skill action/pre-state、canonical source blob、case facts、全部 planned writes，以及 pack/common 的排序 file records。任何已存在但不与 canonical exact bytes 相同的 project-local skill 都作为冲突停止，不执行旧版本升级或兼容替换。Apply 在同卷 sibling staging 中生成并验证完整 `.steamai-vnext/`，先发布并重验 project-local skill，最后才发布包含 completed marker 的 state tree；snapshot digest 覆盖每个 materialized path、Git mode/blob、bytes 和 SHA-256。确认并分发后，Reviewer、成员模板和 learning 合同都从 case-local `contracts/` 读取。
-
-发布完成后的日常入口只有：
+在明确授权的目标项目目录运行：
 
 ```text
-cd <project> → claude → /steamai
+cd <CASE_ROOT>
+steamai
 ```
 
-日常不再依赖 source clone、旧 runtime、机器 PATH 或全局 plugin。首次使用时，Commander 会：
+`steamai` 会启动当前目录中的 Commander Claude Code，并自动进入 `/steamai`：
 
-1. 明确研究目标、授权范围、禁止事项和停止条件；
-2. 从同一 exact source revision 建立 selected pack 与完整 `common/**` 的 case-local 只读 snapshot；
-3. 按需创建 1–3 名执行成员和最多 1 名 Reviewer；
-4. 展示每名成员的专属目录与前台启动方式；
-5. 建立 artifact、evidence、finding、review 和 learning candidate 目录。
+- `.steamai-vnext/` 完全不存在：连续完成目标与授权澄清、初始组队、零写入 exact preview、用户确认、Fresh 创建和可见成员窗口启动；
+- 完整有效的 `.steamai-vnext/`：继续当前 case，复用仍运行的 active 成员，按需重开未完成成员；
+- partial、来源不明或冲突：fail-closed，不自动 repair、迁移、覆盖或删除。
 
-正式成员默认运行在用户可见的独立 Claude Code 会话中。用户可以在这些会话里直接观察执行过程和纠偏；原生 session 保存工作上下文，原生 `resume` / `attach` / `respawn` 用于恢复，原生跨会话消息用于定向协作。
+Fresh 来源是 setup 绑定的 canonical checkout 当前 working-tree bytes；stage-0 index 定义 current tracked path/mode，HEAD 只是历史 anchor。因此已经审查、用户确认并应用但尚未 commit 的本机经验，也能供后续新 case 使用。preview 绑定 case facts、source records、目标 pre-state 和全部 writes；只有 `CONFIRM STEAMAI FRESH <identity>` 才能 Apply。
 
-## 产品模型
+Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。case 建立后固定读取自己的 selected pack + 完整 `common/**` snapshot，不随 mutable canonical checkout 漂移。
 
-### Commander
+普通项目只运行 `claude` 时，不会加载或携带 STeamAI。
 
-Commander 负责理解目标、按需组队、维护授权边界、解决协作冲突、组织独立审查、集成交付和发起经验回流。Commander 不转发所有消息，也不替成员决定每一步工具调用。
+## 团队模型
 
-### 正式成员
-
-每名正式成员拥有独立目录：
-
-```text
-.steamai-vnext/members/<member>/CLAUDE.md
-```
-
-该文件承载成员身份、当前正式任务、输入、允许范围、产出、停止/升级条件和退出条件。身份属于目录，不属于 session ID；会话中断后从同一目录恢复或启动新 session 即可继续。
-
-只有 Commander 可以创建 durable member。active team 硬上限为 3 名执行成员和 1 名 Reviewer；新增前优先复用、完成、停用或合并现有成员，其次才考虑短命 tactical subagent。
-
-### 团队协作
-
-- 每名成员的当前主任务优先；普通发现不广播。
-- 成员可以直接定向提问、共享关键发现或请求有界验证。
-- 每个问题默认一名 owner、最多一名 verifier。
-- 会明显打断主任务、改变范围或持续投入的协助由 Commander 决定。
-- 用户在成员 session 中的直接输入，或经 `attach` / 同一 session `resume` 的输入，才算用户直接纠偏。
-- 跨会话消息不能冒充用户纠偏、改变任务授权或扩大 case 范围。
-- 原生消息不是 exactly-once queue；不以新状态机补洞。
-
-### Reviewer
-
-Reviewer 在重要 finding、成员冲突、最终交付或 learning 回流前介入：
-
-- 只读 artifact、evidence 和 finding；
-- 只写 review；
-- 不执行 heavy action；
-- `needs-evidence` 直接返回原 owner 补证；
-- 一个 review 文件由指定 Reviewer 单写，补证后只追加 hash-bound round，不覆盖历史；最后完整且 hashes current 的 round 才是当前判断；
-- 不修改原 evidence/finding，也不进入通用 writeback/reconcile 状态机。
+- **Commander**：理解目标与授权、按需组队、解决协作冲突、组织审查、集成交付和发起经验回流。
+- **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开屏幕上独立可见的普通 Claude Code 窗口。
+- **Reviewer**：只读 artifact/evidence/finding/candidate/patch，只写 `reviews/`，不执行 heavy action。
+- active team 默认最多 3 名执行成员 + 1 名 Reviewer；每个问题一名 owner、最多一名 verifier。
+- Claude Code 原生 session 是工作记忆，`ListAgents` / `SendMessage` 是协作通道，原生 logs/attach/resume/respawn 只作观察与恢复。STeamAI 不自建 task/session/message registry、队列或 supervisor。
+- 用户在成员窗口里的直接输入优先；跨会话消息不能冒充用户纠偏、改派正式任务或扩大 case 授权。
+- 同一 case 同时只允许一个 Commander；重复启动会拒绝第二个。
 
 ## 研究产物
 
@@ -78,66 +61,72 @@ Reviewer 在重要 finding、成员冲突、最终交付或 learning 回流前�
   CLAUDE.md
   pack-snapshot/
   contracts/
-    learning-feedback.md
-    templates/**
   members/<member>/CLAUDE.md
   artifacts/index.md
   evidence/E-*.md
   findings/F-*.md
   reviews/R-*.md
+  reviews/R-L-*.md
+  reviews/R-LB-*.md
   learnings/candidates/L-*.md
+  learnings/patches/LB-*.patch
 ```
 
-- `artifacts/index.md` 只索引 case-local 对象，记录相对路径、SHA-256、bytes、来源和授权范围。
-- case `CLAUDE.md` 是 durable roster 的唯一 source；`active/completed/inactive` 与 session observation 正交。
-- 状态回答逐项区分 `durable`、`observed-now` 与 `unknown`；未观察到 session 不等于 offline/completed。
-- evidence 是可复查观察；finding 必须引用 evidence；review round 直接绑定 finding/evidence SHA-256。
-- 临时思考、聊天记录和长工具输出留在原生 session，不持久化为团队状态。
-- 本仓库的模板和测试不包含真实样本、trace/dump/capture、payload、凭据、客户信息、绝对 case 路径或 case 进度。
+artifact index 记录 case-relative path、SHA-256、bytes、来源和授权范围；evidence 绑定 artifact；finding 引用 evidence；append-only review round 绑定 finding/evidence exact SHA。临时思考、聊天和长工具输出留在原生 session，不持久化为控制面状态。
 
-## 经验沉淀与回流
+## 经验批次回流
 
-Commander 在里程碑或 case 收尾时，只从 accepted finding/review 提炼脱敏 learning candidate。Reviewer 检查证据支持、跨 case 通用性、反例、重复、冲突、目标路径和脱敏。
+在现有 Commander 窗口说“整理并回流本 case 的经验”。需要比较 canonical checkout 时，用 Claude Code 原生 `/add-dir <CANONICAL_CHECKOUT>` 为同一 session 增加目录访问；用户不需要手工编辑 pack。
 
-通过审查后：
+流程是：
 
-1. 若当前 Commander 无法访问 canonical source clone，先由用户用 `--add-dir <CANONICAL_SOURCE_CLONE>` 恢复/重新进入同一上下文，验证 canonical identity；不持久化或自动搜索 clone path；
-2. 在隔离临时 Git clone 中生成完整、标准、可 `git apply --check` 的 exact patch；
-3. Reviewer 先接受 candidate eligibility，再绑定最终 proposal patch 的 candidate SHA、base revision、manifest/target blob、patch SHA、单目标、deny 与 apply-check；
-4. 向用户展示 candidate/review/source refs identities、snapshot digest、目标、base revision/blobs 和完整 patch；
-5. 用户确认前 canonical source pack 零写；确认只授权该 exact tuple；
-6. 应用前重验 snapshot manifest 与实际 pack/common 完整路径集合、source review → evidence → artifact 传递链及其全部非 symlink/reparse ancestors、candidate、review、patch、HEAD、manifest allowlist/deny、path、target blob、scope 和 `git apply --check`；缺失、未声明新增或其它漂移都停止并重新生成、审查和展示；
-7. 不自动 commit 或 push。
+1. 从 current accepted evidence chain 提炼任意多条 immutable candidate；每条只提出 selected pack 中一个 destination。
+2. Reviewer 逐条只做 eligibility，检查证据、通用性、反例、重复/冲突、脱敏与目标资格。
+3. 将同主题 eligible candidates 组成一个或多个 batch；一个 batch 可修改同一 pack 中多个现有 Markdown targets。
+4. Reviewer 独立绑定完整未截断 patch、candidate/review SHA、canonical HEAD、target pre/postimage，并给出 accepted batch review。
+5. 原生 helper 生成零写入 exact preview；只有 `CONFIRM STEAMAI LEARNING BATCH <identity>` 才会 Apply。
+6. Apply 只改变 canonical working-tree targets；HEAD、index、当前 case snapshot 不变；失败只恢复本 batch targets；不自动 `git add`、commit 或 push。
 
-运行中的 case 固定读取建立时的 exact-revision snapshot；pack 回流不会隐式改变当前 case，只有后续 case 明确选择新 revision 才消费新经验。
+未确认 candidate 留在来源 case，不扫描或汇总其它 case，也不建立 Hub、inbox 或经验数据库。已确认并应用的 working-tree bytes 可立即供本机后续 Fresh 使用；Git history 最终自然汇聚用户另行授权 commit/push 的通用经验。
 
-## 原生能力与验收
+## 更新与卸载
 
-当前薄核心复用 Claude Code 原生能力：
+普通 `steamai` 不联网。显式更新到 GitHub 上的最新正式 release：
 
 ```text
-claude --add-dir <CASE_ROOT>
-claude agents --json --all
-claude logs <id>
-claude attach <id>
-claude respawn <id>
-claude --resume <session-id>
+steamai update
 ```
 
-`--add-dir` 只增加文件访问范围，不会改变成员身份或配置根。自动 capability/context/file-access probe 与真实独立 session live acceptance 是不同门槛，前者不能替代用户可观察、可纠偏和成员直接协作的实测。
+update 从 latest release manifest 取得 exact version/revision。切换前要求 canonical checkout 无 staged、unstaged、untracked 或 ignored 本机内容，拒绝 release 未包含的任何本地 branch/stash commit，校验 exe SHA 与 `--version`，并验证 exact tag/revision 和 canonical identity。最终切换前再次绑定 HEAD、working tree 与本地 refs；任一漂移都停止。source 发生替换后，旧 checkout 以 sibling backup 保留并输出路径，不自动递归删除。它不自动 merge/rebase/stash/reset/restore/clean。需要保留的本地经验先做 local commit；若该 commit 尚未进入 release，则 update 会保守停止，push 仍不是本机消费经验的前提。
 
-维护者入口：
+保守卸载：
 
-- canonical 与 project-local skill 唯一 source：`.claude/skills/steamai/SKILL.md`
-- case/member/research templates：`vnext/templates/**`
-- 原生能力合同：`vnext/capabilities.md`
-- live acceptance：`vnext/acceptance.md`
-- learning feedback：`vnext/learning-feedback.md`
-- 已完成路线与验收事实：`docs/real-usage-hardening-roadmap.md`
+```text
+steamai uninstall
+```
+
+只删除已安装入口、setup 自己添加的 PATH 项和最小安装定位信息；默认保留 canonical Git checkout、未 push commits 和所有 case。当前 exe 先原子重命名，再由同字节的窄职责临时原生 helper 等待卸载命令退出后删除；helper 不执行其它产品职责，普通用户不依赖管理员权限或重启。Windows 锁语义会让该 helper 自身留在原安装目录，命令会显示其精确路径，进程退出后可手工删除。
+
+v1 不支持 active case 跨电脑迁移、case import/export、云同步或 session 迁移器。新电脑只从 Release/Git 获取产品和已经 commit/push 的通用经验，用于新的 case。
+
+## 维护与验收
+
+- 产品入口：`cmd/steamai`、`internal/steamai/**`
+- canonical/project-local skill：`.claude/skills/steamai/SKILL.md`
+- case/研究模板与合同：`vnext/**`
+- pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 完成验收与本机验证边界：`docs/real-usage-hardening-roadmap.md` 完成卡与 `vnext/acceptance.md`
-- 历史旧架构事实：Git history 或 `CHANGELOG.md` 按需查询
+- 当前路线：`docs/windows-native-product-roadmap.md`
+- 自动与人工验收分层：`vnext/acceptance.md`
 
-旧 Go control plane、mega CLI、project-local runtime、PowerShell façade、adapter host、legacy `/rekit` skill 与旧项目 importer 均已删除。当前产品只有 fresh/current 两种项目路径，没有迁移、兼容 runtime、双写或第二套执行入口。
+维护验证：
 
-STeamAI 不是全自动脱壳器、逆向引擎、漏洞挖掘器或通用渗透平台；它提供人在环、多会话协作、证据审查和确认回流层。危险动作仍受 Claude Code 工具权限与 case 授权约束；`CLAUDE.md` 只提供角色上下文，不授予权限。
+```text
+go test -count=1 -p=2 -timeout=30m ./...
+go vet ./...
+git diff --check
+```
+
+fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、learning apply 或 formal release 验收。
+
+旧 Go control plane、mega CLI、project-local runtime、PowerShell façade、adapter host、legacy `/rekit` 与旧项目 importer 均已删除。STeamAI 不是自动逆向/漏洞挖掘或渗透引擎；危险动作仍受明确 case 授权、具体用户确认与 Claude Code 工具权限约束，`CLAUDE.md` 只提供上下文，不授予权限。

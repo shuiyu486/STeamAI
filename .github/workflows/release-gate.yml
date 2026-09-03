@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  thin-core-checks:
-    name: Thin-core checks (${{ matrix.os }})
+  product-checks:
+    name: Product checks (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -31,7 +31,7 @@ jobs:
       - name: Go vet
         run: go vet ./...
 
-      - name: Thin-core contract tests
+      - name: Product and contract tests
         run: go test -count=1 -p=2 -timeout=30m ./...
 
       - name: Check changed-file whitespace

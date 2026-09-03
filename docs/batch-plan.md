@@ -2,38 +2,30 @@
 
 ## 读取指南
 
-本文件只是已完成路线的短投影，不选题、不保存完整实施日志。本文件不是第二份 roadmap。先由 `docs/context-routing.md` 选择场景；验收事实以 `docs/real-usage-hardening-roadmap.md` 的完成卡为唯一 source。完整历史只在 Git history 或 `CHANGELOG.md` 按 ID 查询。
+本文件只是当前路线的短投影，不保存完整实施日志，也不是第二份 roadmap。先由 `docs/context-routing.md` 选场景；当前状态以 `docs/windows-native-product-roadmap.md` 为准，历史 thin-core 验收以 `docs/real-usage-hardening-roadmap.md` 为准。
 
-## 实施摘要
-
-`steamai-vnext-thin-core-v1` 已完成；当前无待领取批次。后续只根据真实使用反馈、新授权边界或明确产品目标立项。
-
-## 执行清单
-
-### Current projection
+## Current projection
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-vnext-thin-core-v1` |
-| source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `VNT-06 收尾发布验证` |
-| 状态 | `completed` |
-| 唯一允许领取 | 无 |
-| 前置 | `VNT-05` 旧控制面、旧文档入口与 current pack/common 旧语义已删除 |
-| 下一批 | 无；等待真实使用反馈 |
+| 路线 | `steamai-windows-native-product-v1` |
+| source | `docs/windows-native-product-roadmap.md` |
+| 当前批次 | `WNP-04 Release 与真实 Windows 产品验收` |
+| 状态 | `in-progress` |
+| 已完成 | `WNP-01 native setup/launcher`、`WNP-02 production Fresh`、`WNP-03 thematic learning batch` |
+| 剩余 | 真实 Windows Fresh/visible member/duplicate Commander/learning/update product-path、Commander/member原生跨会话消息，以及实际 GitHub tag Release |
+| 下一批 | 无；完成当前路线后等待真实使用反馈 |
 
-最新结果：VNT-01～VNT-06 与后续 RGH-00～RGH-03 硬化均已完成。canonical `/steamai`、case-local contracts、schema v2、Fresh staged publication、pack+common complete payload digest、Day-2 hash-bound review、accepted-only exact patch learning 与原生 Claude Code 多会话合同均已收口；旧项目 importer 因无兼容需求已删除。RGH 收口的本地 default suite、vet、diff 与终审通过；Windows live context/file-access probe 和三平台 remote contract CI 是重构基线证据，不代表 RGH 改动的 product-path/persistent/manual live 或 remote green。
-
-历史 numbered batch 只从 Git history/`CHANGELOG.md` 按需查询，不在当前完成态投影中固化旧 identity。
+最新结果：原生 `steamai.exe`、working-tree-authority Fresh、可见成员 launcher、单 Commander 瞬时互斥、多 candidate/多 target exact learning batch、latest-manifest update 与普通用户原生 uninstall 自清理已进入主工作树。default/full suite、vet、Windows/Linux build、diff check、local release asset、Claude Code native context/file access 与 persistent session/direct-correction live probe 已通过。当前尚不能宣称 formal GitHub Release 或完整 Windows 产品旅程完成。
 
 ## 验证标准
 
-- 本文件与路线图的 route/current/state/next 必须一致；冲突时 fail-closed。
-- 本文件只保留 current projection、一句最新结果和 release handoff 所需的 latest numbered identity；未来阶段细节只在按需 backlog。
-- route completion 不能由 Markdown claim、cross-compile、workflow definition 或 synthetic fixture 单独证明。
+- 本文件与当前 roadmap 的 route/state/next 必须一致；冲突时 fail-closed。
+- 不由 Markdown claim、workflow definition、fake process、cross-compile 或 synthetic fixture单独证明 live completion。
+- 真实 setup/PATH、Fresh preview/apply、visible member、user correction、cross-session message、duplicate Commander、learning batch、update/uninstall 和 Release asset 必须逐项记录结果；隔离 setup/PATH/uninstall 已通过不代表其余 product journey 完成。
 
 ## 风险与注意事项
 
-- 当前产品只支持 fresh/current；旧项目 importer 与兼容路径已删除。
-- 真实 heavy action 仍要求明确 case 授权、具体用户确认与 Claude Code 工具权限。
-- 不因未来需求复活旧 runtime、双写、adapter 或任务状态机。
+- native shell 不得演化为 control plane、session registry、消息总线、任务数据库或 compatibility runtime。
+- 产品路径不使用 PowerShell、`.cmd` 或 `.bat`。
+- v1 不支持 active case迁移或跨电脑 session/case同步。

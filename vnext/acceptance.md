@@ -1,87 +1,95 @@
-# vNext 原生团队验收
+# Windows 原生产品验收
 
-本文件只定义 `steamai-vnext-thin-core-v1` 的可重复验收，不是 case 状态、session registry 或消息 ledger。验收使用无真实样本的临时目录，结果不写入模板仓库。
+本文件定义 `steamai-windows-native-product-v1` 的证据分层。所有自动 fixture 使用临时目录和无真实样本内容；结果不写入模板仓库，不把 session ID、绝对 case path 或 artifact bytes 保存为产品状态。
 
 ## 证据分层
 
-以下证据互不替代：
+以下层级互不替代：
 
-1. 默认 `_test.go` reference oracle 证明 fresh exact preview/apply、manifest、模板和 Git patch 的确定性合同；它没有执行 `/steamai`，不是产品实现或产品路径证据。
-2. 自动 capability/context/file-access probe 实际调用 Claude Code，但只证明上下文加载和文件访问。
-3. 显式 opt-in synthetic product-path gate 必须黑盒执行真实 canonical/project-local `/steamai`，不得调用 test oracle 生成 case；harness 输入的 synthetic confirmation 不冒充真实用户授权。
-4. 真实独立 session 与人工 visible/attach acceptance 证明用户可观察、纠偏和成员直连；自动 `--resume` 不能替代用户实际进入可见 session 的体验。
+1. **Default automated tests**：生产 `casebootstrap`、`learningbatch`、native shell 的 deterministic filesystem/Git/command contract。
+2. **Windows native live**：真实 `steamai.exe`、HKCU Registry/PATH、NTFS publication、named mutex 与 `CREATE_NEW_CONSOLE`。
+3. **Claude Code live**：真实 context/file access、visible independent sessions、用户直接纠偏与原生跨会话消息。
+4. **Release live**：tag workflow实际生成、上传、下载和校验 release assets。
 
-### 1. 自动 capability/context/file-access probe
+fake platform、synthetic fixture、remote CI definition、cross-compile 或 `go test -run` 零匹配不能冒充其它层。
 
-运行：
+## 1. Default automated gates
+
+```text
+go test -count=1 -p=2 -timeout=30m ./...
+go vet ./...
+git diff --check
+```
+
+focused：
+
+```text
+go test -count=1 ./internal/steamai/casebootstrap
+go test -count=1 ./internal/steamai/learningbatch
+go test -count=1 ./internal/steamai ./internal/steamai/vnextcontract
+```
+
+必须覆盖：Fresh zero-write/exact confirmation/source+target drift/current deep validation；learning 多 candidate/多 target、Reviewer binding、mutable patch TOCTOU、HEAD/index/snapshot不漂移、target-only rollback；setup/update/uninstall command边界；禁止产品脚本和旧 control plane。
+
+## 2. Claude Code capability probe
+
+显式 opt-in：
 
 ```text
 STEAMAI_VNEXT_LIVE_ACCEPTANCE=1 go test -count=1 -run TestLiveNativeContextAndFileAccess ./internal/steamai/vnextcontract
 ```
 
-Windows PowerShell 使用：
+该 probe 只证明成员 cwd 自动上下文与 `--add-dir` case file access。缺少 `claude`、认证或 CLI capability 必须失败；默认 suite 不发起模型调用。它不能证明用户看见窗口、直接纠偏或跨会话协作。
 
-```text
-$env:STEAMAI_VNEXT_LIVE_ACCEPTANCE = '1'; go test -count=1 -run TestLiveNativeContextAndFileAccess ./internal/steamai/vnextcontract
-```
-
-该 probe 在临时 case 中执行两个相互独立的 non-persistent Claude Code 调用：
-
-- context probe 禁用全部工具，working directory 是成员专属目录，只能从自动加载的成员和父级 case `CLAUDE.md` 返回成员身份、正式任务和 case 边界；
-- file-access probe 只开放 `Read`，通过 `--add-dir` 读取未出现在 prompt 或 `CLAUDE.md` 中的 case-root canary；
-- 两个调用分别通过，避免主动读取 `CLAUDE.md` 掩盖自动上下文加载失效；
-- 清除父 Claude Code 的嵌套标记，但不跳过权限、不启用网络或其它工具。
-
-缺少 `claude`、认证或必需 CLI flag 时，probe 必须失败并报告缺失能力；默认 canonical suite 不发起模型调用。
-
-### 2. Synthetic fresh product-path gate
-
-该 gate 使用独立环境变量，不与基础 capability probe 混用：
-
-该 gate 当前是 specification-only，尚无可执行 test 名称或命令。必须在干净 canonical revision 和外部无样本临时 case 中真实调用 `/steamai`：确认前 case 零写；harness 在同一 Commander session 中输入明确标为 synthetic 的 `CONFIRM STEAMAI FRESH <preview_identity>`；随后黑盒比较 project-local skill、contracts、selected pack、完整 `common/**`、metadata 和 completed marker。再用第二个临时 case 制造 target drift，旧确认必须失效且 `.steamai-vnext/` 不得发布。测试不得把 `SKILL.md` 复制进 prompt 模拟执行，也不得调用 reference oracle Apply；若当前 Claude Code 不能从 print/resume 模式真实 dispatch skill，直接报告 capability 缺失，不 fallback。
-
-在稳定、可复现地证明 Claude Code CLI 能以无交互 harness 调用 `/steamai` 并实现对应 test 前，不发布 `go test -run` 命令，避免零匹配测试造成假绿。真正发布结论仍需记录一次人工可见 preview/确认体验。
-
-### 3. Persistent multi-session 与人工可见验收
-
-自动 persistent gate 运行：
+保留的自动 persistent probe（仍不等于人工可见验收）：
 
 ```text
 STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLivePersistentMemberContextAndCorrection ./internal/steamai/vnextcontract
 ```
 
-Windows PowerShell：
+## 3. Windows native product journey
 
-```text
-$env:STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE = '1'; go test -count=1 -run TestLivePersistentMemberContextAndCorrection ./internal/steamai/vnextcontract
-```
+在一次性本机测试账户或明确可恢复的临时安装边界中，用真正构建的 `steamai-windows-amd64.exe` 完成：
 
-自动 probe 不能证明用户实际看到 terminal/attach 或成员直连。证据再分三层：
+1. **setup**：默认路径与 `--source <TEMP_CHECKOUT>` 各一次；检查 installed exe、HKCU source/version/PATH ownership；新终端可解析 `steamai`。不使用 PowerShell/.cmd/.bat 产品脚本。
+2. **Fresh**：从外部普通临时项目运行 `steamai`；同一 Commander窗口看到 exact preview；确认前零写；输入 exact synthetic confirmation 后 project-local skill、contracts、pack/common snapshot与marker current。
+3. **Fresh drift**：改变 source或target后，旧确认失效且`.steamai-vnext/`不发布。
+4. **Visible member**：Commander调用 `steamai __open-member <name>`；屏幕上立即出现普通交互 Claude Code窗口，cwd是成员目录，case通过`--add-dir`可读。
+5. **Duplicate Commander**：第一个仍运行时再次在物理同一case（包括path alias）运行`steamai`，第二个明确拒绝。
+6. **Learning batch**：至少3 candidates→3 eligibility reviews→2 targets→1 accepted batch review；preview完整显示source chain/Reviewer/pre-postimage/patch；exact confirmation后只修改targets，HEAD/index/case snapshot不变。
+7. **Update**：clean checkout从已发布测试tag更新；manifest/hash/tag/revision均匹配；source需要变化时与exe一起切换，HEAD已等于release时走exe-only路径。再分别制造dirty/untracked/ignored、本地其他branch或stash commit、错误hash、错误revision、已存在staging/backup、文件锁、准备期间source漂移与网络失败，确认旧可用版本保留且无自动Git修复；source替换成功后旧checkout作为sibling backup保留，命令输出路径且不自动递归删除。
+8. **Uninstall**：只移除installed exe、setup拥有的PATH和定位信息；checkout、local commits和case保留；运行中exe先重命名，同字节临时原生 helper 在卸载命令退出后删除已安装入口；普通用户不需要管理员权限或重启；helper 自身残留的精确路径必须输出，进程退出后验证可手工删除。
 
-- 自动 persistent opt-in：使用 `STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1` 运行 `TestLivePersistentMemberContextAndCorrection`，从两个不同 member cwd 建立 persistent synthetic sessions，验证上下文隔离、逐一 resume、direct-session correction 与旧 expected task 的 `HOLD_STALE_TASK`；test 不把 session ID 写入仓库或 case，resume 重传 `--add-dir <CASE_ROOT>`，不解析 transcript JSONL，也不声称用户看见 terminal/attach。Claude Code 仍会按原生 session 生命周期保存会话记录，重复验收后应通过原生 session 管理界面删除这些 synthetic sessions。该 gate 不发送跨会话消息，不替代人工 attach。
-- 人工 visible foreground：用户实际从两个 member cwd 启动普通可见 session，观察、暂停和直接输入；普通 foreground 不保证出现在 Agent view。
-- 人工 background/attach：明确把 synthetic session 放到后台，按精确 cwd 观察，并由用户实际 `attach` 输入 correction；自动 `--resume` 不能替代这一体验。
+这些步骤涉及HKCU/PATH和真实窗口，不能由普通unit test假装完成。执行结果记录在case外的短验收摘要中，只写pass/fail与必要能力边界。
 
-完整产品验收还必须在同一临时 case 中完成以下旅程，并保存 case 外的短验收摘要：
+## 4. Visible multi-session 与用户纠偏
 
-1. `claude agents --json --all` 能按精确 member cwd 识别会话；会话 ID 仅用于联系或恢复。
-2. Commander 向 owner 发送有界任务；owner 从自身 `CLAUDE.md` 复述当前任务并形成 synthetic evidence/finding。
-3. owner 直接请求一名 verifier 做有界复核；不得广播，也不得引入第二名 verifier。
-4. 用户通过 `claude attach <id>`，或验收 harness 通过 `claude --resume <session-id>` 向同一 owner session 直接输入一条明确标为 synthetic 的 acceptance correction；owner 更新自己的正式任务并通知受影响成员。跨会话 `SendMessage` 不能冒充 user/direct-session correction，也不授予任务变更权限。
-5. 再向同一 session 输入一条携带旧 expected current task 的延迟变更；通过 compare-before-update，owner 必须返回 `HOLD_STALE_TASK`，不能覆盖 correction。
-6. Reviewer 只读 artifact/evidence/finding，只写 review；round 1 `needs-evidence` 必须返回原 owner，owner 补证后 Reviewer 只追加 round 2 `accepted`，round 1 bytes 不变。round 2 必须绑定当前 finding/evidence SHA-256；任一文件再变化则 accepted stale。
-7. roster 是唯一 durable lifecycle source，只允许 `active`、`completed`、`inactive`；超过 3 名 active 执行成员或 1 名 active Reviewer 的创建请求必须拒绝或暂停等待真实用户明确改变团队模型。session observation 不能改变 roster。
-8. `claude logs <id>` 可观察后台验收会话；`claude attach <id>` 是用户直接观察/纠偏路径。自动化环境可使用后台 session，但产品默认仍是可见前台会话。后台验收应使用与 Commander 兼容的 permission mode、预先限定工具，并通过临时 settings 文件显式设置 `crossSessionInbound: "accept"`；否则跨会话消息会停在不可见 permission prompt。该设置只接受本次会话消息，不跳过工具权限，也不授权临时 case 外写入。
+至少在一个临时current case中完成：
 
-## 通过标准
+完整产品验收还必须在同一临时 case 中完成以下旅程；任一层不能替代另一层：
 
-- default oracle、自动 probe、synthetic product-path gate、真实独立 session 与人工 visible/attach acceptance 按本次声明范围分别通过；任一层不能替代另一层，未执行项必须如实记录。
-- 每个问题只有一名 owner 和最多一名 verifier；一般发现批量发送，探索过程不广播。
-- 未收到可验证结果时不重复投递同一任务；permission-held 消息可能在稍后批准后送达，重复发送会形成协作风暴。
-- shared research 文件使用 case-relative path，Reviewer 没有 evidence/finding 写权限。
-- 不解析 transcript JSONL，不把消息、PID、session ID 或 endpoint 持久化为产品状态。
-- 不调用旧 Go runtime，不因能力缺失回退 legacy `/rekit`、PATH kit 或 PowerShell runtime。
+1. Commander按需打开两名正式成员和最多一名Reviewer；窗口从启动起用户可见、可输入、可暂停。
+2. 用户直接在owner窗口修改当前任务；owner更新自己的任务并通知受影响成员。
+3. 再发送带旧expected task的延迟变更；compare-before-update返回`HOLD_STALE_TASK`，不得覆盖用户纠偏。
+4. 每个问题保持一名 owner 和最多一名 verifier；owner只向一名verifier请求有界复核，不广播、不增加第二verifier。
+5. Commander/成员通过`ListAgents` / `SendMessage`完成一次定向协作；跨会话 `SendMessage` 不能冒充 user/direct-session correction，也不能扩大授权。
+6. Reviewer round 1 `needs-evidence`返回原owner；补证后只追加round 2 `accepted`，绑定current finding/evidence SHA；再改变输入后accepted stale。
+7. 超过 3 名 active 执行成员或 1 名 active Reviewer 的创建请求必须拒绝；关闭并恢复active成员窗口，确认目录身份与当前任务延续；completed/inactive成员不自动启动。
+
+`claude logs`、`attach`、`respawn`与`claude --resume <session-id>`只作观察/恢复备用；Agent view/background session不是默认成员体验。自动resume不替代用户实际看见和输入。不解析 transcript JSONL，不把session记录重建为产品状态。
+
+## 5. Release live
+
+在测试tag上实际运行`.github/workflows/release.yml`并检查：
+
+- `steamai-windows-amd64.exe`能在Windows 10/11 x64启动，`--version`等于tag；
+- `steamai-release.json`使用固定schema，绑定tag、full revision和exe SHA-256；
+- release资产下载后本地SHA与manifest一致；
+- 无参数 `steamai update` 能通过 latest manifest 消费同一资产并精确绑定 tag/revision；
+- workflow没有提交构建产物到Git，也不使用产品PowerShell/.cmd/.bat脚本。
+
+只有实际GitHub Release成功才标记本层通过；workflow文件存在不等于release完成。
 
 ## 清理
 
-验收结束后停止本次创建的后台 session，并删除临时 case；自动 persistent gate 创建的原生 synthetic session 记录不会由 `t.TempDir` 清除，应通过 Claude Code 原生 session 管理界面删除。验收摘要只记录通过/失败及必要的能力边界，不保留 session ID、绝对 case 路径、artifact 内容或 case-local hash。停止或删除 session 只清理运行资源/会话记录，不证明 durable member 完成；研究结论只以存续 case 文件为准。
+停止测试session，删除临时case/source；通过Claude Code原生session管理清理synthetic persistent sessions。uninstall测试必须先确认保留checkout/case，再清理测试账户资源。摘要不得保留session ID、绝对路径、artifact内容或case-local hashes。

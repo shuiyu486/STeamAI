@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-本文件是已完成 `steamai-vnext-thin-core-v1` 的验收事实源。新会话先由 `docs/context-routing.md` 路由到这里，只读取顶部完成区与验收卡；`docs/batch-plan.md` 只是短投影，不是第二选题源。新的条件卡只在真实反馈或明确目标出现时按需读取 `docs/real-usage-hardening-backlog.md`。更早历史从 Git history 或 `CHANGELOG.md` 追溯。
+本文件是已完成 `steamai-vnext-thin-core-v1` 在当时边界下的历史验收事实源，不再定义当前产品路径。当前路线由 `docs/context-routing.md` 指向 `docs/windows-native-product-roadmap.md`；下文的 source-clone-first、零 production Go 等表述只记录该路线完成时的事实，不得用于否定后续经明确批准的 Windows native product 路线。更早历史从 Git history 或 `CHANGELOG.md` 追溯。
 
 ## 实施摘要
 

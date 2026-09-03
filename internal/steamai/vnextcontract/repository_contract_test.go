@@ -9,16 +9,14 @@ import (
 	"testing"
 )
 
-func TestRepositoryHasNoLegacyProductionControlPlane(t *testing.T) {
+func TestRepositoryHasOnlyTheNativeWindowsProductShell(t *testing.T) {
 	repo := repoRoot(t)
 	for _, rel := range []string{
-		"cmd",
 		"internal/rekit",
 		"rekit",
 		".claude/skills/rekit",
 		".claude/skills/verify",
 		"go.work",
-		"go.sum",
 		"packs/binary-re/scripts",
 	} {
 		if _, err := os.Lstat(filepath.Join(repo, filepath.FromSlash(rel))); err == nil {
@@ -28,16 +26,86 @@ func TestRepositoryHasNoLegacyProductionControlPlane(t *testing.T) {
 		}
 	}
 
-	entries, err := os.ReadDir(filepath.Join(repo, "internal", "steamai", "vnextcontract"))
-	if err != nil {
-		t.Fatal(err)
+	allowedProductionGo := map[string]bool{
+		"cmd/steamai/main.go":                                true,
+		"cmd/steamai-release-manifest/main.go":               true,
+		"internal/steamai/app.go":                            true,
+		"internal/steamai/path.go":                           true,
+		"internal/steamai/platform_other.go":                 true,
+		"internal/steamai/platform_windows.go":               true,
+		"internal/steamai/release_manifest.go":               true,
+		"internal/steamai/setup.go":                          true,
+		"internal/steamai/update.go":                         true,
+		"internal/steamai/uninstall_cleanup_other.go":        true,
+		"internal/steamai/uninstall_cleanup_windows.go":      true,
+		"internal/steamai/casebootstrap/apply.go":            true,
+		"internal/steamai/casebootstrap/current.go":          true,
+		"internal/steamai/casebootstrap/path.go":             true,
+		"internal/steamai/casebootstrap/preview.go":          true,
+		"internal/steamai/casebootstrap/reparse_other.go":    true,
+		"internal/steamai/casebootstrap/reparse_windows.go":  true,
+		"internal/steamai/casebootstrap/source.go":           true,
+		"internal/steamai/casebootstrap/types.go":            true,
+		"internal/steamai/learningbatch/apply.go":            true,
+		"internal/steamai/learningbatch/path.go":             true,
+		"internal/steamai/learningbatch/platform_other.go":   true,
+		"internal/steamai/learningbatch/platform_windows.go": true,
+		"internal/steamai/learningbatch/preview.go":          true,
+		"internal/steamai/learningbatch/sourcechain.go":      true,
+		"internal/steamai/learningbatch/types.go":            true,
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
+	for path := range allowedProductionGo {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path))); err != nil {
+			t.Errorf("required native product shell file is missing: %s: %v", path, err)
 		}
-		if !strings.HasSuffix(entry.Name(), "_test.go") {
-			t.Errorf("vNext contract package contains production Go source: %s", entry.Name())
+	}
+	for _, rel := range []string{
+		"internal/steamai/uninstall_cleanup_windows.go",
+		"internal/steamai/platform_windows.go",
+	} {
+		data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		for _, forbidden := range []string{"power" + "shell.exe", "cmd" + ".exe", "MoveFile" + "Ex"} {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("native uninstall path uses forbidden external runtime %q in %s", forbidden, rel)
+			}
+		}
+	}
+
+	for _, root := range []string{"cmd", "internal/steamai"} {
+		err := filepath.WalkDir(filepath.Join(repo, filepath.FromSlash(root)), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			rel, err := filepath.Rel(repo, path)
+			if err != nil {
+				return err
+			}
+			rel = filepath.ToSlash(rel)
+			if !allowedProductionGo[rel] {
+				t.Errorf("production Go escaped the native product shell allowlist: %s", rel)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tracked, err := exec.Command("git", "-C", repo, "ls-files", "-z").Output()
+	if err != nil {
+		t.Fatalf("list tracked files: %v", err)
+	}
+	for raw := range strings.SplitSeq(string(tracked), "\x00") {
+		ext := strings.ToLower(filepath.Ext(raw))
+		if slices.Contains([]string{".ps1", ".psm1", ".psd1", ".cmd", ".bat"}, ext) {
+			t.Errorf("tracked product script is forbidden: %s", raw)
 		}
 	}
 }

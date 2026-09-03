@@ -71,7 +71,8 @@ func TestPrototypeSkillDefinesNativeTeamBoundary(t *testing.T) {
 		"用户确认前 canonical source pack 零写",
 		"可 `git apply --check` 的 exact patch",
 		"应用前按合同重验 snapshot",
-		"只有后续 case 明确选择新 revision 和新 snapshot digest 才消费",
+		"只有后续 Fresh 明确绑定新的 current source records 与 snapshot digest 才消费",
+		"HEAD revision 可以保持不变",
 		"## Case-pinned pack 按需路由",
 		"entrypoints.router",
 		"../../pack-snapshot/packs/<selected-pack>/...",
@@ -172,8 +173,12 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 		assertContains(t, learning, required, "learning template")
 	}
 	learningReview := readPrototypeFile(t, repo, "vnext/templates/research/learning-review.md")
-	for _, required := range []string{"Checkpoint A — Eligibility", "Checkpoint B — Exact proposal patch", "Manifest base blob", "Target base blob", "Patch SHA-256", "Patch target count：`1`", "Patch decision"} {
+	for _, required := range []string{"Checkpoint A — Eligibility", "Candidate SHA-256", "Evidence/generalization", "Dedup/conflict", "candidate review 不绑定或授权任何 patch"} {
 		assertContains(t, learningReview, required, "learning review template")
+	}
+	batchReview := readPrototypeFile(t, repo, "vnext/templates/research/learning-batch-review.md")
+	for _, required := range []string{"## Candidates", "Eligibility review SHA-256", "## Targets", "Preimage SHA-256", "Postimage SHA-256", "Patch SHA-256", "`git apply --check` result", "Decision"} {
+		assertContains(t, batchReview, required, "learning batch review template")
 	}
 }
 

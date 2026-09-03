@@ -33,4 +33,4 @@
 - [ ] 不含真实目标身份、客户信息、凭据、artifact、绝对路径、case-local hash/address、会话标识、未验证猜测或 case 流水账
 - [ ] 与现有 pack 内容完成去重、冲突、反例和不适用条件检查
 
-candidate 创建后保持 immutable。它只证明待审查的 generalized lesson，不包含用户确认状态，也不授权生成后的 patch；Reviewer 需先完成 eligibility，再对最终 exact proposal patch 单独绑定和接受。
+candidate 创建后保持 immutable。每个 candidate 只提出上方一个 destination，但一个 case 可以产生任意多个 candidate；多个同主题 eligible candidate 可进入一个或多个 batch，并共同形成修改同一 selected pack 内多个现有 Markdown target 的 exact patch。candidate 不包含用户确认状态，也不授权任何 patch；Reviewer 先逐 candidate 完成 eligibility，再以 batch review 绑定并接受最终 exact patch。

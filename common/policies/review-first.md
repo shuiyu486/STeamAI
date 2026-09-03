@@ -13,7 +13,8 @@
 
 1. Commander 只从 `accepted` finding/review 提炼脱敏 learning candidate。
 2. Reviewer 检查证据支持、跨 case 通用性、反例、重复、冲突、目标路径和脱敏。
-3. 在隔离 clone 中生成完整、标准、单目标 exact Git patch，并记录 base revision/blob 与 patch SHA-256。
-4. 用户查看 candidate、review 和完整 patch 后，确认只授权这一份 patch。
-5. Apply 前重验 patch、target scope、base currentness 和 `git apply --check`；漂移则停止并重新生成。
-6. 不自动 commit/push。当前 case 继续读取创建时的 pack snapshot，不随 source pack 更新漂移。
+3. 将同主题 eligible candidates 组成 batch；每条 candidate 保持一个 destination，一个 batch 可修改同一 selected pack 中多个现有 Markdown targets。
+4. 在隔离 clone 中生成完整、标准、`--full-index` exact Git patch，并记录 base revision、全部 target pre/postimage 与 patch SHA-256。
+5. Reviewer 绑定完整 batch patch；用户查看 candidates、reviews 与完整 patch 后，确认只授权这一份 exact batch。
+6. Apply 前重验 patch、exact target set、base currentness 和 `git apply --check`；漂移则停止并重新生成。
+7. 不自动 commit/push。当前 case 继续读取创建时的 pack snapshot，不随 source pack 更新漂移。

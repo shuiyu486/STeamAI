@@ -11,7 +11,7 @@
 - pack 只能建议职责；durable member 由 Commander 按需创建，active team 仍受 3 名执行成员 + 1 名 Reviewer 上限约束。
 - heavy action 不由 manifest 自动授权。必须同时落在明确 case scope、获得针对具体动作的用户确认，并通过 Claude Code 工具权限；范围、预算或副作用漂移时停止。
 - learning 只从 current accepted finding/review chain 提炼；Reviewer 先判断 candidate eligibility，再绑定最终 exact patch identity，用户只确认完整 exact tuple。candidate exact SHA 在创建后由 review/confirmation 外部记录，不写入 candidate 自身。
-- selected pack 与完整 `common/**` 从同一 exact Git revision 物化到 case-local 只读 snapshot；payload digest 覆盖排序后的 path、Git mode/blob、bytes 与 SHA-256，case 日常不读取 mutable source clone。
+- selected pack 与完整 `common/**` 以同一 HEAD revision 为 provenance anchor，从 current stage-0 tracked working-tree bytes 物化到 case-local 只读 snapshot；payload digest 覆盖排序后的 path、Git mode/blob、bytes 与 SHA-256，case 日常不读取 mutable source clone。
 
 ## 最小结构
 
@@ -77,4 +77,4 @@ git diff --check
 - team 文档没有让成员自行创建 durable member 或改变 case 授权；
 - Reviewer 不修改原 evidence/finding；
 - heavy action 不能由模板、消息或 `CLAUDE.md` 自动授权；
-- learning candidate 与 patch 已脱敏、单目标且可复核。
+- 每条 learning candidate 已脱敏并保持单 destination；thematic batch 可含多个 candidate/target，完整 patch 与每个 target pre/postimage 均可复核。

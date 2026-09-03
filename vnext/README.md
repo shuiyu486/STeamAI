@@ -1,30 +1,30 @@
-# STeamAI 薄核心模板
+# STeamAI case 合同与模板
 
-这是 canonical `/steamai` 使用的声明式模板与验收合同源。`steamai-vnext-thin-core-v1` 已完成；用户入口是 `.claude/skills/steamai/SKILL.md`。
+`vnext/**` 是 canonical `/steamai` Fresh 时物化到 case-local `contracts/` 的声明式合同源。当前产品路线见 `docs/windows-native-product-roadmap.md`；用户入口是 Windows 原生 `steamai.exe` + `.claude/skills/steamai/SKILL.md`。
 
-原型只使用：
+本目录只使用 Markdown 声明：
 
-- Claude Code 原生独立 session、resume、可选跨会话消息和 tactical subagent；
 - case 与成员目录的 `CLAUDE.md`；
-- 人类可读的 artifact、evidence、finding、review 和 learning candidate；
-- Git 与用户确认后的 pack 变更。
+- Claude Code 原生独立 session、resume/attach/respawn、跨会话消息和 tactical subagent；
+- artifact、evidence、finding、append-only review、immutable learning candidate 与 exact batch review；
+- Git 与用户确认后的 canonical working-tree pack 变更。
 
-它不 import、迁移或调用旧 Go control plane、session host、current loop，也不发布 runtime executable。旧产品控制面与旧项目兼容入口均已删除。
+它不包含 runtime executable 或脚本。生产 `steamai.exe` 位于 `cmd/steamai` / `internal/steamai`，只负责安装/Fresh/update/uninstall/卸载后窄自清理/exact apply/可见启动/瞬时互斥，不承担团队控制面。旧 Go control plane、session host、PowerShell façade、adapter、旧项目 importer 与兼容入口均已删除。
 
-## 原型目录
+## 目录
 
-- `templates/case/CLAUDE.md`：case 共享边界与团队章程。
+- `templates/case/CLAUDE.md`：case 共享边界与 durable roster。
 - `templates/member/CLAUDE.md`：正式成员身份和当前任务。
-- `templates/roles/`：按需组队时可选择的角色片段，不是固定团队。
-- `templates/research/`：值得跨成员共享和复核的研究产物，包括 append-only review round 与 exact learning review。
-- `capabilities.md`：必需/可选 Claude Code 原生能力和降级边界。
-- `acceptance.md`：自动 capability/context/file-access probe 与真实独立 session live acceptance。
-- `learning-feedback.md`：accepted finding/review 到 exact Git patch、用户确认与 snapshot 不漂移的回流合同。
+- `templates/roles/`：Commander 按需组队时合并的角色片段。
+- `templates/research/`：artifact/evidence/finding/review/candidate/batch review 模板。
+- `capabilities.md`：Claude Code 原生能力和降级边界。
+- `acceptance.md`：自动与真实 Windows/Claude Code 验收分层。
+- `learning-feedback.md`：accepted evidence chain → candidate eligibility → thematic exact batch → 用户确认 → working-tree apply。
 
-project-local `/steamai` 直接来自 preview revision 中 `.claude/skills/steamai/SKILL.md` 的 exact Git blob；`vnext/` 不保存第二份 skill mirror。
+project-local `/steamai` 直接来自 Fresh preview 时 canonical working tree 中 current stage-0 tracked skill 的 exact bytes；HEAD blob 只作历史 anchor，`vnext/` 不保存第二份 skill mirror。
 
-外部 case 同时得到 `.steamai-vnext/contracts/` 中的模板与 learning 合同，以及 selected pack 与完整 `common/**` 的同 revision snapshot。Fresh preview 绑定 source blob 与 target pre-state；Apply 先在 sibling staging 验证完整 state tree 和 payload digest，再发布 exact project-local skill，最后发布 completed marker。分发后日常不读取 mutable source clone。
+外部 case 同时得到 `.steamai-vnext/contracts/` 中全部模板与 learning 合同，以及 selected pack 与完整 `common/**` snapshot。Fresh preview 绑定 source record 与 target pre-state；Apply 先在 sibling staging 验证完整 state tree 和 payload digest，再发布 exact project-local skill，最后发布 completed marker。分发后日常 current case 不读取 mutable source checkout。
 
 ## 验证原则
 
-先用临时、无真实样本的 fixture 跑通团队闭环。自动 probe 证明 context 与文件访问能力；至少两个真实独立 session 的 live acceptance 证明可观察、可纠偏和成员直连，二者不能互相替代。只有重复出现且无法由 Claude Code 原生能力与简单文件解决的问题，才允许增加窄职责、无状态 helper。
+自动 tests 证明 deterministic filesystem/Git contract；真实 Windows setup/PATH/process、可见 Claude Code 会话、用户纠偏和跨会话消息必须按 `acceptance.md` 独立验收。只有重复出现且无法由 Claude Code 原生能力与简单文件解决的问题，才允许增加窄职责、无状态 helper。

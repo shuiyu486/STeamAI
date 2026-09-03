@@ -1,0 +1,70 @@
+name: windows-release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Verify tag matches HEAD
+        shell: bash
+        run: |
+          [[ "${GITHUB_REF_NAME}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+          test "$(git rev-list -n 1 "${GITHUB_REF_NAME}")" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Test and vet
+        shell: bash
+        run: |
+          go test -count=1 -p=2 -timeout=30m ./...
+          go vet ./...
+
+      - name: Build native executable
+        shell: bash
+        run: |
+          mkdir -p dist
+          go build -trimpath -buildvcs=true \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -o dist/steamai-windows-amd64.exe ./cmd/steamai
+
+      - name: Create release manifest
+        shell: bash
+        run: |
+          sha="$(sha256sum dist/steamai-windows-amd64.exe | cut -d ' ' -f 1)"
+          printf '{"schemaVersion":1,"version":"%s","revision":"%s","windowsAmd64Sha256":"%s"}\n' \
+            "${GITHUB_REF_NAME}" "${GITHUB_SHA}" "${sha}" > dist/steamai-release.json
+          sha256sum dist/steamai-windows-amd64.exe dist/steamai-release.json > dist/SHA256SUMS
+
+      - name: Verify manifest and executable
+        shell: bash
+        run: |
+          test "$(./dist/steamai-windows-amd64.exe --version)" = "${GITHUB_REF_NAME}"
+          sha256sum --check dist/SHA256SUMS
+          go run ./cmd/steamai-release-manifest dist/steamai-release.json "${GITHUB_REF_NAME}"
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: |
+            dist/steamai-windows-amd64.exe
+            dist/steamai-release.json
+            dist/SHA256SUMS

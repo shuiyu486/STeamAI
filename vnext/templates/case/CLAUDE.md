@@ -61,6 +61,8 @@ roster `active` 与 session `unknown` 可以同时成立。native session 被观
 - `evidence/`：可复查观察。
 - `findings/`：有 evidence 支撑的结论。
 - `reviews/`：独立审查结果和补证要求。
-- `learnings/candidates/`：待审查、脱敏和用户确认的经验候选。
+- `learnings/candidates/`：待逐条 eligibility 审查的 immutable 经验候选。
+- `learnings/patches/`：由 eligible candidates 组成、等待 exact batch review 与用户确认的完整 patch。
+- `reviews/R-L-*.md` 与 `reviews/R-LB-*.md`：candidate eligibility 与最终 batch exact binding；不建立 batch registry、inbox 或跨 case 汇总。
 
 临时思考、聊天记录和长工具输出不进入共享研究产物。

@@ -140,13 +140,14 @@ func TestNativeCapabilityContractKeepsVisibleSessionDefault(t *testing.T) {
 	contract := readPrototypeFile(t, repo, "vnext/capabilities.md")
 	for _, required := range []string{
 		"普通、可见的 Claude Code 会话",
+		"positional `/steamai` 必须位于 variadic `--add-dir` 之前",
 		"claude --add-dir <CASE_ROOT>",
 		"claude agents --json --all",
 		"claude logs <id>",
 		"claude attach <id>",
 		"不是 durable、exactly-once 消息队列",
 		"无跨会话消息",
-		"不得回退旧 Go runtime",
+		"不得回退旧 Go control plane",
 		"不把 session ID",
 		"vnext/acceptance.md",
 	} {

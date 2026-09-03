@@ -9,13 +9,15 @@ vNext 薄核心只假定：
 - 用户能直接观察、输入、暂停和恢复该会话；
 - 成员能读取被明确加入访问范围的 case 根目录。
 
-成员启动目录是 `.steamai-vnext/members/<member>/`。启动时应把 case 根作为额外可访问目录，例如在成员目录执行：
+成员启动目录是 `.steamai-vnext/members/<member>/`。Windows 10/11 x64 正式路径由 Commander 在 case 根调用：
 
 ```text
-claude --add-dir <CASE_ROOT>
+steamai __open-member <member-name>
 ```
 
-`--add-dir` 只表达文件访问范围，不用于切换成员身份或加载兄弟目录规则。项目共享规则已位于成员启动目录的父层级。
+原生入口只验证成员目录与 `CLAUDE.md`，然后从该目录自动打开一个屏幕上立即可见的普通交互式 Claude Code 窗口，并以 `--add-dir <CASE_ROOT>` 加入 case 根访问范围。用户从窗口出现起即可观察、输入、暂停和纠偏；该入口不使用 `--bg`，不保存 PID/session ID，也不管理成员任务或生命周期。原生启动失败时才展示从成员目录执行 `claude --add-dir <CASE_ROOT>` 的手工 fallback。
+
+`--add-dir` 只表达文件访问范围，不用于切换成员身份或加载兄弟目录规则。Fresh Commander 仍从目标 case cwd 启动；`claude "/steamai" --add-dir <CANONICAL_SOURCE>` 会从 added directory 发现 `.claude/skills/steamai/SKILL.md`，且 positional `/steamai` 必须位于 variadic `--add-dir` 之前。项目共享规则已位于成员启动目录的父层级。
 
 ## 可选能力
 
@@ -31,7 +33,7 @@ claude --add-dir <CASE_ROOT>
 - 无后台 session：始终使用可见前台会话。
 - 原会话不可恢复：从同一成员目录启动新会话，读取最新成员 `CLAUDE.md` 与共享研究产物。
 - 无 Agent Team experimental 功能：不受影响；vNext 不依赖 teammate task list。
-- 原生能力缺失时不得回退旧 Go runtime、PATH executable、外部 kit 或 PowerShell runtime。
+- 原生能力缺失时不得回退旧 Go control plane、外部 kit、PowerShell、`.cmd` 或 `.bat` runtime；Windows 原生 `steamai.exe` 只承担已声明的安装、确定性文件操作与可见会话启动边界。
 
 ## 验收入口
 
