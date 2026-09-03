@@ -183,6 +183,22 @@ func TestUpdateCommandRejectsArguments(t *testing.T) {
 	}
 }
 
+func TestSameOrBelowExistingPathUsesPhysicalIdentity(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inside, err := sameOrBelowExistingPath(child, root)
+	if err != nil || !inside {
+		t.Fatalf("child containment = %v, %v", inside, err)
+	}
+	outside, err := sameOrBelowExistingPath(t.TempDir(), root)
+	if err != nil || outside {
+		t.Fatalf("outside containment = %v, %v", outside, err)
+	}
+}
+
 func TestLatestReleaseManifestProvidesExactVersion(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	revision := strings.Repeat("b", 40)

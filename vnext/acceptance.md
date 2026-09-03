@@ -57,7 +57,7 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 4. **Visible member**：Commander调用 `steamai __open-member <name>`；屏幕上立即出现普通交互 Claude Code窗口，cwd是成员目录，case通过`--add-dir`可读。
 5. **Duplicate Commander**：第一个仍运行时再次在物理同一case（包括path alias）运行`steamai`，第二个明确拒绝。
 6. **Learning batch**：至少3 candidates→3 eligibility reviews→2 targets→1 accepted batch review；preview完整显示source chain/Reviewer/pre-postimage/patch；exact confirmation后只修改targets，HEAD/index/case snapshot不变。
-7. **Update**：clean checkout从已发布测试tag更新；manifest/hash/tag/revision均匹配；source需要变化时与exe一起切换，HEAD已等于release时走exe-only路径。再分别制造dirty/untracked/ignored、本地其他branch或stash commit、错误hash、错误revision、已存在staging/backup、文件锁、准备期间source漂移与网络失败，确认旧可用版本保留且无自动Git修复；source替换成功后旧checkout作为sibling backup保留，命令输出路径且不自动递归删除。
+7. **Update**：从 canonical checkout 外运行，使用 clean checkout 从已发布测试 tag 更新；manifest/hash/tag/revision 均匹配；source 需要变化时与 exe 一起切换，HEAD 已等于 release 时走 exe-only 路径。从 canonical checkout 根或子目录运行时必须在联网前明确拒绝。再分别制造 dirty/untracked/ignored、本地其他 branch 或 stash commit、错误 hash、错误 revision、已存在 staging/backup、文件锁、准备期间 source 漂移与网络失败，确认旧可用版本保留且无自动 Git 修复；source 替换成功后旧 checkout 作为 sibling backup 保留，命令输出路径且不自动递归删除。
 8. **Uninstall**：只移除installed exe、setup拥有的PATH和定位信息；checkout、local commits和case保留；运行中exe先重命名，同字节临时原生 helper 在卸载命令退出后删除已安装入口；普通用户不需要管理员权限或重启；helper 自身残留的精确路径必须输出，进程退出后验证可手工删除。
 
 这些步骤涉及HKCU/PATH和真实窗口，不能由普通unit test假装完成。执行结果记录在case外的短验收摘要中，只写pass/fail与必要能力边界。

@@ -33,7 +33,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - Fresh preview 以 canonical working tree 当前实际 bytes 为 authority，stage-0 index 定义 current tracked path/mode，HEAD 只作历史 anchor。确认绑定 source records、target action/pre-state、case facts 与全部 writes。
 - Apply 在同卷 sibling staging 中完整生成并验证 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。
 - 初始化把 selected pack 与完整 `common/**` 物化为 case-pinned snapshot；payload digest 覆盖排序后的 path、Git mode/blob、bytes 与 SHA-256。current case 不随 canonical checkout 更新。
-- setup/update/uninstall 是窄原生产品职责。普通运行不联网；update 要求 clean canonical checkout，下载与校验全部成功才切换，冲突时停止，不 merge/rebase/stash/reset/clean，source 替换后的旧 checkout 始终保留并输出路径；uninstall 保留 checkout 和所有 case，原生自清理 helper 的已知最小残留会输出精确路径。
+- setup/update/uninstall 是窄原生产品职责。普通运行不联网；update 必须从 canonical checkout 外运行，并要求 clean canonical checkout，下载与校验全部成功才切换，冲突时停止，不 merge/rebase/stash/reset/clean，source 替换后的旧 checkout 始终保留并输出路径；uninstall 保留 checkout 和所有 case，原生自清理 helper 的已知最小残留会输出精确路径。
 - 不提供旧项目 importer、升级替换、迁移、dual-read、dual-write、active case跨电脑迁移或兼容路径。
 
 ## 维护入口

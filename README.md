@@ -97,7 +97,7 @@ artifact index 记录 case-relative path、SHA-256、bytes、来源和授权范�
 steamai update
 ```
 
-update 从 latest release manifest 取得 exact version/revision。切换前要求 canonical checkout 无 staged、unstaged、untracked 或 ignored 本机内容，拒绝 release 未包含的任何本地 branch/stash commit，校验 exe SHA 与 `--version`，并验证 exact tag/revision 和 canonical identity。最终切换前再次绑定 HEAD、working tree 与本地 refs；任一漂移都停止。source 发生替换后，旧 checkout 以 sibling backup 保留并输出路径，不自动递归删除。它不自动 merge/rebase/stash/reset/restore/clean。需要保留的本地经验先做 local commit；若该 commit 尚未进入 release，则 update 会保守停止，push 仍不是本机消费经验的前提。
+update 从 latest release manifest 取得 exact version/revision。请从 canonical checkout 之外的目录运行该命令；Windows 会阻止替换被当前终端占用的 source 目录。切换前要求 canonical checkout 无 staged、unstaged、untracked 或 ignored 本机内容，拒绝 release 未包含的任何本地 branch/stash commit，校验 exe SHA 与 `--version`，并验证 exact tag/revision 和 canonical identity。最终切换前再次绑定 HEAD、working tree 与本地 refs；任一漂移都停止。source 发生替换后，旧 checkout 以 sibling backup 保留并输出路径，不自动递归删除。它不自动 merge/rebase/stash/reset/restore/clean。需要保留的本地经验先做 local commit；若该 commit 尚未进入 release，则 update 会保守停止，push 仍不是本机消费经验的前提。
 
 保守卸载：
 

@@ -51,7 +51,7 @@
 
 已实现并通过独立代码终审：
 
-- 显式 `steamai update`：从 latest release manifest 取得 exact version/revision，执行 clean checkout、local refs/ignored 路径 gate、exe SHA/`--version`兼容检查、tag/revision/canonical validation 与 source/exe 切换；source替换后保留并输出旧sibling checkout路径，不自动递归删除；不 merge/rebase/stash/reset/clean。
+- 显式 `steamai update`：从 canonical checkout 外运行，从 latest release manifest 取得 exact version/revision，执行 clean checkout、local refs/ignored 路径 gate、exe SHA/`--version` 兼容检查、tag/revision/canonical validation 与 source/exe 切换；从 source 根或子目录调用会在联网前拒绝；source 替换后保留并输出旧 sibling checkout 路径，不自动递归删除；不 merge/rebase/stash/reset/clean。
 - `steamai uninstall`：删除安装入口、setup拥有的PATH和定位信息，保留 checkout/case；Windows锁定中的当前exe先重命名，再由同字节临时原生 helper 在父进程退出后删除；helper 仅保留在安装目录作为普通用户无脚本自清理的已知最小残留，命令输出其精确路径供进程退出后手工删除。
 
 完成前必须补齐：

@@ -217,9 +217,6 @@ func (nativePlatform) ActivateUpdate(update updateInstall) (updateResult, error)
 	backupSource := ""
 	rollbackSource := false
 	if update.ReplaceSource {
-		if err := os.Chdir(filepath.Dir(update.Source)); err != nil {
-			return updateResult{}, fmt.Errorf("切换到 canonical source 父目录: %w", err)
-		}
 		backupSource = update.Source + ".steamai-update-backup"
 		if exists, pathErr := pathExists(backupSource); pathErr != nil || exists {
 			return updateResult{}, errors.New("canonical source update backup 已存在")

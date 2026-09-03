@@ -48,6 +48,21 @@ func (a *app) update(args []string) error {
 	if err := a.validateSource(source); err != nil {
 		return err
 	}
+	cwd, err := a.cwd()
+	if err != nil {
+		return fmt.Errorf("读取当前目录: %w", err)
+	}
+	cwd, err = filepath.Abs(cwd)
+	if err != nil {
+		return fmt.Errorf("规范化当前目录: %w", err)
+	}
+	withinSource, err := sameOrBelowExistingPath(cwd, source)
+	if err != nil {
+		return fmt.Errorf("验证 update 当前目录: %w", err)
+	}
+	if withinSource {
+		return errors.New("请先切换到 canonical checkout 之外的目录，再运行 steamai update")
+	}
 	git, err := a.resolveNativeExecutable("git.exe")
 	if err != nil {
 		return fmt.Errorf("找不到原生 Git: %w", err)
@@ -163,6 +178,28 @@ func sameExecutablePath(left, right string) bool {
 	left, leftErr := filepath.Abs(left)
 	right, rightErr := filepath.Abs(right)
 	return leftErr == nil && rightErr == nil && strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func sameOrBelowExistingPath(path, root string) (bool, error) {
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return false, err
+	}
+	current := filepath.Clean(path)
+	for {
+		info, err := os.Stat(current)
+		if err != nil {
+			return false, err
+		}
+		if os.SameFile(info, rootInfo) {
+			return true, nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false, nil
+		}
+		current = parent
+	}
 }
 
 type canonicalUpdateState struct {
