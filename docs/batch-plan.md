@@ -16,7 +16,7 @@
 | 剩余 | 无 |
 | 下一批 | 无；等待真实使用反馈或明确新目标 |
 
-最新结果：正式 `v1.0.2` Release、匿名 latest 下载、真实 Windows setup/PATH/Fresh/visible members/duplicate Commander/learning/update/uninstall、Claude Code native context/persistent correction/`HOLD_STALE_TASK`/定向跨会话消息，以及 default/full suite、vet、Windows/Linux build、diff check 和独立终审均已通过。当前路线完成。
+最新结果：正式 `v1.0.3` Release、匿名 latest 下载、真实 Windows setup/PATH/Fresh/visible members/duplicate Commander/learning/update/uninstall、Claude Code native context/persistent correction/`HOLD_STALE_TASK`/定向跨会话消息，以及 default/full suite、vet、Windows/Linux build、diff check 和独立终审均已通过。当前路线完成。
 
 ## 验证标准
 

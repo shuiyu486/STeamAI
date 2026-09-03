@@ -2,7 +2,7 @@
 
 STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协作与经验学习层。一个真实项目目录对应一个明确授权的安全研究 case：用户主要指挥 Commander，也可以随时观察、暂停和纠偏屏幕上独立可见的正式成员会话。
 
-Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。v1 正式产品路径支持 Windows 10/11 x64。
+Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。当前正式 Release 为 [`v1.0.3`](https://github.com/shuiyu486/STeamAI/releases/tag/v1.0.3)；v1 正式产品路径支持 Windows 10/11 x64。
 
 ## 安装
 

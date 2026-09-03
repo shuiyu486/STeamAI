@@ -56,7 +56,7 @@
 
 完成证据：
 
-- GitHub Release `v1.0.2` workflow 成功，下载后的 `steamai-windows-amd64.exe`、`steamai-release.json` 与 `SHA256SUMS` 完整核验通过；anonymous latest URL 可用，manifest 绑定 exact tag revision 和 exe SHA-256。
+- GitHub Release `v1.0.3` workflow 成功，下载后的 `steamai-windows-amd64.exe`、`steamai-release.json` 与 `SHA256SUMS` 完整核验通过；anonymous latest URL 可用，manifest 绑定 exact tag revision 和 exe SHA-256。
 - Windows 真实 setup/PATH、Fresh zero-write/exact apply、Fresh drift、三成员 visible windows、物理同 case 的 duplicate Commander、3 candidates/3 reviews/2 targets learning batch、保守 uninstall 与 helper residual 旅程通过。
 - 真实 `v1.0.1` → `v1.0.2` source+exe update 通过，旧 checkout 保留；从 canonical source 内调用在联网前明确拒绝。
 - Claude Code native context/file access、persistent session/direct correction、`HOLD_STALE_TASK` 与 Commander/member `ListAgents`/`SendMessage` 定向跨会话协作通过。
