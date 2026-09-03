@@ -14,6 +14,17 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 
 当前路线是 `steamai-windows-native-product-v1`，入口为 `docs/windows-native-product-roadmap.md`；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
+## 维护哲学与踩坑护栏
+
+- 先把需求还原成用户实际看到的使用画面、成功信号和授权边界，再决定代码。只有会改变产品行为、外部动作或明显代价的取舍才让用户选择；实现细节自行采用最小可靠默认值，并用通俗语言说明。
+- 判断、组队、协作、审查和经验提炼交给 Claude Code/LLM；Go 只补原生能力无法可靠完成的确定性 OS、Git 和文件边界。新增 runtime 状态或抽象前，必须先证明原生 session、消息和简单 case-local Markdown 不足。
+- 以“概念数、持久状态和用户步骤不增长”为默认约束。不要因未来可能需要而增加 daemon、Hub、GUI/TUI、数据库、supervisor、兼容层或通用控制面；达到当前可验证目标后停止。
+- 正式成员是目录拥有身份的、屏幕上独立可见的普通 Claude Code 会话，不是 subagent、PID 或 session record。一个目录就是一个授权 case；不同 case 不自动发现、迁移、扫描或汇总。
+- 经验成熟度来自 accepted evidence chain、Reviewer 检查和用户 exact confirmation，不来自 Git staging。模板不得预填 `pass/accepted`，Apply 不自动 stage/commit/push，未确认内容留在来源 case。
+- production 路径只保留一个实现；测试调用 production API/CLI，不维护第二套 oracle、renderer 或兼容实现。完成声明按证据分层：unit/synthetic 只证明机械合同，Windows、Claude Code、跨会话和 Release 行为必须由各自真实路径证明。
+- Windows/Release 易错点：正式路径不用 PowerShell/`.cmd`/`.bat`；update 从 canonical checkout 外运行并保留旧 checkout；uninstall 如实报告 helper 最小残留；`SHA256SUMS` 使用下载后的资产 basename；prerelease 不能成为 latest；公开发布前检查 ignored 本机文件、Git 历史和匿名下载链路。
+- 文档也保持单一职责：根 `CLAUDE.md` 保存长期目标与护栏，`docs/context-routing.md` 只路由，当前 roadmap 保存当前路线证据，`docs/batch-plan.md` 只投影。完成的 roadmap 不改写；出现新的实质目标时建立新路线并更新指针，不靠追加历史让 active docs 膨胀。
+
 ## 薄核心边界
 
 - 一个 STeamAI 项目对应一个明确授权的安全研究 case；不同 case 只通过审查、脱敏且用户确认的 pack 经验共享。
