@@ -47,7 +47,7 @@ go vet ./...
 git diff --check
 ```
 
-涉及 Claude Code 或 Windows 外部行为时按 `vnext/acceptance.md` 执行对应 opt-in/manual gate。正式 `v1.0.3` Release、匿名 latest 下载、真实 Windows setup/PATH/Fresh/visible member/duplicate Commander/learning/update/uninstall，以及 Claude Code native context/persistent correction/`HOLD_STALE_TASK`/cross-session message 已按各自范围通过。后续改动不得沿用这些证据冒充新版本验收；workflow definition、fake platform、cross-compile 或 synthetic fixture 不能替代受影响的真实路径。
+涉及 Claude Code 或 Windows 外部行为时按 `vnext/acceptance.md` 执行对应 opt-in/manual gate。正式 `v1.0.4` Release 与匿名 latest 下载链路、真实 Windows setup/PATH/Fresh/visible member/duplicate Commander/learning/update/uninstall，以及 Claude Code native context/persistent correction/`HOLD_STALE_TASK`/cross-session message 已按各自范围通过；`v1.0.4` 相对 `v1.0.3` 不改变产品 runtime。后续改动不得沿用这些证据冒充新版本验收；workflow definition、fake platform、cross-compile 或 synthetic fixture 不能替代受影响的真实路径。
 
 ## 风险与注意事项
 
