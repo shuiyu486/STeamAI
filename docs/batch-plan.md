@@ -11,12 +11,12 @@
 | 路线 | `steamai-windows-native-product-v1` |
 | source | `docs/windows-native-product-roadmap.md` |
 | 当前批次 | `WNP-04 Release 与真实 Windows 产品验收` |
-| 状态 | `in-progress` |
-| 已完成 | `WNP-01 native setup/launcher`、`WNP-02 production Fresh`、`WNP-03 thematic learning batch` |
-| 剩余 | 真实 Windows Fresh/visible member/duplicate Commander/learning/update product-path、Commander/member原生跨会话消息，以及实际 GitHub tag Release |
-| 下一批 | 无；完成当前路线后等待真实使用反馈 |
+| 状态 | `completed` |
+| 已完成 | `WNP-01 native setup/launcher`、`WNP-02 production Fresh`、`WNP-03 thematic learning batch`、`WNP-04 Release 与真实 Windows 产品验收` |
+| 剩余 | 无 |
+| 下一批 | 无；等待真实使用反馈或明确新目标 |
 
-最新结果：原生 `steamai.exe`、working-tree-authority Fresh、可见成员 launcher、单 Commander 瞬时互斥、多 candidate/多 target exact learning batch、latest-manifest update 与普通用户原生 uninstall 自清理已进入主工作树。default/full suite、vet、Windows/Linux build、diff check、local release asset、Claude Code native context/file access 与 persistent session/direct-correction live probe 已通过。当前尚不能宣称 formal GitHub Release 或完整 Windows 产品旅程完成。
+最新结果：正式 `v1.0.2` Release、匿名 latest 下载、真实 Windows setup/PATH/Fresh/visible members/duplicate Commander/learning/update/uninstall、Claude Code native context/persistent correction/`HOLD_STALE_TASK`/定向跨会话消息，以及 default/full suite、vet、Windows/Linux build、diff check 和独立终审均已通过。当前路线完成。
 
 ## 验证标准
 

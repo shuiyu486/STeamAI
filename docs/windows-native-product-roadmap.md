@@ -4,7 +4,7 @@
 
 - ID：`steamai-windows-native-product-v1`
 - 平台：Windows 10/11 x64
-- 状态：`in-progress`
+- 状态：`completed`
 - 产品目标：从 GitHub Release 获取原生 `steamai.exe`，在任意明确授权的项目目录用一个 `steamai` 命令创建或继续 self-contained case；Commander 自动打开可见成员窗口；本机经验经两级 Reviewer 与用户 exact confirmation 以主题 batch 回流 canonical working tree。
 
 ## 不变量
@@ -47,20 +47,20 @@
 
 ### WNP-04 — Update, Release and live acceptance
 
-状态：`in-progress`
+状态：`completed`
 
 已实现并通过独立代码终审：
 
 - 显式 `steamai update`：从 canonical checkout 外运行，从 latest release manifest 取得 exact version/revision，执行 clean checkout、local refs/ignored 路径 gate、exe SHA/`--version` 兼容检查、tag/revision/canonical validation 与 source/exe 切换；从 source 根或子目录调用会在联网前拒绝；source 替换后保留并输出旧 sibling checkout 路径，不自动递归删除；不 merge/rebase/stash/reset/clean。
 - `steamai uninstall`：删除安装入口、setup拥有的PATH和定位信息，保留 checkout/case；Windows锁定中的当前exe先重命名，再由同字节临时原生 helper 在父进程退出后删除；helper 仅保留在安装目录作为普通用户无脚本自清理的已知最小残留，命令输出其精确路径供进程退出后手工删除。
 
-完成前必须补齐：
+完成证据：
 
-- 实际 GitHub tag 运行 Release workflow，生成并下载核验 `steamai-windows-amd64.exe`、`steamai-release.json` 与 SHA-256；
-- Windows 真实 Fresh、visible member、duplicate Commander、learning batch 与 update product-path 验收；
-- Commander/member 原生跨会话消息旅程。
-
-当前已通过：独立 update/uninstall correctness/security 终审、automated/focused/full suite、vet、Windows/Linux build、diff check、本地 release asset校验、Claude Code native context/file-access 与 persistent session/direct-correction live probes，以及隔离LOCALAPPDATA/HKCU下的真实 setup/uninstall 旅程。
+- GitHub Release `v1.0.2` workflow 成功，下载后的 `steamai-windows-amd64.exe`、`steamai-release.json` 与 `SHA256SUMS` 完整核验通过；anonymous latest URL 可用，manifest 绑定 exact tag revision 和 exe SHA-256。
+- Windows 真实 setup/PATH、Fresh zero-write/exact apply、Fresh drift、三成员 visible windows、物理同 case 的 duplicate Commander、3 candidates/3 reviews/2 targets learning batch、保守 uninstall 与 helper residual 旅程通过。
+- 真实 `v1.0.1` → `v1.0.2` source+exe update 通过，旧 checkout 保留；从 canonical source 内调用在联网前明确拒绝。
+- Claude Code native context/file access、persistent session/direct correction、`HOLD_STALE_TASK` 与 Commander/member `ListAgents`/`SendMessage` 定向跨会话协作通过。
+- automated/focused/full suite、vet、Windows/Linux build、diff check 与独立 correctness/security 终审通过。
 
 ## 完成标准
 

@@ -47,7 +47,7 @@ go vet ./...
 git diff --check
 ```
 
-涉及 Claude Code 或 Windows 外部行为时按 `vnext/acceptance.md` 执行对应 opt-in/manual gate。native context/file-access、persistent session/direct-correction，以及隔离 `%LOCALAPPDATA%`/HKCU 边界中的真实 setup/PATH/uninstall 旅程已经通过，但只能证明各自范围；真实 Fresh、visible member、duplicate Commander、cross-session message、完整 learning batch、基于已发布资产的 update 与 GitHub Release 仍必须明确为 pending。workflow definition、fake platform、cross-compile 或 synthetic fixture 不能替代。
+涉及 Claude Code 或 Windows 外部行为时按 `vnext/acceptance.md` 执行对应 opt-in/manual gate。正式 `v1.0.2` Release、匿名 latest 下载、真实 Windows setup/PATH/Fresh/visible member/duplicate Commander/learning/update/uninstall，以及 Claude Code native context/persistent correction/`HOLD_STALE_TASK`/cross-session message 已按各自范围通过。后续改动不得沿用这些证据冒充新版本验收；workflow definition、fake platform、cross-compile 或 synthetic fixture 不能替代受影响的真实路径。
 
 ## 风险与注意事项
 
