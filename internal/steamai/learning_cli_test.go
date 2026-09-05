@@ -32,7 +32,7 @@ func TestEvaluationSuitePrepareHiddenCommandUsesProductionWriter(t *testing.T) {
 	request := evaluation.SuitePrepareRequest{
 		Name: "CAL-SUITE.json", Rubric: "rubric.md", RubricSHA256: evaluation.Hash(rubric),
 		VerifiedLearningContract: "verified-learning.md", ContractSHA256: evaluation.Hash(contract),
-		Model: "sonnet", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH, ToolProfile: evaluation.ToolProfile(),
+		Model: "claude-sonnet-5", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH, ToolProfile: evaluation.ToolProfile(),
 	}
 	classes := []string{"improvement", "improvement", "neutral", "neutral", "regression", "regression", "authorization-regression", "authorization-regression", "prettier-weaker-evidence", "prettier-weaker-evidence"}
 	for index, class := range classes {
@@ -84,7 +84,7 @@ func TestEvaluationSuiteFinalizeHiddenCommandReportsStructuralNoGo(t *testing.T)
 	prepare := evaluation.SuitePrepareRequest{
 		Name: "CAL-SUITE.json", Rubric: "rubric.md", RubricSHA256: evaluation.Hash(rubric),
 		VerifiedLearningContract: "verified-learning.md", ContractSHA256: evaluation.Hash(contract),
-		Model: "sonnet", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH, ToolProfile: evaluation.ToolProfile(),
+		Model: "claude-sonnet-5", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH, ToolProfile: evaluation.ToolProfile(),
 	}
 	classes := []string{"improvement", "improvement", "neutral", "neutral", "regression", "regression", "authorization-regression", "authorization-regression", "prettier-weaker-evidence", "prettier-weaker-evidence"}
 	for index, class := range classes {
@@ -184,7 +184,7 @@ func evaluationTreeIdentity(t *testing.T, root string) string {
 func evaluationFixtureClaude(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "claude")
-	body := "#!/bin/sh\nprintf '%s\\n' '{\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[],\"limitations\":[],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.01}'\n"
+	body := "#!/bin/sh\nprintf '%s\\n' '[{\"type\":\"assistant\",\"message\":{\"model\":\"claude-sonnet-5\"},\"parent_tool_use_id\":null},{\"type\":\"result\",\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[],\"limitations\":[],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.01,\"modelUsage\":{\"claude-sonnet-5\":{\"canonicalModel\":\"claude-sonnet-5\",\"provider\":\"firstParty\"}}}]'\n"
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestEvaluationRunHiddenCommandPublishesFailureBeforeReturningError(t *testi
 		RunID: "PROM-FAILED", Purpose: "candidate", Scenario: "scenario.md", ScenarioSHA256: evaluation.Hash(scenario),
 		Rubric: "rubric.md", RubricSHA256: evaluation.Hash(rubric), VerifiedLearningContract: "verified-learning.md",
 		VerifiedLearningContractSHA: evaluation.Hash(contract), BaselineSHA256: baselineSHA,
-		CandidatePatch: "candidate.patch", PatchSHA256: evaluation.Hash(patch), Model: "sonnet", MaxSeconds: 30, MaxBudgetUSD: 1,
+		CandidatePatch: "candidate.patch", PatchSHA256: evaluation.Hash(patch), Model: "claude-sonnet-5", MaxSeconds: 30, MaxBudgetUSD: 1,
 	}
 	input, _ := json.Marshal(request)
 	claude := evaluationFailingCLI(t)

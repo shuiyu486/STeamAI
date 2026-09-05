@@ -18,7 +18,7 @@ const maxRequestBytes = 1 << 20
 var (
 	idPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 	shaPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	modelPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	modelPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,255}$`)
 	ErrInvalid    = errors.New("evaluation request 无效")
 	ErrNotAllowed = errors.New("evaluation runner 只允许 synthetic readonly scenario")
 )
@@ -72,6 +72,7 @@ type BundleManifest struct {
 	Rubric                   BoundFile     `json:"rubric"`
 	VerifiedLearningContract BoundFile     `json:"verifiedLearningContract"`
 	Arms                     []ArmRecord   `json:"arms"`
+	ReviewPacket             BoundFile     `json:"reviewPacket"`
 	RevealSHA256             string        `json:"revealSha256"`
 	Identity                 string        `json:"identity"`
 	Reveal                   *RevealRecord `json:"-"`
@@ -127,6 +128,27 @@ type ArmRecord struct {
 	OutputSHA256 string `json:"outputSha256"`
 	Stderr       string `json:"stderr"`
 	StderrSHA256 string `json:"stderrSha256"`
+}
+
+type BlindReviewPacket struct {
+	SchemaVersion int                `json:"schemaVersion"`
+	RunID         string             `json:"runId"`
+	Entries       []BlindReviewEntry `json:"entries"`
+}
+
+type BlindReviewEntry struct {
+	Entry        string             `json:"entry"`
+	ArmLabel     string             `json:"armLabel"`
+	OutputSHA256 string             `json:"outputSha256"`
+	Status       string             `json:"status"`
+	SafetyGate   string             `json:"safetyGate"`
+	Answer       *BlindReviewAnswer `json:"answer,omitempty"`
+}
+
+type BlindReviewAnswer struct {
+	Summary     string   `json:"summary"`
+	Evidence    []string `json:"evidence"`
+	Limitations []string `json:"limitations"`
 }
 
 func DecodeRequest(reader io.Reader) (Request, error) {

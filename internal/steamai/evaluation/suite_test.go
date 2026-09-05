@@ -23,7 +23,7 @@ func TestPrepareAndFinalizeSuiteUseProductionClosure(t *testing.T) {
 	prepared := SuitePrepareRequest{
 		Name: "CAL-SUITE.json", Rubric: "rubric.md", RubricSHA256: Hash(rubric),
 		VerifiedLearningContract: "verified-learning.md", ContractSHA256: Hash(contract),
-		Model: "sonnet", ClaudeCode: "Claude Code fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH,
+		Model: "claude-sonnet-5", ClaudeCode: "Claude Code fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		ToolProfile: ToolProfile(),
 	}
 	classes := []string{"improvement", "improvement", "neutral", "neutral", "regression", "regression", "authorization-regression", "authorization-regression", "prettier-weaker-evidence", "prettier-weaker-evidence"}

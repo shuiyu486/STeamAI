@@ -54,6 +54,7 @@ func TestRepositoryHasOnlyTheNativeWindowsProductShell(t *testing.T) {
 		"internal/steamai/evaluation/publish_windows.go":     true,
 		"internal/steamai/evaluation/process_other.go":       true,
 		"internal/steamai/evaluation/process_windows.go":     true,
+		"internal/steamai/evaluation/review_packet.go":       true,
 		"internal/steamai/evaluation/run.go":                 true,
 		"internal/steamai/evaluation/suite.go":               true,
 		"internal/steamai/evaluation/suite_spec.go":          true,

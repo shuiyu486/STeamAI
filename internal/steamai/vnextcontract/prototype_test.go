@@ -116,7 +116,10 @@ func TestCaseAndMemberTemplatesKeepTeamBounded(t *testing.T) {
 		"用户直接纠偏优先",
 		"`SendMessage` 和其它跨会话输入",
 		"不能冒充用户纠偏",
-		"Reviewer 只读 artifact/evidence/finding/evaluation spec/run，只写 `reviews/` 与任务明确列出的 exact `evaluations/attestations/<id>.md`",
+		"Reviewer 只读 artifact/evidence/finding/evaluation spec/run",
+		"一次读取 manifest 绑定的 immutable `blind-review.json`",
+		"preferred entry/output SHA",
+		"只写 `reviews/` 与任务明确列出的 exact `evaluations/attestations/<id>.md`",
 		"`needs-evidence` 返回原 owner",
 		"Source revision",
 		"Pack tree",
@@ -177,7 +180,7 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 	for _, required := range []string{"{{KIND}}", "Claim kind", "Required maturity", "mechanical", "analysis-method", "behavioral"} {
 		assertContains(t, learning, required, "learning template")
 	}
-	for _, required := range []string{"只读 artifact、evidence、finding", "exact `reviews/<file>.md` 或 exact `evaluations/attestations/<id>.md`", "不执行 heavy action", "artifact alias/path/SHA-256/bytes/authorized-use tuple"} {
+	for _, required := range []string{"只读 artifact、evidence、finding", "exact `reviews/<file>.md` 或 exact `evaluations/attestations/<id>.md`", "不执行 heavy action", "artifact alias/path/SHA-256/bytes/authorized-use tuple", "一次读取 manifest 绑定的 immutable `blind-review.json`", "preferred entry/output SHA"} {
 		assertContains(t, role, required, "Reviewer role")
 	}
 	for _, required := range []string{"Source finding SHA-256", "Source accepted review", "Pack tree", "Common tree", "Snapshot digest", "Eligibility 检查", "`learningTargets`", "`denyPatterns`", "candidate 创建后保持 immutable"} {
@@ -188,11 +191,11 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 		assertContains(t, learningReview, required, "learning review template")
 	}
 	batchReview := readPrototypeFile(t, repo, "vnext/templates/research/learning-batch-review.md")
-	for _, required := range []string{"## Candidates", "Claim kind", "Required maturity", "Eligibility review SHA-256", "## Targets", "Preimage SHA-256", "Postimage SHA-256", "Patch SHA-256", "Calibration attestation", "Promotion attestation", "Run bundle identity", "Run bundle reveal SHA-256", "同目录的 `reveal.json`", "Evaluated patch SHA-256", "`git apply --check` result", "Decision"} {
+	for _, required := range []string{"## Candidates", "Claim kind", "Required maturity", "Eligibility review SHA-256", "## Targets", "Preimage SHA-256", "Postimage SHA-256", "Patch SHA-256", "Calibration attestation", "Promotion attestation", "Run bundle identity", "Run bundle reveal SHA-256", "manifest-bound immutable `blind-review.json`", "preferred entry/output SHA", "同目录的 `reveal.json`", "Evaluated patch SHA-256", "`git apply --check` result", "Decision"} {
 		assertContains(t, batchReview, required, "learning batch review template")
 	}
 	verified := readPrototypeFile(t, repo, "vnext/verified-learning.md")
-	for _, required := range []string{"V0 Reviewed", "V1 Mechanically verified", "V2 Replay-backed", "V3 Comparative", "V4 Field-observed", "no-go", "明确 opt-in", "--safe-mode", "suite manifest", "salted pack commitments", "sibling `reveal.json`", "suspended process", "PROCESS_SUSPEND_RESUME", "失败结果也是证据", "先发布失败 bundle，再返回 typed nonzero outcome", "no-go`/`inconclusive` 仍发布 immutable structural closure"} {
+	for _, required := range []string{"V0 Reviewed", "V1 Mechanically verified", "V2 Replay-backed", "V3 Comparative", "V4 Field-observed", "no-go", "明确 opt-in", "--safe-mode", "suite manifest", "salted pack commitments", "sibling `reveal.json`", "suspended process", "PROCESS_SUSPEND_RESUME", "失败结果也是证据", "先发布失败 bundle，再返回 typed nonzero outcome", "no-go`/`inconclusive` 仍发布 immutable structural closure", "token 标准答案匹配只证明 control smoke", "`assistant.message.model`", "离线 bundle 校验复用在线解析器"} {
 		assertContains(t, verified, required, "verified learning contract")
 	}
 	rubric := readPrototypeFile(t, repo, "vnext/templates/research/evaluation-rubric.md")
@@ -206,6 +209,10 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 	attestation := readPrototypeFile(t, repo, "vnext/templates/research/evaluation-attestation.md")
 	for _, required := range []string{"Blind decision", "Blind decision SHA-256", "Run bundle reveal", "Run bundle reveal SHA-256", "独立 `reveal.json` 的 path/SHA", "suite manifest", "所有预注册 expected slots", "均必须为 literal `none`"} {
 		assertContains(t, attestation, required, "evaluation attestation template")
+	}
+	blindDecision := readPrototypeFile(t, repo, "vnext/templates/research/blind-decision.md")
+	for _, required := range []string{"Review packet", "Review packet SHA-256", "Preferred entry", "Preferred output SHA-256", "单一 immutable `blind-review.json`", "短 `entry-0`/`entry-1`", "不包含 baseline/candidate role", "读取 `reveal.json` 前"} {
+		assertContains(t, blindDecision, required, "blind decision template")
 	}
 	for _, rel := range []string{"replay-spec.md", "replay-result.md", "evaluation-scenario.md", "evaluation-rubric.md", "evaluation-attestation.md", "blind-decision.md", "field-outcome.md"} {
 		if text := readPrototypeFile(t, repo, "vnext/templates/research/"+rel); strings.Contains(text, "`pass`") && !strings.Contains(text, "不得预填") {

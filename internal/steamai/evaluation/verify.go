@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -34,6 +36,7 @@ type VerifiedBundle struct {
 	Manifest       BundleManifest
 	ManifestData   []byte
 	ManifestSHA256 string
+	ReviewPacket   BlindReviewPacket
 }
 
 func VerifyBundle(runsRoot, relativeManifest, expectedPurpose, expectedPatchSHA string, requireCompleted bool) (VerifiedBundle, error) {
@@ -58,6 +61,7 @@ func VerifyBundle(runsRoot, relativeManifest, expectedPurpose, expectedPatchSHA 
 		!validSuiteSpecBinding(manifest.Purpose, manifest.SuiteSpec) || manifest.Scenario.Path == "" || !shaPattern.MatchString(manifest.Scenario.SHA256) ||
 		manifest.Rubric.Path == "" || !shaPattern.MatchString(manifest.Rubric.SHA256) ||
 		manifest.VerifiedLearningContract.Path != "verified-learning.md" || !shaPattern.MatchString(manifest.VerifiedLearningContract.SHA256) || len(manifest.Arms) != 2 ||
+		manifest.ReviewPacket.Path != "blind-review.json" || !shaPattern.MatchString(manifest.ReviewPacket.SHA256) ||
 		!shaPattern.MatchString(manifest.RevealSHA256) ||
 		manifest.Identity != BundleIdentity(manifest) || filepath.Base(filepath.Dir(manifestPath)) != manifest.RunID {
 		return VerifiedBundle{}, ErrInvalid
@@ -78,7 +82,25 @@ func VerifyBundle(runsRoot, relativeManifest, expectedPurpose, expectedPatchSHA 
 		!shaPattern.MatchString(reveal.CandidatePackSHA256) || reveal.BaselinePackSHA256 == reveal.CandidatePackSHA256 {
 		return VerifiedBundle{}, ErrInvalid
 	}
+	packetData, err := readBundleMember(filepath.Dir(manifestPath), manifest.ReviewPacket.Path, manifest.ReviewPacket.SHA256)
+	if err != nil {
+		return VerifiedBundle{}, err
+	}
+	var packet BlindReviewPacket
+	if err := strictBundleJSON(packetData, &packet); err != nil || packet.SchemaVersion != 1 || packet.RunID != manifest.RunID || len(packet.Entries) != len(manifest.Arms) {
+		return VerifiedBundle{}, ErrInvalid
+	}
+	orderedArms := append([]ArmRecord(nil), manifest.Arms...)
+	sort.Slice(orderedArms, func(i, j int) bool { return orderedArms[i].Label < orderedArms[j].Label })
+	entries := make(map[string]BlindReviewEntry, len(packet.Entries))
 	seenLabels := map[string]bool{}
+	for index, entry := range packet.Entries {
+		expectedEntry := fmt.Sprintf("entry-%d", index)
+		if entry.Entry != expectedEntry || entry.ArmLabel != orderedArms[index].Label || entries[entry.ArmLabel].Entry != "" {
+			return VerifiedBundle{}, ErrInvalid
+		}
+		entries[entry.ArmLabel] = entry
+	}
 	for _, arm := range manifest.Arms {
 		if arm.Label == "" || seenLabels[arm.Label] || !shaPattern.MatchString(arm.RecordSHA256) ||
 			!shaPattern.MatchString(arm.OutputSHA256) || !shaPattern.MatchString(arm.StderrSHA256) ||
@@ -103,7 +125,7 @@ func VerifyBundle(runsRoot, relativeManifest, expectedPurpose, expectedPatchSHA 
 			record.Purpose != manifest.Purpose || record.SlotID != manifest.SlotID || record.ExpectedClass != manifest.ExpectedClass ||
 			record.SuiteSpec != manifest.SuiteSpec || record.ArmLabel != arm.Label || record.Scenario != manifest.Scenario || record.Rubric != manifest.Rubric ||
 			record.VerifiedLearningContract != manifest.VerifiedLearningContract ||
-			!shaPattern.MatchString(record.PackCommitment) || record.Runtime.Model == "" || record.Runtime.ClaudeCode == "" ||
+			!shaPattern.MatchString(record.PackCommitment) || !modelPattern.MatchString(record.Runtime.Model) || record.Runtime.ClaudeCode == "" ||
 			record.Runtime.OS == "" || record.Runtime.ToolProfile != ToolProfile() || record.Budget.MaxSeconds < 30 ||
 			record.Budget.MaxSeconds > 3600 || record.Budget.MaxBudgetUSD <= 0 || record.Budget.MaxBudgetUSD > 100 ||
 			record.Budget.ActualMillis < 0 || (record.Budget.ActualUSD != nil && *record.Budget.ActualUSD < 0) ||
@@ -114,7 +136,9 @@ func VerifyBundle(runsRoot, relativeManifest, expectedPurpose, expectedPatchSHA 
 		}
 		switch record.Result.Status {
 		case "completed":
-			if record.Result.ExitCode != 0 || record.Budget.ActualUSD != nil && *record.Budget.ActualUSD > record.Budget.MaxBudgetUSD {
+			safety, cost, err := validateModelOutput(outputData, record.Runtime.Model)
+			if err != nil || record.Result.ExitCode != 0 || record.Result.SafetyGate != safety ||
+				cost == nil || record.Budget.ActualUSD == nil || *cost != *record.Budget.ActualUSD || *cost > record.Budget.MaxBudgetUSD {
 				return VerifiedBundle{}, ErrInvalid
 			}
 		case "failed":
@@ -143,8 +167,13 @@ func VerifyBundle(runsRoot, relativeManifest, expectedPurpose, expectedPatchSHA 
 		if record.PackCommitment != packCommitment(manifest.Reveal.CommitmentNonce, arm.Label, packSHA) {
 			return VerifiedBundle{}, ErrInvalid
 		}
+		entry, present := entries[arm.Label]
+		expectedEntry, entryErr := blindReviewEntry(entry.Entry, arm, record, outputData)
+		if !present || entryErr != nil || !reflect.DeepEqual(entry, expectedEntry) {
+			return VerifiedBundle{}, ErrInvalid
+		}
 	}
-	return VerifiedBundle{Manifest: manifest, ManifestData: manifestData, ManifestSHA256: Hash(manifestData)}, nil
+	return VerifiedBundle{Manifest: manifest, ManifestData: manifestData, ManifestSHA256: Hash(manifestData), ReviewPacket: packet}, nil
 }
 
 func readBundleMember(root, name, expectedSHA string) ([]byte, error) {

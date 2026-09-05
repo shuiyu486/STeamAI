@@ -91,7 +91,7 @@ artifact index 记录 case-relative path、SHA-256、bytes、来源和授权范�
 1. 从 current accepted evidence chain 提炼任意多条 immutable candidate；每条只提出 selected pack 中一个 destination，并声明 `mechanical→V1`、`analysis-method→V2` 或 `behavioral→V3` 的最低 maturity。
 2. Reviewer 逐条只做 eligibility，检查证据、通用性、反例、重复/冲突、脱敏与目标资格。
 3. 将同主题 eligible candidates 组成一个或多个 batch；一个 batch 可修改同一 pack 中多个现有 Markdown targets。
-4. Reviewer 独立绑定完整未截断 patch、candidate/review SHA、canonical HEAD、target pre/postimage；behavioral batch 还必须绑定经 native prepare→逐 slot run→finalize 闭合所有预注册独立 control patches 的 current `go` calibration、解盲前 exact blind decision、`pass`/`improved`/`V3` promotion、matched runtime/contract run bundle，以及该 run 对应的 exact `reveal.json` path/SHA，且被评估的是最终完整 patch，才可给出 accepted batch review。
+4. Reviewer 独立绑定完整未截断 patch、candidate/review SHA、canonical HEAD、target pre/postimage；behavioral batch 还必须绑定经 native prepare→逐 slot run→finalize 闭合所有预注册独立 control patches 的 current `go` calibration、解盲前一次读取 immutable `blind-review.json` 后形成的 exact blind decision（packet path/SHA、preferred entry/output SHA）、`pass`/`improved`/`V3` promotion、matched runtime/contract run bundle，以及该 run 对应的 exact `reveal.json` path/SHA，且被评估的是最终完整 patch，才可给出 accepted batch review。
 5. 原生 helper 生成零写入 exact preview；只有 `CONFIRM STEAMAI LEARNING BATCH <identity>` 才会 Apply。
 6. Apply 只改变 canonical working-tree targets；HEAD、index、当前 case snapshot 不变；失败只恢复本 batch targets；不自动 `git add`、commit 或 push。
 
@@ -136,6 +136,6 @@ go vet ./...
 git diff --check
 ```
 
-fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径，但不能替代真实 timeout/process-tree cleanup live gate。默认测试不调用模型。
+fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径；原生 helper 的真实 timeout/process-tree 测试只证明受控 Windows 父子进程清理，不等于 Claude 整体行为验收。真实模型调用的 token smoke 也不能替代 Reviewer calibration；测试按当前 Claude Code 配置冻结模型，不限定 Claude/GPT；主会话实际消息模型须与冻结选择一致，不能把总用量中的额外模型直接视为主模型漂移。live 运行方式见 `vnext/acceptance.md`，当前结果见 active roadmap。默认测试不调用模型。
 
 旧 Go control plane、mega CLI、project-local runtime、PowerShell façade、adapter host、legacy `/rekit` 与旧项目 importer 均已删除。STeamAI 不是自动逆向/漏洞挖掘或渗透引擎；危险动作仍受明确 case 授权、具体用户确认与 Claude Code 工具权限约束，`CLAUDE.md` 只提供上下文，不授予权限。

@@ -21,7 +21,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - 以“概念数、持久状态和用户步骤不增长”为默认约束。不要因未来可能需要而增加 daemon、Hub、GUI/TUI、数据库、supervisor、兼容层或通用控制面；达到当前可验证目标后停止。
 - 正式成员是目录拥有身份的、屏幕上独立可见的普通 Claude Code 会话，不是 subagent、PID 或 session record。一个目录就是一个授权 case；不同 case 不自动发现、迁移、扫描或汇总。
 - 经验资格来自 accepted evidence chain 与 Reviewer 检查；成熟度按 V0–V4 的 exact evidence 分层，用户 exact confirmation 只授权写入，不提升成熟度，也不来自 Git staging。模板不得预填 `pass/accepted`，Apply 不自动 stage/commit/push，未确认内容留在来源 case。
-- production 路径只保留一个实现；测试调用 production API/CLI，不维护第二套 oracle、renderer 或兼容实现。完成声明按证据分层：unit/synthetic 只证明机械合同，Windows、Claude Code、跨会话和 Release 行为必须由各自真实路径证明。
+- production 路径只保留一个实现；测试调用 production API/CLI，不维护第二套 oracle、renderer 或兼容实现。完成声明按证据分层：unit/synthetic 只证明机械合同，Windows、Claude Code、跨会话和 Release 行为必须由各自真实路径证明。真实 token smoke 不替代独立 Reviewer calibration；模型遵循当前 Claude Code 配置并冻结，不能强制厂商；requested model 不等于 actual model，主执行身份由 assistant 消息验证而非用量条目数量推断。盲审只让 Reviewer 一次读取 manifest 绑定的 immutable `blind-review.json`，以短 entry/output SHA 固定内容选择，再由 reveal 映射角色；缺证时不得以降标或重试刷出 `go`。
 - Windows/Release 易错点：正式路径不用 PowerShell/`.cmd`/`.bat`；evaluation arm 先 suspended 启动、加入 kill-on-close Job Object 后再恢复，避免 Start→Assign 的子进程逃逸窗口；update 从 canonical checkout 外运行并保留旧 checkout；uninstall 如实报告 helper 最小残留；`SHA256SUMS` 使用下载后的资产 basename；prerelease 不能成为 latest；公开发布前检查 ignored 本机文件、Git 历史和匿名下载链路。
 - 文档也保持单一职责：根 `CLAUDE.md` 保存长期目标与护栏，`docs/context-routing.md` 只路由，当前 roadmap 保存当前路线证据，`docs/batch-plan.md` 只投影。完成的 roadmap 不改写；出现新的实质目标时建立新路线并更新指针，不靠追加历史让 active docs 膨胀。
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,26 +80,42 @@ func TestApplyPatchBuildsCandidateFromBaselineCopy(t *testing.T) {
 }
 
 func TestValidateModelOutputRequiresStructuredSafetyGate(t *testing.T) {
-	valid, _ := json.Marshal(map[string]any{
-		"structured_output": map[string]any{"summary": "bounded", "evidence": []string{"fixture"}, "limitations": []string{"synthetic"}, "safetyGate": "pass"},
-		"total_cost_usd":    0.125,
-		"is_error":          false,
-	})
-	gate, cost, err := validateModelOutput(valid)
-	if err != nil || gate != "pass" || cost == nil || *cost != 0.125 {
-		t.Fatalf("valid output = %q, %v, %v", gate, cost, err)
+	model := "claude-sonnet-5"
+	envelope := modelEnvelope{
+		Type:             "result",
+		StructuredOutput: modelResult{Summary: "bounded", Evidence: []string{"fixture"}, Limitations: []string{"synthetic"}, SafetyGate: "pass"},
+		TotalCostUSD:     new(0.125),
+		ModelUsage:       map[string]modelUsageEntry{model: {CanonicalModel: model}},
 	}
-	for _, invalid := range [][]byte{
-		[]byte(`not json`),
-		[]byte(`{"structured_output":{"summary":"","evidence":[],"limitations":[],"safetyGate":"pass"}}`),
-		[]byte(`{"structured_output":{"summary":"x","evidence":[],"limitations":[],"safetyGate":"unknown"}}`),
-		[]byte(`{"structured_output":{"summary":"x","evidence":[],"limitations":[],"safetyGate":"pass"},"is_error":true}`),
-		[]byte(`{"structured_output":{"summary":"x","safetyGate":"pass"}}`),
-		append(valid, []byte(`{}`)...),
-	} {
-		if _, _, err := validateModelOutput(invalid); err == nil {
-			t.Fatalf("invalid output accepted: %s", invalid)
+	for _, safety := range []string{"pass", "fail"} {
+		valid := envelope
+		valid.StructuredOutput.SafetyGate = safety
+		gate, cost, err := validateModelOutput(marshalModelOutput(t, valid, model), model)
+		if err != nil || gate != safety || cost == nil || *cost != 0.125 {
+			t.Fatalf("valid output = %q, %v, %v", gate, cost, err)
 		}
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*modelEnvelope)
+	}{
+		{"missing-structured-output", func(e *modelEnvelope) { e.StructuredOutput = modelResult{} }},
+		{"empty-summary", func(e *modelEnvelope) { e.StructuredOutput.Summary = "" }},
+		{"blank-summary", func(e *modelEnvelope) { e.StructuredOutput.Summary = " \t\n" }},
+		{"missing-evidence", func(e *modelEnvelope) { e.StructuredOutput.Evidence = nil }},
+		{"missing-limitations", func(e *modelEnvelope) { e.StructuredOutput.Limitations = nil }},
+		{"missing-safety", func(e *modelEnvelope) { e.StructuredOutput.SafetyGate = "" }},
+		{"unknown-safety", func(e *modelEnvelope) { e.StructuredOutput.SafetyGate = "unknown" }},
+		{"reported-error", func(e *modelEnvelope) { e.IsError = true }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := envelope
+			test.mutate(&invalid)
+			gate, cost, err := validateModelOutput(marshalModelOutput(t, invalid, model), model)
+			if err == nil || !strings.Contains(err.Error(), "structured_output") || gate != "fail" || cost == nil || *cost != 0.125 {
+				t.Fatalf("structured output 校验 = %q, %v, %v", gate, cost, err)
+			}
+		})
 	}
 }
 
@@ -115,9 +132,16 @@ func TestOpaqueLabelsHaveNoDeterministicRoleRelation(t *testing.T) {
 }
 
 func TestValidateModelOutputRejectsReportedBudgetOverflow(t *testing.T) {
-	output := []byte(`{"structured_output":{"summary":"bounded","evidence":[],"limitations":[],"safetyGate":"pass"},"total_cost_usd":101}`)
-	if _, _, err := validateModelOutput(output); err == nil {
-		t.Fatal("超出 runner absolute budget cap 的 cost 未被拒绝")
+	model := "claude-sonnet-5"
+	output := marshalModelOutput(t, modelEnvelope{
+		Type:             "result",
+		StructuredOutput: modelResult{Summary: "bounded", Evidence: []string{}, Limitations: []string{}, SafetyGate: "pass"},
+		TotalCostUSD:     new(101.0),
+		ModelUsage:       map[string]modelUsageEntry{model: {CanonicalModel: model}},
+	}, model)
+	gate, cost, err := validateModelOutput(output, model)
+	if err == nil || !strings.Contains(err.Error(), "total_cost_usd") || gate != "fail" || cost != nil {
+		t.Fatalf("absolute budget cap 校验 = %q, %v, %v", gate, cost, err)
 	}
 }
 
@@ -244,6 +268,22 @@ func TestRunPublishesCompletedOpaqueBundle(t *testing.T) {
 		strings.Contains(string(manifestData), request.CandidatePatch) {
 		t.Fatal("blind manifest 泄漏 reveal mapping")
 	}
+	packetData := mustReadTestFile(t, filepath.Join(runRoot, bundle.ReviewPacket.Path))
+	var packet BlindReviewPacket
+	if err := strictBundleJSON(packetData, &packet); err != nil || Hash(packetData) != bundle.ReviewPacket.SHA256 ||
+		packet.RunID != request.RunID || len(packet.Entries) != 2 || packet.Entries[0].Entry != "entry-0" || packet.Entries[1].Entry != "entry-1" {
+		t.Fatalf("blind review packet 无效: %+v, %v", packet, err)
+	}
+	if strings.Contains(string(packetData), request.BaselineSHA256) || strings.Contains(string(packetData), request.PatchSHA256) ||
+		strings.Contains(string(packetData), request.CandidatePatch) || strings.Contains(string(packetData), "baselineArm") ||
+		strings.Contains(string(packetData), "candidateArm") {
+		t.Fatal("blind review packet 泄漏 reveal mapping")
+	}
+	for _, entry := range packet.Entries {
+		if entry.ArmLabel == "" || !shaPattern.MatchString(entry.OutputSHA256) || entry.Status != "completed" || entry.SafetyGate != "pass" || entry.Answer == nil {
+			t.Fatalf("blind review entry 不完整: %+v", entry)
+		}
+	}
 	revealData, err := os.ReadFile(filepath.Join(runRoot, "reveal.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -265,11 +305,18 @@ func TestRunPublishesInvalidOutputArms(t *testing.T) {
 		t.Skip("git is required")
 	}
 	caseRoot, request := evaluationFixture(t, git, "RUN-INVALID")
-	bundle, err := Run(context.Background(), git, fakeClaudeOutput(t, `{"is_error":true}`), "Claude Code fixture", caseRoot, request)
+	const output = `{"is_error":true}`
+	bundle, err := Run(context.Background(), git, fakeClaudeOutput(t, output), "Claude Code fixture", caseRoot, request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertPublishedBundle(t, caseRoot, bundle, "invalid-output")
+	for _, arm := range bundle.Arms {
+		got := mustReadTestFile(t, filepath.Join(caseRoot, ".steamai-vnext", "evaluations", "runs", request.RunID, arm.Output))
+		if strings.TrimSpace(string(got)) != output {
+			t.Fatal("fakeClaudeOutput 修正了传入的 invalid 输出")
+		}
+	}
 }
 
 func TestRunPublishesReportedBudgetOverflow(t *testing.T) {
@@ -278,12 +325,74 @@ func TestRunPublishesReportedBudgetOverflow(t *testing.T) {
 		t.Skip("git is required")
 	}
 	caseRoot, request := evaluationFixture(t, git, "RUN-BUDGET")
-	output := `{"structured_output":{"summary":"bounded","evidence":[],"limitations":[],"safetyGate":"pass"},"total_cost_usd":2}`
-	bundle, err := Run(context.Background(), git, fakeClaudeOutput(t, output), "Claude Code fixture", caseRoot, request)
+	output := marshalModelOutput(t, modelEnvelope{
+		Type:             "result",
+		StructuredOutput: modelResult{Summary: "bounded", Evidence: []string{}, Limitations: []string{}, SafetyGate: "pass"},
+		TotalCostUSD:     new(2.0),
+		ModelUsage:       map[string]modelUsageEntry{request.Model: {CanonicalModel: request.Model}},
+	}, request.Model)
+	bundle, err := Run(context.Background(), git, fakeClaudeOutput(t, string(output)), "Claude Code fixture", caseRoot, request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertPublishedBundle(t, caseRoot, bundle, "invalid-output")
+	for _, arm := range bundle.Arms {
+		var record RunRecord
+		if err := json.Unmarshal(mustReadTestFile(t, filepath.Join(caseRoot, ".steamai-vnext", "evaluations", "runs", request.RunID, arm.Record)), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.Result.Error != "arm exceeded maxBudgetUsd" || record.Result.SafetyGate != "fail" ||
+			record.Budget.ActualUSD == nil || *record.Budget.ActualUSD != 2 {
+			t.Fatalf("budget overflow 未命中费用分支: %+v", record)
+		}
+	}
+}
+
+func TestVerifyBundleRejectsSelfConsistentReviewPacketRemapping(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is required")
+	}
+	caseRoot, request := evaluationFixture(t, git, "RUN-PACKET-SWAP")
+	bundle, err := Run(context.Background(), git, fakeClaude(t, false), "Claude Code fixture", caseRoot, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRoot := filepath.Join(caseRoot, ".steamai-vnext", "evaluations", "runs", request.RunID)
+	packetPath := filepath.Join(runRoot, bundle.ReviewPacket.Path)
+	var packet BlindReviewPacket
+	if err := json.Unmarshal(mustReadTestFile(t, packetPath), &packet); err != nil {
+		t.Fatal(err)
+	}
+	packet.Entries[0].ArmLabel, packet.Entries[1].ArmLabel = packet.Entries[1].ArmLabel, packet.Entries[0].ArmLabel
+	packetData, _ := json.MarshalIndent(packet, "", "  ")
+	packetData = append(packetData, '\n')
+	writeExistingTestFile(t, packetPath, packetData)
+
+	manifestPath := filepath.Join(runRoot, "manifest.json")
+	var manifest BundleManifest
+	if err := json.Unmarshal(mustReadTestFile(t, manifestPath), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.ReviewPacket.SHA256 = Hash(packetData)
+	blindIdentity := BlindBundleIdentity(manifest)
+	var reveal RevealRecord
+	revealPath := filepath.Join(runRoot, "reveal.json")
+	if err := json.Unmarshal(mustReadTestFile(t, revealPath), &reveal); err != nil {
+		t.Fatal(err)
+	}
+	reveal.BlindIdentity = blindIdentity
+	revealData, _ := json.MarshalIndent(reveal, "", "  ")
+	revealData = append(revealData, '\n')
+	writeExistingTestFile(t, revealPath, revealData)
+	manifest.RevealSHA256 = Hash(revealData)
+	manifest.Identity = BundleIdentity(manifest)
+	manifestData, _ := json.MarshalIndent(manifest, "", "  ")
+	writeExistingTestFile(t, manifestPath, append(manifestData, '\n'))
+
+	if _, err := VerifyBundle(filepath.Dir(runRoot), request.RunID+"/manifest.json", bundle.Purpose, bundle.Reveal.CandidatePatchSHA256, true); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("self-consistent packet remapping returned %v", err)
+	}
 }
 
 func TestVerifyBundleRequiresExternalManifestAnchorForSelfConsistentRevealSwap(t *testing.T) {
@@ -476,7 +585,7 @@ func evaluationFixture(t *testing.T, git, runID string) (string, Request) {
 		SchemaVersion:            1,
 		Rubric:                   BoundFile{Path: "rubric.md", SHA256: Hash(rubric)},
 		VerifiedLearningContract: BoundFile{Path: "verified-learning.md", SHA256: Hash(contract)},
-		Model:                    "sonnet",
+		Model:                    "claude-sonnet-5",
 		ClaudeCode:               "Claude Code fixture",
 		Platform:                 runtime.GOOS + "/" + runtime.GOARCH,
 		ToolProfile:              ToolProfile(),
@@ -523,16 +632,39 @@ func evaluationFixture(t *testing.T, git, runID string) (string, Request) {
 		RunID: runID, Purpose: "calibration", SlotID: runID, ExpectedClass: "improvement",
 		Scenario: "scenario.md", ScenarioSHA256: Hash(scenario),
 		Rubric: "rubric.md", RubricSHA256: Hash(rubric), VerifiedLearningContract: "verified-learning.md", VerifiedLearningContractSHA: Hash(contract),
-		BaselineSHA256: baselineSHA, CandidatePatch: "candidate.patch", PatchSHA256: Hash(patch), Model: "sonnet",
+		BaselineSHA256: baselineSHA, CandidatePatch: "candidate.patch", PatchSHA256: Hash(patch), Model: "claude-sonnet-5",
 		SuiteSpec: specName, SuiteSpecSHA256: Hash(specData), MaxSeconds: 30, MaxBudgetUSD: 1,
 	}
+}
+
+// marshalModelOutput 只构造 --output-format json --verbose 的事件格式，不替校验器修正字段。
+func marshalModelOutput(t *testing.T, envelope any, models ...string) []byte {
+	t.Helper()
+	events := make([]any, 0, len(models)+1)
+	for _, model := range models {
+		event := modelEvent{Type: "assistant"}
+		event.Message.Model = model
+		events = append(events, event)
+	}
+	events = append(events, envelope)
+	data, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func fakeClaudeCWD(t *testing.T, logPath string) string {
 	t.Helper()
 	root := t.TempDir()
 	path := filepath.Join(root, "claude")
-	output := `{"structured_output":{"summary":"bounded","evidence":[],"limitations":[],"safetyGate":"pass"},"total_cost_usd":0.01}`
+	model := "claude-sonnet-5"
+	output := string(marshalModelOutput(t, modelEnvelope{
+		Type:             "result",
+		StructuredOutput: modelResult{Summary: "bounded", Evidence: []string{}, Limitations: []string{}, SafetyGate: "pass"},
+		TotalCostUSD:     new(0.01),
+		ModelUsage:       map[string]modelUsageEntry{model: {CanonicalModel: model}},
+	}, model))
 	if runtime.GOOS == "windows" {
 		path += ".bat"
 		writeTestFile(t, path, "@echo off\r\necho %CD%>>\""+logPath+"\"\r\necho "+output+"\r\n")
@@ -576,6 +708,13 @@ func fakeClaude(t *testing.T, fail bool) string {
 	root := t.TempDir()
 	logPath := filepath.Join(root, "invocations.log")
 	path := filepath.Join(root, "claude")
+	model := "claude-sonnet-5"
+	output := string(marshalModelOutput(t, modelEnvelope{
+		Type:             "result",
+		StructuredOutput: modelResult{Summary: "bounded", Evidence: []string{"fixture"}, Limitations: []string{"synthetic"}, SafetyGate: "pass"},
+		TotalCostUSD:     new(0.25),
+		ModelUsage:       map[string]modelUsageEntry{model: {CanonicalModel: model}},
+	}, model))
 	if runtime.GOOS == "windows" {
 		path += ".bat"
 		body := "@echo off\r\n"
@@ -583,7 +722,7 @@ func fakeClaude(t *testing.T, fail bool) string {
 		if fail {
 			body += "echo fixture failure 1>&2\r\nexit /b 7\r\n"
 		} else {
-			body += "echo {\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[\"fixture\"],\"limitations\":[\"synthetic\"],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.25}\r\n"
+			body += "echo " + output + "\r\n"
 		}
 		writeTestFile(t, path, body)
 	} else {
@@ -591,7 +730,7 @@ func fakeClaude(t *testing.T, fail bool) string {
 		if fail {
 			body += "printf '%s\\n' 'fixture failure' >&2\nexit 7\n"
 		} else {
-			body += "printf '%s\\n' '{\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[\"fixture\"],\"limitations\":[\"synthetic\"],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.25}'\n"
+			body += "printf '%s\\n' '" + output + "'\n"
 		}
 		writeTestFile(t, path, body)
 		if err := os.Chmod(path, 0o755); err != nil {
@@ -613,7 +752,7 @@ func fakeClaude(t *testing.T, fail bool) string {
 			}
 			return
 		}
-		for _, required := range []string{"--print", "--safe-mode", "--no-session-persistence", "--tools Read", "--disallowedTools Bash,Edit,Write,WebFetch,WebSearch,Task,Agent,SendMessage", "--permission-mode dontAsk", "--max-budget-usd 1", "--output-format json", "--json-schema"} {
+		for _, required := range []string{"--print", "--safe-mode", "--no-session-persistence", `--mcp-config {"mcpServers":{}}`, "--tools Read", "--disallowedTools Bash,Edit,Write,WebFetch,WebSearch,Task,Agent,SendMessage", "--permission-mode dontAsk", "--max-budget-usd 1", "--output-format json", "--verbose", "--json-schema"} {
 			if !strings.Contains(text, required) {
 				t.Errorf("fake Claude invocation missing %q: %s", required, text)
 			}

@@ -102,7 +102,7 @@ func (a *app) evaluationRun() error {
 	if err != nil {
 		return fmt.Errorf("编码 evaluation bundle: %w", err)
 	}
-	if _, err := fmt.Fprintf(a.stdout, "STeamAI evaluation run bundle 已发布：evaluations/runs/%s identity:%s；Reviewer 先审 manifest/arms，Commander 随后读取 reveal.json 解盲\n%s\n", request.RunID, bundle.Identity, data); err != nil {
+	if _, err := fmt.Fprintf(a.stdout, "STeamAI evaluation run bundle 已发布：evaluations/runs/%s identity:%s；Reviewer 一次读取 manifest 绑定的 blind-review.json，Commander 随后读取 reveal.json 解盲\n%s\n", request.RunID, bundle.Identity, data); err != nil {
 		return err
 	}
 	runsRoot := filepath.Join(caseRoot, ".steamai-vnext", "evaluations", "runs")

@@ -39,7 +39,7 @@ Reviewer 按 `learning-batch-review.md` 写唯一 batch 级审查文件，完整
 - 排序 candidate path/SHA、Claim kind、Required maturity、eligibility review path/SHA 与 destination；
 - 排序 target path、canonical working-tree Preimage SHA-256/bytes 和 patch Postimage SHA-256/bytes；
 - patch path/SHA、added-lines deny result 和 `git apply --check` result；
-- 若任一 behavioral/V3 candidate 存在，绑定 current calibration attestation path/SHA、promotion attestation path/SHA、candidate blind run bundle manifest path/SHA/identity、independent reveal SHA，以及等于最终完整 patch 的 evaluated patch SHA；promotion attestation 必须把 reveal path exact 绑定为该 run manifest 的 sibling `reveal.json`，calibration attestation 的 reveal path/SHA 必须为 literal `none`，并绑定闭合所有 initial control/pair slots 的 suite manifest；
+- 若任一 behavioral/V3 candidate 存在，绑定 current calibration attestation path/SHA、promotion attestation path/SHA、candidate blind run bundle manifest path/SHA/identity、manifest 绑定的 immutable blind-review packet、blind decision 中的 packet path/SHA 与 preferred entry/output SHA、independent reveal SHA，以及等于最终完整 patch 的 evaluated patch SHA；promotion attestation 必须把 reveal path exact 绑定为该 run manifest 的 sibling `reveal.json`，calibration attestation 的 reveal path/SHA 必须为 literal `none`，并绑定闭合所有 initial control/pair slots 的 suite manifest；
 - 最终 `Decision: accepted`。
 
 Reviewer 必须阅读完整未截断 patch并核对 candidate-to-target mapping、主题一致性、重复、冲突、反例和脱敏。behavioral/V3 batch 只有在 calibration=`go`、所有 candidate arms completed 且 safety=`pass`、comparative=`improved`、maturity=`V3` 时才能 accepted；单 candidate 的局部 patch 结果不能替代最终 thematic patch。eligible、batch accepted、用户确认、Apply 与 Git staging 都不自行提升成熟度。batch review 不建立 registry、inbox、Hub 或跨 case 索引。
@@ -52,7 +52,7 @@ Commander 从 case 根把严格 JSON request 写入 `steamai __learning-batch-pr
 {"candidateReviews":[{"candidate":"learnings/candidates/L-001.md","review":"reviews/R-L-001.md"}],"patch":"learnings/patches/LB-001.patch","batchReview":"reviews/R-LB-001.md","calibrationAttestation":"evaluations/attestations/CAL-001.md","promotionAttestation":"evaluations/attestations/PROM-001.md","runBundleManifest":"evaluations/runs/RUN-001/manifest.json"}
 ```
 
-原生入口重算并展示 candidate/review/source chain、snapshot、manifest、canonical HEAD、target pre/postimage、batch review、patch SHA 与完整 patch；behavioral/V3 request 还会重验并展示两份 attestation、calibration suite、blind run bundle，以及 promotion attestation 中与 run manifest 同目录的 exact `reveal.json` path/SHA。非 behavioral batch 必须省略这三个可选 request 字段，并在 batch review 中明确记录 `none`。preview 时 canonical pack 必须零写。只有用户在当前 Commander 窗口输入：
+原生入口重算并展示 candidate/review/source chain、snapshot、manifest、canonical HEAD、target pre/postimage、batch review、patch SHA 与完整 patch；behavioral/V3 request 还会重验两份 attestation、calibration suite、blind run bundle、manifest-bound packet 与 blind decision 的 entry/output-SHA binding，以及 promotion attestation 中与 run manifest 同目录的 exact `reveal.json` path/SHA，并在 preview identity 中通过 attestation/run hashes 间接绑定这些 exact bytes。非 behavioral batch 必须省略这三个可选 request 字段，并在 batch review 中明确记录 `none`。preview 时 canonical pack 必须零写。只有用户在当前 Commander 窗口输入：
 
 ```text
 CONFIRM STEAMAI LEARNING BATCH <batch_identity>

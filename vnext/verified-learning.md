@@ -22,10 +22,12 @@
 
 ## Gate 2 — Evaluator calibration
 
-calibration 不是“评估 candidate”，而是先证明评估器本身能区分已知类别。suite 至少包含：明确改善、应保持中性、明确回归、授权/安全回归，以及“表达更漂亮但证据更差”的控制项。
+calibration 不是“评估 candidate”，而是先证明评估器本身能区分已知类别。suite 至少包含：明确改善、应保持中性、明确回归、授权/安全回归，以及“表达更漂亮但证据更差”的控制项。真实调用加 token 标准答案匹配只证明 control smoke；不能由 Go 根据 expected class 合成 Reviewer 判断再签发 `go`。Reviewer 必须在不获知 expected class 或 arm 映射的情况下，依据冻结任务、证据和 rubric 先形成独立裁决；同一 behavioral scenario 的两次配对不能以两道不同题目替代。
 
 - scenario、rubric、expected class 与 hard safety gates 在 candidate 之外冻结并绑定 SHA；calibration control 使用逐 slot 独立 control patch，不把它误称为正式 candidate，也不得与最终 behavioral patch 共享 path/SHA。`steamai __evaluation-suite-prepare` 从 strict JSON 验证这些现有 bytes 后 no-replace 发布预注册 SuiteSpec；suite manifest 是 `evaluations/runs/<suite>.json` 的 immutable JSON，由 `steamai __evaluation-suite-finalize` 从 SuiteSpec、全部 slot run 与 Reviewer 冻结的 observed class机械生成，绑定 frozen scenario/rubric、verified-learning contract、model、Claude Code version、platform、tool profile，并列出每个唯一 `slotId`、expected class、run manifest path/raw SHA 与 bundle identity；每个 calibration request/manifest/record 也必须在执行前 exact 声明同一 `runId=slotId`、expected class 与 control patch，suite 不能事后给任意 run 贴类别；五类 controls 每类至少覆盖预注册的 2 个 initial pair slots。每个 bundle 的 scenario/rubric/runtime/tool profile 必须与 suite exact 一致；缺项、重复、额外同-suite run 或 bundle 漂移即无效。
-- arms 使用相同模型、工具、权限和预算，在 case state 之外的 sibling 临时目录与无持久 session 中运行；`--safe-mode` 禁止加载 case/global customizations。blind manifest 与 arm records 不含 baseline/candidate path、patch SHA 或可反查 tree SHA，只保存随机 salted pack commitments；nonce、arm→tree SHA 与 patch SHA mapping 只写入独立 `reveal.json`。manifest 绑定 reveal SHA，Reviewer 冻结 opaque-arm 裁决后才由 Commander解盲并验证 commitments。
+- 模型选择遵循当前 Claude Code 配置，不限定厂商，不硬编码 Claude 或 GPT。调用方在创建 suite 前解析并冻结模型选择，再以相同 `--model` 传给所有 arms 与 Reviewer；不让隔离 cwd 或执行期间配置变化改变配对。live 维护测试读取继承的模型环境变量和 user/project/local settings 的模型字段，解析有配置映射的别名；无可解析选择则停止，不自动回退。不复制认证或其它用户配置，也不实现 managed/session override 控制面。
+- runner 使用 `--output-format json --verbose`，保留目标 CLI 真实支持的事件数组及最终 result。主执行模型逐条从 `assistant.message.model` 验证，至少一条且不得发生主模型漂移或出现子任务；配置的 `[1m]` 选择后缀允许在 message model 中省略，但最终 `modelUsage` 仍须绑定完整选择。`modelUsage` 是全调用汇总，不以条目数量判断主模型；额外用量条目原样保留，不能宣称其内部职责已证明。成功输出须报告有效 `total_cost_usd`，所选用量条目的 `canonicalModel` 若存在不得矛盾。缺失主消息、结构错误或身份不符为 `invalid-output`；未知输出格式不做兼容推断。离线 bundle 校验复用在线解析器，重验实际 model/cost/safety 与 record、预算一致。此处证明 CLI 报告的主会话模型身份，不证明服务端内部路由或独立认知来源。
+- arms 使用相同模型、工具、权限和预算，在 case state 之外的 sibling 临时目录与无持久 session 中运行；`--safe-mode` 禁止加载 case/global customizations。blind manifest 与 arm records 不含 baseline/candidate path、patch SHA 或可反查 tree SHA，只保存随机 salted pack commitments；nonce、arm→tree SHA 与 patch SHA mapping 只写入独立 `reveal.json`。runner 还把两个原始输出机械投影为单一 immutable `blind-review.json`：固定短 `entry-0`/`entry-1` 绑定 opaque arm label、output SHA、status/safety 与结构化 answer，manifest 绑定 packet path/SHA，blind identity 也覆盖该 binding。packet 不含 baseline/candidate role、patch 或 pack identity。Reviewer 一次读取 packet，以 preferred entry 和其 output SHA 冻结裁决后，才由 Commander 解盲并验证 commitments。
 - deterministic assertions 先执行；任一 hard gate 失败直接 `no-go`，不交给偏好裁决覆盖。
 - 初始每个 behavioral scenario 使用 2 个 matched pairs；只有结果接近且仍在预算内时增加，最多 6 pairs。不得无限重试。
 - calibration 只有在所有授权回归被拒绝、所有明显回归被拒绝、中性项不过度宣称改善，并达到 suite 预注册阈值时为 `go`；否则为 `no-go` 或 `inconclusive`。
@@ -37,7 +39,7 @@ calibration 不是“评估 candidate”，而是先证明评估器本身能区�
 
 1. 机械经验走 deterministic V1；分析方法通常至少 V2；声称改善团队/LLM 行为的经验必须 V3。
 2. candidate 先冻结，再选择未被 candidate 修改的 scenario/rubric。baseline 与 candidate arms matched、并行、限预算运行。
-3. Reviewer 先只看 opaque arms，再由 Commander 解盲；分歧时最多增加一名 tie-breaker，不重新生成无限 runs。
+3. Reviewer 在解盲前一次读取 manifest 绑定的 immutable `blind-review.json`，选择短 entry 并抄录该 entry 的 output SHA；不得靠多个异步读取结果手工关联长 opaque labels。Commander 随后解盲；分歧时最多增加一名 tie-breaker，不重新生成无限 runs。
 4. 只有 calibration current=`go`、hard gates=`pass`、comparative=`improved`，才能形成 promotion attestation。
 5. 多 candidate thematic patch 必须评估最终完整 patch；单项分别通过不能替代组合回归。
 6. `learning-batch-review` 必须绑定 promotion attestation path/SHA、calibration attestation path/SHA、suite/run bundle identity、independent reveal SHA 和被评估最终 patch SHA；promotion attestation 还必须把 reveal path exact 绑定为同一 run manifest 的 sibling `reveal.json`。原生 preview/apply 重验这些 exact bytes。
@@ -57,6 +59,6 @@ calibration 不是“评估 candidate”，而是先证明评估器本身能区�
 
 ## Run bundle 与本地 runner 边界
 
-runner 是一次性、无状态的机械执行器，只负责：验证 strict JSON request、在 case state 之外创建 sibling 隔离目录、冻结输入、为每次 run 生成不可预测 opaque arm labels、并行启动 matched Claude Code `--print --safe-mode --no-session-persistence` arms、施加 tools/permissions/model/time/USD budget、捕获成功、失败、超时、正常中断取消、CLI `is_error`、reported cost 超预算和无效输出状态、计算 SHA、no-replace 发布 immutable blind bundle 与独立 reveal。Windows arm 以 suspended process 启动，先加入 `KILL_ON_JOB_CLOSE` Job Object，再以 `PROCESS_SUSPEND_RESUME` 权限恢复，避免进程在加入 Job 前派生未受控子进程。`__evaluation-run` 遇到非 completed/pass arm 时必须先发布失败 bundle，再返回 typed nonzero outcome；调用方不能把非零误解为“没有证据”。正常 cancel/timeout 以终止整个 arm process tree 为目标，但 Windows 的无逃逸 process-tree 行为仍须 live gate 证明；进程硬杀/断电无法保证发布 cancellation bundle。失败结果也是证据，必须随 stdout/stderr 和状态发布，不能靠丢弃失败 run 改写结论。它不做 research judgment、candidate 选择、Reviewer 决策、自动 Apply、commit 或 push。
+runner 是一次性、无状态的机械执行器，只负责：验证 strict JSON request、在 case state 之外创建 sibling 隔离目录、冻结输入、为每次 run 生成不可预测 opaque arm labels、并行启动 matched Claude Code `--print --safe-mode --no-session-persistence` arms、施加 tools/permissions/model/time/USD budget、捕获成功、失败、超时、正常中断取消、CLI `is_error`、reported cost 超预算和无效输出状态、计算 SHA、生成并重验单一 blind-review packet、no-replace 发布 immutable blind bundle 与独立 reveal。Windows arm 以 suspended process 启动，先加入 `KILL_ON_JOB_CLOSE` Job Object，再以 `PROCESS_SUSPEND_RESUME` 权限恢复，避免进程在加入 Job 前派生未受控子进程。`__evaluation-run` 遇到非 completed/pass arm 时必须先发布失败 bundle，再返回 typed nonzero outcome；调用方不能把非零误解为“没有证据”。正常 cancel/timeout 以终止整个 arm process tree 为目标，但 Windows 的无逃逸 process-tree 行为仍须 live gate 证明；进程硬杀/断电无法保证发布 cancellation bundle。失败结果也是证据，必须随 stdout/stderr 和状态发布，不能靠丢弃失败 run 改写结论。它不做 research judgment、candidate 选择、Reviewer 决策、自动 Apply、commit 或 push。
 
 自动 runner 只接受 synthetic、无凭据、无网络、无真实目标且仅允许 `Read` 的 scenario。需要 Bash/Edit/外部服务/heavy action 的验证保持人工或 environment-bound，不能通过扩大 runner 权限绕过用户确认。

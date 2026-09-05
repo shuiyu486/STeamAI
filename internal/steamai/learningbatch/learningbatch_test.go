@@ -355,7 +355,8 @@ func TestBehavioralCandidateAcceptsClosedGate3BundleAndRejectsTamper(t *testing.
 		}
 	})
 	for name, mutate := range map[string]func(string) string{
-		"reveal": func(path string) string { return filepath.Join(filepath.Dir(path), "reveal.json") },
+		"reveal":        func(path string) string { return filepath.Join(filepath.Dir(path), "reveal.json") },
+		"review packet": func(path string) string { return filepath.Join(filepath.Dir(path), "blind-review.json") },
 		"blind decision": func(path string) string {
 			return filepath.Join(filepath.Dir(filepath.Dir(path)), "..", "attestations", "PROM-001-blind.md")
 		},
@@ -378,6 +379,38 @@ func TestBehavioralCandidateAcceptsClosedGate3BundleAndRejectsTamper(t *testing.
 				t.Fatalf("tampered %s returned %v", name, err)
 			}
 		})
+	}
+}
+
+func TestBehavioralCandidateRejectsSelfConsistentPreferredOutputMismatch(t *testing.T) {
+	fixture := newBatchFixture(t)
+	makeBehavioralFixture(t, &fixture)
+	stateRoot := filepath.Join(fixture.caseRoot, ".steamai-vnext")
+	blindPath := filepath.Join(stateRoot, "evaluations", "attestations", "PROM-001-blind.md")
+	originalBlind := mustRead(t, blindPath)
+	fields, err := fieldMap(originalBlind)
+	if err != nil || !hexSHA.MatchString(fields["Preferred output SHA-256"]) {
+		t.Fatalf("fixture preferred output field invalid: %v", err)
+	}
+	blind := strings.Replace(string(originalBlind), fields["Preferred output SHA-256"], strings.Repeat("f", 64), 1)
+	if blind == string(originalBlind) {
+		t.Fatal("fixture preferred output field was not replaced")
+	}
+	writeFile(t, blindPath, []byte(blind))
+
+	promotionPath := filepath.Join(stateRoot, "evaluations", "attestations", "PROM-001.md")
+	originalPromotion := mustRead(t, promotionPath)
+	promotion := strings.Replace(string(originalPromotion), hashBytes(originalBlind), hashBytes([]byte(blind)), 1)
+	if promotion == string(originalPromotion) {
+		t.Fatal("fixture blind decision SHA was not replaced")
+	}
+	writeFile(t, promotionPath, []byte(promotion))
+
+	batchPath := filepath.Join(stateRoot, filepath.FromSlash(fixture.request.BatchReview))
+	batch := strings.Replace(string(mustRead(t, batchPath)), hashBytes(originalPromotion), hashBytes([]byte(promotion)), 1)
+	writeFile(t, batchPath, []byte(batch))
+	if _, err := BuildPreview(fixture.git, fixture.source, fixture.caseRoot, fixture.request); !errors.Is(err, ErrBinding) {
+		t.Fatalf("self-consistent preferred output mismatch returned %v", err)
 	}
 }
 
@@ -426,7 +459,7 @@ func makeBehavioralFixture(t *testing.T, fixture *batchFixture) {
 			ControlPatch: evaluation.BoundFile{Path: controlPatchName, SHA256: evaluation.Hash(controlPatch)},
 		})
 	}
-	spec := evaluation.SuiteSpec{SchemaVersion: 1, Rubric: evaluation.BoundFile{Path: "rubric.md", SHA256: evaluation.Hash(rubric)}, VerifiedLearningContract: contractBinding, Model: "sonnet", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH, ToolProfile: evaluation.ToolProfile(), Slots: specSlots}
+	spec := evaluation.SuiteSpec{SchemaVersion: 1, Rubric: evaluation.BoundFile{Path: "rubric.md", SHA256: evaluation.Hash(rubric)}, VerifiedLearningContract: contractBinding, Model: "claude-sonnet-5", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH, ToolProfile: evaluation.ToolProfile(), Slots: specSlots}
 	spec.Identity = evaluation.SuiteSpecIdentity(spec)
 	specData, _ := json.MarshalIndent(spec, "", "  ")
 	specData = append(specData, '\n')
@@ -447,7 +480,7 @@ func makeBehavioralFixture(t *testing.T, fixture *batchFixture) {
 			SuiteSpec: specName, SuiteSpecSHA256: specSHA, Scenario: scenarioName, ScenarioSHA256: evaluation.Hash(scenario),
 			Rubric: "rubric.md", RubricSHA256: evaluation.Hash(rubric), VerifiedLearningContract: contractBinding.Path,
 			VerifiedLearningContractSHA: contractBinding.SHA256, BaselineSHA256: baselineSHA,
-			CandidatePatch: controlPatchName, PatchSHA256: controlPatchSHA, Model: "sonnet", MaxSeconds: 30, MaxBudgetUSD: 1,
+			CandidatePatch: controlPatchName, PatchSHA256: controlPatchSHA, Model: "claude-sonnet-5", MaxSeconds: 30, MaxBudgetUSD: 1,
 		}
 		bundle, err := evaluation.Run(context.Background(), fixture.git, fakeEvaluationClaude(t), "fixture", fixture.caseRoot, request)
 		if err != nil {
@@ -462,7 +495,7 @@ func makeBehavioralFixture(t *testing.T, fixture *batchFixture) {
 		SuiteSpec:                evaluation.BoundFile{Path: specName, SHA256: specSHA},
 		Rubric:                   evaluation.BoundFile{Path: "rubric.md", SHA256: evaluation.Hash(rubric)},
 		VerifiedLearningContract: contractBinding,
-		Model:                    "sonnet", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH,
+		Model:                    "claude-sonnet-5", ClaudeCode: "fixture", Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		ToolProfile: evaluation.ToolProfile(), Slots: slots,
 	}
 	suitePath := filepath.Join(stateRoot, "evaluations", "runs", "CAL-SUITE.json")
@@ -483,7 +516,7 @@ func makeBehavioralFixture(t *testing.T, fixture *batchFixture) {
 		RunID: "PROM-001", Purpose: "candidate", Scenario: "promotion-scenario.md", ScenarioSHA256: evaluation.Hash(promotionScenario),
 		Rubric: "rubric.md", RubricSHA256: evaluation.Hash(rubric), VerifiedLearningContract: contractBinding.Path,
 		VerifiedLearningContractSHA: contractBinding.SHA256, BaselineSHA256: baselineSHA,
-		CandidatePatch: "LB-001.patch", PatchSHA256: patchSHA, Model: "sonnet", MaxSeconds: 30, MaxBudgetUSD: 1,
+		CandidatePatch: "LB-001.patch", PatchSHA256: patchSHA, Model: "claude-sonnet-5", MaxSeconds: 30, MaxBudgetUSD: 1,
 	}
 	promotionBundle, err := evaluation.Run(context.Background(), fixture.git, fakeEvaluationClaude(t), "fixture", fixture.caseRoot, promotionRequest)
 	if err != nil {
@@ -497,7 +530,18 @@ func makeBehavioralFixture(t *testing.T, fixture *batchFixture) {
 	writeFile(t, filepath.Join(stateRoot, filepath.FromSlash(calibrationRel)), []byte(calibration))
 	calibrationSHA := hashBytes([]byte(calibration))
 	blindRel := "evaluations/attestations/PROM-001-blind.md"
-	blind := fmt.Sprintf("# Blind decision\n\n- Reviewer 单写者：`reviewer`\n- Run bundle blind identity：`%s`\n- Preferred arm：`%s`\n- Comparative result：`improved`\n- Hard safety gates：`pass`\n", promotionBundle.Reveal.BlindIdentity, promotionBundle.Reveal.CandidateArm)
+	var preferred evaluation.BlindReviewEntry
+	for _, entry := range readReviewPacket(t, stateRoot, promotionBundle) {
+		if entry.ArmLabel == promotionBundle.Reveal.CandidateArm {
+			preferred = entry
+			break
+		}
+	}
+	if preferred.Entry == "" {
+		t.Fatal("fixture review packet missing candidate entry")
+	}
+	packetRel := "evaluations/runs/PROM-001/" + promotionBundle.ReviewPacket.Path
+	blind := fmt.Sprintf("# Blind decision\n\n- Reviewer 单写者：`reviewer`\n- Run bundle blind identity：`%s`\n- Review packet：`%s`\n- Review packet SHA-256：`%s`\n- Preferred entry：`%s`\n- Preferred output SHA-256：`%s`\n- Comparative result：`improved`\n- Hard safety gates：`pass`\n", promotionBundle.Reveal.BlindIdentity, packetRel, promotionBundle.ReviewPacket.SHA256, preferred.Entry, preferred.OutputSHA256)
 	writeFile(t, filepath.Join(stateRoot, filepath.FromSlash(blindRel)), []byte(blind))
 	blindSHA := hashBytes([]byte(blind))
 	promotionRel := "evaluations/attestations/PROM-001.md"
@@ -519,6 +563,19 @@ func makeBehavioralFixture(t *testing.T, fixture *batchFixture) {
 	writeFile(t, batchPath, []byte(batch))
 }
 
+func readReviewPacket(t *testing.T, stateRoot string, bundle evaluation.BundleManifest) []evaluation.BlindReviewEntry {
+	t.Helper()
+	data := mustRead(t, filepath.Join(stateRoot, "evaluations", "runs", bundle.RunID, bundle.ReviewPacket.Path))
+	if hashBytes(data) != bundle.ReviewPacket.SHA256 {
+		t.Fatal("fixture review packet SHA mismatch")
+	}
+	var packet evaluation.BlindReviewPacket
+	if err := json.Unmarshal(data, &packet); err != nil {
+		t.Fatal(err)
+	}
+	return packet.Entries
+}
+
 func renderAttestation(purpose, patch, patchSHA, blindPath, blindSHA, suiteIdentity, suiteSHA, manifest, manifestSHA, identity, reveal, revealSHA, baselineArm, candidateArm, calibration, calibrationSHA, decision string) string {
 	return fmt.Sprintf("# Attestation\n\n- Reviewer 单写者：`reviewer`\n- Purpose：`%s`\n- Candidate patch：`%s`\n- Candidate patch SHA-256：`%s`\n- Blind decision：`%s`\n- Blind decision SHA-256：`%s`\n- Suite identity：`%s`\n- Suite SHA-256：`%s`\n- Run bundle manifest：`%s`\n- Run bundle manifest SHA-256：`%s`\n- Run bundle identity：`%s`\n- Run bundle reveal：`%s`\n- Run bundle reveal SHA-256：`%s`\n- Baseline arm：`%s`\n- Candidate arm：`%s`\n- Hard safety gates：`pass`\n- Comparative result：`improved`\n- Maturity：`V3`\n- Calibration attestation：`%s`\n- Calibration attestation SHA-256：`%s`\n- Decision：`%s`\n", purpose, patch, patchSHA, blindPath, blindSHA, suiteIdentity, suiteSHA, manifest, manifestSHA, identity, reveal, revealSHA, baselineArm, candidateArm, calibration, calibrationSHA, decision)
 }
@@ -528,10 +585,10 @@ func fakeEvaluationClaude(t *testing.T) string {
 	path := filepath.Join(t.TempDir(), "claude")
 	if runtime.GOOS == "windows" {
 		path += ".bat"
-		writeFile(t, path, []byte("@echo off\r\necho {\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[],\"limitations\":[],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.01}\r\n"))
+		writeFile(t, path, []byte("@echo off\r\necho [{\"type\":\"assistant\",\"message\":{\"model\":\"claude-sonnet-5\"},\"parent_tool_use_id\":null},{\"type\":\"result\",\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[],\"limitations\":[],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.01,\"modelUsage\":{\"claude-sonnet-5\":{\"canonicalModel\":\"claude-sonnet-5\",\"provider\":\"firstParty\"}}}]\r\n"))
 		return path
 	}
-	writeFile(t, path, []byte("#!/bin/sh\nprintf '%s\\n' '{\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[],\"limitations\":[],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.01}'\n"))
+	writeFile(t, path, []byte("#!/bin/sh\nprintf '%s\\n' '[{\"type\":\"assistant\",\"message\":{\"model\":\"claude-sonnet-5\"},\"parent_tool_use_id\":null},{\"type\":\"result\",\"structured_output\":{\"summary\":\"bounded\",\"evidence\":[],\"limitations\":[],\"safetyGate\":\"pass\"},\"total_cost_usd\":0.01,\"modelUsage\":{\"claude-sonnet-5\":{\"canonicalModel\":\"claude-sonnet-5\",\"provider\":\"firstParty\"}}}]'\n"))
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatal(err)
 	}

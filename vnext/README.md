@@ -6,7 +6,7 @@
 
 - case 与成员目录的 `CLAUDE.md`；
 - Claude Code 原生独立 session、resume/attach/respawn、跨会话消息和 tactical subagent；
-- artifact、evidence、finding、append-only review、proof-carrying replay、V0–V4 maturity、immutable learning candidate、calibrated comparative evaluation、exact batch review 与 explicit opt-in field outcome；
+- artifact、evidence、finding、append-only review、proof-carrying replay、V0–V4 maturity、immutable learning candidate、manifest-bound immutable `blind-review.json`、calibrated comparative evaluation、exact batch review 与 explicit opt-in field outcome；
 - Git 与用户确认后的 canonical working-tree pack 变更。
 
 它不包含 runtime executable 或脚本。生产 `steamai.exe` 位于 `cmd/steamai` / `internal/steamai`，只负责安装/Fresh/update/uninstall/卸载后窄自清理/exact apply/synthetic readonly matched evaluation bundle/可见启动/瞬时互斥，不承担团队控制面。旧 Go control plane、session host、PowerShell façade、adapter、旧项目 importer 与兼容入口均已删除。
@@ -28,4 +28,4 @@ project-local `/steamai` 直接来自 Fresh preview 时 canonical working tree �
 
 ## 验证原则
 
-自动 tests 证明 deterministic filesystem/Git contract，并通过 fake Claude 覆盖 SuiteSpec prepare→逐 slot run→SuiteManifest finalize、失败证据保留与 Gate 3 fail-closed；Windows native test binary 还验证 suspended→Job→resume 的普通执行路径，但这些测试不证明真实模型 calibration 或 timeout 下的完整 process-tree cleanup。真实 Windows setup/PATH/process tree、可见 Claude Code 会话、用户纠偏和跨会话消息必须按 `acceptance.md` 独立验收。只有重复出现且无法由 Claude Code 原生能力与简单文件解决的问题，才允许增加窄职责、无状态 helper。
+自动 tests 证明 deterministic filesystem/Git contract，并通过 fake Claude 覆盖 SuiteSpec prepare→逐 slot run→manifest-bound blind-review packet→SuiteManifest finalize、失败证据保留与 Gate 3 fail-closed；Windows native test binary 还验证 suspended→Job→resume 的普通执行路径，但这些测试不证明真实模型 calibration 或 timeout 下的完整 process-tree cleanup。真实 Windows setup/PATH/process tree、可见 Claude Code 会话、用户纠偏和跨会话消息必须按 `acceptance.md` 独立验收；已执行的 live 证据与限制只记录在 active roadmap，不在本目录复制第二份状态。只有重复出现且无法由 Claude Code 原生能力与简单文件解决的问题，才允许增加窄职责、无状态 helper。

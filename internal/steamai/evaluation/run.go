@@ -50,9 +50,23 @@ type modelResult struct {
 }
 
 type modelEnvelope struct {
-	StructuredOutput modelResult `json:"structured_output"`
-	TotalCostUSD     *float64    `json:"total_cost_usd"`
-	IsError          bool        `json:"is_error"`
+	Type             string                     `json:"type"`
+	StructuredOutput modelResult                `json:"structured_output"`
+	TotalCostUSD     *float64                   `json:"total_cost_usd"`
+	IsError          bool                       `json:"is_error"`
+	ModelUsage       map[string]modelUsageEntry `json:"modelUsage"`
+}
+
+type modelEvent struct {
+	Type            string  `json:"type"`
+	ParentToolUseID *string `json:"parent_tool_use_id"`
+	Message         struct {
+		Model string `json:"model"`
+	} `json:"message"`
+}
+
+type modelUsageEntry struct {
+	CanonicalModel string `json:"canonicalModel"`
 }
 
 func Run(ctx context.Context, gitPath, claudePath, claudeVersion, caseRoot string, request Request) (BundleManifest, error) {
@@ -225,6 +239,7 @@ func Run(ctx context.Context, gitPath, claudePath, claudeVersion, caseRoot strin
 		Rubric:                   BoundFile{Path: request.Rubric, SHA256: request.RubricSHA256},
 		VerifiedLearningContract: contract,
 	}
+	packetSources := make(map[string]reviewPacketSource, len(arms))
 	for result := range results {
 		result.record.PackCommitment = packCommitment(commitmentNonce, result.record.ArmLabel, armIdentity(arms, result.record.ArmLabel))
 		outputName := result.record.ArmLabel + ".output.json"
@@ -246,8 +261,20 @@ func Run(ctx context.Context, gitPath, claudePath, claudeVersion, caseRoot strin
 			Output: outputName, OutputSHA256: Hash(result.output),
 			Stderr: stderrName, StderrSHA256: Hash(result.stderr),
 		})
+		packetSources[result.record.ArmLabel] = reviewPacketSource{
+			record: result.record,
+			output: append([]byte(nil), result.output...),
+		}
 	}
 	sort.Slice(bundle.Arms, func(i, j int) bool { return bundle.Arms[i].Label < bundle.Arms[j].Label })
+	_, packetData, err := encodeBlindReviewPacket(request.RunID, bundle.Arms, packetSources)
+	if err != nil {
+		return BundleManifest{}, err
+	}
+	bundle.ReviewPacket = BoundFile{Path: "blind-review.json", SHA256: Hash(packetData)}
+	if err := writeNew(filepath.Join(staging, bundle.ReviewPacket.Path), packetData); err != nil {
+		return BundleManifest{}, err
+	}
 	if current, currentErr := treeIdentity(baselineSource); currentErr != nil || current != baselineIdentity {
 		return BundleManifest{}, errors.New("evaluation baseline 在 run 期间漂移")
 	}
@@ -291,10 +318,10 @@ func runArm(parent context.Context, claudePath, claudeVersion string, request Re
 	defer cancel()
 	args := []string{
 		"--print", "--safe-mode", "--no-session-persistence", "--disable-slash-commands",
-		"--strict-mcp-config", "--mcp-config", `{}`, "--tools", "Read", "--allowedTools", "Read",
+		"--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--tools", "Read", "--allowedTools", "Read",
 		"--disallowedTools", "Bash,Edit,Write,WebFetch,WebSearch,Task,Agent,SendMessage", "--permission-mode", "dontAsk",
 		"--model", request.Model, "--max-budget-usd", strconv.FormatFloat(request.MaxBudgetUSD, 'f', -1, 64),
-		"--output-format", "json", "--json-schema", resultSchema, string(prompt),
+		"--output-format", "json", "--verbose", "--json-schema", resultSchema, string(prompt),
 	}
 	cmd := exec.CommandContext(ctx, claudePath, args...)
 	cmd.Dir = arm.root
@@ -339,7 +366,7 @@ func runArm(parent context.Context, claudePath, claudeVersion string, request Re
 	var actualUSD *float64
 	if status == "completed" {
 		var outputErr error
-		safety, actualUSD, outputErr = validateModelOutput(output)
+		safety, actualUSD, outputErr = validateModelOutput(output, request.Model)
 		if outputErr != nil {
 			status, exitCode, errorText = "invalid-output", -1, outputErr.Error()
 		} else if actualUSD != nil && *actualUSD > request.MaxBudgetUSD {
@@ -653,23 +680,65 @@ func applyPatch(gitPath, root string, patch []byte) error {
 	return nil
 }
 
-func validateModelOutput(data []byte) (string, *float64, error) {
-	var envelope modelEnvelope
+func decodeModelOutput(data []byte) (modelEnvelope, []string, error) {
+	var events []json.RawMessage
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&envelope); err != nil {
-		return "fail", nil, err
+	if err := decoder.Decode(&events); err != nil {
+		return modelEnvelope{}, nil, err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return "fail", nil, errors.New("evaluation model output 后存在额外 JSON")
+		return modelEnvelope{}, nil, errors.New("evaluation model output 后存在额外 JSON")
+	}
+	var envelope modelEnvelope
+	var models []string
+	var identityErr error
+	for index, raw := range events {
+		var event modelEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return envelope, nil, err
+		}
+		switch event.Type {
+		case "assistant":
+			if event.ParentToolUseID != nil || !modelPattern.MatchString(event.Message.Model) {
+				identityErr = errors.New("evaluation actual model 消息缺少主执行身份或出现未授权子任务")
+			}
+			models = append(models, event.Message.Model)
+		case "result":
+			if index != len(events)-1 || json.Unmarshal(raw, &envelope) != nil {
+				return envelope, nil, errors.New("evaluation result 必须是唯一末尾事件")
+			}
+		}
+	}
+	if envelope.Type != "result" {
+		return envelope, models, errors.New("evaluation model output 缺少最终 result")
+	}
+	return envelope, models, identityErr
+}
+
+func validateModelOutput(data []byte, expectedModel string) (string, *float64, error) {
+	envelope, models, err := decodeModelOutput(data)
+	if err != nil {
+		return "fail", envelope.TotalCostUSD, err
 	}
 	result := envelope.StructuredOutput
 	if envelope.IsError || strings.TrimSpace(result.Summary) == "" || result.Evidence == nil || result.Limitations == nil ||
 		(result.SafetyGate != "pass" && result.SafetyGate != "fail") {
 		return "fail", envelope.TotalCostUSD, errors.New("evaluation model output 缺少有效 structured_output")
 	}
-	if envelope.TotalCostUSD != nil && (*envelope.TotalCostUSD < 0 || *envelope.TotalCostUSD > 100) {
+	if envelope.TotalCostUSD == nil || *envelope.TotalCostUSD < 0 || *envelope.TotalCostUSD > 100 {
 		return "fail", nil, errors.New("evaluation model output total_cost_usd 无效")
+	}
+	// usage 是全调用汇总，不能据条目数量猜测主模型；逐条主会话消息才是执行身份证据。
+	entry, present := envelope.ModelUsage[expectedModel]
+	if !modelPattern.MatchString(expectedModel) || !present || len(models) == 0 ||
+		entry.CanonicalModel != "" && entry.CanonicalModel != expectedModel {
+		return "fail", envelope.TotalCostUSD, errors.New("evaluation actual model 缺少冻结选择的用量或执行证据")
+	}
+	for _, model := range models {
+		if model != strings.TrimSuffix(expectedModel, "[1m]") && model != expectedModel {
+			return "fail", envelope.TotalCostUSD, errors.New("evaluation actual model 主会话消息与冻结选择不一致")
+		}
 	}
 	return result.SafetyGate, envelope.TotalCostUSD, nil
 }

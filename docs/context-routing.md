@@ -28,7 +28,7 @@
 | Claude Code 原生能力 | `vnext/capabilities.md` | 不把 session ID 当身份或授权 |
 | 自动与 live acceptance | `vnext/acceptance.md` | 不把 synthetic/cross-build 当真实用户体验 |
 | learning 批次回流 | `vnext/learning-feedback.md` | 不使用旧单目标 Checkpoint B，不自动写 pack |
-| proof-carrying replay、V0–V4、calibration、promotion、field outcome | `vnext/verified-learning.md` | 不默认读取全部 run/output，不自动扫描其它 case |
+| proof-carrying replay、V0–V4、calibration、promotion、field outcome | `vnext/verified-learning.md` | blind review 优先一次读取 manifest 绑定的 `blind-review.json`，不默认读取全部 run/output，不自动扫描其它 case |
 | Release 构建与产物 | `.github/workflows/release.yml` | 不把 workflow definition 当 published release |
 | pack 编写或内容 | `packs/<pack>/manifest.yml` 与目标 pack 文件 | 不读取真实 case artifact |
 | 历史薄核心事实 | `docs/real-usage-hardening-roadmap.md` | 不据此禁止当前已批准 native shell |

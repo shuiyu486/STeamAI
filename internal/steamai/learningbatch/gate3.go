@@ -13,11 +13,14 @@ import (
 const maxVerifiedLearningFileBytes = 1 << 20
 
 type blindDecisionBinding struct {
-	Reviewer          string
-	BlindIdentity     string
-	PreferredArm      string
-	ComparativeResult string
-	HardSafetyGates   string
+	Reviewer           string
+	BlindIdentity      string
+	ReviewPacket       string
+	ReviewPacketSHA    string
+	PreferredEntry     string
+	PreferredOutputSHA string
+	ComparativeResult  string
+	HardSafetyGates    string
 }
 
 type attestationBinding struct {
@@ -110,7 +113,18 @@ func validateGate3(caseRoot string, request Request, binding batchBinding, revie
 	}
 	blind, err := readBlindDecision(caseRoot, promotion.CandidateBlindDecision, promotion.CandidateBlindSHA)
 	if err != nil || blind.Reviewer != reviewer || blind.BlindIdentity != manifest.Manifest.Reveal.BlindIdentity ||
-		blind.PreferredArm != promotion.CandidateArm || blind.ComparativeResult != "improved" || blind.HardSafetyGates != "pass" {
+		blind.ReviewPacket != strings.TrimSuffix(promotion.RunBundleManifest, "/manifest.json")+"/"+manifest.Manifest.ReviewPacket.Path ||
+		blind.ReviewPacketSHA != manifest.Manifest.ReviewPacket.SHA256 || blind.ComparativeResult != "improved" || blind.HardSafetyGates != "pass" {
+		return nil, nil, nil, ErrBinding
+	}
+	var preferred *evaluation.BlindReviewEntry
+	for index := range manifest.ReviewPacket.Entries {
+		if manifest.ReviewPacket.Entries[index].Entry == blind.PreferredEntry {
+			preferred = &manifest.ReviewPacket.Entries[index]
+			break
+		}
+	}
+	if preferred == nil || preferred.ArmLabel != promotion.CandidateArm || preferred.OutputSHA256 != blind.PreferredOutputSHA {
 		return nil, nil, nil, ErrBinding
 	}
 	return &AttestationRecord{Path: request.CalibrationAttestation, SHA256: calibrationSHA},
@@ -156,11 +170,18 @@ func readBlindDecision(caseRoot, rel, expectedSHA string) (blindDecisionBinding,
 	}
 	binding := blindDecisionBinding{
 		Reviewer: fields["Reviewer 单写者"], BlindIdentity: fields["Run bundle blind identity"],
-		PreferredArm: fields["Preferred arm"], ComparativeResult: fields["Comparative result"],
-		HardSafetyGates: fields["Hard safety gates"],
+		ReviewPacket: fields["Review packet"], ReviewPacketSHA: fields["Review packet SHA-256"],
+		PreferredEntry: fields["Preferred entry"], PreferredOutputSHA: fields["Preferred output SHA-256"],
+		ComparativeResult: fields["Comparative result"], HardSafetyGates: fields["Hard safety gates"],
 	}
-	if binding.Reviewer == "" || !hexSHA.MatchString(binding.BlindIdentity) || binding.PreferredArm == "" ||
-		binding.ComparativeResult == "" || (binding.HardSafetyGates != "pass" && binding.HardSafetyGates != "fail") {
+	preferredNone := binding.PreferredEntry == "none" && binding.PreferredOutputSHA == "none"
+	preferredBound := (binding.PreferredEntry == "entry-0" || binding.PreferredEntry == "entry-1") &&
+		hexSHA.MatchString(binding.PreferredOutputSHA)
+	validComparative := binding.ComparativeResult == "improved" || binding.ComparativeResult == "neutral" ||
+		binding.ComparativeResult == "regressed" || binding.ComparativeResult == "inconclusive"
+	if binding.Reviewer == "" || !hexSHA.MatchString(binding.BlindIdentity) || binding.ReviewPacket == "" ||
+		!hexSHA.MatchString(binding.ReviewPacketSHA) || (!preferredNone && !preferredBound) || !validComparative ||
+		(binding.HardSafetyGates != "pass" && binding.HardSafetyGates != "fail") {
 		return blindDecisionBinding{}, ErrBinding
 	}
 	return binding, nil
