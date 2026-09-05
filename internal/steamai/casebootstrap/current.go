@@ -285,6 +285,26 @@ func validateSnapshotPayload(caseRoot string, metadata snapshotMetadata) error {
 	return nil
 }
 
+func SupportsVerifiedLearning(caseRoot string) (bool, error) {
+	caseRoot, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return false, err
+	}
+	if _, err := InspectCurrent(caseRoot); err != nil {
+		return false, err
+	}
+	metadata, err := parseSnapshot(filepath.Join(caseRoot, ".steamai-vnext", "pack-snapshot", "snapshot.yml"))
+	if err != nil {
+		return false, err
+	}
+	for _, record := range metadata.ImmutableFiles {
+		if record.TargetPath == ".steamai-vnext/contracts/verified-learning.md" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func validateImmutableFiles(caseRoot string, records []PlannedWrite) error {
 	if len(records) == 0 {
 		return errors.New("snapshot 缺少 immutable-files")

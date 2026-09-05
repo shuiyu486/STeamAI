@@ -25,6 +25,10 @@ type reviewRound struct {
 	Finding      string
 	FindingSHA   string
 	Decision     string
+	Confidence   string
+	Summary      string
+	RisksOrGaps  string
+	NextAction   string
 	EvidenceRefs map[string]string
 }
 
@@ -118,10 +122,14 @@ func parseReviewRounds(data []byte) ([]reviewRound, error) {
 		round := reviewRound{
 			Number: text[location[2]:location[3]], Previous: fields["Previous round"], Reviewer: fields["Reviewer"],
 			Finding: fields["Finding"], FindingSHA: fields["Finding SHA-256"], Decision: fields["Decision"],
-			EvidenceRefs: map[string]string{},
+			Confidence: fields["Confidence"], EvidenceRefs: map[string]string{},
 		}
+		round.Summary = reviewSection(body, "判断")
+		round.RisksOrGaps = reviewSection(body, "风险或缺口")
+		round.NextAction = reviewSection(body, "下一步")
 		if round.Number != strconv.Itoa(index+1) || (index == 0 && round.Previous != "none") ||
-			(index > 0 && round.Previous != strconv.Itoa(index)) || round.Finding == "" || !hexSHA.MatchString(round.FindingSHA) {
+			(index > 0 && round.Previous != strconv.Itoa(index)) || round.Finding == "" || !hexSHA.MatchString(round.FindingSHA) ||
+			round.Confidence == "" || round.Summary == "" || round.RisksOrGaps == "" || round.NextAction == "" {
 			return nil, ErrBinding
 		}
 		marker := "### 检查的证据\n"
@@ -150,6 +158,19 @@ func parseReviewRounds(data []byte) ([]reviewRound, error) {
 		rounds = append(rounds, round)
 	}
 	return rounds, nil
+}
+
+func reviewSection(body, heading string) string {
+	marker := "### " + heading + "\n"
+	start := strings.Index(body, marker)
+	if start < 0 {
+		return ""
+	}
+	section := body[start+len(marker):]
+	if stop := strings.Index(section, "\n### "); stop >= 0 {
+		section = section[:stop]
+	}
+	return strings.TrimSpace(section)
 }
 
 func findingReferencesEvidence(finding []byte, evidenceRel string) bool {

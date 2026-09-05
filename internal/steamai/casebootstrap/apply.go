@@ -44,6 +44,7 @@ func applyPreview(git, source, caseRoot string, preview Preview) error {
 	}()
 	for _, rel := range []string{
 		"evidence", "findings", "reviews", "learnings/candidates", "learnings/patches", "members",
+		"evaluations/specs", "evaluations/runs", "evaluations/attestations", "evaluations/outcomes", "evaluations/work",
 	} {
 		if err := os.MkdirAll(filepath.Join(staging, filepath.FromSlash(rel)), 0o755); err != nil {
 			return err

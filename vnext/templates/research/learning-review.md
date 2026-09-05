@@ -3,6 +3,8 @@
 - Reviewer 单写者：`{{REVIEWER}}`
 - Candidate：`{{CANDIDATE_REF}}`
 - Candidate SHA-256：`{{CANDIDATE_SHA256}}`
+- Claim kind：`{{CLAIM_KIND}}`
+- Required maturity：`{{REQUIRED_MATURITY}}`
 - Source finding：`{{SOURCE_FINDING_REF}}`
 - Source finding SHA-256：`{{SOURCE_FINDING_SHA256}}`
 - Source accepted review：`{{SOURCE_REVIEW_REF}}`
@@ -23,4 +25,4 @@
 - Redaction/denyPatterns：`{{REDACTION_DENY_RESULT}}`
 - Target allowlist/currentness：`{{TARGET_CURRENTNESS_RESULT}}`
 
-只有 `eligible` 才能进入 thematic learning batch。`needs-evidence` 返回原 finding owner；`disputed`、`superseded` 或 `ineligible` 不进入 batch。本文件只判断 candidate eligibility；candidate review 不绑定或授权任何 patch，也不接受任何 patch；最终 exact patch 由独立的 learning batch review 绑定。candidate、source evidence 或 snapshot 任一漂移都使本 review stale。
+只有 `eligible` 才能进入 thematic learning batch。Reviewer 必须确认 `Claim kind`/`Required maturity` 与 candidate exact 一致，并符合 `mechanical→V1`、`analysis-method→V2`、`behavioral→V3`；`eligible` 本身不证明已达到该成熟度。`needs-evidence` 返回原 finding owner；`disputed`、`superseded` 或 `ineligible` 不进入 batch。本文件只判断 candidate eligibility；candidate review 不绑定或授权任何 patch，也不接受任何 patch；最终 exact patch 由独立的 learning batch review 绑定。candidate、source evidence 或 snapshot 任一漂移都使本 review stale。

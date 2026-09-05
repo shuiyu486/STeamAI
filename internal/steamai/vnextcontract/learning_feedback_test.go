@@ -36,6 +36,8 @@ func TestLearningFeedbackContractRequiresExactReviewedGitPatch(t *testing.T) {
 		"不自动 `git add`、commit、push",
 		"HEAD、index、当前 case snapshot 必须不变",
 		"candidate 文件不得包含自身 exact SHA 字段",
+		"更早的 case 仍可继续研究",
+		"解析 learning artifact 前明确拒绝",
 	} {
 		assertContains(t, contract, required, "learning feedback contract")
 	}
@@ -91,7 +93,16 @@ func TestLearningImplementationLivesInProductionPackage(t *testing.T) {
 		"internal/steamai/learningbatch/preview.go",
 		"internal/steamai/learningbatch/apply.go",
 		"internal/steamai/learningbatch/sourcechain.go",
+		"internal/steamai/learningbatch/gate3.go",
 		"internal/steamai/learningbatch/types.go",
+		"internal/steamai/evaluation_cli.go",
+		"internal/steamai/evaluation/types.go",
+		"internal/steamai/evaluation/publish_linux.go",
+		"internal/steamai/evaluation/publish_other.go",
+		"internal/steamai/evaluation/publish_windows.go",
+		"internal/steamai/evaluation/run.go",
+		"internal/steamai/evaluation/suite.go",
+		"internal/steamai/evaluation/verify.go",
 	} {
 		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(rel))); err != nil {
 			t.Fatalf("production learning implementation missing: %s: %v", rel, err)

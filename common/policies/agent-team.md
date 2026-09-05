@@ -6,7 +6,7 @@
 
 - **Commander**：确认 case 目标与授权边界，按需组队，解决冲突，组织审查和最终交付。
 - **执行成员**：围绕一个持续且独立的主任务工作，写入自己的允许范围。
-- **Reviewer**：只读 artifact、evidence 和 finding，只写 review；不修改原结论，不执行 heavy action。
+- **Reviewer**：只读 artifact、evidence、finding、evaluation spec/run，只写 review 与任务指定的 exact evaluation attestation；不修改原结论/spec/run/candidate/patch，不执行 heavy action或运行 arms。
 - **tactical subagent**：为某个成员处理窄、短、可验证的子任务，不成为 durable member。
 
 active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commander 可以创建 durable member；新增前优先复用现有成员，其次使用 tactical subagent。case `CLAUDE.md` 是 roster lifecycle 的唯一 durable source：只允许 `active`、`completed`、`inactive`，且只有 `active` 计入上限；这些状态不表示 session 是否运行。

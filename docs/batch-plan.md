@@ -2,30 +2,35 @@
 
 ## 读取指南
 
-本文件只是当前路线的短投影，不保存完整实施日志，也不是第二份 roadmap。先由 `docs/context-routing.md` 选场景；当前状态以 `docs/windows-native-product-roadmap.md` 为准，历史 thin-core 验收以 `docs/real-usage-hardening-roadmap.md` 为准。
+本文件只是当前路线的短投影，不保存完整实施日志，也不是第二份 roadmap。先由 `docs/context-routing.md` 选场景；当前状态以 `docs/verified-learning-roadmap.md` 为准。已完成 Windows 产品基线见 `docs/windows-native-product-roadmap.md`，历史 thin-core 验收见 `docs/real-usage-hardening-roadmap.md`。
 
 ## Current projection
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-windows-native-product-v1` |
-| source | `docs/windows-native-product-roadmap.md` |
-| 当前批次 | `WNP-04 Release 与真实 Windows 产品验收` |
-| 状态 | `completed` |
-| 已完成 | `WNP-01 native setup/launcher`、`WNP-02 production Fresh`、`WNP-03 thematic learning batch`、`WNP-04 Release 与真实 Windows 产品验收` |
-| 剩余 | 无 |
-| 下一批 | 无；等待真实使用反馈或明确新目标 |
+| 路线 | `steamai-verified-learning-v1` |
+| source | `docs/verified-learning-roadmap.md` |
+| 当前批次 | `VL-05 live gate 与真实 calibration` |
+| 状态 | `mechanical verification and independent full review passed；live gates pending` |
+| 已实现 | `Gate 0 integrity`、`Gate 1 replay contract`、`Gate 2 bounded runner`、`Gate 3 attestation-aware promotion`、`Gate 4 explicit opt-in outcome contract` |
+| 已验证 | full suite、vet、Windows/Linux build、Windows test cross-compile 与 native evaluation runtime、diff check |
+| 待验证 | 固定开关的 live evaluator test；Windows process-tree 与 locked-file update recovery live paths |
+| live pending | actual Claude calibration；真实 candidate comparative journey；多个后续 case field outcomes |
+| 下一批 | calibration 为 `go` 后执行真实 behavioral promotion journey；若为 `no-go/inconclusive` 则先修 evaluator，保持 promotion fail-closed |
 
-最新结果：正式 `v1.0.4` Release 与匿名 latest 下载链路、真实 Windows setup/PATH/Fresh/visible members/duplicate Commander/learning/update/uninstall、Claude Code native context/persistent correction/`HOLD_STALE_TASK`/定向跨会话消息，以及 default/full suite、vet、三平台 contract CI、Windows/Linux build、diff check 和独立终审均已通过。`v1.0.4` 只收录 `v1.0.3` 后已验证的文档、测试 fixture 与维护护栏，不改变产品 runtime。当前路线完成。
+当前判断：mechanical implementation 已闭合到 production API/CLI 和 case-pinned contracts；默认 synthetic tests 不调用模型。未完成的 live evidence 不由模板、fake Claude、cross-build 或旧 v1.0.4 证据替代。
 
 ## 验证标准
 
-- 本文件与当前 roadmap 的 route/state/next 必须一致；冲突时 fail-closed。
-- 不由 Markdown claim、workflow definition、fake process、cross-compile 或 synthetic fixture单独证明 live completion。
-- 真实 setup/PATH、Fresh preview/apply、visible member、user correction、cross-session message、duplicate Commander、learning batch、update/uninstall 和 Release asset 必须逐项记录结果；隔离 setup/PATH/uninstall 已通过不代表其余 product journey 完成。
+- `go test -count=1 -p=2 -timeout=30m ./...`
+- `go vet ./...`
+- Windows/Linux build 与 `git diff --check`
+- evaluator/calibration/comparative/field evidence 按 `vnext/acceptance.md` 独立记录
+- no-go/inconclusive 必须保留并阻止 behavioral V3 promotion
 
 ## 风险与注意事项
 
-- native shell 不得演化为 control plane、session registry、消息总线、任务数据库或 compatibility runtime。
+- native runner 不是 control plane、自动 judge、遥测或跨 case aggregator。
 - 产品路径不使用 PowerShell、`.cmd` 或 `.bat`。
-- v1 不支持 active case迁移或跨电脑 session/case同步。
+- `accepted`、eligible、用户 confirmation、Apply 或 Git staging 不提升 V0–V4 maturity。
+- 真实 V4 依赖未来多个独立后续 case 的逐份 opt-in evidence，不能为关闭路线而模拟。

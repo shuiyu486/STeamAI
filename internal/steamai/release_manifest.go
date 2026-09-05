@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-var releaseVersionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$`)
+var (
+	releaseVersionPattern       = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$`)
+	stableReleaseVersionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+)
 
 type ReleaseManifest struct {
 	SchemaVersion int    `json:"schemaVersion"`
@@ -41,5 +44,12 @@ func parseReleaseManifest(data []byte, requested string) (ReleaseManifest, error
 }
 
 func parseLatestReleaseManifest(data []byte) (ReleaseManifest, error) {
-	return parseReleaseManifest(data, "")
+	manifest, err := parseReleaseManifest(data, "")
+	if err != nil {
+		return ReleaseManifest{}, err
+	}
+	if !stableReleaseVersionPattern.MatchString(manifest.Version) {
+		return ReleaseManifest{}, errors.New("latest release manifest 必须指向正式稳定版")
+	}
+	return manifest, nil
 }

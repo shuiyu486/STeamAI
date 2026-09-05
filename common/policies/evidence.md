@@ -25,4 +25,4 @@ finding 必须引用 evidence，并写明 owner、可选 verifier、claim、conf
 
 Reviewer 直接引用 finding/evidence，给出 `accepted`、`needs-evidence`、`disputed` 或 `superseded`。Reviewer 不修改原 evidence/finding；`needs-evidence` 返回原 owner 补证。
 
-只有 `accepted` finding/review 才能成为 learning candidate 的来源。经验回流还必须通过证据支持、跨 case 通用性、重复、冲突和脱敏审查；用户查看并确认完整 exact Git patch 前，canonical pack 零写。
+只有 `accepted` finding/review 才能成为 learning candidate 的来源；它只证明 V0 Reviewed，不证明可重复、比较改善或 field 效果。V1/V2/V3/V4 分别需要 deterministic、replay、calibrated comparative、multiple opt-in field outcome 的 exact evidence chain，不能互相替代。经验回流还必须通过证据支持、跨 case 通用性、重复、冲突和脱敏审查；用户查看并确认完整 exact Git patch 前，canonical pack 零写。

@@ -44,7 +44,12 @@ var (
 	procSendMessageTimeout = syscall.NewLazyDLL("user32.dll").NewProc("SendMessageTimeoutW")
 )
 
-var installRegistrySubkey = defaultInstallRegistrySubkey
+var (
+	installRegistrySubkey = defaultInstallRegistrySubkey
+	setUpdateVersion      = setRegistryString
+	renameUpdatePath      = os.Rename
+	removeUpdatePath      = os.Remove
+)
 
 type nativePlatform struct{}
 
@@ -170,7 +175,7 @@ func (nativePlatform) Install(executable, source, version string) error {
 	return nil
 }
 
-func (nativePlatform) ActivateUpdate(update updateInstall) (updateResult, error) {
+func (nativePlatform) ActivateUpdate(update updateInstall) (result updateResult, err error) {
 	active, err := (nativePlatform{}).ActiveExecutable()
 	if err != nil {
 		return updateResult{}, err
@@ -185,9 +190,19 @@ func (nativePlatform) ActivateUpdate(update updateInstall) (updateResult, error)
 	if err := requirePlainFile(update.Executable); err != nil {
 		return updateResult{}, err
 	}
+	if update.ExecutableSHA256 == "" {
+		return updateResult{}, errors.New("update executable SHA-256 未绑定")
+	}
+	actualExecutableSHA, err := hashUpdateFile(update.Executable)
+	if err != nil || actualExecutableSHA != update.ExecutableSHA256 {
+		return updateResult{}, errors.New("staged update executable 在最终切换前发生变化")
+	}
 	if update.ReplaceSource {
 		if err := requirePlainDirectory(update.StagedSource); err != nil {
 			return updateResult{}, err
+		}
+		if update.ExpectedStagedHead == "" || update.ExpectedStagedRefs == "" {
+			return updateResult{}, errors.New("staged source pre-state 未完整绑定")
 		}
 	}
 	productKey, err := openRegistryKey(syscall.HKEY_CURRENT_USER, installRegistrySubkey, syscall.KEY_READ|syscall.KEY_WRITE)
@@ -214,26 +229,38 @@ func (nativePlatform) ActivateUpdate(update updateInstall) (updateResult, error)
 	if err != nil || state.Head != update.ExpectedHead || state.Status != update.ExpectedStatus || state.Refs != update.ExpectedRefs {
 		return updateResult{}, errors.New("canonical checkout 在最终切换前发生变化")
 	}
+	if update.ReplaceSource {
+		stagedState, stagedErr := captureCanonicalUpdateState(git, update.StagedSource)
+		if stagedErr != nil || stagedState.Head != update.ExpectedStagedHead || stagedState.Status != update.ExpectedStagedStatus || stagedState.Refs != update.ExpectedStagedRefs {
+			return updateResult{}, errors.New("staged canonical source 在最终切换前发生变化")
+		}
+	}
 	backupSource := ""
-	rollbackSource := false
+	sourceBackedUp := false
+	sourcePublished := false
 	if update.ReplaceSource {
 		backupSource = update.Source + ".steamai-update-backup"
 		if exists, pathErr := pathExists(backupSource); pathErr != nil || exists {
 			return updateResult{}, errors.New("canonical source update backup 已存在")
 		}
-		if err := os.Rename(update.Source, backupSource); err != nil {
+		if err := renameUpdatePath(update.Source, backupSource); err != nil {
 			return updateResult{}, fmt.Errorf("备份 canonical source: %w", err)
 		}
-		rollbackSource = true
+		sourceBackedUp = true
 		defer func() {
-			if rollbackSource {
-				_ = os.Rename(update.Source, update.StagedSource)
-				_ = os.Rename(backupSource, update.Source)
+			if err == nil || !sourceBackedUp {
+				return
+			}
+			rollbackErr := rollbackUpdatedSource(update.Source, update.StagedSource, backupSource, sourcePublished)
+			if rollbackErr != nil {
+				result.PreserveStagedSource = true
+				err = errors.Join(err, rollbackErr)
 			}
 		}()
-		if err := os.Rename(update.StagedSource, update.Source); err != nil {
+		if err := renameUpdatePath(update.StagedSource, update.Source); err != nil {
 			return updateResult{}, fmt.Errorf("发布 canonical source update: %w", err)
 		}
+		sourcePublished = true
 	}
 	activeDir := filepath.Dir(active)
 	nextExe := filepath.Join(activeDir, "steamai.next.exe")
@@ -242,6 +269,11 @@ func (nativePlatform) ActivateUpdate(update updateInstall) (updateResult, error)
 	}
 	if err := installExecutable(update.Executable, nextExe); err != nil {
 		return updateResult{}, err
+	}
+	installedSHA, hashErr := hashUpdateFile(nextExe)
+	if hashErr != nil || installedSHA != update.ExecutableSHA256 {
+		_ = os.Remove(nextExe)
+		return updateResult{}, errors.New("copied update executable SHA-256 不匹配")
 	}
 	oldVersion, oldVersionErr := queryRegistryString(productKey, installedVersionValue)
 	oldVersionExists := oldVersionErr == nil
@@ -254,26 +286,63 @@ func (nativePlatform) ActivateUpdate(update updateInstall) (updateResult, error)
 		_ = os.Remove(nextExe)
 		return updateResult{}, fmt.Errorf("清理旧 steamai.previous.exe: %w", err)
 	}
-	if err := os.Rename(active, previousExe); err != nil {
+	if err := renameUpdatePath(active, previousExe); err != nil {
 		_ = os.Remove(nextExe)
 		return updateResult{}, fmt.Errorf("切换当前 steamai.exe: %w", err)
 	}
-	if err := os.Rename(nextExe, active); err != nil {
-		_ = os.Rename(previousExe, active)
-		return updateResult{}, fmt.Errorf("发布新版 steamai.exe: %w", err)
-	}
-	if err := setRegistryString(productKey, installedVersionValue, update.Version, syscall.REG_SZ); err != nil {
-		_ = os.Remove(active)
-		_ = os.Rename(previousExe, active)
-		if oldVersionExists {
-			_ = setRegistryString(productKey, installedVersionValue, oldVersion, syscall.REG_SZ)
-		} else {
-			_ = deleteRegistryValue(productKey, installedVersionValue)
+	if err := renameUpdatePath(nextExe, active); err != nil {
+		publishErr := fmt.Errorf("发布新版 steamai.exe: %w", err)
+		if restoreErr := renameUpdatePath(previousExe, active); restoreErr != nil {
+			return updateResult{}, errors.Join(publishErr, fmt.Errorf("恢复旧 steamai.exe 失败；旧版保留于 %s: %w", previousExe, restoreErr))
 		}
-		return updateResult{}, err
+		return updateResult{}, publishErr
 	}
-	rollbackSource = false
+	if err := setUpdateVersion(productKey, installedVersionValue, update.Version, syscall.REG_SZ); err != nil {
+		activationErr := fmt.Errorf("写入 installed version: %w", err)
+		executableRollbackErr := rollbackUpdatedExecutable(active, previousExe)
+		if executableRollbackErr != nil {
+			sourceBackedUp = false
+			result = updateResult{CleanupPath: backupSource, PreserveStagedSource: update.ReplaceSource}
+		}
+		var registryRollbackErr error
+		if oldVersionExists {
+			if restoreErr := setRegistryString(productKey, installedVersionValue, oldVersion, syscall.REG_SZ); restoreErr != nil {
+				registryRollbackErr = fmt.Errorf("恢复旧 installed version: %w", restoreErr)
+			}
+		} else if restoreErr := deleteRegistryValue(productKey, installedVersionValue); restoreErr != nil {
+			registryRollbackErr = fmt.Errorf("删除未完成的 installed version: %w", restoreErr)
+		}
+		return result, errors.Join(activationErr, executableRollbackErr, registryRollbackErr)
+	}
+	sourceBackedUp = false
 	return updateResult{CleanupPath: backupSource}, nil
+}
+
+func rollbackUpdatedExecutable(active, previous string) error {
+	if err := removeUpdatePath(active); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("移除未完成的新版 steamai.exe %s 失败；新版保留于 %s，旧版保留于 %s: %w", active, active, previous, err)
+	}
+	if err := renameUpdatePath(previous, active); err != nil {
+		return fmt.Errorf("恢复旧 steamai.exe 失败；旧版保留于 %s: %w", previous, err)
+	}
+	return nil
+}
+
+func rollbackUpdatedSource(source, staged, backup string, published bool) error {
+	var rollbackErr error
+	if published {
+		if err := renameUpdatePath(source, staged); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("保留已发布的新 canonical source %s: %w", staged, err))
+			return fmt.Errorf("canonical source rollback 不完整；旧 source 保留于 %s，新 source 保留于 %s: %w", backup, source, rollbackErr)
+		}
+	}
+	if err := renameUpdatePath(backup, source); err != nil {
+		rollbackErr = errors.Join(rollbackErr, fmt.Errorf("恢复旧 canonical source %s: %w", source, err))
+	}
+	if rollbackErr != nil {
+		return fmt.Errorf("canonical source rollback 不完整；旧 source 保留于 %s，新 source 保留于 %s: %w", backup, staged, rollbackErr)
+	}
+	return nil
 }
 
 func (nativePlatform) Uninstall(currentExecutable string) (uninstallResult, error) {
@@ -477,13 +546,21 @@ func (nativePlatform) CaseIdentity(path string) (string, error) {
 }
 
 func (nativePlatform) AcquireCommander(name string) (commanderLease, error) {
+	return acquireNamedMutex(name, errCommanderRunning, true)
+}
+
+func (nativePlatform) AcquireCanonicalMutation(name string) (commanderLease, error) {
+	return acquireNamedMutex(name, errCanonicalMutationRunning, false)
+}
+
+func acquireNamedMutex(name string, duplicateErr error, inheritable bool) (commanderLease, error) {
 	namePtr, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
 		return commanderLease{}, err
 	}
-	security := syscall.SecurityAttributes{
-		Length:        uint32(unsafe.Sizeof(syscall.SecurityAttributes{})),
-		InheritHandle: 1,
+	security := syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{}))}
+	if inheritable {
+		security.InheritHandle = 1
 	}
 	handle, _, callErr := procCreateMutexW.Call(uintptr(unsafe.Pointer(&security)), 0, uintptr(unsafe.Pointer(namePtr)))
 	if handle == 0 {
@@ -491,7 +568,7 @@ func (nativePlatform) AcquireCommander(name string) (commanderLease, error) {
 	}
 	if errors.Is(callErr, syscall.ERROR_ALREADY_EXISTS) {
 		syscall.CloseHandle(syscall.Handle(handle))
-		return commanderLease{}, errCommanderRunning
+		return commanderLease{}, duplicateErr
 	}
 	return commanderLease{
 		handle:  handle,

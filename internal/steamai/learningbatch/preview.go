@@ -28,6 +28,13 @@ func BuildPreview(git, source, caseRoot string, request Request) (Preview, error
 	if err != nil {
 		return Preview{}, fmt.Errorf("current case 无效: %w", err)
 	}
+	verifiedLearning, err := casebootstrap.SupportsVerifiedLearning(caseRoot)
+	if err != nil {
+		return Preview{}, fmt.Errorf("读取 verified-learning capability: %w", err)
+	}
+	if !verifiedLearning {
+		return Preview{}, ErrVerifiedLearningUnavailable
+	}
 	manifestRel := "packs/" + identity.Pack + "/manifest.yml"
 	manifestPath := filepath.Join(source, filepath.FromSlash(manifestRel))
 	if err := requirePlainPath(source, manifestPath, false); err != nil {
@@ -112,12 +119,17 @@ func BuildPreview(git, source, caseRoot string, request Request) (Preview, error
 	if err := validateBatchBinding(binding, identity, head, request, candidateRecords, targets, patchSHA); err != nil {
 		return Preview{}, err
 	}
+	calibration, promotion, runBundle, err := validateGate3(caseRoot, request, binding, binding.Reviewer, patchRel, patchSHA)
+	if err != nil {
+		return Preview{}, err
+	}
 	preview := Preview{
 		SchemaVersion: 1, Pack: identity.Pack, CaseRevision: identity.Revision, CanonicalHead: head,
 		ManifestPath: manifestRel, ManifestSHA256: hashBytes(manifest), ManifestBytes: len(manifest),
 		SnapshotDigest: identity.PayloadDigest, Candidates: candidateRecords, Targets: targets,
 		PatchPath: patchRel, PatchSHA256: patchSHA, PatchBytes: len(patchData),
 		BatchReviewPath: batchReviewRel, BatchReviewSHA256: hashBytes(batchReviewData), BatchReviewer: binding.Reviewer,
+		Calibration: calibration, Promotion: promotion, RunBundle: runBundle,
 		patchData: append([]byte(nil), patchData...), targetData: targetData,
 	}
 	preview.Identity = canonicalIdentity(preview)
@@ -235,6 +247,7 @@ func validateCandidateReview(caseRoot string, identity casebootstrap.CurrentIden
 	if candidate.Pack != pack || candidate.Revision != identity.Revision || candidate.PackTree != identity.PackTree ||
 		candidate.CommonTree != identity.CommonTree || candidate.SnapshotDigest != identity.PayloadDigest ||
 		eligibility.CandidatePath != candidateRel || eligibility.CandidateSHA256 != candidate.CandidateSHA256 ||
+		eligibility.ClaimKind != candidate.ClaimKind || eligibility.RequiredMaturity != candidate.RequiredMaturity ||
 		eligibility.SourceFinding != candidate.SourceFinding || eligibility.SourceFindingSHA != candidate.SourceFindingSHA ||
 		eligibility.SourceReview != candidate.SourceReview || eligibility.SourceReviewSHA != candidate.SourceReviewSHA ||
 		eligibility.Pack != candidate.Pack || eligibility.Revision != candidate.Revision || eligibility.PackTree != candidate.PackTree ||
@@ -258,6 +271,7 @@ func validateCandidateReview(caseRoot string, identity casebootstrap.CurrentIden
 	}
 	return CandidateRecord{
 		CandidatePath: candidateRel, CandidateSHA256: candidate.CandidateSHA256,
+		ClaimKind: candidate.ClaimKind, RequiredMaturity: candidate.RequiredMaturity,
 		ReviewPath: reviewRel, ReviewSHA256: hashBytes(reviewData), Reviewer: eligibility.Reviewer,
 		Destination: candidate.Destination, SourceFinding: findingRel, SourceFindingSHA: candidate.SourceFindingSHA,
 		SourceReview: sourceReviewRel, SourceReviewSHA: candidate.SourceReviewSHA,
@@ -362,6 +376,7 @@ func validateBatchBinding(binding batchBinding, identity casebootstrap.CurrentId
 	for index, item := range binding.Candidates {
 		expected := candidates[index]
 		if item.CandidatePath != expected.CandidatePath || item.CandidateSHA256 != expected.CandidateSHA256 ||
+			item.ClaimKind != expected.ClaimKind || item.RequiredMaturity != expected.RequiredMaturity ||
 			item.ReviewPath != expected.ReviewPath || item.ReviewSHA256 != expected.ReviewSHA256 ||
 			expected.Reviewer != binding.Reviewer || item.Destination != expected.Destination {
 			return ErrBinding
@@ -384,15 +399,18 @@ func renderHumanPreview(preview Preview) string {
 	fmt.Fprintf(&out, "- manifest: %s sha256:%s bytes:%d\n", preview.ManifestPath, preview.ManifestSHA256, preview.ManifestBytes)
 	fmt.Fprintln(&out, "- candidates:")
 	for _, item := range preview.Candidates {
-		fmt.Fprintf(&out, "  - %s sha256:%s | eligibility-review:%s sha256:%s reviewer:%s | destination:%s\n", item.CandidatePath, item.CandidateSHA256, item.ReviewPath, item.ReviewSHA256, item.Reviewer, item.Destination)
+		fmt.Fprintf(&out, "  - %s sha256:%s | claim:%s required:%s | eligibility-review:%s sha256:%s reviewer:%s | destination:%s\n", item.CandidatePath, item.CandidateSHA256, item.ClaimKind, item.RequiredMaturity, item.ReviewPath, item.ReviewSHA256, item.Reviewer, item.Destination)
 		fmt.Fprintf(&out, "    source-finding:%s sha256:%s | source-accepted-review:%s sha256:%s\n", item.SourceFinding, item.SourceFindingSHA, item.SourceReview, item.SourceReviewSHA)
 	}
 	fmt.Fprintln(&out, "- targets:")
 	for _, item := range preview.Targets {
 		fmt.Fprintf(&out, "  - %s pre:%s/%d post:%s/%d\n", item.Path, item.PreSHA256, item.PreBytes, item.PostSHA256, item.PostBytes)
 	}
-	fmt.Fprintf(&out, "- batch-review: %s sha256:%s reviewer:%s\n- patch: %s sha256:%s bytes:%d\n\n", preview.BatchReviewPath, preview.BatchReviewSHA256, preview.BatchReviewer, preview.PatchPath, preview.PatchSHA256, preview.PatchBytes)
-	fmt.Fprintln(&out, "完整 patch：")
+	fmt.Fprintf(&out, "- batch-review: %s sha256:%s reviewer:%s\n- patch: %s sha256:%s bytes:%d\n", preview.BatchReviewPath, preview.BatchReviewSHA256, preview.BatchReviewer, preview.PatchPath, preview.PatchSHA256, preview.PatchBytes)
+	if preview.Calibration != nil {
+		fmt.Fprintf(&out, "- calibration-attestation: %s sha256:%s\n- promotion-attestation: %s sha256:%s\n- run-bundle: %s sha256:%s identity:%s reveal-sha256:%s\n", preview.Calibration.Path, preview.Calibration.SHA256, preview.Promotion.Path, preview.Promotion.SHA256, preview.RunBundle.Path, preview.RunBundle.SHA256, preview.RunBundle.Identity, preview.RunBundle.RevealSHA256)
+	}
+	fmt.Fprintln(&out, "\n完整 patch：")
 	out.Write(preview.patchData)
 	if len(preview.patchData) == 0 || preview.patchData[len(preview.patchData)-1] != '\n' {
 		out.WriteByte('\n')

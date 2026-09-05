@@ -48,7 +48,7 @@ Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-rep
 
 - **Commander**：理解目标与授权、按需组队、解决协作冲突、组织审查、集成交付和发起经验回流。
 - **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开屏幕上独立可见的普通 Claude Code 窗口。
-- **Reviewer**：只读 artifact/evidence/finding/candidate/patch，只写 `reviews/`，不执行 heavy action。
+- **Reviewer**：只读 artifact/evidence/finding/spec/run/candidate/patch，只写 `reviews/` 与任务指定的 exact evaluation attestation，不执行 heavy action或运行 arms。
 - active team 默认最多 3 名执行成员 + 1 名 Reviewer；每个问题一名 owner、最多一名 verifier。
 - Claude Code 原生 session 是工作记忆，`ListAgents` / `SendMessage` 是协作通道，原生 logs/attach/resume/respawn 只作观察与恢复。STeamAI 不自建 task/session/message registry、队列或 supervisor。
 - 用户在成员窗口里的直接输入优先；跨会话消息不能冒充用户纠偏、改派正式任务或扩大 case 授权。
@@ -70,7 +70,15 @@ Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-rep
   reviews/R-LB-*.md
   learnings/candidates/L-*.md
   learnings/patches/LB-*.patch
+  evaluations/specs/*.md
+  evaluations/specs/<suite-spec>.json
+  evaluations/runs/<run-id>/manifest.json
+  evaluations/runs/<suite-manifest>.json
+  evaluations/attestations/*.md
+  evaluations/outcomes/*.md
 ```
+
+重要 finding 可按需升级为 proof-carrying replay；accepted review 只证明 V0。V1/V2/V3/V4 分别表示 mechanical、replay-backed、calibrated comparative 与 multiple field-observed 的已证明范围，不是自动状态机。
 
 artifact index 记录 case-relative path、SHA-256、bytes、来源和授权范围；evidence 绑定 artifact；finding 引用 evidence；append-only review round 绑定 finding/evidence exact SHA。临时思考、聊天和长工具输出留在原生 session，不持久化为控制面状态。
 
@@ -80,14 +88,14 @@ artifact index 记录 case-relative path、SHA-256、bytes、来源和授权范�
 
 流程是：
 
-1. 从 current accepted evidence chain 提炼任意多条 immutable candidate；每条只提出 selected pack 中一个 destination。
+1. 从 current accepted evidence chain 提炼任意多条 immutable candidate；每条只提出 selected pack 中一个 destination，并声明 `mechanical→V1`、`analysis-method→V2` 或 `behavioral→V3` 的最低 maturity。
 2. Reviewer 逐条只做 eligibility，检查证据、通用性、反例、重复/冲突、脱敏与目标资格。
 3. 将同主题 eligible candidates 组成一个或多个 batch；一个 batch 可修改同一 pack 中多个现有 Markdown targets。
-4. Reviewer 独立绑定完整未截断 patch、candidate/review SHA、canonical HEAD、target pre/postimage，并给出 accepted batch review。
+4. Reviewer 独立绑定完整未截断 patch、candidate/review SHA、canonical HEAD、target pre/postimage；behavioral batch 还必须绑定经 native prepare→逐 slot run→finalize 闭合所有预注册独立 control patches 的 current `go` calibration、解盲前 exact blind decision、`pass`/`improved`/`V3` promotion、matched runtime/contract run bundle，以及该 run 对应的 exact `reveal.json` path/SHA，且被评估的是最终完整 patch，才可给出 accepted batch review。
 5. 原生 helper 生成零写入 exact preview；只有 `CONFIRM STEAMAI LEARNING BATCH <identity>` 才会 Apply。
 6. Apply 只改变 canonical working-tree targets；HEAD、index、当前 case snapshot 不变；失败只恢复本 batch targets；不自动 `git add`、commit 或 push。
 
-未确认 candidate 留在来源 case，不扫描或汇总其它 case，也不建立 Hub、inbox 或经验数据库。已确认并应用的 working-tree bytes 可立即供本机后续 Fresh 使用；Git history 最终自然汇聚用户另行授权 commit/push 的通用经验。
+未确认 candidate 留在来源 case，不扫描或汇总其它 case。verified-learning 引入前创建的 case 仍可作为 current case 继续研究，但不支持新版 learning preview/apply；helper 会在解析旧 artifact 前明确拒绝，不迁移或猜测旧字段。后续 field outcome 只由对应 case 用户逐份 opt-in，negative/inconclusive 也永久保留；单个 case 不足以 V4，也不建立 Hub、inbox 或经验数据库。已确认并应用的 working-tree bytes 可立即供本机后续 Fresh 使用；Git history 最终自然汇聚用户另行授权 commit/push 的通用经验。
 
 ## 更新与卸载
 
@@ -116,7 +124,8 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 - case/研究模板与合同：`vnext/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 当前路线：`docs/windows-native-product-roadmap.md`
+- 当前路线：`docs/verified-learning-roadmap.md`
+- 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
 - 自动与人工验收分层：`vnext/acceptance.md`
 
 维护验证：
@@ -127,6 +136,6 @@ go vet ./...
 git diff --check
 ```
 
-fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、learning apply 或 formal release 验收。
+fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径，但不能替代真实 timeout/process-tree cleanup live gate。默认测试不调用模型。
 
 旧 Go control plane、mega CLI、project-local runtime、PowerShell façade、adapter host、legacy `/rekit` 与旧项目 importer 均已删除。STeamAI 不是自动逆向/漏洞挖掘或渗透引擎；危险动作仍受明确 case 授权、具体用户确认与 Claude Code 工具权限约束，`CLAUDE.md` 只提供上下文，不授予权限。

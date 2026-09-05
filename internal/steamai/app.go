@@ -20,13 +20,14 @@ import (
 const canonicalModule = "github.com/shuiyu486/STeamAI"
 
 var (
-	errUnsupportedPlatform = errors.New("STeamAI 原生入口当前只支持 Windows 10/11 x64")
-	errPartialCase         = errors.New("当前目录包含不完整或冲突的 STeamAI 状态")
-	errCommanderRunning    = errors.New("当前 case 已有 Commander 正在运行，请切换到原窗口")
-	memberNamePattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
-	gitIdentityPattern     = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
-	sha256Pattern          = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	windowsReservedNames   = map[string]struct{}{
+	errUnsupportedPlatform      = errors.New("STeamAI 原生入口当前只支持 Windows 10/11 x64")
+	errPartialCase              = errors.New("当前目录包含不完整或冲突的 STeamAI 状态")
+	errCommanderRunning         = errors.New("当前 case 已有 Commander 正在运行，请切换到原窗口")
+	errCanonicalMutationRunning = errors.New("canonical checkout 正在被另一个 learning apply 或 update 修改；请稍后重试")
+	memberNamePattern           = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	gitIdentityPattern          = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+	sha256Pattern               = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	windowsReservedNames        = map[string]struct{}{
 		"con": {}, "prn": {}, "aux": {}, "nul": {},
 		"com1": {}, "com2": {}, "com3": {}, "com4": {}, "com5": {}, "com6": {}, "com7": {}, "com8": {}, "com9": {},
 		"lpt1": {}, "lpt2": {}, "lpt3": {}, "lpt4": {}, "lpt5": {}, "lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
@@ -57,18 +58,23 @@ type commanderLease struct {
 }
 
 type updateInstall struct {
-	Source         string
-	StagedSource   string
-	ReplaceSource  bool
-	Executable     string
-	Version        string
-	ExpectedHead   string
-	ExpectedStatus string
-	ExpectedRefs   string
+	Source               string
+	StagedSource         string
+	ReplaceSource        bool
+	Executable           string
+	ExecutableSHA256     string
+	Version              string
+	ExpectedHead         string
+	ExpectedStatus       string
+	ExpectedRefs         string
+	ExpectedStagedHead   string
+	ExpectedStagedStatus string
+	ExpectedStagedRefs   string
 }
 
 type updateResult struct {
-	CleanupPath string
+	CleanupPath          string
+	PreserveStagedSource bool
 }
 
 type uninstallResult struct {
@@ -86,6 +92,7 @@ type platform interface {
 	Uninstall(currentExecutable string) (uninstallResult, error)
 	CaseIdentity(path string) (string, error)
 	AcquireCommander(name string) (commanderLease, error)
+	AcquireCanonicalMutation(name string) (commanderLease, error)
 	RunAttached(processSpec, io.Reader, io.Writer, io.Writer) error
 	OpenVisible(processSpec) error
 }
@@ -174,6 +181,21 @@ func (a *app) run(args []string) error {
 		return a.learningBatchPreview()
 	case "__learning-batch-apply":
 		return a.learningBatchApply(args[1:])
+	case "__evaluation-suite-prepare":
+		if len(args) != 1 {
+			return errors.New("内部 evaluation suite prepare 参数无效")
+		}
+		return a.evaluationSuitePrepare()
+	case "__evaluation-run":
+		if len(args) != 1 {
+			return errors.New("内部 evaluation run 参数无效")
+		}
+		return a.evaluationRun()
+	case "__evaluation-suite-finalize":
+		if len(args) != 1 {
+			return errors.New("内部 evaluation suite finalize 参数无效")
+		}
+		return a.evaluationSuiteFinalize()
 	case "__open-member":
 		if len(args) != 2 {
 			return errors.New("内部成员启动参数无效")
@@ -244,6 +266,11 @@ func (a *app) learningBatchApply(args []string) error {
 	if err != nil {
 		return err
 	}
+	lease, err := a.acquireCanonicalMutation(source)
+	if err != nil {
+		return err
+	}
+	defer lease.release()
 	preview, err := learningbatch.Apply(git, source, caseRoot, request, args[1])
 	if err != nil {
 		return err
@@ -646,6 +673,22 @@ func pathWithin(path, root string) bool {
 func commanderMutexName(caseIdentity string) string {
 	sum := sha256.Sum256([]byte(caseIdentity))
 	return `Local\STeamAI.Commander.` + hex.EncodeToString(sum[:16])
+}
+
+func canonicalMutationMutexName(source string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(source))))
+	return `Local\STeamAI.CanonicalMutation.` + hex.EncodeToString(sum[:16])
+}
+
+func (a *app) acquireCanonicalMutation(source string) (commanderLease, error) {
+	lease, err := a.platform.AcquireCanonicalMutation(canonicalMutationMutexName(source))
+	if err != nil {
+		if errors.Is(err, errCanonicalMutationRunning) {
+			return commanderLease{}, err
+		}
+		return commanderLease{}, fmt.Errorf("建立 canonical mutation 互斥: %w", err)
+	}
+	return lease, nil
 }
 
 func withoutEnvironment(env []string, names ...string) []string {

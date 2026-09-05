@@ -8,6 +8,7 @@ Pack 可以用声明式 catalog/recipe 说明工具能力、输入、输出、�
 - 优先只读、窄范围、可重复的路径；输出限制为 case-local 目标和有界大小。
 - 工具输出只保留摘要、相对路径、完整性信息和关键定位；敏感原始数据留在 case 内。
 - 工具失败、超时或输出越界时停止，不自动 retry、扩大范围或切换到更高风险工具。
+- 自动 evaluation runner 只接受 synthetic、无凭据、工具网络 forbidden、无真实目标、Read-only、固定 model/time/USD budget 的 scenario；Claude API 调用仅限受预算的 evaluator 本身。其它 replay 仍走下方 heavy-action 确认。
 
 ## Heavy action
 

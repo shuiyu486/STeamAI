@@ -6,18 +6,20 @@
 
 ## 当前指针
 
-- 当前路线：`steamai-windows-native-product-v1`
-- 当前路线入口：`docs/windows-native-product-roadmap.md`
+- 当前路线：`steamai-verified-learning-v1`
+- 当前路线入口：`docs/verified-learning-roadmap.md`
 - 短投影：`docs/batch-plan.md`
 - canonical 产品入口：`cmd/steamai` 与 `.claude/skills/steamai/SKILL.md`
 - 薄核心合同：`vnext/**`
+- 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
 - 历史薄核心完成事实：`docs/real-usage-hardening-roadmap.md`
 
 ## 按需路由
 
 | 需要判断什么 | 首选入口 | 不要默认读取 |
 |---|---|---|
-| 当前 Windows 产品路线、状态与剩余 live gate | `docs/windows-native-product-roadmap.md` | 不把旧 thin-core 完成卡当当前边界 |
+| 当前 verified-learning 路线、Gate 1–4 与剩余 live gate | `docs/verified-learning-roadmap.md` | 不把机械 tests 当 calibration/V4 evidence |
+| 已完成 Windows 产品基线 | `docs/windows-native-product-roadmap.md` | 不改写为当前路线或复用旧证据证明新行为 |
 | 当前路线短投影 | `docs/batch-plan.md` | 不把它当第二份 roadmap |
 | 安装、quickstart、更新、卸载与产品定位 | `README.md` | 不读历史 source-clone-only 说明 |
 | native shell 机械边界 | `cmd/steamai`、`internal/steamai/app.go`，再按 symbol 路由 | 不把它扩展为团队控制面 |
@@ -26,6 +28,7 @@
 | Claude Code 原生能力 | `vnext/capabilities.md` | 不把 session ID 当身份或授权 |
 | 自动与 live acceptance | `vnext/acceptance.md` | 不把 synthetic/cross-build 当真实用户体验 |
 | learning 批次回流 | `vnext/learning-feedback.md` | 不使用旧单目标 Checkpoint B，不自动写 pack |
+| proof-carrying replay、V0–V4、calibration、promotion、field outcome | `vnext/verified-learning.md` | 不默认读取全部 run/output，不自动扫描其它 case |
 | Release 构建与产物 | `.github/workflows/release.yml` | 不把 workflow definition 当 published release |
 | pack 编写或内容 | `packs/<pack>/manifest.yml` 与目标 pack 文件 | 不读取真实 case artifact |
 | 历史薄核心事实 | `docs/real-usage-hardening-roadmap.md` | 不据此禁止当前已批准 native shell |
@@ -35,7 +38,7 @@
 
 - 当前路线拥有当前边界与验收状态；历史路线只保存当时事实。
 - 代码、skill、README、acceptance 和当前路线冲突时先收口合同，再宣称完成。
-- native shell 只做安装/Fresh/update/uninstall/卸载后窄自清理/exact apply/可见启动/瞬时互斥；不得增加 task、session、message、roster、finding、review 或 learning decision 状态。
+- native shell 只做安装/Fresh/update/uninstall/卸载后窄自清理/synthetic readonly evaluation bundle/exact apply/可见启动/瞬时互斥；不得增加 task、session、message、roster、finding、review 或 learning decision 状态。
 - 大文件按 symbol、标题或行号读取；测试失败保留测试名和关键错误。
 - source checkout 本身不是 case；不得在本仓库创建 `.steamai-vnext/` case state。
 

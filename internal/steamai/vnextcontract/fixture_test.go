@@ -247,6 +247,8 @@ func researchFixtureReplacements() map[string]string {
 		"{{LEARNING_ID}}":                        "L-001",
 		"{{DECISION}}":                           "accepted",
 		"{{KIND}}":                               "method",
+		"{{CLAIM_KIND}}":                         "mechanical",
+		"{{REQUIRED_MATURITY}}":                  "V1",
 		"{{GENERAL_SCOPE}}":                      "template contract testing",
 		"{{SOURCE_FINDING_REF}}":                 "../../findings/F-001.md",
 		"{{SOURCE_FINDING_SHA256}}":              strings.Repeat("b", 64),

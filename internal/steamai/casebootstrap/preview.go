@@ -66,6 +66,9 @@ func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWr
 	if err := appendSource("vnext/learning-feedback.md", ".steamai-vnext/contracts/learning-feedback.md"); err != nil {
 		return nil, nil, "", err
 	}
+	if err := appendSource("vnext/verified-learning.md", ".steamai-vnext/contracts/verified-learning.md"); err != nil {
+		return nil, nil, "", err
+	}
 	for _, record := range source.Records {
 		switch {
 		case strings.HasPrefix(record.Path, "vnext/templates/"):

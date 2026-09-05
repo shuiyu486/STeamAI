@@ -25,6 +25,7 @@ var (
 	memberNamePattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	hexIdentityPattern      = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
 	shaPattern              = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	reviewerMarkdownPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
 )
 
 type Facts struct {
@@ -166,7 +167,7 @@ func (facts Facts) Validate() error {
 			}
 		}
 		if member.Kind == "reviewer" && !reviewerWriteScope(member.AllowedWrites) {
-			return fmt.Errorf("Reviewer %s 的 allowedWrites 必须只包含 ../../reviews/ 下的路径", member.Name)
+			return fmt.Errorf("Reviewer %s 的 allowedWrites 必须只包含 ../../reviews/ 或 ../../evaluations/attestations/ 下的 exact 文件", member.Name)
 		}
 	}
 	if executors > 3 || reviewers > 1 {
@@ -189,16 +190,34 @@ func reviewerWriteScope(value string) bool {
 	}
 	for _, field := range fields {
 		path := strings.TrimSpace(field)
-		if path == "" || strings.ContainsAny(path, " `\t") || strings.Contains(path, "\\") {
+		if path == "" || path != field || strings.ContainsAny(path, " `\t") || strings.Contains(path, "\\") {
 			return false
 		}
 		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
-		reviewPath, ok := strings.CutPrefix(clean, "../../reviews/")
-		if clean != path || !ok || reviewPath == "" || strings.Contains(reviewPath, "/") {
+		if clean != path {
+			return false
+		}
+		reviewPath, reviewOK := strings.CutPrefix(clean, "../../reviews/")
+		attestationPath, attestationOK := strings.CutPrefix(clean, "../../evaluations/attestations/")
+		if reviewOK {
+			if !reviewerMarkdownName(reviewPath) {
+				return false
+			}
+			continue
+		}
+		if !attestationOK || !reviewerMarkdownName(attestationPath) {
 			return false
 		}
 	}
 	return true
+}
+
+func reviewerMarkdownName(name string) bool {
+	if !reviewerMarkdownPattern.MatchString(name) || strings.Contains(name, "/") {
+		return false
+	}
+	stem, _, _ := strings.Cut(name, ".")
+	return !windowsReservedName(stem)
 }
 
 func windowsReservedName(name string) bool {

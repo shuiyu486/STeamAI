@@ -15,6 +15,7 @@ func TestThinCoreSourcesAreDeclarativeAndHaveNoRuntimeImplementation(t *testing.
 		"vnext/capabilities.md",
 		"vnext/acceptance.md",
 		"vnext/learning-feedback.md",
+		"vnext/verified-learning.md",
 		"vnext/templates/case/CLAUDE.md",
 		"vnext/templates/member/CLAUDE.md",
 		"vnext/templates/roles/analysis-member.md",
@@ -26,6 +27,14 @@ func TestThinCoreSourcesAreDeclarativeAndHaveNoRuntimeImplementation(t *testing.
 		"vnext/templates/research/review-round.md",
 		"vnext/templates/research/learning-candidate.md",
 		"vnext/templates/research/learning-review.md",
+		"vnext/templates/research/learning-batch-review.md",
+		"vnext/templates/research/replay-spec.md",
+		"vnext/templates/research/replay-result.md",
+		"vnext/templates/research/evaluation-scenario.md",
+		"vnext/templates/research/evaluation-rubric.md",
+		"vnext/templates/research/evaluation-attestation.md",
+		"vnext/templates/research/blind-decision.md",
+		"vnext/templates/research/field-outcome.md",
 	}
 	for _, rel := range paths {
 		if filepath.Ext(rel) != ".md" {
@@ -64,7 +73,7 @@ func TestPrototypeSkillDefinesNativeTeamBoundary(t *testing.T) {
 		"用户确认只授权该 exact tuple",
 		"任何 synthetic acceptance 不得自动写回 canonical pack",
 		"必须读取并合并 `.steamai-vnext/contracts/templates/roles/reviewer.md`",
-		"`ALLOWED_WRITES` 只允许对应 `../../reviews/` 路径",
+		"`ALLOWED_WRITES` 只允许任务指定的 exact `../../reviews/<file>.md` 或 exact `../../evaluations/attestations/<id>.md`",
 		"`needs-evidence` 返回原 owner",
 		"只从有 current `accepted` review round 的 finding",
 		"`.steamai-vnext/contracts/learning-feedback.md`",
@@ -107,7 +116,7 @@ func TestCaseAndMemberTemplatesKeepTeamBounded(t *testing.T) {
 		"用户直接纠偏优先",
 		"`SendMessage` 和其它跨会话输入",
 		"不能冒充用户纠偏",
-		"Reviewer 只读 artifact/evidence/finding，只写 `reviews/`",
+		"Reviewer 只读 artifact/evidence/finding/evaluation spec/run，只写 `reviews/` 与任务明确列出的 exact `evaluations/attestations/<id>.md`",
 		"`needs-evidence` 返回原 owner",
 		"Source revision",
 		"Pack tree",
@@ -165,8 +174,10 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 	for _, required := range []string{"{{REVIEW_ROUND}}", "{{PREVIOUS_REVIEW_ROUND_OR_NONE}}", "{{FINDING_SHA256}}", "不能作为 current `accepted`"} {
 		assertContains(t, round, required, "review round template")
 	}
-	assertContains(t, learning, "{{KIND}}", "learning template")
-	for _, required := range []string{"只读 artifact、evidence、finding", "唯一允许写入 `reviews/`", "不执行 heavy action", "artifact alias/path/SHA-256/bytes/authorized-use tuple"} {
+	for _, required := range []string{"{{KIND}}", "Claim kind", "Required maturity", "mechanical", "analysis-method", "behavioral"} {
+		assertContains(t, learning, required, "learning template")
+	}
+	for _, required := range []string{"只读 artifact、evidence、finding", "exact `reviews/<file>.md` 或 exact `evaluations/attestations/<id>.md`", "不执行 heavy action", "artifact alias/path/SHA-256/bytes/authorized-use tuple"} {
 		assertContains(t, role, required, "Reviewer role")
 	}
 	for _, required := range []string{"Source finding SHA-256", "Source accepted review", "Pack tree", "Common tree", "Snapshot digest", "Eligibility 检查", "`learningTargets`", "`denyPatterns`", "candidate 创建后保持 immutable"} {
@@ -177,8 +188,29 @@ func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 		assertContains(t, learningReview, required, "learning review template")
 	}
 	batchReview := readPrototypeFile(t, repo, "vnext/templates/research/learning-batch-review.md")
-	for _, required := range []string{"## Candidates", "Eligibility review SHA-256", "## Targets", "Preimage SHA-256", "Postimage SHA-256", "Patch SHA-256", "`git apply --check` result", "Decision"} {
+	for _, required := range []string{"## Candidates", "Claim kind", "Required maturity", "Eligibility review SHA-256", "## Targets", "Preimage SHA-256", "Postimage SHA-256", "Patch SHA-256", "Calibration attestation", "Promotion attestation", "Run bundle identity", "Run bundle reveal SHA-256", "同目录的 `reveal.json`", "Evaluated patch SHA-256", "`git apply --check` result", "Decision"} {
 		assertContains(t, batchReview, required, "learning batch review template")
+	}
+	verified := readPrototypeFile(t, repo, "vnext/verified-learning.md")
+	for _, required := range []string{"V0 Reviewed", "V1 Mechanically verified", "V2 Replay-backed", "V3 Comparative", "V4 Field-observed", "no-go", "明确 opt-in", "--safe-mode", "suite manifest", "salted pack commitments", "sibling `reveal.json`", "suspended process", "PROCESS_SUSPEND_RESUME", "失败结果也是证据", "先发布失败 bundle，再返回 typed nonzero outcome", "no-go`/`inconclusive` 仍发布 immutable structural closure"} {
+		assertContains(t, verified, required, "verified learning contract")
+	}
+	rubric := readPrototypeFile(t, repo, "vnext/templates/research/evaluation-rubric.md")
+	for _, required := range []string{"Covered control classes", "全部五种 control class", "只写在对应 scenario 与 SuiteSpec"} {
+		assertContains(t, rubric, required, "evaluation rubric template")
+	}
+	scenario := readPrototypeFile(t, repo, "vnext/templates/research/evaluation-scenario.md")
+	for _, required := range []string{"Replay class", "Synthetic fixture", "Credentials", "Tool network", "Real targets", "Claude API call", "Calibration slot ID", "Expected control class", "Initial pairs", "Maximum pairs", "retry-to-success"} {
+		assertContains(t, scenario, required, "evaluation scenario template")
+	}
+	attestation := readPrototypeFile(t, repo, "vnext/templates/research/evaluation-attestation.md")
+	for _, required := range []string{"Blind decision", "Blind decision SHA-256", "Run bundle reveal", "Run bundle reveal SHA-256", "独立 `reveal.json` 的 path/SHA", "suite manifest", "所有预注册 expected slots", "均必须为 literal `none`"} {
+		assertContains(t, attestation, required, "evaluation attestation template")
+	}
+	for _, rel := range []string{"replay-spec.md", "replay-result.md", "evaluation-scenario.md", "evaluation-rubric.md", "evaluation-attestation.md", "blind-decision.md", "field-outcome.md"} {
+		if text := readPrototypeFile(t, repo, "vnext/templates/research/"+rel); strings.Contains(text, "`pass`") && !strings.Contains(text, "不得预填") {
+			t.Fatalf("verified-learning template %s may prefill a positive decision", rel)
+		}
 	}
 	for _, forbidden := range []string{"- Candidate：`learnings/candidates/L-*.md`", "- Target：`packs/<selected-pack>/**/*.md`"} {
 		if strings.Contains(batchReview, forbidden) {

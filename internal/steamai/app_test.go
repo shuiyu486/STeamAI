@@ -64,6 +64,12 @@ func (f *fakePlatform) AcquireCommander(string) (commanderLease, error) {
 	}
 	return commanderLease{handle: 42, release: func() {}}, nil
 }
+func (f *fakePlatform) AcquireCanonicalMutation(string) (commanderLease, error) {
+	if f.acquireErr != nil {
+		return commanderLease{}, f.acquireErr
+	}
+	return commanderLease{handle: 43, release: func() {}}, nil
+}
 func (f *fakePlatform) RunAttached(spec processSpec, _ io.Reader, _, _ io.Writer) error {
 	f.attached = append(f.attached, spec)
 	return nil

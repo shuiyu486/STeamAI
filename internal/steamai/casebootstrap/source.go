@@ -47,6 +47,7 @@ func freezeSource(git, root, pack string) (frozenSource, error) {
 	roots := []string{
 		".claude/skills/steamai/SKILL.md",
 		"vnext/learning-feedback.md",
+		"vnext/verified-learning.md",
 		"vnext/templates",
 		"packs/" + pack,
 		"common",

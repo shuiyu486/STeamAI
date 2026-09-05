@@ -111,6 +111,7 @@ func (a *app) update(args []string) error {
 	if err := validateUpdateExecutable(stagedExe, manifest.Version); err != nil {
 		return err
 	}
+	var stagedState canonicalUpdateState
 	if replaceSource {
 		if err := validateCanonicalSource(stagedSource); err != nil {
 			return err
@@ -118,7 +119,16 @@ func (a *app) update(args []string) error {
 		if err := validateCanonicalGitSource(git, stagedSource); err != nil {
 			return err
 		}
+		stagedState, err = captureCanonicalUpdateState(git, stagedSource)
+		if err != nil || stagedState.Head != manifest.Revision {
+			return errors.New("staged canonical source identity 无效")
+		}
 	}
+	lease, err := a.acquireCanonicalMutation(source)
+	if err != nil {
+		return err
+	}
+	defer lease.release()
 	currentState, err := captureCanonicalUpdateState(git, source)
 	if err != nil {
 		return err
@@ -128,9 +138,13 @@ func (a *app) update(args []string) error {
 	}
 	result, err := a.platform.ActivateUpdate(updateInstall{
 		Source: source, StagedSource: stagedSource, ReplaceSource: replaceSource,
-		Executable: stagedExe, Version: manifest.Version,
+		Executable: stagedExe, ExecutableSHA256: manifest.WindowsAMD64, Version: manifest.Version,
 		ExpectedHead: baseline.Head, ExpectedStatus: baseline.Status, ExpectedRefs: baseline.Refs,
+		ExpectedStagedHead: stagedState.Head, ExpectedStagedStatus: stagedState.Status, ExpectedStagedRefs: stagedState.Refs,
 	})
+	if result.PreserveStagedSource {
+		cleanupStaged = false
+	}
 	if err != nil {
 		return err
 	}
@@ -333,6 +347,14 @@ func writeUpdateExecutable(source string, data []byte) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func hashUpdateFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return hashUpdateBytes(data), nil
 }
 
 func validateUpdateExecutable(path, version string) error {

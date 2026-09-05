@@ -24,6 +24,9 @@ func (nativePlatform) CaseIdentity(string) (string, error) {
 func (nativePlatform) AcquireCommander(string) (commanderLease, error) {
 	return commanderLease{}, errUnsupportedPlatform
 }
+func (nativePlatform) AcquireCanonicalMutation(string) (commanderLease, error) {
+	return commanderLease{}, errUnsupportedPlatform
+}
 func (nativePlatform) RunAttached(processSpec, io.Reader, io.Writer, io.Writer) error {
 	return errUnsupportedPlatform
 }

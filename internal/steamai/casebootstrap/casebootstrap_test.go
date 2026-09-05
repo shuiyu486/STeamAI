@@ -69,6 +69,57 @@ func TestPreviewApplyAndCurrentValidation(t *testing.T) {
 	}
 }
 
+func TestCurrentValidationKeepsPreVerifiedLearningCasesCurrent(t *testing.T) {
+	git, source := canonicalFixture(t)
+	caseRoot := newCaseRoot(t)
+	facts := fixtureFacts()
+	preview, err := BuildPreview(git, source, caseRoot, facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(git, source, caseRoot, facts, ConfirmationPrefix+preview.Identity); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := ".steamai-vnext/contracts/verified-learning.md"
+	if err := os.Remove(filepath.Join(caseRoot, filepath.FromSlash(contract))); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"evaluations/specs", "evaluations/runs", "evaluations/attestations", "evaluations/outcomes", "evaluations/work"} {
+		if err := os.RemoveAll(filepath.Join(caseRoot, ".steamai-vnext", filepath.FromSlash(rel))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshotPath := filepath.Join(caseRoot, ".steamai-vnext", "pack-snapshot", "snapshot.yml")
+	snapshotData, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := string(snapshotData)
+	lines := strings.Split(snapshot, "\n")
+	filtered := make([]string, 0, len(lines))
+	for index := 0; index < len(lines); index++ {
+		if lines[index] == "  - path: "+contract {
+			index += 2
+			continue
+		}
+		filtered = append(filtered, lines[index])
+	}
+	if err := os.WriteFile(snapshotPath, []byte(strings.Join(filtered, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCurrent(caseRoot); err != nil {
+		t.Fatalf("pre-verified-learning current case 被新 executable 拒绝: %v", err)
+	}
+	enabled, err := SupportsVerifiedLearning(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabled {
+		t.Fatal("pre-verified-learning case 被错误标记为支持新版 learning")
+	}
+}
+
 func TestFactsRejectMarkerBreakingLineBreaks(t *testing.T) {
 	for _, field := range []string{"name", "goal", "authorization", "prohibited", "stop"} {
 		t.Run(field, func(t *testing.T) {
@@ -254,10 +305,27 @@ func TestFactsLimitAndReviewerRendering(t *testing.T) {
 		t.Fatal("Reviewer 混合 reviews/findings 写入范围未被拒绝")
 	}
 
+	for _, invalid := range []string{
+		"../../reviews/", "../../reviews/nested/R-fixture.md", "../../reviews/R-fixture.txt",
+		"../../evaluations/attestations/", "../../evaluations/attestations/nested/CAL.md",
+		"../../evaluations/runs/RUN/manifest.json", "../../evaluations/attestations/CAL.md,../../findings/F-fixture.md",
+		"../../reviews/R-*.md", "../../reviews/R-?.md", "../../reviews/R<bad>.md", "../../reviews/R:bad.md",
+		"../../reviews/CON.md", "../../reviews/nul.md", "../../reviews/COM1.extra.md", "../../evaluations/attestations/LPT9.md",
+		"../../reviews/R.md.", "../../reviews/R.md ",
+	} {
+		candidate := invalidReviewer
+		candidate.AllowedWrites = invalid
+		invalidFacts = facts
+		invalidFacts.Members = append(invalidFacts.Members, candidate)
+		if err := invalidFacts.Validate(); err == nil {
+			t.Fatalf("Reviewer 非 exact 写入范围 %q 未被拒绝", invalid)
+		}
+	}
+
 	facts.Members = append(facts.Members, MemberFacts{
 		Name: "reviewer", Kind: "reviewer", Role: "independent reviewer", Responsibility: "review supplied findings",
 		TaskGoal: "review current evidence", Inputs: "../../findings/ and ../../evidence/", AllowedReads: "../../findings/ ../../evidence/ ../../artifacts/",
-		AllowedWrites: "../../reviews/R-fixture.md", Deliverables: "one review round", StopOrEscalate: "missing evidence", ExitConditions: "decision recorded",
+		AllowedWrites: "../../reviews/R-fixture.md,../../evaluations/attestations/CAL-001.md", Deliverables: "one review round and one attestation", StopOrEscalate: "missing evidence", ExitConditions: "decision recorded",
 	})
 	preview, err := BuildPreview(git, source, newCaseRoot(t), facts)
 	if err != nil {
@@ -265,7 +333,7 @@ func TestFactsLimitAndReviewerRendering(t *testing.T) {
 	}
 	member := writeForTarget(t, preview, ".steamai-vnext/members/reviewer/CLAUDE.md")
 	text := string(member.Data)
-	for _, required := range []string{"Reviewer 是独立审查成员", "唯一允许写入 `reviews/`", "不执行 heavy action"} {
+	for _, required := range []string{"Reviewer 是独立审查成员", "../../reviews/R-fixture.md", "../../evaluations/attestations/CAL-001.md", "不执行 heavy action"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Reviewer render 缺少 %q", required)
 		}
@@ -397,6 +465,7 @@ func canonicalFixture(t *testing.T) (string, string) {
 	files := map[string]string{
 		".claude/skills/steamai/SKILL.md":          "# Fixture skill\n",
 		"vnext/learning-feedback.md":               "# Learning contract\n",
+		"vnext/verified-learning.md":               "# Verified learning contract\n",
 		"vnext/templates/case/CLAUDE.md":           "# STeamAI 安全研究 Case\n\n## Case 边界\n\n- Case 名称：`{{CASE_NAME}}`\n- 研究目标：`{{GOAL}}`\n- 授权范围：`{{AUTHORIZED_SCOPE}}`\n- 禁止事项：`{{PROHIBITED_ACTIONS}}`\n- 全局停止条件：`{{STOP_CONDITIONS}}`\n- Selected pack：`{{PACK_NAME}}`\n- Source revision：`{{PACK_REVISION}}`\n- Pack tree：`{{PACK_SNAPSHOT_TREE}}`\n- Common tree：`{{COMMON_SNAPSHOT_TREE}}`\n- Snapshot digest：`{{SNAPSHOT_DIGEST}}`\n\n## 当前团队\n\n| Member | Kind | Durable state | Member source |\n|---|---|---|---|\n{{TEAM_ROSTER_ROWS}}\n",
 		"vnext/templates/member/CLAUDE.md":         "# {{MEMBER_NAME}}\n{{ROLE}}\n{{RESPONSIBILITY}}\n{{TASK_GOAL}}\n{{INPUTS}}\n{{ALLOWED_READS}}\n{{ALLOWED_WRITES}}\n{{DELIVERABLES}}\n{{STOP_OR_ESCALATE}}\n{{EXIT_CONDITIONS}}\n{{ROLE_SPECIFIC_RULES}}\n",
 		"vnext/templates/roles/analysis-member.md": "# Analysis role\n",

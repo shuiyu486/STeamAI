@@ -18,25 +18,32 @@ import (
 const ConfirmationPrefix = "CONFIRM STEAMAI LEARNING BATCH "
 
 var (
-	ErrConfirmationRequired = errors.New("需要与当前预览完全匹配的 learning batch 确认")
-	ErrBinding              = errors.New("learning batch 未绑定 current eligible candidates 和 accepted batch review")
-	ErrScope                = errors.New("learning batch patch 越出允许范围")
-	ErrCanonicalDrift       = errors.New("canonical working tree 在预览后发生变化")
-	ErrCaseDrift            = errors.New("case evidence chain 在预览后发生变化")
-	ErrPatchDrift           = errors.New("learning batch patch 在预览后发生变化")
-	hexSHA                  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	hexGit                  = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
-	packNamePattern         = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
-	candidateNamePattern    = regexp.MustCompile(`^L-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
-	reviewNamePattern       = regexp.MustCompile(`^R-L-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
-	batchReviewNamePattern  = regexp.MustCompile(`^R-LB-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
-	patchNamePattern        = regexp.MustCompile(`^LB-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.patch$`)
+	ErrConfirmationRequired        = errors.New("需要与当前预览完全匹配的 learning batch 确认")
+	ErrBinding                     = errors.New("learning batch 未绑定 current eligible candidates 和 accepted batch review")
+	ErrScope                       = errors.New("learning batch patch 越出允许范围")
+	ErrCanonicalDrift              = errors.New("canonical working tree 在预览后发生变化")
+	ErrCaseDrift                   = errors.New("case evidence chain 在预览后发生变化")
+	ErrPatchDrift                  = errors.New("learning batch patch 在预览后发生变化")
+	ErrVerifiedLearningUnavailable = errors.New("该 current case 创建于 verified-learning 之前；可继续研究，但不能使用新版 learning preview/apply")
+	hexSHA                         = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	hexGit                         = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+	packNamePattern                = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	candidateNamePattern           = regexp.MustCompile(`^L-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
+	reviewNamePattern              = regexp.MustCompile(`^R-L-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
+	batchReviewNamePattern         = regexp.MustCompile(`^R-LB-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
+	patchNamePattern               = regexp.MustCompile(`^LB-[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.patch$`)
+	attestationNamePattern         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.md$`)
+	blindDecisionPattern           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,56}-blind\.md$`)
+	runManifestNamePattern         = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,62}/manifest\.json|[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.json)$`)
 )
 
 type Request struct {
-	CandidateReviews []CandidateReviewRef `json:"candidateReviews"`
-	Patch            string               `json:"patch"`
-	BatchReview      string               `json:"batchReview"`
+	CandidateReviews       []CandidateReviewRef `json:"candidateReviews"`
+	Patch                  string               `json:"patch"`
+	BatchReview            string               `json:"batchReview"`
+	CalibrationAttestation string               `json:"calibrationAttestation,omitempty"`
+	PromotionAttestation   string               `json:"promotionAttestation,omitempty"`
+	RunBundleManifest      string               `json:"runBundleManifest,omitempty"`
 }
 
 type CandidateReviewRef struct {
@@ -47,6 +54,8 @@ type CandidateReviewRef struct {
 type CandidateRecord struct {
 	CandidatePath    string `json:"candidatePath"`
 	CandidateSHA256  string `json:"candidateSha256"`
+	ClaimKind        string `json:"claimKind"`
+	RequiredMaturity string `json:"requiredMaturity"`
 	ReviewPath       string `json:"reviewPath"`
 	ReviewSHA256     string `json:"reviewSha256"`
 	Reviewer         string `json:"reviewer"`
@@ -65,31 +74,48 @@ type TargetRecord struct {
 	PostBytes  int    `json:"postBytes"`
 }
 
+type AttestationRecord struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+type RunBundleRecord struct {
+	Path         string `json:"path"`
+	SHA256       string `json:"sha256"`
+	Identity     string `json:"identity"`
+	RevealSHA256 string `json:"revealSha256"`
+}
+
 type Preview struct {
-	SchemaVersion     int               `json:"schemaVersion"`
-	Pack              string            `json:"pack"`
-	CaseRevision      string            `json:"caseRevision"`
-	CanonicalHead     string            `json:"canonicalHead"`
-	ManifestPath      string            `json:"manifestPath"`
-	ManifestSHA256    string            `json:"manifestSha256"`
-	ManifestBytes     int               `json:"manifestBytes"`
-	SnapshotDigest    string            `json:"snapshotDigest"`
-	Candidates        []CandidateRecord `json:"candidates"`
-	Targets           []TargetRecord    `json:"targets"`
-	PatchPath         string            `json:"patchPath"`
-	PatchSHA256       string            `json:"patchSha256"`
-	PatchBytes        int               `json:"patchBytes"`
-	BatchReviewPath   string            `json:"batchReviewPath"`
-	BatchReviewSHA256 string            `json:"batchReviewSha256"`
-	BatchReviewer     string            `json:"batchReviewer"`
-	Identity          string            `json:"identity"`
-	HumanPreview      string            `json:"humanPreview"`
+	SchemaVersion     int                `json:"schemaVersion"`
+	Pack              string             `json:"pack"`
+	CaseRevision      string             `json:"caseRevision"`
+	CanonicalHead     string             `json:"canonicalHead"`
+	ManifestPath      string             `json:"manifestPath"`
+	ManifestSHA256    string             `json:"manifestSha256"`
+	ManifestBytes     int                `json:"manifestBytes"`
+	SnapshotDigest    string             `json:"snapshotDigest"`
+	Candidates        []CandidateRecord  `json:"candidates"`
+	Targets           []TargetRecord     `json:"targets"`
+	PatchPath         string             `json:"patchPath"`
+	PatchSHA256       string             `json:"patchSha256"`
+	PatchBytes        int                `json:"patchBytes"`
+	BatchReviewPath   string             `json:"batchReviewPath"`
+	BatchReviewSHA256 string             `json:"batchReviewSha256"`
+	BatchReviewer     string             `json:"batchReviewer"`
+	Calibration       *AttestationRecord `json:"calibration,omitempty"`
+	Promotion         *AttestationRecord `json:"promotion,omitempty"`
+	RunBundle         *RunBundleRecord   `json:"runBundle,omitempty"`
+	Identity          string             `json:"identity"`
+	HumanPreview      string             `json:"humanPreview"`
 	patchData         []byte
 	targetData        map[string][]byte
 }
 
 type candidateBinding struct {
 	CandidateSHA256  string
+	ClaimKind        string
+	RequiredMaturity string
 	SourceFinding    string
 	SourceFindingSHA string
 	SourceReview     string
@@ -105,6 +131,8 @@ type candidateBinding struct {
 type eligibilityBinding struct {
 	CandidatePath    string
 	CandidateSHA256  string
+	ClaimKind        string
+	RequiredMaturity string
 	Decision         string
 	Destination      string
 	Reviewer         string
@@ -120,24 +148,35 @@ type eligibilityBinding struct {
 }
 
 type batchBinding struct {
-	Reviewer       string
-	Decision       string
-	Pack           string
-	CaseRevision   string
-	CanonicalHead  string
-	SnapshotDigest string
-	PatchPath      string
-	PatchSHA256    string
-	Candidates     []batchCandidateBinding
-	Targets        []batchTargetBinding
+	Reviewer                  string
+	Decision                  string
+	Pack                      string
+	CaseRevision              string
+	CanonicalHead             string
+	SnapshotDigest            string
+	PatchPath                 string
+	PatchSHA256               string
+	CalibrationAttestation    string
+	CalibrationAttestationSHA string
+	PromotionAttestation      string
+	PromotionAttestationSHA   string
+	RunBundleManifest         string
+	RunBundleManifestSHA      string
+	RunBundleIdentity         string
+	RunBundleRevealSHA        string
+	EvaluatedPatchSHA         string
+	Candidates                []batchCandidateBinding
+	Targets                   []batchTargetBinding
 }
 
 type batchCandidateBinding struct {
-	CandidatePath   string
-	CandidateSHA256 string
-	ReviewPath      string
-	ReviewSHA256    string
-	Destination     string
+	CandidatePath    string
+	CandidateSHA256  string
+	ClaimKind        string
+	RequiredMaturity string
+	ReviewPath       string
+	ReviewSHA256     string
+	Destination      string
 }
 
 type batchTargetBinding struct {
@@ -178,6 +217,25 @@ func (request Request) Validate() error {
 	if _, err := cleanStateFile(request.BatchReview, "reviews/", batchReviewNamePattern); err != nil {
 		return fmt.Errorf("batch review path 无效: %w", err)
 	}
+	provided := 0
+	for _, item := range []struct {
+		value, prefix string
+		pattern       *regexp.Regexp
+	}{
+		{request.CalibrationAttestation, "evaluations/attestations/", attestationNamePattern},
+		{request.PromotionAttestation, "evaluations/attestations/", attestationNamePattern},
+		{request.RunBundleManifest, "evaluations/runs/", runManifestNamePattern},
+	} {
+		if item.value != "" {
+			provided++
+			if _, err := cleanStateFile(item.value, item.prefix, item.pattern); err != nil {
+				return fmt.Errorf("verified learning binding path 无效: %w", err)
+			}
+		}
+	}
+	if provided != 0 && provided != 3 {
+		return errors.New("verified learning binding 必须同时提供 calibration、promotion 和 run bundle")
+	}
 	seenCandidates := map[string]bool{}
 	seenReviews := map[string]bool{}
 	for _, item := range request.CandidateReviews {
@@ -196,12 +254,13 @@ func (request Request) Validate() error {
 }
 
 func cleanStateFile(value, prefix string, basePattern *regexp.Regexp) (string, error) {
-	if value == "" || strings.Contains(value, "\\") || filepath.IsAbs(filepath.FromSlash(value)) {
+	converted := filepath.FromSlash(value)
+	if value == "" || strings.Contains(value, "\\") || filepath.IsAbs(converted) || filepath.VolumeName(converted) != "" {
 		return "", errors.New("必须是 case state 内的相对路径")
 	}
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))
 	base, ok := strings.CutPrefix(clean, prefix)
-	if clean != value || !ok || strings.Contains(base, "/") || !basePattern.MatchString(base) {
+	if clean != value || !ok || !basePattern.MatchString(base) {
 		return "", errors.New("路径不匹配固定目录与文件名")
 	}
 	return clean, nil
@@ -238,12 +297,13 @@ func parseCandidate(data []byte) (candidateBinding, error) {
 		return candidateBinding{}, err
 	}
 	binding := candidateBinding{
+		ClaimKind: fields["Claim kind"], RequiredMaturity: fields["Required maturity"],
 		SourceFinding: fields["Source finding"], SourceFindingSHA: fields["Source finding SHA-256"],
 		SourceReview: fields["Source accepted review"], SourceReviewSHA: fields["Source review SHA-256"],
 		Pack: fields["Selected pack"], Revision: fields["Source revision"], PackTree: fields["Pack tree"],
 		CommonTree: fields["Common tree"], SnapshotDigest: fields["Snapshot digest"], Destination: fields["Proposed destination"],
 	}
-	if binding.SourceFinding == "" || binding.SourceReview == "" || !hexSHA.MatchString(binding.SourceFindingSHA) ||
+	if !validClaimMaturity(binding.ClaimKind, binding.RequiredMaturity) || binding.SourceFinding == "" || binding.SourceReview == "" || !hexSHA.MatchString(binding.SourceFindingSHA) ||
 		!hexSHA.MatchString(binding.SourceReviewSHA) || !packNamePattern.MatchString(binding.Pack) ||
 		!hexGit.MatchString(binding.Revision) || !hexGit.MatchString(binding.PackTree) || !hexGit.MatchString(binding.CommonTree) ||
 		!prefixedSHA(binding.SnapshotDigest) || binding.Destination == "" || strings.Contains(binding.Destination, "\\") {
@@ -253,6 +313,19 @@ func parseCandidate(data []byte) (candidateBinding, error) {
 		return candidateBinding{}, errors.New("candidate 不得自引用 exact SHA-256")
 	}
 	return binding, nil
+}
+
+func validClaimMaturity(kind, maturity string) bool {
+	switch kind {
+	case "mechanical":
+		return maturity == "V1"
+	case "analysis-method":
+		return maturity == "V2"
+	case "behavioral":
+		return maturity == "V3"
+	default:
+		return false
+	}
 }
 
 func parseEligibility(data []byte) (eligibilityBinding, error) {
@@ -275,13 +348,14 @@ func parseEligibility(data []byte) (eligibilityBinding, error) {
 	}
 	binding := eligibilityBinding{
 		CandidatePath: beforeFields["Candidate"], CandidateSHA256: beforeFields["Candidate SHA-256"],
+		ClaimKind: beforeFields["Claim kind"], RequiredMaturity: beforeFields["Required maturity"],
 		Decision: checkpointFields["Decision"], Destination: beforeFields["Proposed destination"], Reviewer: beforeFields["Reviewer 单写者"],
 		SourceFinding: beforeFields["Source finding"], SourceFindingSHA: beforeFields["Source finding SHA-256"],
 		SourceReview: beforeFields["Source accepted review"], SourceReviewSHA: beforeFields["Source review SHA-256"],
 		Pack: beforeFields["Selected pack"], Revision: beforeFields["Source revision"], PackTree: beforeFields["Pack tree"],
 		CommonTree: beforeFields["Common tree"], SnapshotDigest: beforeFields["Snapshot digest"],
 	}
-	if binding.CandidatePath == "" || !hexSHA.MatchString(binding.CandidateSHA256) || binding.Decision != "eligible" ||
+	if binding.CandidatePath == "" || !hexSHA.MatchString(binding.CandidateSHA256) || !validClaimMaturity(binding.ClaimKind, binding.RequiredMaturity) || binding.Decision != "eligible" ||
 		binding.Destination == "" || binding.Reviewer == "" || binding.SourceFinding == "" || !hexSHA.MatchString(binding.SourceFindingSHA) ||
 		binding.SourceReview == "" || !hexSHA.MatchString(binding.SourceReviewSHA) || !packNamePattern.MatchString(binding.Pack) ||
 		!hexGit.MatchString(binding.Revision) || !hexGit.MatchString(binding.PackTree) || !hexGit.MatchString(binding.CommonTree) ||
@@ -347,6 +421,16 @@ func parseBatchReview(data []byte) (batchBinding, error) {
 					return batchBinding{}, ErrBinding
 				}
 				item.CandidateSHA256 = value
+			case "Claim kind":
+				if item.ClaimKind != "" {
+					return batchBinding{}, ErrBinding
+				}
+				item.ClaimKind = value
+			case "Required maturity":
+				if item.RequiredMaturity != "" {
+					return batchBinding{}, ErrBinding
+				}
+				item.RequiredMaturity = value
 			case "Eligibility review":
 				if item.ReviewPath != "" {
 					return batchBinding{}, ErrBinding
@@ -406,7 +490,37 @@ func parseBatchReview(data []byte) (batchBinding, error) {
 	binding := batchBinding{
 		Reviewer: fields["Reviewer 单写者"], Decision: fields["Decision"], Pack: fields["Selected pack"],
 		CaseRevision: fields["Case revision"], CanonicalHead: fields["Canonical HEAD"], SnapshotDigest: fields["Snapshot digest"],
-		PatchPath: fields["Patch"], PatchSHA256: fields["Patch SHA-256"], Candidates: candidates, Targets: targets,
+		PatchPath: fields["Patch"], PatchSHA256: fields["Patch SHA-256"],
+		CalibrationAttestation: fields["Calibration attestation"], CalibrationAttestationSHA: fields["Calibration attestation SHA-256"],
+		PromotionAttestation: fields["Promotion attestation"], PromotionAttestationSHA: fields["Promotion attestation SHA-256"],
+		RunBundleManifest: fields["Run bundle manifest"], RunBundleManifestSHA: fields["Run bundle manifest SHA-256"],
+		RunBundleIdentity: fields["Run bundle identity"], RunBundleRevealSHA: fields["Run bundle reveal SHA-256"],
+		EvaluatedPatchSHA: fields["Evaluated patch SHA-256"],
+		Candidates:        candidates, Targets: targets,
+	}
+	gate3Fields := []string{
+		binding.CalibrationAttestation, binding.CalibrationAttestationSHA, binding.PromotionAttestation,
+		binding.PromotionAttestationSHA, binding.RunBundleManifest, binding.RunBundleManifestSHA,
+		binding.RunBundleIdentity, binding.RunBundleRevealSHA, binding.EvaluatedPatchSHA,
+	}
+	allNone := true
+	for _, value := range gate3Fields {
+		if value != "none" {
+			allNone = false
+			break
+		}
+	}
+	if allNone {
+		binding.CalibrationAttestation, binding.CalibrationAttestationSHA = "", ""
+		binding.PromotionAttestation, binding.PromotionAttestationSHA = "", ""
+		binding.RunBundleManifest, binding.RunBundleManifestSHA, binding.RunBundleIdentity, binding.RunBundleRevealSHA = "", "", "", ""
+		binding.EvaluatedPatchSHA = ""
+	} else {
+		for _, value := range gate3Fields {
+			if value == "" || value == "none" {
+				return batchBinding{}, ErrBinding
+			}
+		}
 	}
 	if !seenSections["candidates"] || !seenSections["targets"] || !seenSections["final"] ||
 		binding.Reviewer == "" || binding.Decision != "accepted" || !packNamePattern.MatchString(binding.Pack) || !hexGit.MatchString(binding.CaseRevision) ||
@@ -418,7 +532,7 @@ func parseBatchReview(data []byte) (batchBinding, error) {
 		return batchBinding{}, ErrBinding
 	}
 	for _, item := range candidates {
-		if item.CandidatePath == "" || !hexSHA.MatchString(item.CandidateSHA256) || item.ReviewPath == "" ||
+		if item.CandidatePath == "" || !hexSHA.MatchString(item.CandidateSHA256) || !validClaimMaturity(item.ClaimKind, item.RequiredMaturity) || item.ReviewPath == "" ||
 			!hexSHA.MatchString(item.ReviewSHA256) || item.Destination == "" {
 			return batchBinding{}, ErrBinding
 		}

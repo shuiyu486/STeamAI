@@ -17,6 +17,11 @@
 - 子 agent 默认只读。
 - 若子 agent 需要写入，必须使用隔离工作区，并在主 agent 合并前审查 diff。
 
+## Verified learning 写入
+
+- replay/evaluation spec、run bundle、attestation 和 field outcome 采用 immutable/no-replace 或 append-only；失败、超时、无效输出、neutral、regressed 和 inconclusive 都保留，不能覆盖为成功。
+- field outcome 仅在当前 case 用户对本份脱敏记录明确 opt-in 后写入；不得自动遥测、扫描或汇总其它 case。
+
 ## 报告要求
 
 如执行失败、跳过或部分完成，必须如实说明：

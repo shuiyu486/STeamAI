@@ -27,6 +27,22 @@ func TestNativeCommanderMutexRejectsDuplicate(t *testing.T) {
 	}
 }
 
+func TestNativeCanonicalMutationMutexRejectsDuplicate(t *testing.T) {
+	p := nativePlatform{}
+	name := canonicalMutationMutexName(t.TempDir())
+	lease, err := p.AcquireCanonicalMutation(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.release()
+	if second, err := p.AcquireCanonicalMutation(name); !errors.Is(err, errCanonicalMutationRunning) {
+		if second.release != nil {
+			second.release()
+		}
+		t.Fatalf("duplicate canonical mutation mutex returned %v", err)
+	}
+}
+
 func TestInstallExecutableDoesNotOverwritePrecreatedHardlink(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source.exe")

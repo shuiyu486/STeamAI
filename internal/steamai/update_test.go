@@ -210,7 +210,7 @@ func TestLatestReleaseManifestProvidesExactVersion(t *testing.T) {
 	if manifest.Version != "v1.2.3" {
 		t.Fatalf("latest manifest version = %q", manifest.Version)
 	}
-	for _, version := range []string{"latest", "v1", "v01.2.3", "v1.2.3+build"} {
+	for _, version := range []string{"latest", "v1", "v01.2.3", "v1.2.3+build", "v1.2.3-rc.1"} {
 		invalid := []byte(strings.Replace(string(data), "v1.2.3", version, 1))
 		if _, err := parseLatestReleaseManifest(invalid); err == nil {
 			t.Fatalf("latest manifest accepted non-release version %q", version)
