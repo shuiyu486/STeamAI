@@ -3,7 +3,7 @@
 本目录保存声明式 tool catalog 与 recipe，不包含 executable，也不自动执行任何动作。
 
 - `catalog.yml`：能力、输入输出、风险与停止条件。
-- `recipes/`：按场景读取的有界操作说明。
+- `recipes/`：按场景读取的有界操作说明；`curl-read-evidence.md` 使用用户已有原生 curl，不内置请求执行器或放宽原 request/result schema。
 - `candidates/`：尚未回流的脱敏候选；只有 accepted finding/review 才能产生。
 - `schemas/`：如存在，仅描述 sidecar 数据结构，不授予执行权限。
 

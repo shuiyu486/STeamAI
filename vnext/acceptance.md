@@ -140,6 +140,37 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 5. readonly evaluator 仅证明其支持的有界静态材料/pack patch 场景，不证明实际 HTTP、工具执行、可见协作或用户纠偏。真实请求/独立 replay 分别走对应授权和环境；任何新校准仍需独立 Reviewer 判断覆盖与 currentness，不能借旧 bounded pass 自动晋级。
 6. 所有失败、超时、负向与不确定结果保留；没有完成 live 时明确 pending。结果只写当前 roadmap，不能以机械全绿宣称研究更准、更快或 V2/V3/V4。
 
+## Research execution — 专业实操、预测与联合研究
+
+本节对应 `steamai-research-execution-v1`，不复用上一轮四题平局或旧 Reviewer report-copy pass 证明增益。
+
+### 默认合同与脚本验证
+
+`python -m unittest discover -s tests/pack_tooling -p "test_*.py"` 直接调用唯一 pack exporter；fake IDA 仅证明函数/调用点范围、条目与输出预算、输入状态漂移、路径和 no-overwrite 的机械边界，不加载真实 IDA、不调用模型或联网。`go test` 追加脚本/schema 在单包和主辅中的 production Fresh/Apply/current 固定与漂移拒绝、旧 current 零写及内容/路由合同。合法 stage-0 新文件的 `head-blob` 可缺省值，不能为通过测试提前提交；其它必需 identity 字段仍拒绝为空。
+
+### 实际工具与联合交付
+
+1. 在仓库外授权 fixture 的真实 Windows x64 IDA 数据库副本上，核对宿主/API、input 来源、image base、分析状态、函数/chunk/patch 条件，显式调用固定 exporter。正常定点导出可复查，缺函数、预算/状态漂移与输出冲突不能发布成功 packet。不启动目标、不写 analysis DB、不把宿主 autosave 或阻塞 API 宣称为脚本已隔离。
+2. 使用实际原生 curl 执行单次 loopback GET；检查禁默认配置/proxy/globbing/redirect/retry/body、传输时限、已知/未知 body 长度超限、4xx/5xx body 保留与发送状态不确定。`--no-clobber` 改名不等于拒绝，要前检并核对 effective filename；退出码不独自证明未发送，header/整体进程资源不冒充 body 限额覆盖。
+3. C 在同一主辅 case 贯通客户端字段/编码、真实同对象请求、API 业务结果与客户端解析。版本/对象错配、缺请求关联和客户端限制不能替代服务端约束；缺连接时联合 unknown。客户端执行与服务预置另有具体授权，不能由 IDA 只读范围推导。Go 编译 fixture 可用于准备客户端，不替代真实 IDA 导出。
+4. 由正式可见 owner、最多一个 verifier 和只读 Reviewer 进行定向补证及整体 review；综合 F 直接绑定全部连接 E，子 F 不替代 E 的 currentness。实际用户纠偏、原生消息、会话恢复分别记录；自动 console 输入不算人工纠偏。
+
+### 静态研究效果对照
+
+在执行前冻结9道未用于调优的合成题：Binary/Web/joint 各有正向、反例、unknown。现行版本与最终版本分别 production Fresh，保持主辅配置、任务、模型、工具权限/预算 matched，实际加载各自 pinned 内容，隔离 native session/auto memory；不修改 current 或用临时附加几句指令冒充分发。每 arm 最多两轮，先冻结第一轮的检查选择/解释，再交付该选择对应的新材料；无效选择不默认补卡或重跑。不能额外提示“先写预测”来替代对自发行为的观察。
+
+独立 Reviewer 依据固定 rubric 检查结论正确性、连接完整性、预测/反证响应、覆盖及过度断言；两个版本各自的实际选卡、所见材料和输出 SHA 都进入审阅输入。结果先按输出身份冻结，再解盲。全 unknown 不算通用高分；真正缺证的 unknown 应得到对应评价。平局、负向、失败、费用全部保留，已揭示题不用于调整方法后再刷同一验收。静态对照不证明实际工具效率、用户纠偏、V3 或 V4；真实工具可用与相对效果分开报告。状态只记录当前 roadmap。
+
+### Windows 真实锁恢复子路径
+
+`STEAMAI_WINDOWS_UPDATE_LOCK_LIVE=1` 时运行 `go test -count=1 -timeout=3m -run '^TestLiveWindowsUpdateLockedFileRecovery$' -v ./internal/steamai`，默认明确 skip。该 gate 在临时布局用真实 Win32 handle 锁调用生产文件恢复函数，检查 active/previous executable、published/backup source 的保留路径及关闭本轮 handle 后恢复。它不读写用户 Registry、安装或 case，不等于完整 ActivateUpdate/HKCU/Release journey；完整产品层仍须独立隔离环境验收。
+
+### verified-learning 收尾
+
+旧原件按外部冻结 hash 与 production verifier 定点核查；非 current 的旧测试 root 不补装 marker 或冒充正式 CLI case。report-copy calibration 不直接迁移到实际 pack 生成式比较；新 suite 必须与候选任务的 rubric、pinned contract、当前配置模型/CLI/platform/tool profile 一致，scenario 明确读取该 arm 的指导内容。语义裁决来自独立 Reviewer，不由 Go 拼出 expected class。
+
+最终候选保持单主包、accepted source chain、eligible review 和 final exact patch。初始两对比较全部保留，预注册固定 anchor；当前 Gate3 只机械绑定一个 run，全部 pairs 的 path/SHA、盲审与汇总由不可变 Reviewer attestation 明确复核，不能挑赢家或声称 Go 已自动聚合。neutral、regressed、inconclusive、不完整或缺资格都不晋级。ABC 跨包源码改动不是一个 learning batch；真实 Apply 仍等用户对完整 preview 作 exact confirmation，计划批准不能代替。外部 synthetic clone journey 和真实 canonical 回流分别记录。
+
 ## 5. Release live
 
 在测试tag上实际运行`.github/workflows/release.yml`并检查：

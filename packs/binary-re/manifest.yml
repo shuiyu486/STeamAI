@@ -1,7 +1,7 @@
 schemaVersion: 2
 name: binary-re
 version: 1.0.0
-description: 面向已授权二进制逆向、静态分析、受控动态验证与 VMProtect 研究的声明式研究 pack。
+description: 面向已授权二进制逆向、静态分析与 VMProtect 研究的方法 pack，附显式调用的有界 IDA 只读导出工具。
 maturity: declarative-vnext
 
 entrypoints:
@@ -21,6 +21,7 @@ references:
   - references/binary-re/progressive-disclosure.md
   - references/binary-re/toolchain-router.md
   - references/binary-re/singleton-handler-review.md
+  - references/binary-re/bounded-behavior-chain.md
   - references/binary-re/lane-collaboration.md
 
 templates:
@@ -54,6 +55,10 @@ tooling:
   - tooling/recipes/unicorn-trace.md
   - tooling/recipes/ida-x64dbg-mcp.md
   - tooling/recipes/ida-agent-bridge-readonly.md
+  - tooling/recipes/ida-function-evidence.md
+  - tooling/scripts/README.md
+  - tooling/scripts/export_function_evidence.py
+  - tooling/schemas/ida-function-evidence-v1.schema.json
   - tooling/recipes/lane-collaboration.md
 
 teamHints:

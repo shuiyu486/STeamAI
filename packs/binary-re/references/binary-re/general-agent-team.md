@@ -15,6 +15,7 @@
 - 正式成员身份与当前任务属于成员目录 `CLAUDE.md`，会话只提供工作记忆。
 - 普通发现不广播；请求帮助必须定向、可行动、有边界和停止条件。
 - 共享 IDB、confirmed table 和最终报告有一名明确写入 owner；其他成员只提交 evidence/finding。
+- 跨步骤或客户端/API 联合问题仍由一名 owner 单写综合 F；最多一名 verifier 针对最薄弱的连接复核，不因跨域自动创建协调角色或扩大团队。owner 直接列出支撑连接的 E，Reviewer 审整体 claim，而不是把两个局部 accepted 相加。另一领域方法只按已固定主辅包的任务路径读取；客户端运行或网络动作另行具体确认。
 
 ## Finding 与 review
 

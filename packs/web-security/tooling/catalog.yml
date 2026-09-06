@@ -14,6 +14,12 @@ entries:
     inputs: [case-local-alias, explicit-scope, stop-conditions]
     outputs: [evidence-summary, limitations, next-action]
     risk: review-before-use
+  - id: curl-read-evidence
+    recipe: tooling/recipes/curl-read-evidence.md
+    purpose: 使用已核对的原生 curl 执行一条明确授权的 loopback GET，保留有界业务证据。
+    inputs: [exact-loopback-url, identity-reference, explicit-scope, existing-case-artifact-directory]
+    outputs: [bounded-response-body, transfer-metadata, evidence-reference]
+    risk: specific-confirmation-and-tool-permission
 schemas:
   - tooling/schemas/bounded-replay-request-v1.schema.json
   - tooling/schemas/bounded-replay-result-v1.schema.json

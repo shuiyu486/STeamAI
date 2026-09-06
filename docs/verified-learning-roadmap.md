@@ -26,7 +26,7 @@
 
 | Gate | 机制 | 当前证据 | 状态 |
 |---|---|---|---|
-| 0 | canonical mutation mutex、update rollback recovery、stable latest、完整 source review | focused production tests；late executable/Registry fault seams + recovery-path checks；真实 Windows locked-file path 仍待 live 验收 | implemented；mechanical verification passed |
+| 0 | canonical mutation mutex、update rollback recovery、stable latest、完整 source review | focused production tests；late executable/Registry fault seams；真实共享锁下的生产文件恢复子路径通过，完整 ActivateUpdate/HKCU 仍未由该证据覆盖 | implemented；mechanical verification passed；locked-file recovery subpaths verified |
 | 1 | proof-carrying replay，V0–V2，negative/inconclusive first-class | contract/templates + deterministic checks | implemented；真实 replay 按 case 执行 |
 | 2 | strict runner、预注册独立 control patches、SuiteSpec prepare/run/finalize、contract/runtime binding、case-state 外 sibling arms、Windows suspended→Job→resume、salted blind commitments + exact reveal、immutable blind-review packet、failure bundle、actual cost capture | fake-Claude production lifecycle；packet content/entry/output-SHA 防篡改 tests；Windows 原生 helper timeout/process-tree；V3 有界 Reviewer 10/10 | implemented；calibrated for frozen V3 synthetic suite/runtime |
 | 3 | candidate claim floor、behavioral V3 fail-closed、packet-bound blind-decision exact file、entry→arm→output SHA→reveal closure、final patch binding、TOCTOU rebuild | learningbatch focused tests，包括外层 SHA 全部重算后的 semantic mismatch rejection | implemented；真实 comparative journey `pending` |
@@ -81,8 +81,15 @@ git diff --check
 - 2026-09-05 新协议 `BOUNDED-SYNTHETIC-REVIEWER-V3` 按当次配置 `gpt-5.6-sol[1m]` 完整执行：保持相同五类 controls、同一 rubric、每类 2 matched pairs、10/10 阈值、每次 120 秒与 `$0.10` 请求预算；20 report-copy arms 和 10 次独立 Reviewer 调用共 30 records 全部 completed。Reviewer 每次只读取 task、evidence 与 production `blind-review.json`，返回 preferred entry/output SHA 后再解盲；10 slots 全部符合预注册 class，无 hard safety failure，结果 `complete / pass`，耗时 332.53 秒，CLI 报告总费用 `$1.182349`。结果摘要 SHA 为 `b1257a4bb027db15ee12fc51d98b054fac2965b7daf20617799e168646c4c059`，frozen protocol SHA 为 `c463f930ffa6fad375e10b7be5bc03c68a0e43b3ed7b75883bb9c6136edb34e7`；全部证据在仓库外保留，旧 V2 `no-go` 未覆盖。该 `pass` 证明当前 packet 协议在这一 frozen synthetic suite/runtime 达到阈值，不是 calibration attestation，不自动给任何 candidate 授予 V3，也不证明全局研究质量或独立认知。
 - live 测试固定开关 `STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION=1`；默认测试不调用模型。后续重跑必须使用新的 suite/runtime 变更理由，不得重复失败 slot 刷绿；新证据保存在仓库外，运行身份前置条件不满足就停止付费并记录 blocked/incomplete。正式 promotion 仍需由 Reviewer 将 current calibration suite 闭合为 exact `go` attestation，并为最终 patch 单独完成 candidate comparison。
 
+## 2026-09-06 收尾进展
+
+- 旧 V3 原件完成零付费复核：198 个文件、400 项原始 bytes/record/输入/裁决检查通过，summary/protocol 与上述历史外部 SHA 锚一致；生产 `ValidateSuiteSpec`、baseline `treeIdentity`、10 次 `VerifyBundle(requireCompleted=true)`、`VerifiedBundleRuntime` 与既有 Reviewer parser/mapping 全部通过（focused 0.044 秒）。10 份裁决均各读取三份指定文件一次，entry/output SHA 映射一致；验后198个旧文件未变。旧 root 不是 Fresh current，未补 marker、未 FinalizeSuite、未生成 attestation。该核验恢复了可复核性，不扩大 report-copy 的校准适用范围，也不把旧模型的 pass 迁给当前配置。
+- 显式 `STEAMAI_WINDOWS_UPDATE_LOCK_LIVE=1` 运行 `TestLiveWindowsUpdateLockedFileRecovery` 通过（0.019 秒）：临时布局中真实 Win32 handle 分别锁住 active/previous executable、published/backup source，直接调用生产 `rollbackUpdatedExecutable` / `rollbackUpdatedSource`，确认失败保留精确恢复路径与 bytes，关闭本次 handle 后按实际状态恢复。没有注入文件错误、没有读写用户 Registry/安装/PATH/case，默认测试明确 skip。由于 `ActivateUpdate` 在切换前直接读取 HKCU，本次没有调用该入口；不能将子路径通过改写成完整 update/Registry/Release journey 通过。本范围未发现生产恢复缺陷。
+
+- 新 `VL-FINAL-S1` 在独立 gold 设计与共同 judging rubric 两轮审查后，已通过真实 production Fresh、输入物化与 PrepareSuite。按当前 `gpt-6-astra[1m]` / CLI2.1.236 / user high 执行10个 slots；20个运输 arms 的已知费用合计 `$0.988295`，执行255.64秒。全部在验收代码的 Read 内容 exact 检查处被记为 `inconclusive`，没有调用本轮 Reviewer。全部slot已由生产 FinalizeSuite保留，`MechanicalEligible=false`，未生成 attestation；测试进程exit0表示按协议留存执行结果，不表示校准通过。只读全量复核确认根因是临时验收代码对 `tool_use_result.file.content` 多加一个 LF：40/40 次 task/evidence 的真实工具内容已与冻结原件逐字节一致且完整，20/20 答案四字段与预定义 gold 一致，packet 投影一致；没有材料漂移、截断或模型运输失败证据。错误发生于验收适配层，不是生产 Run/packet。原 `inconclusive` suite、observed 与全部原始结果保持不变。换行 checker 已仅在仓库外验收副本修复为真实文件通道 bytes 直接比较，并通过六组LF/CRLF/空行/行号样式/空文件表测试与20arms全量离线重验（0.122秒）；240份原case/input文件前后SHA一致，Reviewer输出仍为0，未新增调用或closure。补充核查记录SHA `1bb1e717bf71134f56e27c8f75bdf7da6ca04342cd112296ea89fa89ad226d7b`。后续若续行，只执行尚未发生的首次 Reviewer 裁决，不重跑20个 arms、不把离线 exact 核对当语义 go；本轮因后续专项盲评超时停止新增付费，正式门槛保持未完成。
+
 ## 下一步
 
-1. 模型选择与主执行身份证据、Reviewer 内容—标签对应协议均已修复，新 ID 的 V3 有界验收已 10/10 `pass`；旧 V2 `no-go` 保留不改。下一步由独立 Reviewer 将该 frozen suite 的完整证据闭合为 exact calibration `go` attestation，不能把 test-local `pass` 直接改名为 `go`。
+1. 模型选择与主执行身份证据、Reviewer 内容—标签对应协议均已修复，旧 V3 有界验收 10/10 `pass` 的原件已通过生产 API 复核；旧 V2 `no-go` 保留不改。正式生成式 candidate 仍需当前模型、rubric/contract/tool profile 下适用的独立 controls 和完整 suite 闭包。不能把旧 report-copy/test-local `pass` 改名为 `go`，也不能依赖模型恰好服从错误指导来制造已知回归类别。
 2. 只有 current calibration attestation 真正为 `go` 后，才执行最终完整 candidate patch 的真实 comparative journey；产品 Gate 状态或 synthetic calibration `pass` 不直接给任何 learning 授予 V3。
 3. 真实 V4 只能等待多个后续 case 自愿产生证据，不为完成路线制造或模拟。

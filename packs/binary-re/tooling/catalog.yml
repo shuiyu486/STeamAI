@@ -32,6 +32,19 @@ tools:
     requiresUserConfirmation: false
     stopConditions: [export-missing, input-too-large, output-limit, query-needs-full-export]
 
+  - id: ida-function-evidence
+    status: explicit-tool
+    purpose: 对已打开的授权 Windows x64 IDA 数据库副本进行定点只读导出；不安装或启动宿主。
+    inputs: [exact-function, allowed-ranges, at-most-two-call-sites, stable-database-identity, exact-case-artifact]
+    outputs: [bounded-function-evidence-json]
+    sideEffects: [database-read, bounded-filesystem-write]
+    requiresUserConfirmation: true
+    requiredContext: [authorized-database-copy, tool-permission, output-limit, stop-conditions]
+    stopConditions: [unsupported-database, analysis-not-stable, identity-drift, range-escape, output-limit, output-collision]
+    reusableNotes:
+      - 唯一实现是 tooling/scripts/export_function_evidence.py，按 tooling/recipes/ida-function-evidence.md 显式调用。
+      - catalog 不执行脚本，导出不授予 finding accepted 或独立复现资格。
+
   - id: vmenter-trace-template
     status: cautious
     purpose: Capture or analyze VMEnter context and focused handler traces in an isolated authorized case.

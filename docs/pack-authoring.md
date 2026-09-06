@@ -35,6 +35,14 @@ packs/<pack>/
 
 `README.md` 是按需路由入口，不是长必读清单。`agent-team.md` 只描述领域职责、owner/verifier/Reviewer 分工和产出；`workflow-template.md` 描述研究阶段与停止条件；`toolchain-router.md` 描述工具选择、风险与证据要求；tooling recipe 不执行动作，只给出可审查步骤。
 
+## 定点工具脚本
+
+`binary-re/tooling/scripts/export_function_evidence.py` 是显式批准的窄工具：仅在已打开的授权 IDA 数据库副本中读取指定函数/调用点，按范围、条目和输出预算生成 exact case artifact；不执行目标、不写 analysis DB、不自动安装宿主。操作 recipe 只引用这一份生产实现，测试直接调用它，不复制 exporter。
+
+脚本随同主辅 pack 的其余 tracked regular files 固定进 Fresh snapshot，但不会因初始化或读取 catalog 而运行。`tooling` 的 string list 显式列出脚本及对应输出 schema；JSON schema 是数据合同，不是执行许可。`vnext/**` 仍只保存 Markdown，禁止旧 runtime/adapter host 和 `packs/binary-re/scripts/` 旧入口。
+
+该许可不推广成所有 pack 均可任意加入脚本。新增工具必须证明真实操作需要，限定输入输出和副作用，给出实际工具验收；不复制 case 私有脚本，不加通用调度器或自动发现。IDAPython/fake API unit tests 只证明机械边界，不代表 IDA live。脚本和 schema 不进入 learningTargets；经验仍只回主 pack 现有 Markdown。
+
 ## Manifest
 
 `packs/_template/manifest.yml` 是 schema v2 的唯一 shape source。新增 pack 直接复制它，不在本指南维护第二份完整 YAML 样例，也不在 `policies/` 下建立平行 manifest。
@@ -64,6 +72,7 @@ packs/<pack>/
 ## 验证
 
 ```text
+python -m unittest discover -s tests/pack_tooling -p "test_*.py"
 go test -count=1 -run 'TestPackManifestV2Semantics|TestPackAndCommonSourcesDoNotExposeLegacyCommands' ./internal/steamai/vnextcontract
 go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...

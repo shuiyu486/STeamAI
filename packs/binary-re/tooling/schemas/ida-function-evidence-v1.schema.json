@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:steamai:binary-re:ida-function-evidence-v1",
+  "title": "STeamAI IDA 定点函数证据",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "source", "selection", "limits", "observation", "limitations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "ida-function-evidence"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_alias", "database_alias", "recorded_input_sha256", "original_input_rehashed", "database_file_hashed", "image_base", "processor", "bitness", "file_type", "ida_version", "idapython_version", "database_change_count", "analysis_ready", "debugger_active", "selected_bytes_match_original"],
+      "properties": {
+        "input_alias": {"$ref": "#/$defs/alias"},
+        "database_alias": {"$ref": "#/$defs/alias"},
+        "recorded_input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "original_input_rehashed": {"const": false},
+        "database_file_hashed": {"const": false},
+        "image_base": {"$ref": "#/$defs/address"},
+        "processor": {"const": "metapc"},
+        "bitness": {"const": 64},
+        "file_type": {"const": "PE"},
+        "ida_version": {"type": "string", "minLength": 1},
+        "idapython_version": {"type": "string", "minLength": 1},
+        "database_change_count": {"$ref": "#/$defs/address"},
+        "analysis_ready": {"const": true},
+        "debugger_active": {"const": false},
+        "selected_bytes_match_original": {"const": true}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function_ea", "allowed_ranges", "callsites"],
+      "properties": {
+        "function_ea": {"$ref": "#/$defs/address"},
+        "allowed_ranges": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"$ref": "#/$defs/range"}},
+        "callsites": {"type": "array", "maxItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/address"}}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_entries", "max_output_bytes", "timeout_seconds", "entries"],
+      "properties": {
+        "max_entries": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "max_output_bytes": {"type": "integer", "minimum": 1, "maximum": 262144},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+        "entries": {"type": "integer", "minimum": 1, "maximum": 1000}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_ea", "entry_end_ea", "flags", "chunks", "instructions", "references"],
+      "properties": {
+        "entry_ea": {"$ref": "#/$defs/address"},
+        "entry_end_ea": {"$ref": "#/$defs/address"},
+        "flags": {"$ref": "#/$defs/address"},
+        "chunks": {"type": "array", "minItems": 1, "maxItems": 1000, "items": {"$ref": "#/$defs/range"}},
+        "instructions": {
+          "type": "array", "minItems": 1, "maxItems": 1000,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ea", "end_ea", "bytes", "text", "callsite"],
+            "properties": {
+              "ea": {"$ref": "#/$defs/address"},
+              "end_ea": {"$ref": "#/$defs/address"},
+              "bytes": {"type": "string", "pattern": "^(?:[0-9a-f]{2}){1,15}$"},
+              "text": {"type": "string", "minLength": 1, "maxLength": 4096},
+              "callsite": {"type": "boolean"}
+            }
+          }
+        },
+        "references": {
+          "type": "array", "maxItems": 1000,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["from_ea", "to_ea", "type", "is_code", "is_call"],
+            "properties": {
+              "from_ea": {"$ref": "#/$defs/address"},
+              "to_ea": {"$ref": "#/$defs/address"},
+              "type": {"type": "integer", "minimum": 0, "maximum": 255},
+              "is_code": {"type": "boolean"},
+              "is_call": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "limitations": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "address": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615},
+    "alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"},
+    "range": {
+      "type": "object", "additionalProperties": false,
+      "required": ["start_ea", "end_ea"],
+      "properties": {"start_ea": {"$ref": "#/$defs/address"}, "end_ea": {"$ref": "#/$defs/address"}}
+    }
+  }
+}

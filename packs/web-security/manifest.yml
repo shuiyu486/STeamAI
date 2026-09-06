@@ -16,6 +16,8 @@ references:
   - references/web-security/task-handoff.template.md
   - references/web-security/toolchain-router.md
   - references/web-security/workflow-template.md
+  - references/web-security/request-sequence-review.md
+  - references/web-security/client-api-joint-review.md
 
 templates:
   - references/web-security/task-handoff.template.md
@@ -33,6 +35,7 @@ tooling:
   - tooling/catalog.yml
   - tooling/recipes/passive-triage.md
   - tooling/recipes/request-replay.md
+  - tooling/recipes/curl-read-evidence.md
   - tooling/schemas/bounded-replay-request-v1.schema.json
   - tooling/schemas/bounded-replay-result-v1.schema.json
   - tooling/schemas/openapi-inventory-v1.schema.json

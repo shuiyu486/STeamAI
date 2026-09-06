@@ -16,4 +16,5 @@
 - 正式改派必须包含 expected current task 与 new task；任务已变化时返回 `HOLD_STALE_TASK`。
 - target_ref、endpoint_ref、request_ref、finding_ref 只能是 case-local 脱敏引用。
 - owner 写 evidence/finding；verifier 提供有界验证；Reviewer 不修改原 evidence/finding。
+- 有界序列和客户端/API 联合问题仍是一名 owner、最多一名 verifier；verifier 优先核查一条关键连接，不默认重做两侧完整研究或增加跨域协调成员。综合 F 直接引用全部支撑连接的 E，由 Reviewer 做整体 review；另一领域只使用任务指定的已固定主辅方法，用户纠偏与正式改派规则不变。
 - heavy action 不由成员间消息授权，必须回到具体 case 授权、用户确认和工具权限边界。

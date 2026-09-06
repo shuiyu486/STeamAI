@@ -514,10 +514,12 @@ func parseSnapshot(path string) (snapshotMetadata, error) {
 			}
 			continue
 		}
-		key, value, ok := strings.Cut(strings.TrimSpace(line), ": ")
+		// 新增 tracked 文件没有 HEAD blob；先保留分隔符，再规范化值。
+		key, value, ok := strings.Cut(strings.TrimLeft(line, " \t"), ": ")
 		if !ok {
 			return snapshotMetadata{}, fmt.Errorf("snapshot record 行无效: %s", line)
 		}
+		value = strings.TrimSpace(value)
 		switch {
 		case source != nil:
 			switch key {

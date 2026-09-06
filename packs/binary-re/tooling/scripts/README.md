@@ -1,6 +1,12 @@
-# Script template backlog
+# 定点工具与脚本 backlog
 
-本目录记录已在 case 中验证、值得模板化的脚本类型。第一版先记录接口和参数化要求，不直接搬运含 case 私有路径的源码。
+## 已交付工具
+
+本目录仅交付一个显式调用的窄工具：[export_function_evidence.py](export_function_evidence.py)。它在已有授权 IDA/IDAPython 会话中读取一个已分析的 Windows x64 函数及最多两个明确调用点，把有界观察写入指定 case artifact；不自动启动/安装 IDA、不执行目标、不修改数据库、不默认调用反编译器。
+
+使用、限制和真实验收边界见 [IDA 定点函数取证](../recipes/ida-function-evidence.md)；输出形状见 [schema](../schemas/ida-function-evidence-v1.schema.json)。脚本随 case-pinned snapshot 固定，但不会因被复制、import 或 catalog 引用而自动执行。工具与测试只有一份生产实现；fake IDA 不替代真实 IDA 验收，也不授予独立证据成熟度。
+
+以下仍是已在 case 中验证、值得模板化的脚本类型 backlog，**不是已交付文件或可执行命令**。这里只记录接口和参数化要求，不搬运含 case 私有路径的源码；不因新增上述窄工具而恢复通用 runtime/adapter host。
 
 ## 值得模板化的脚本
 

@@ -28,6 +28,14 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Pack tooling tests
+        run: python -m unittest discover -s tests/pack_tooling -p "test_*.py"
+
       - name: Go vet
         run: go vet ./...
 

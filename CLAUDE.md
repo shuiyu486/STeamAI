@@ -12,7 +12,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-research-capability-v1`，入口为 `docs/research-capability-roadmap.md`：同时深化 Binary RE/Web/API、增强关键分岔点决策，并支持同一 case 主＋可选一个辅助 pack。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前路线是 `steamai-research-execution-v1`，入口为 `docs/research-execution-roadmap.md`：交付有界专业取证、跨步骤解释/预测验证与同 case 客户端/API 联合研究。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
 ## 维护哲学与踩坑护栏
 
@@ -36,6 +36,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - 经验由 Commander 从 current accepted evidence chain 提炼；Reviewer 先逐 candidate 检查 eligibility，再绑定最终 batch exact patch；用户查看完整 patch 并确认 exact tuple 后才回流 pack。
 - `steamai.exe` 只负责 setup/update/uninstall、卸载后的窄自清理、Fresh 文件机械操作、synthetic readonly matched evaluation bundle、exact learning batch apply、Windows 可见进程启动和必要瞬时互斥。不得扩展为 task/session/message/roster/finding/review/learning 判断控制面。
 - 正式产品路径不得新增 PowerShell、`.cmd` 或 `.bat` façade；不恢复旧 Go control plane、adapter host 或兼容 runtime。
+- 唯一新增 pack 工具为 `packs/binary-re/tooling/scripts/export_function_evidence.py`：对已打开的授权 IDA 数据库副本做显式定点只读导出，只写指定 case artifact。catalog/recipe 不自动执行，脚本不进入 learningTargets；不安装宿主、不执行目标、不写 analysis DB。`vnext/**` 仍仅 Markdown，Go 不增加研究执行器；真实 IDA、HTTP、联合行为与静态测试分别验收。
 
 ## 初始化与更新边界
 
@@ -54,7 +55,8 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
-- 当前路线：`docs/research-capability-roadmap.md`
+- 当前路线：`docs/research-execution-roadmap.md`
+- 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
 - verified-learning 证据与待验项：`docs/verified-learning-roadmap.md`
 - 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
 - 历史薄核心事实：`docs/real-usage-hardening-roadmap.md`
@@ -64,6 +66,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 ## 验证
 
 ```text
+python -m unittest discover -s tests/pack_tooling -p "test_*.py"
 go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...
 git diff --check

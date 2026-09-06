@@ -14,6 +14,8 @@
 | 任务 | 读取文档 | 说明 |
 |---|---|---|
 | 通用 binary/function/API 分析 | `general-analysis.md`、`general-workflow.md` | 从 passive sidecar 到 finding/review 的轻到重路线。 |
+| 跨函数/处理步骤的行为解释与预测 | `bounded-behavior-chain.md` | 核对 producer/consumer 连接和未见分支，不把局部摘要直接拼成整体。 |
+| 同 case 客户端/API 联合问题 | `bounded-behavior-chain.md` 的联合路由说明 | 仅需 Web 联合方法且已冻结 Web 主/辅助包时，按任务 exact path 读取其唯一联合入口；不补装或默认跨包读取。 |
 | 团队分工与复核 | `general-agent-team.md` | Commander、focused member、verifier 与 Reviewer。 |
 | 通用工具选择 | `general-toolchain-router.md`、`../../tooling/README.md` | static triage、saved summary review、风险和止损。 |
 | VMProtect x64 专项 | `workflow-template.md`、`agent-driven-re.md` | VMEnter、context、trace、handler value-flow 与 review。 |

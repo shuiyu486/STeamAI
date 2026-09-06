@@ -2,28 +2,27 @@
 
 ## 读取指南
 
-本文件只是当前路线的短投影，不保存完整实施日志。完整路由见 `docs/context-routing.md`；当前状态以 `docs/research-capability-roadmap.md` 为准。verified-learning 既有证据与未完成门槛保留在 `docs/verified-learning-roadmap.md`，不因切换路线而改判完成。
+本文件只是当前路线的短投影，不保存完整实施日志。完整路由见 `docs/context-routing.md`；当前状态以 `docs/research-execution-roadmap.md` 为准。已交付单点方法/主辅与真实平局事实留在 `docs/research-capability-roadmap.md`；旧学习门槛留在 `docs/verified-learning-roadmap.md`，不因切换路线改判完成。
 
 ## Current projection
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-research-capability-v1` |
-| source | `docs/research-capability-roadmap.md` |
-| 当前批次 | `RC-01 双领域方法`、`RC-02 分岔点决策`、`RC-03 主辅 pack` |
-| 状态 | 已实现；默认回归通过；32 轮真实静态对照已完成且四组平局；可见会话保存/双包消费/恢复已验证 |
-| 目标 | Binary RE/Web/API 各深化一项方法；重要分岔点选区分性检查；同 case 主＋可选一个辅助包 |
-| 不变 | 独立 Claude Code 成员/原生上下文与恢复；单 Commander；辅助只读、经验只回主包；旧 current 零改写 |
-| 已验证 | production Fresh/current/learning 边界、旧单包零改写、双领域方法合同；真实双向 Fresh、双包读取、Windows 可见成员保存/同 session resume/正常退出；完整 tests/vet/diff check |
-| 真实结论 | 四组均 16/16，未观察到质量增益/回归；发现并修复正式启动继承 child 标记导致 transcript 不保存的问题 |
-| 未声称 | 自发决策/一般研究增益、人工纠偏与跨会话实投递、实际 HTTP、新 calibration/promotion 或 V4；没有正式 learning 回流与 Release |
-
-合成与文本 tests 只证明机械/内容合同，不证明研究更准、更快，也不授予 V2/V3/V4。原 verified-learning 的 attestation/comparison/field evidence 门槛继续按原路线与 `vnext/acceptance.md` 处理。
+| 路线 | `steamai-research-execution-v1` |
+| source | `docs/research-execution-roadmap.md` |
+| 当前批次 | A/B/C 实现与回归完成；RE-05 和 VL-CLOSE 保留真实未完成验收，超时后暂停新增付费 |
+| 状态 | 实现与默认回归通过；36研究轮完成，盲评超时/可见onboarding导致完整验收仍待收口 |
+| 目标 | A 定点专业取证；B 跨步骤解释/预测；C 同 case 客户端/API 联合研究 |
+| 实现边界 | 一个显式 IDAPython exporter；原生 curl；现有 E/F/R 直接绑定全部连接，不建执行/图/任务平台 |
+| 不变 | 原生成员/消息/恢复、主＋最多一辅、经验只回主包、旧 current 零改写 |
+| 已验子范围 | 27项 Python、全量 Go/vet；14次真实 loopback GET；当前 high 模型身份与 Read/resume；36研究轮、首题盲评平局；旧原件 verifier 与锁恢复子路径 |
+| 待验 | 实际 IDA、成员联合行为/可见协作、9题静态对照结论；正式学习适用校准/候选比较/确认 |
+| 未声称 | 实现即研究增益、fake API 即 IDA、旧 report-copy pass 即 go、合成 Apply 即真实 canonical 回流或 V4 |
 
 ## 验证标准
 
-- 先直接相关 production 与 contract tests；默认不调用模型。
+- `python -m unittest discover -s tests/pack_tooling -p "test_*.py"`
 - `go test -count=1 -p=2 -timeout=30m ./...`
 - `go vet ./...`
 - `git diff --check`
-- 真实模型、可见窗口、请求和 learning apply 分别取得所需授权后验收；失败、不确定和负结果保留。
+- 默认不调用模型、IDA、HTTP；真实工具、模型、成员、learning 分别按 `vnext/acceptance.md` 验收并保留失败和未知。

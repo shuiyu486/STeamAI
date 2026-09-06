@@ -31,7 +31,7 @@ argument-hint: "[研究目标、组队、继续、状态、纠偏、审查或经
 9. Apply 只接收 exact confirmation 与同一份 facts，并从 canonical working tree、stage-0 index 和 target 重新构建完整 preview，不信任旧内存 write map；重新验证 HEAD anchor、current source path/mode/blob/raw bytes、target pre-state、path containment、非 symlink/reparse ancestors、preview identity 和所有 collision。不匹配则零写入并生成新 preview。
 10. currentness 通过后，在 target 同卷 sibling staging 目录写入 contracts、snapshot、artifact index、成员文件、空目录和 case `CLAUDE.md`，验证完整 path set 与 bytes。然后先用 sibling temp file no-replace create project-local skill 并重验，最后才把完整 staging tree 以 no-replace rename 发布为 `.steamai-vnext/`；因此 skill 发布失败时 completed marker 不存在。state publish 在极窄窗口失败时可留下 exact project-local skill，但它不构成 current case，下一次 fresh preview 将其识别为 unchanged；staging/temp 残留或 marker 不存在时绝不能按 current case 工作，也不自动 repair、rollback 或删除用户文件。该边界假定单 Commander、无并发初始化者，不声称跨 `.claude/` 与 `.steamai-vnext/` 的全局事务或 OS-level ACL。
 
-Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh 时使用 `claude "/steamai" --add-dir <CANONICAL_SOURCE>`，positional `/steamai` 必须放在 variadic `--add-dir` 之前；Claude Code 会从 added directory 的 `.claude/skills/` 发现 canonical skill，但不会改变 case cwd。分发完成后，日常只需在目标项目执行 `steamai`，current 分支不再加入 mutable source clone；模板和 learning 合同只从 `.steamai-vnext/contracts/` 读取，pack/common 指令只从 `.steamai-vnext/pack-snapshot/` 读取。这些目录是固定到 case revision、禁止自动覆盖或重导出的声明式内容，不是 OS-level ACL 或 runtime。
+Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh 时使用 `claude "/steamai" --add-dir <CANONICAL_SOURCE>`，positional `/steamai` 必须放在 variadic `--add-dir` 之前；Claude Code 会从 added directory 的 `.claude/skills/` 发现 canonical skill，但不会改变 case cwd。分发完成后，日常只需在目标项目执行 `steamai`，current 分支不再加入 mutable source clone；模板和 learning 合同只从 `.steamai-vnext/contracts/` 读取，pack/common 指令只从 `.steamai-vnext/pack-snapshot/` 读取。这些目录的内容固定到 case revision，禁止自动覆盖或重导出；contracts 是声明式合同，pack 内显式提供的定点工具也不会因被复制或读取而自动执行。snapshot 不是 OS-level ACL 或 runtime，具体工具动作仍需授权与工具权限。
 
 ## Case-pinned pack 按需路由
 
@@ -40,6 +40,7 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 3. 创建或改派成员时，把实际使用的 manifest、router、所选入口及必要 supporting document 的精确 member-relative snapshot 路径写入任务的 `输入` 与 `允许读取`。主包路径必须形如 `../../pack-snapshot/packs/<selected-pack>/...`；辅助包路径为 `../../pack-snapshot/packs/<aux-pack>/...`；common policy 必须形如 `../../pack-snapshot/common/...`。不得写 source-clone path 或仅写无法解析的 pack 名称。
 4. 成员只按任务文件列出的 pinned paths 读取领域规则；需要新增入口时先由成员向 Commander 请求有界补充，不自行遍历 snapshot。领域文档提供方法和停止条件，不扩大 case 授权，也不自动批准 heavy action。辅助只提供方法，不改变成员身份、正式任务或团队容量；主辅建议冲突时说明证据与适用条件，必要时交 Commander，不静默覆盖 case 规则。
 5. 使用方法前核对当前观察是否满足前提、是否命中反例；前提未知就选择最小补证，不因领域名称相近而套用。当前 single-pack case 无需辅助也可正常工作；已有 case 不随新模板或 canonical pack 更新。
+6. 仅当问题跨越实质性处理/状态边界时，按主包 router 选择跨步骤方法；若还需要客户端/API 两侧连接，则选择已固定 Web 包的 `references/web-security/client-api-joint-review.md`。成员输入须写 exact `../../pack-snapshot/packs/web-security/references/web-security/client-api-joint-review.md` 及其 manifest/router；没有该包就不假定入口存在，也不补装。只读方法或脚本存在不授权执行，单点任务不默认加载这些方法或增加成员。
 
 ## 首次建立 case
 
@@ -66,6 +67,7 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 - 存在实质竞争解释时，在观察结果前说明什么会支持、削弱或推翻当前判断，并通过现有任务的目标、交付、停止或升级条件表达。机械小任务不强制列多个假设，不新增任务字段、假设库、记忆库或交接文件。
 - 反证出现后实际停止、收窄或请求改派；不能用重复检查或更多支持材料掩盖反证。需复核的观察进入既有 evidence/finding，探索过程留在原生 session，正式任务变更继续遵守下面的单写与纠偏规则。
 - 缺材料、工具不可用或等待授权时如实报告阻塞和结论边界，不为显示进展扩大动作，也不把“暂时无法验证”当作“已推翻”。
+- 跨步骤问题先检查前一步输出如何实际成为后一步输入；在查看新的区分性观察前记录预测与条件，结果到来后保留原预测并明确改判。同名、时间接近或两端局部成立不能代替连接 E；缺连接先补最小证据，不扩大成全程序或全服务扫描。
 
 ## 团队协作章程
 
@@ -98,6 +100,7 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 - Reviewer 只读 artifact/evidence/finding/spec/run bundle；blind comparison 一次读取 manifest 绑定的 immutable `blind-review.json`，以 preferred entry 与其 output SHA 固定选择，不靠多个异步读取结果手工关联 opaque labels。Reviewer 只写 `reviews/` 和当前任务明确列出的 exact `evaluations/attestations/<id>.md`，不执行 heavy action、不运行 evaluation arms，也不修改原 evidence/finding/spec/run/candidate/patch。
 - 每个 review 文件由指定 Reviewer 单写：首次写 round 1，补证后只追加连续 round，不覆盖历史。每轮绑定 finding 与 reviewed evidence 的 SHA-256；每项 evidence 的 artifact tuple 还必须匹配当前 artifact index entry 和实际 artifact bytes。只有最后一个字段完整、hashes current 且传递 artifact bindings current 的 round 才是 current decision。finding/evidence、alias/index entry 或 artifact bytes 变化后旧 `accepted` 为 stale，必须追加复审；更换 Reviewer 时新建 review 文件。
 - Reviewer 直接引用 finding/evidence 提出补证，`needs-evidence` 返回原 owner，不经过 writeback/reconcile 状态机。
+- 综合 F 直接引用全部支撑连接的 E，由整体 review 同时绑定；局部 F 仅作导航，两个局部 accepted 不等于整体 accepted，不假设 F→F 递归校验。客户端/API 联合交付还须证明目标版本、对象、字段表示、请求/响应与处理的连接；pack identity 不能代替目标身份，客户端约束不能代替服务端约束。缺连接时保留局部结果和整体 unknown。
 - Commander 只有在 finding 可追溯到 evidence、最后 current review round 为 `accepted`、重要反证已处理且授权边界未漂移后才向用户交付。最终回答对应用户原始问题，分别说明已证明、被否定与仍未知的部分及其影响；局部 accepted finding 不代表整个目标已回答，不以 finding 数量或报告长度作为完成标准。
 
 ## 经验回流

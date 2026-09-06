@@ -10,6 +10,8 @@
 | 组建成员或请求复核 | `agent-team.md` |
 | 选择工具或判断 heavy action | `toolchain-router.md` |
 | 单一请求假设、发送不确定、差异归因或修复对照 | `../../tooling/recipes/request-replay.md` |
+| 请求/前态/后续读取的连接与预测 | `request-sequence-review.md` |
+| 同 case 客户端字段、API 结果与客户端处理的联合解释 | `client-api-joint-review.md` |
 
 ## 常驻边界
 

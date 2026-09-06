@@ -46,11 +46,19 @@ Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-rep
 
 ## 研究方法与主辅 pack
 
-当前源码路线同时深化两类方法：Binary RE 的低样本 final-effect/证据复核，以及 Web/API 的单一请求假设、有界验证、差异归因与修复证据。重要研究分岔点先选能改变判断的检查；反证出现后停止、收窄或改派，最终按用户问题说明已证明、被否定与未知。它们不新建成员记忆或调度系统。本轮已完成四组、32 轮真实静态对照并独立复查，质量评分全部平局；方法已落地，但不能据此宣称研究更准或稳定更快。
+当前源码路线同时深化两类方法：Binary RE 的低样本 final-effect/证据复核，以及 Web/API 的单一请求假设、有界验证、差异归因与修复证据。重要研究分岔点先选能改变判断的检查；反证出现后停止、收窄或改派，最终按用户问题说明已证明、被否定与未知。它们不新建成员记忆或调度系统。该方法与主辅包路线已完成四组、32 轮真实静态对照并独立复查，质量评分全部平局；方法已落地，但不能据此宣称研究更准或稳定更快。
 
 Fresh 默认选一个主 pack，确需另一套独立维护的方法时，可在同次 preview 加入最多一个不同的辅助 pack。两个包分别固定、完整 common 只复制一次；成员按任务读取指定入口，不默认把两包全部加载。辅助不扩大授权或团队，不覆盖主 case 规则，经验仍只写回主 pack。主辅不是两个 case 合并，也不自动发现其他项目。
 
-已有 current case 保持自己的单包内容、skill 和合同，不补装辅助或迁移；这些源码改动不会自动进入既有 case。新版原生入口沿同一 snapshot parser 接受无辅助字段的单包 case；旧 executable 不承诺读取新双包 snapshot。当前源码路线的状态见 `docs/research-capability-roadmap.md`，不能用已发布 `v1.0.4` 的历史验收证明这些新行为。
+已有 current case 保持自己的单包内容、skill 和合同，不补装辅助或迁移；这些源码改动不会自动进入既有 case。新版原生入口沿同一 snapshot parser 接受无辅助字段的单包 case；旧 executable 不承诺读取新双包 snapshot。这轮方法与主辅能力的交付证据见 `docs/research-capability-roadmap.md`，不能用已发布 `v1.0.4` 的历史验收证明这些新行为。
+
+## 专业实操与联合研究
+
+当前 `steamai-research-execution-v1` 路线在上述基础上交付三项相互配合的能力：A 将专业方法落实为实际取证步骤；B 核查处理步骤之间的连接，并用尚未查看的分支检验预测；C 在同一授权 case 内对应客户端字段、API 请求/业务结果与客户端处理，形成整体复核结论。状态与未验范围见 `docs/research-execution-roadmap.md`，不沿用旧平局对照证明新能力。
+
+Binary 路径提供一个显式 IDAPython 定点导出工具，读取已打开的授权 Windows x64 稳定数据库副本，只写指定 case artifact；需要用户已有可用 IDA/IDAPython，不自动安装、不执行目标或修改 analysis DB，也不默认要求反编译器。Web 路径直接使用本机原生 curl，仍是具体确认后的单次 loopback GET，不新增 HTTP 执行器、POST、批量或 retry。Fresh 固定这些文件不会自动运行工具；脚本不进入 learningTargets。
+
+跨步骤和联合方法只在相应问题上按需读取。综合 finding 直接引用全部支撑连接的 evidence，并整体审查；两个局部 accepted 不能自动合成联合 accepted。已有 case 不更新固定内容，真实 IDA/HTTP、可见协作和研究效果分别验收。
 
 ## 团队模型
 
@@ -132,7 +140,8 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 - case/研究模板与合同：`vnext/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 当前路线：`docs/research-capability-roadmap.md`
+- 当前路线：`docs/research-execution-roadmap.md`
+- 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
 - verified-learning 既有证据与待验项：`docs/verified-learning-roadmap.md`
 - 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
 - 自动与人工验收分层：`vnext/acceptance.md`
@@ -140,6 +149,7 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 维护验证：
 
 ```text
+python -m unittest discover -s tests/pack_tooling -p "test_*.py"
 go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...
 git diff --check

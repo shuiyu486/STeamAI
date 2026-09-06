@@ -503,6 +503,174 @@ func TestAuxPackPreviewApplyAndCurrent(t *testing.T) {
 	}
 }
 
+func TestPackToolingAssetsArePinnedWithoutExecution(t *testing.T) {
+	for _, layout := range []struct {
+		name                string
+		reversed, stagedNew bool
+	}{
+		{"committed-main", false, false}, {"committed-auxiliary", true, false},
+		{"staged-new-main", false, true}, {"staged-new-auxiliary", true, true},
+	} {
+		for _, changedAsset := range []string{"scripts/export_function_evidence.py", "schemas/ida-function-evidence-v1.schema.json"} {
+			t.Run(layout.name+"/"+changedAsset, func(t *testing.T) {
+				git, source := canonicalFixture(t)
+				assets := map[string]string{}
+				for _, pack := range []string{"fixture-pack", "aux-pack"} {
+					prefix := "packs/" + pack + "/tooling/"
+					assets[prefix+"scripts/export_function_evidence.py"] = "raise RuntimeError(\"synthetic snapshot must not execute\")\n"
+					assets[prefix+"schemas/ida-function-evidence-v1.schema.json"] = "{\"type\":\"object\"}\n"
+				}
+				for path, data := range assets {
+					writeFile(t, filepath.Join(source, filepath.FromSlash(path)), []byte(data))
+				}
+				runGit(t, git, source, "add", "--", "packs/fixture-pack/tooling", "packs/aux-pack/tooling")
+				if !layout.stagedNew {
+					runGit(t, git, source, "commit", "--quiet", "-m", "synthetic tooling assets")
+				}
+
+				facts := fixtureFacts()
+				facts.AuxPack = "aux-pack"
+				if layout.reversed {
+					facts.Pack, facts.AuxPack = facts.AuxPack, facts.Pack
+				}
+				caseRoot := newCaseRoot(t)
+				preview, err := BuildPreview(git, source, caseRoot, facts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for path, data := range assets {
+					record := sourceRecord(t, preview, path)
+					write := writeForTarget(t, preview, ".steamai-vnext/pack-snapshot/"+path)
+					if record.GitMode != "100644" || write.GitMode != "100644" ||
+						string(record.Data) != data || string(write.Data) != data ||
+						(record.HeadBlob == "") != layout.stagedNew || record.ContentBlob == "" ||
+						record.SHA256 != hashBytes([]byte(data)) || write.SHA256 != record.SHA256 {
+						t.Fatalf("工具资产未按实际 bytes/mode 固定: %s", path)
+					}
+				}
+				commonWrites := 0
+				for _, write := range preview.Writes {
+					if strings.HasPrefix(write.TargetPath, ".steamai-vnext/pack-snapshot/common/") {
+						commonWrites++
+					}
+				}
+				if commonWrites != 1 || len(treeDigest(t, caseRoot)) != 0 {
+					t.Fatal("双包工具 preview 必须零写，common 只复制一份")
+				}
+				if _, err := Apply(git, source, caseRoot, facts, ConfirmationPrefix+preview.Identity); err != nil {
+					t.Fatal(err)
+				}
+				before := treeDigest(t, caseRoot)
+				for path, data := range assets {
+					if before[".steamai-vnext/pack-snapshot/"+path] != hashBytes([]byte(data)) {
+						t.Fatalf("已发布工具资产 bytes 不匹配: %s", path)
+					}
+				}
+
+				freshRoot := newCaseRoot(t)
+				beforeDrift, err := BuildPreview(git, source, freshRoot, facts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// 同一物理包分别作为主包、辅助包，均绑定脚本和 schema 的漂移。
+				changedPath := "packs/fixture-pack/tooling/" + changedAsset
+				changedData := []byte(assets[changedPath] + "\n")
+				writeFile(t, filepath.Join(source, filepath.FromSlash(changedPath)), changedData)
+				afterDrift, err := BuildPreview(git, source, freshRoot, facts)
+				if err != nil {
+					t.Fatalf("合法 source 修改应产生新 preview: %v", err)
+				}
+				if afterDrift.Identity == beforeDrift.Identity || afterDrift.SnapshotDigest == beforeDrift.SnapshotDigest {
+					t.Fatal("工具资产漂移未更新 preview/snapshot identity")
+				}
+				if _, err := Apply(git, source, freshRoot, facts, ConfirmationPrefix+beforeDrift.Identity); !errors.Is(err, ErrConfirmationRequired) {
+					t.Fatalf("工具漂移后旧确认未拒绝: %v", err)
+				}
+				if err := applyPreview(git, source, freshRoot, beforeDrift); !errors.Is(err, ErrSourceDrift) {
+					t.Fatalf("工具漂移后旧 preview 未在发布前拒绝: %v", err)
+				}
+				if len(treeDigest(t, freshRoot)) != 0 {
+					t.Fatal("拒绝旧工具 preview 后留下文件")
+				}
+				identity, err := InspectCurrent(caseRoot)
+				if err != nil || identity.Pack != facts.Pack || identity.AuxPack != facts.AuxPack || identity.PayloadDigest != preview.SnapshotDigest {
+					t.Fatalf("canonical 工具变更影响既有 current: %+v %v", identity, err)
+				}
+				if !sameTree(before, treeDigest(t, caseRoot)) {
+					t.Fatal("current 被自动更新或补装工具")
+				}
+
+				pinnedPath := filepath.Join(caseRoot, ".steamai-vnext/pack-snapshot", filepath.FromSlash(changedPath))
+				writeFile(t, pinnedPath, changedData)
+				corrupted := treeDigest(t, caseRoot)
+				if err := ValidateCurrent(caseRoot); err == nil {
+					t.Fatal("case-pinned 工具 bytes 漂移未拒绝")
+				}
+				if !sameTree(corrupted, treeDigest(t, caseRoot)) {
+					t.Fatal("current validator 修复了已漂移的工具资产")
+				}
+			})
+		}
+	}
+}
+
+func TestSnapshotEmptyHeadBlobDoesNotRelaxRequiredRecordFields(t *testing.T) {
+	git, source := canonicalFixture(t)
+	assetPath := "packs/fixture-pack/tooling/scripts/export_function_evidence.py"
+	writeFile(t, filepath.Join(source, filepath.FromSlash(assetPath)), []byte("# 仅用于 snapshot 的合成工具内容\n"))
+	runGit(t, git, source, "add", "--", assetPath)
+	caseRoot := newCaseRoot(t)
+	facts := fixtureFacts()
+	preview, err := BuildPreview(git, source, caseRoot, facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(git, source, caseRoot, facts, ConfirmationPrefix+preview.Identity); err != nil {
+		t.Fatal(err)
+	}
+	asset := sourceRecord(t, preview, assetPath)
+	if asset.HeadBlob != "" {
+		t.Fatal("新 stage-0 资产不应伪造历史 HEAD blob")
+	}
+	snapshotPath := filepath.Join(caseRoot, ".steamai-vnext/pack-snapshot/snapshot.yml")
+	snapshot := string(writeForTarget(t, preview, ".steamai-vnext/pack-snapshot/snapshot.yml").Data)
+	prefix := "  - path: " + assetPath + "\n"
+	start := strings.Index(snapshot, prefix)
+	if start < 0 {
+		t.Fatal("snapshot 缺少新工具 record")
+	}
+	for _, test := range []struct{ name, from, to string }{
+		{"empty mode", "    git-mode: " + asset.GitMode + "\n", "    git-mode: \n"},
+		{"empty content blob", "    content-blob: " + asset.ContentBlob + "\n", "    content-blob: \n"},
+		{"empty sha", "    sha256: " + asset.SHA256 + "\n", "    sha256: \n"},
+		{"empty bytes", "    bytes: " + fmt.Sprint(asset.Bytes) + "\n", "    bytes: \n"},
+		{"missing separator space", "    head-blob: \n", "    head-blob:\n"},
+		{"invalid historical blob", "    head-blob: \n", "    head-blob: not-a-blob\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := snapshot[:start] + strings.Replace(snapshot[start:], test.from, test.to, 1)
+			if changed == snapshot {
+				t.Fatal("未构造出待测的错误 record")
+			}
+			writeFile(t, snapshotPath, []byte(changed))
+			if _, err := parseSnapshot(snapshotPath); err == nil {
+				t.Fatal("允许缺省 HEAD blob 不应放宽其它 record 字段")
+			}
+			if err := ValidateCurrent(caseRoot); err == nil {
+				t.Fatal("损坏 record 的 current 未拒绝")
+			}
+		})
+	}
+	writeFile(t, snapshotPath, []byte(snapshot))
+	before := treeDigest(t, caseRoot)
+	if err := ValidateCurrent(caseRoot); err != nil {
+		t.Fatalf("合法空 HEAD blob 的 current 无法读取: %v", err)
+	}
+	if !sameTree(before, treeDigest(t, caseRoot)) {
+		t.Fatal("读取合法空 HEAD blob 时改写了 case")
+	}
+}
+
 func TestFactsPackSelectionsRejectAmbiguity(t *testing.T) {
 	data, err := json.Marshal(fixtureFacts())
 	if err != nil {
