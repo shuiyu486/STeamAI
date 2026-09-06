@@ -2,36 +2,28 @@
 
 ## 读取指南
 
-本文件只是当前路线的短投影，不保存完整实施日志，也不是第二份 roadmap。先由 `docs/context-routing.md` 选场景；当前状态以 `docs/verified-learning-roadmap.md` 为准。已完成 Windows 产品基线见 `docs/windows-native-product-roadmap.md`，历史 thin-core 验收见 `docs/real-usage-hardening-roadmap.md`。
+本文件只是当前路线的短投影，不保存完整实施日志。完整路由见 `docs/context-routing.md`；当前状态以 `docs/research-capability-roadmap.md` 为准。verified-learning 既有证据与未完成门槛保留在 `docs/verified-learning-roadmap.md`，不因切换路线而改判完成。
 
 ## Current projection
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-verified-learning-v1` |
-| source | `docs/verified-learning-roadmap.md` |
-| 当前批次 | `VL-06 immutable blind-review packet 与 V3 calibration` |
-| 状态 | `packet/entry/output-SHA 机械闭包已实现；V3 有界 live 10/10 pass；正式 behavioral V3 仍 fail-closed` |
-| 已实现 | `Gate 0 integrity`、`Gate 1 replay contract`、`Gate 2 bounded runner + blind-review packet`、`Gate 3 packet-bound promotion`、`Gate 4 explicit opt-in outcome contract` |
-| 已验证 | production packet publication/verification、content/entry/output-SHA tamper、Gate 3 self-consistent semantic mismatch rejection、full tests/vet/build/diff check |
-| 本轮 live | `BOUNDED-SYNTHETIC-REVIEWER-V3`：30 records completed、10/10 class matched、`$1.182349`、332.53 秒；旧 V2 complete/no-go 永久保留 |
-| 待改进/验证 | 独立 Reviewer 把 frozen V3 suite 闭合为 exact calibration `go` attestation；locked-file update recovery live path |
-| live pending | 最终完整 candidate comparative journey；多个后续 case field outcomes |
-| 下一批 | 先完成 calibration attestation，再评估最终 candidate；test-local `pass` 不直接授予 V3 |
+| 路线 | `steamai-research-capability-v1` |
+| source | `docs/research-capability-roadmap.md` |
+| 当前批次 | `RC-01 双领域方法`、`RC-02 分岔点决策`、`RC-03 主辅 pack` |
+| 状态 | 已实现；默认回归通过；32 轮真实静态对照已完成且四组平局；可见会话保存/双包消费/恢复已验证 |
+| 目标 | Binary RE/Web/API 各深化一项方法；重要分岔点选区分性检查；同 case 主＋可选一个辅助包 |
+| 不变 | 独立 Claude Code 成员/原生上下文与恢复；单 Commander；辅助只读、经验只回主包；旧 current 零改写 |
+| 已验证 | production Fresh/current/learning 边界、旧单包零改写、双领域方法合同；真实双向 Fresh、双包读取、Windows 可见成员保存/同 session resume/正常退出；完整 tests/vet/diff check |
+| 真实结论 | 四组均 16/16，未观察到质量增益/回归；发现并修复正式启动继承 child 标记导致 transcript 不保存的问题 |
+| 未声称 | 自发决策/一般研究增益、人工纠偏与跨会话实投递、实际 HTTP、新 calibration/promotion 或 V4；没有正式 learning 回流与 Release |
 
-当前判断：mechanical implementation 已闭合到 production API/CLI 和 case-pinned contracts；默认 synthetic tests 不调用模型。未完成的 live evidence 不由模板、fake Claude、cross-build 或旧 v1.0.4 证据替代。
+合成与文本 tests 只证明机械/内容合同，不证明研究更准、更快，也不授予 V2/V3/V4。原 verified-learning 的 attestation/comparison/field evidence 门槛继续按原路线与 `vnext/acceptance.md` 处理。
 
 ## 验证标准
 
+- 先直接相关 production 与 contract tests；默认不调用模型。
 - `go test -count=1 -p=2 -timeout=30m ./...`
 - `go vet ./...`
-- Windows/Linux build 与 `git diff --check`
-- evaluator/calibration/comparative/field evidence 按 `vnext/acceptance.md` 独立记录
-- no-go/inconclusive 必须保留并阻止 behavioral V3 promotion
-
-## 风险与注意事项
-
-- native runner 不是 control plane、自动 judge、遥测或跨 case aggregator。
-- 产品路径不使用 PowerShell、`.cmd` 或 `.bat`。
-- `accepted`、eligible、用户 confirmation、Apply 或 Git staging 不提升 V0–V4 maturity。
-- 真实 V4 依赖未来多个独立后续 case 的逐份 opt-in evidence，不能为关闭路线而模拟。
+- `git diff --check`
+- 真实模型、可见窗口、请求和 learning apply 分别取得所需授权后验收；失败、不确定和负结果保留。

@@ -6,6 +6,7 @@
 |---|---|---|---|
 | triage | case-local 脱敏引用或已有 sidecar | evidence 摘要与定位 | 输入身份不明、范围漂移 |
 | focused analysis | 明确对象与窄问题 | finding candidate | 证据不足、预算耗尽 |
+| request hypothesis / 修复对照 | 已有有界材料，读 `../../tooling/recipes/request-replay.md` | 单假设的支持/反证/未知、合法行为前后对照 | 输入不等价、发送不确定、证据不足、预算耗尽 |
 | independent review | finding + evidence | review verdict | 缺引用、无法复核 |
 | heavy action | 具体目标、动作、预算、副作用 | 有界 evidence 或 artifact index 更新 | 未确认、权限不足、意外副作用 |
 

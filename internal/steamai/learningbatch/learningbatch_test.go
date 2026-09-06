@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -64,6 +65,200 @@ func TestMultiCandidateMultiTargetPreviewAndApply(t *testing.T) {
 	if got := mustCurrent(t, fixture.caseRoot).PayloadDigest; got != beforeSnapshot {
 		t.Fatal("apply 修改了 case snapshot")
 	}
+}
+
+func TestDualPackLearningMainOnly(t *testing.T) {
+	for _, packs := range [][2]string{{"binary-re", "web-security"}, {"web-security", "binary-re"}} {
+		for _, action := range []string{"apply", "rollback", "auxiliary-patch", "mixed-patch", "auxiliary-candidate", "snapshot-drift"} {
+			t.Run(packs[0]+"/"+action, func(t *testing.T) {
+				fixture := newBatchFixtureWithPacks(t, packs[0], packs[1])
+				identity := mustCurrent(t, fixture.caseRoot)
+				originalSource := fixtureTreeBytes(t, filepath.Join(fixture.source, "packs"))
+				originalSnapshot := fixtureTreeBytes(t, filepath.Join(fixture.caseRoot, ".steamai-vnext", "pack-snapshot"))
+				preview, err := BuildPreview(fixture.git, fixture.source, fixture.caseRoot, fixture.request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(originalSource, fixtureTreeBytes(t, filepath.Join(fixture.source, "packs"))) ||
+					!reflect.DeepEqual(originalSnapshot, fixtureTreeBytes(t, filepath.Join(fixture.caseRoot, ".steamai-vnext", "pack-snapshot"))) {
+					t.Fatal("双包 preview 不满足零写入")
+				}
+				if preview.Pack != packs[0] || preview.AuxPack != packs[1] || preview.AuxPackTree != identity.AuxPackTree || preview.SnapshotDigest != identity.PayloadDigest {
+					t.Fatal("preview 未保留主包及完整主辅 snapshot identity")
+				}
+				for _, text := range []string{
+					"learning-writeback: packs/" + packs[0] + "/ only (main pack)",
+					"auxiliary-pack: " + packs[1] + " (read-only reference; no learning writeback)",
+					"auxiliary-pack-tree: " + identity.AuxPackTree,
+				} {
+					if !strings.Contains(preview.HumanPreview, text) {
+						t.Fatalf("preview 缺少 %q", text)
+					}
+				}
+
+				// Canonical auxiliary edits are not pinned input updates or batch targets.
+				if action == "apply" || action == "rollback" {
+					auxPath := filepath.Join(fixture.source, "packs", packs[1], "method-a.md")
+					writeFile(t, auxPath, append(mustRead(t, auxPath), []byte("- Independent local auxiliary note.\n")...))
+				}
+				switch action {
+				case "auxiliary-patch", "mixed-patch":
+					replaceFixturePatchWithAuxiliary(t, fixture, preview, action == "mixed-patch")
+				case "auxiliary-candidate":
+					ref := fixture.request.CandidateReviews[0]
+					candidatePath := filepath.Join(fixture.caseRoot, ".steamai-vnext", filepath.FromSlash(ref.Candidate))
+					reviewPath := filepath.Join(fixture.caseRoot, ".steamai-vnext", filepath.FromSlash(ref.Review))
+					before := mustRead(t, candidatePath)
+					candidate := bytes.ReplaceAll(before, []byte("packs/"+packs[0]+"/method-a.md"), []byte("packs/"+packs[1]+"/method-a.md"))
+					review := bytes.ReplaceAll(mustRead(t, reviewPath), []byte("packs/"+packs[0]+"/method-a.md"), []byte("packs/"+packs[1]+"/method-a.md"))
+					review = bytes.ReplaceAll(review, []byte(hashBytes(before)), []byte(hashBytes(candidate)))
+					writeFile(t, candidatePath, candidate)
+					writeFile(t, reviewPath, review)
+					_, targets, deny, err := parseLearningManifest(mustRead(t, filepath.Join(fixture.source, "packs", identity.Pack, "manifest.yml")))
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, snapshotTargets, snapshotDeny, err := parseLearningManifest(mustRead(t, filepath.Join(fixture.caseRoot, ".steamai-vnext", "pack-snapshot", "packs", identity.Pack, "manifest.yml")))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := validateCandidateReview(fixture.caseRoot, identity, ref, targets, snapshotTargets, deny, snapshotDeny, identity.Pack); !errors.Is(err, ErrBinding) {
+						t.Fatalf("辅助 destination 必须在 candidate gate 拒绝，而非后续 stale batch: %v", err)
+					}
+				case "snapshot-drift":
+					path := filepath.Join(fixture.caseRoot, ".steamai-vnext", "pack-snapshot", "packs", packs[1], "method-a.md")
+					writeFile(t, path, append(mustRead(t, path), []byte("- Drift after confirmation.\n")...))
+				case "rollback":
+					preview.Targets[0].PostSHA256 = strings.Repeat("f", 64)
+				}
+				beforeHead := runGit(t, fixture.git, fixture.source, "rev-parse", "HEAD")
+				beforeIndex := runGit(t, fixture.git, fixture.source, "write-tree")
+				beforeSource := fixtureTreeBytes(t, filepath.Join(fixture.source, "packs"))
+				beforeSnapshot := fixtureTreeBytes(t, filepath.Join(fixture.caseRoot, ".steamai-vnext", "pack-snapshot"))
+
+				if action == "rollback" {
+					err = applyPreview(fixture.git, fixture.source, fixture.caseRoot, preview)
+					if err == nil || !strings.Contains(err.Error(), "postimage") {
+						t.Fatalf("expected postimage failure and rollback, got %v", err)
+					}
+				} else {
+					_, err = Apply(fixture.git, fixture.source, fixture.caseRoot, fixture.request, ConfirmationPrefix+preview.Identity)
+					switch action {
+					case "apply":
+						if err != nil {
+							t.Fatal(err)
+						}
+						for _, target := range preview.Targets {
+							data := mustRead(t, filepath.Join(fixture.source, filepath.FromSlash(target.Path)))
+							if hashBytes(data) != target.PostSHA256 {
+								t.Fatalf("主包 postimage mismatch: %s", target.Path)
+							}
+							beforeSource[strings.TrimPrefix(target.Path, "packs/")] = string(data)
+						}
+					case "auxiliary-patch", "mixed-patch":
+						if !errors.Is(err, ErrScope) {
+							t.Fatalf("expected auxiliary patch scope rejection, got %v", err)
+						}
+					case "auxiliary-candidate":
+						if !errors.Is(err, ErrBinding) {
+							t.Fatalf("expected auxiliary destination rejection, got %v", err)
+						}
+					case "snapshot-drift":
+						if err == nil {
+							t.Fatal("pinned auxiliary drift accepted old confirmation")
+						}
+					}
+				}
+				if after := fixtureTreeBytes(t, filepath.Join(fixture.source, "packs")); !reflect.DeepEqual(beforeSource, after) {
+					t.Fatal("Apply/rollback 修改了许可外 canonical 内容或未恢复主 target")
+				}
+				if after := fixtureTreeBytes(t, filepath.Join(fixture.caseRoot, ".steamai-vnext", "pack-snapshot")); !reflect.DeepEqual(beforeSnapshot, after) {
+					t.Fatal("Apply/rollback 改写了 case snapshot")
+				}
+				if runGit(t, fixture.git, fixture.source, "rev-parse", "HEAD") != beforeHead || runGit(t, fixture.git, fixture.source, "write-tree") != beforeIndex {
+					t.Fatal("Apply/rollback 修改了 HEAD/index")
+				}
+				if action != "snapshot-drift" && mustCurrent(t, fixture.caseRoot).PayloadDigest != preview.SnapshotDigest {
+					t.Fatal("Apply/rollback 改变了完整 snapshot digest")
+				}
+			})
+		}
+	}
+}
+
+func TestPreviewAuxiliaryIdentityIsOptionalAndBound(t *testing.T) {
+	fixture := newBatchFixture(t)
+	preview, err := BuildPreview(fixture.git, fixture.source, fixture.caseRoot, fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.AuxPack != "" || preview.AuxPackTree != "" || bytes.Contains(data, []byte(`"auxPack`)) || strings.Contains(preview.HumanPreview, "auxiliary-pack:") {
+		t.Fatal("single pack preview 增加了空辅助字段")
+	}
+	preview.AuxPack = "web-security"
+	preview.AuxPackTree = strings.Repeat("a", 40)
+	bound := canonicalIdentity(preview)
+	if bound == preview.Identity {
+		t.Fatal("辅助身份未进入 exact confirmation")
+	}
+	preview.AuxPackTree = strings.Repeat("b", 40)
+	if canonicalIdentity(preview) == bound {
+		t.Fatal("辅助 tree 漂移未改变 identity")
+	}
+	preview.AuxPackTree = strings.Repeat("a", 40)
+	preview.AuxPack = "binary-re"
+	if canonicalIdentity(preview) == bound {
+		t.Fatal("辅助选择漂移未改变 identity")
+	}
+}
+
+func replaceFixturePatchWithAuxiliary(t *testing.T, fixture batchFixture, preview Preview, mixed bool) {
+	t.Helper()
+	proposal := filepath.Join(t.TempDir(), "proposal")
+	runGit(t, fixture.git, filepath.Dir(proposal), "clone", "--quiet", "--no-local", fixture.source, proposal)
+	target := "packs/" + preview.AuxPack + "/method-a.md"
+	writeFile(t, filepath.Join(proposal, filepath.FromSlash(target)), append(mustRead(t, filepath.Join(proposal, filepath.FromSlash(target))), []byte("- Rejected auxiliary writeback.\n")...))
+	patch := runGitRaw(t, fixture.git, proposal, "diff", "--binary", "--full-index", "--no-ext-diff", "--", target)
+	if mixed {
+		patch = append(append([]byte(nil), preview.patchData...), patch...)
+	}
+	patchPath := filepath.Join(fixture.caseRoot, ".steamai-vnext", filepath.FromSlash(fixture.request.Patch))
+	writeFile(t, patchPath, patch)
+	runGit(t, fixture.git, fixture.source, "apply", "--check", patchPath)
+	_, targets, deny, err := parseLearningManifest(mustRead(t, filepath.Join(fixture.source, filepath.FromSlash(preview.ManifestPath))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validatePatchScope(fixture.git, fixture.source, patchPath, preview.Pack, targets, deny); !errors.Is(err, ErrScope) {
+		t.Fatalf("有效辅助/混合 patch 必须在 scope gate 拒绝，而非后续 destination set/batch: %v", err)
+	}
+}
+
+func fixtureTreeBytes(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(rel)] = string(mustRead(t, path))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
 }
 
 func TestPatchScopeAllowsTargetsWithSamePreimageBlob(t *testing.T) {
@@ -704,6 +899,11 @@ type batchFixture struct {
 
 func newBatchFixture(t *testing.T) batchFixture {
 	t.Helper()
+	return newBatchFixtureWithPacks(t, "fixture-pack", "")
+}
+
+func newBatchFixtureWithPacks(t *testing.T, pack, auxPack string) batchFixture {
+	t.Helper()
 	git, err := exec.LookPath("git")
 	if err != nil {
 		t.Skip("git is required")
@@ -714,16 +914,22 @@ func newBatchFixture(t *testing.T) batchFixture {
 		".claude/skills/steamai/SKILL.md":          "# Fixture skill\n",
 		"vnext/learning-feedback.md":               "# Learning contract\n",
 		"vnext/verified-learning.md":               "# Verified learning contract\n",
-		"vnext/templates/case/CLAUDE.md":           "# {{CASE_NAME}}\n- Case 名称：`{{CASE_NAME}}`\n- 研究目标：`{{GOAL}}`\n- 授权范围：`{{AUTHORIZED_SCOPE}}`\n- 禁止事项：`{{PROHIBITED_ACTIONS}}`\n- 全局停止条件：`{{STOP_CONDITIONS}}`\n- Selected pack：`{{PACK_NAME}}`\n- Source revision：`{{PACK_REVISION}}`\n- Pack tree：`{{PACK_SNAPSHOT_TREE}}`\n- Common tree：`{{COMMON_SNAPSHOT_TREE}}`\n- Snapshot digest：`{{SNAPSHOT_DIGEST}}`\n\n| Member | Kind | Durable state | Member source |\n|---|---|---|---|\n{{TEAM_ROSTER_ROWS}}\n",
+		"vnext/templates/case/CLAUDE.md":           "# {{CASE_NAME}}\n- Case 名称：`{{CASE_NAME}}`\n- 研究目标：`{{GOAL}}`\n- 授权范围：`{{AUTHORIZED_SCOPE}}`\n- 禁止事项：`{{PROHIBITED_ACTIONS}}`\n- 全局停止条件：`{{STOP_CONDITIONS}}`\n- Selected pack：`{{PACK_NAME}}`\n- Source revision：`{{PACK_REVISION}}`\n- Pack tree：`{{PACK_SNAPSHOT_TREE}}`\n{{AUX_PACK_IDENTITY}}- Common tree：`{{COMMON_SNAPSHOT_TREE}}`\n- Snapshot digest：`{{SNAPSHOT_DIGEST}}`\n\n| Member | Kind | Durable state | Member source |\n|---|---|---|---|\n{{TEAM_ROSTER_ROWS}}\n",
 		"vnext/templates/member/CLAUDE.md":         "# {{MEMBER_NAME}}\n{{ROLE}}\n{{RESPONSIBILITY}}\n{{TASK_GOAL}}\n{{INPUTS}}\n{{ALLOWED_READS}}\n{{ALLOWED_WRITES}}\n{{DELIVERABLES}}\n{{STOP_OR_ESCALATE}}\n{{EXIT_CONDITIONS}}\n{{ROLE_SPECIFIC_RULES}}\n",
 		"vnext/templates/roles/analysis-member.md": "# Analysis\n",
 		"vnext/templates/roles/reviewer.md":        "# Reviewer\n",
 		"vnext/templates/research/evidence.md":     "# Evidence\n",
-		"packs/fixture-pack/manifest.yml":          "schemaVersion: 2\nname: fixture-pack\nentrypoints:\n  router: router.md\nlearningTargets:\n  - method-*.md\ndenyPatterns:\n  - forbidden-marker\n",
-		"packs/fixture-pack/router.md":             "# Router\n",
-		"packs/fixture-pack/method-a.md":           "# Method A\n\n- Existing rule.\n",
-		"packs/fixture-pack/method-b.md":           "# Method B\n\n- Existing rule.\n",
 		"common/policy.md":                         "# Policy\n",
+	}
+	for _, selected := range []string{pack, auxPack} {
+		if selected == "" {
+			continue
+		}
+		prefix := "packs/" + selected + "/"
+		files[prefix+"manifest.yml"] = "schemaVersion: 2\nname: " + selected + "\nentrypoints:\n  router: router.md\nlearningTargets:\n  - method-*.md\ndenyPatterns:\n  - forbidden-marker\n"
+		files[prefix+"router.md"] = "# Router\n"
+		files[prefix+"method-a.md"] = "# Method A\n\n- Existing rule.\n"
+		files[prefix+"method-b.md"] = "# Method B\n\n- Existing rule.\n"
 	}
 	for rel, text := range files {
 		writeFile(t, filepath.Join(source, filepath.FromSlash(rel)), []byte(text))
@@ -739,7 +945,7 @@ func newBatchFixture(t *testing.T) batchFixture {
 	}
 	facts := casebootstrap.Facts{
 		Name: "synthetic-case", Goal: "verify learning batch", Authorization: "temporary fixture files only",
-		Prohibited: "network or real artifacts", Stop: "scope drift", Pack: "fixture-pack",
+		Prohibited: "network or real artifacts", Stop: "scope drift", Pack: pack, AuxPack: auxPack,
 		Members: []casebootstrap.MemberFacts{{
 			Name: "reviewer", Kind: "reviewer", Role: "Reviewer", Responsibility: "review fixture evidence",
 			TaskGoal: "review learning candidates and batch", Inputs: "../../findings/F-001.md",
@@ -773,9 +979,9 @@ func newBatchFixture(t *testing.T) batchFixture {
 	writeFile(t, filepath.Join(caseRoot, ".steamai-vnext", filepath.FromSlash(sourceReviewRel)), []byte(sourceReview))
 
 	candidateSpecs := []struct{ id, target, lesson string }{
-		{"001", "packs/fixture-pack/method-a.md", "Record counterexamples."},
-		{"002", "packs/fixture-pack/method-a.md", "State evidence limits."},
-		{"003", "packs/fixture-pack/method-b.md", "Keep verification reproducible."},
+		{"001", "packs/" + pack + "/method-a.md", "Record counterexamples."},
+		{"002", "packs/" + pack + "/method-a.md", "State evidence limits."},
+		{"003", "packs/" + pack + "/method-b.md", "Keep verification reproducible."},
 	}
 	request := Request{Patch: "learnings/patches/LB-001.patch", BatchReview: "reviews/R-LB-001.md"}
 	var candidateRecords []CandidateRecord
@@ -792,11 +998,12 @@ func newBatchFixture(t *testing.T) batchFixture {
 	}
 	proposal := filepath.Join(root, "proposal")
 	runGit(t, git, root, "clone", "--quiet", "--no-local", source, proposal)
-	writeFile(t, filepath.Join(proposal, "packs", "fixture-pack", "method-a.md"), []byte("# Method A\n\n- Existing rule.\n- Record counterexamples.\n- State evidence limits.\n"))
-	writeFile(t, filepath.Join(proposal, "packs", "fixture-pack", "method-b.md"), []byte("# Method B\n\n- Existing rule.\n- Keep verification reproducible.\n"))
-	patch := runGitRaw(t, git, proposal, "diff", "--binary", "--full-index", "--no-ext-diff", "--", "packs/fixture-pack/method-a.md", "packs/fixture-pack/method-b.md")
+	writeFile(t, filepath.Join(proposal, "packs", pack, "method-a.md"), []byte("# Method A\n\n- Existing rule.\n- Record counterexamples.\n- State evidence limits.\n"))
+	writeFile(t, filepath.Join(proposal, "packs", pack, "method-b.md"), []byte("# Method B\n\n- Existing rule.\n- Keep verification reproducible.\n"))
+	targetPaths := []string{"packs/" + pack + "/method-a.md", "packs/" + pack + "/method-b.md"}
+	patch := runGitRaw(t, git, proposal, "diff", "--binary", "--full-index", "--no-ext-diff", "--", targetPaths[0], targetPaths[1])
 	writeFile(t, filepath.Join(caseRoot, ".steamai-vnext", filepath.FromSlash(request.Patch)), patch)
-	targets, _, err := capturePatchImages(git, source, filepath.Join(caseRoot, ".steamai-vnext", filepath.FromSlash(request.Patch)), []string{"packs/fixture-pack/method-a.md", "packs/fixture-pack/method-b.md"})
+	targets, _, err := capturePatchImages(git, source, filepath.Join(caseRoot, ".steamai-vnext", filepath.FromSlash(request.Patch)), targetPaths)
 	if err != nil {
 		t.Fatal(err)
 	}

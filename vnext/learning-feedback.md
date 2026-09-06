@@ -2,6 +2,8 @@
 
 本流程只把有 current accepted review 与 current evidence chain 的、已脱敏且跨 case 通用的经验回流到本机 canonical working tree。case 不被扫描或汇总；未确认 candidate 始终留在原 case。一个 case 可产生任意多个 immutable candidate；candidate 是逐条审查单位，不是数量上限。只有 Fresh 时已将 `verified-learning.md` 固定进 immutable contract inventory 的 case 才能使用本版 preview/apply；更早的 case 仍可继续研究，但新版 helper 会在解析 learning artifact 前明确拒绝，不迁移、不推断旧字段，也不把整个 case 改判为 partial。
 
+`Selected pack`、`Pack` 与 `Pack tree` 始终表示主 pack，主 pack 是唯一 learning 写回目标。Fresh 可选的辅助 pack 只是 case-pinned 的只读方法参考；`Snapshot digest` 仍绑定主包、辅助包（若有）和 common 的完整输入，不新增 candidate/batch pack 数组，也不提供辅助包 apply。无辅助的单 pack case 继续使用同一流程。
+
 ## 1. Candidate eligibility
 
 每个 candidate 只提出 selected pack 内一个现有、tracked、regular、非 symlink/reparse 的 Markdown destination。创建 candidate 前必须证明：
@@ -12,14 +14,16 @@
 - case snapshot 的完整排序 file manifest、实际 `packs/**`/`common/**` path set 与 payload digest current；
 - candidate 绑定 source finding/review path 与 SHA、selected pack、full source revision、pack/common tree、snapshot digest 和 Proposed destination；
 - candidate 显式声明 `Claim kind` 与最低 `Required maturity`：`mechanical→V1`、`analysis-method→V2`、`behavioral→V3`；Reviewer 重验声明与 candidate exact 一致，Go 不按自然语言猜测类别；
-- Proposed destination 同时匹配 case snapshot 与 canonical current manifest 的 `learningTargets`；
+- Proposed destination 位于主 pack，且同时匹配 case snapshot 与 canonical current 的主 manifest `learningTargets`；辅助 manifest 不授予写回权限；
 - generalized lesson、适用条件与反例不命中 `denyPatterns`，且不包含真实目标、客户、artifact、hash/address、绝对路径、凭据、session/task identity 或 case 流水账。
 
 candidate 创建后 byte-for-byte immutable；其 exact file SHA 由 review、batch 与 Apply 外部绑定，candidate 文件不得包含自身 exact SHA 字段。Reviewer 按 `learning-review.md` 逐条检查证据、通用性、反例、去重/冲突、脱敏和 destination，只写 eligibility。只有 `Decision: eligible` 才可进入 batch；candidate review 不绑定或授权 patch。
 
+辅助方法参与研究，不等于获得主包经验资格。只有 current accepted evidence chain 支持，且 Reviewer 在现有 evidence/generalization、applicability/counterexamples 检查中确认主包适用性，才可提炼为主包 candidate。经验必须自包含：未来只选主包的 case 也能理解并使用，不得隐藏依赖辅助包路径、另一套授权或未随主包交付的步骤；不能把辅助原文抄入主包就视为已验证。这是 Reviewer 的语义判断，不是 Go 自动判定。
+
 ## 2. Thematic exact batch
 
-Commander 将主题相近的 eligible candidates 组成一个或多个可完整阅读的 batch。一个 batch 可以包含多个 candidate，并修改同一 selected pack 中多个现有 Markdown targets；每个 candidate 仍只对应自己的单一 destination，且每个 target 至少由一个 candidate 支持。不同 selected pack 不得进入同一 batch。
+Commander 将主题相近的 eligible candidates 组成一个或多个可完整阅读的 batch。一个 batch 可以包含多个 candidate，并修改同一 selected pack 中多个现有 Markdown targets；每个 candidate 仍只对应自己的单一 destination，且每个 target 至少由一个 candidate 支持。不同 selected pack 不得进入同一 batch；同一 case 的辅助包目标、主辅混合 patch 也一律拒绝。
 
 用户确认前不得编辑 canonical source pack。Commander 基于 canonical working-tree 当前 bytes 在 case 外的隔离 clone 生成一个完整标准 Git patch，并保存到 `.steamai-vnext/learnings/patches/LB-*.patch`：
 
@@ -52,7 +56,7 @@ Commander 从 case 根把严格 JSON request 写入 `steamai __learning-batch-pr
 {"candidateReviews":[{"candidate":"learnings/candidates/L-001.md","review":"reviews/R-L-001.md"}],"patch":"learnings/patches/LB-001.patch","batchReview":"reviews/R-LB-001.md","calibrationAttestation":"evaluations/attestations/CAL-001.md","promotionAttestation":"evaluations/attestations/PROM-001.md","runBundleManifest":"evaluations/runs/RUN-001/manifest.json"}
 ```
 
-原生入口重算并展示 candidate/review/source chain、snapshot、manifest、canonical HEAD、target pre/postimage、batch review、patch SHA 与完整 patch；behavioral/V3 request 还会重验两份 attestation、calibration suite、blind run bundle、manifest-bound packet 与 blind decision 的 entry/output-SHA binding，以及 promotion attestation 中与 run manifest 同目录的 exact `reveal.json` path/SHA，并在 preview identity 中通过 attestation/run hashes 间接绑定这些 exact bytes。非 behavioral batch 必须省略这三个可选 request 字段，并在 batch review 中明确记录 `none`。preview 时 canonical pack 必须零写。只有用户在当前 Commander 窗口输入：
+原生入口明确展示主包是唯一写回目标、可选辅助包及其 pinned tree 仅供只读参考，并重算展示 candidate/review/source chain、完整 snapshot digest、主 manifest、canonical HEAD、target pre/postimage、batch review、patch SHA 与完整 patch；behavioral/V3 request 还会重验两份 attestation、calibration suite、blind run bundle、manifest-bound packet 与 blind decision 的 entry/output-SHA binding，以及 promotion attestation 中与 run manifest 同目录的 exact `reveal.json` path/SHA，并在 preview identity 中通过 attestation/run hashes 间接绑定这些 exact bytes。非 behavioral batch 必须省略这三个可选 request 字段，并在 batch review 中明确记录 `none`。preview 时 canonical pack 必须零写。只有用户在当前 Commander 窗口输入：
 
 ```text
 CONFIRM STEAMAI LEARNING BATCH <batch_identity>
@@ -62,9 +66,9 @@ CONFIRM STEAMAI LEARNING BATCH <batch_identity>
 
 ## 5. Apply currentness 与 rollback
 
-Apply 从磁盘完整重建 preview，不信任旧内存。以下任一漂移都 fail-closed：case snapshot/source chain、candidate/reviews/patch bytes、canonical HEAD、manifest policy、target set/preimages、path safety 或 `git apply --check`。通过后执行 `git apply <PATCH_PATH>`，验证全部 postimages；失败时仅把本 batch targets 恢复为 exact preimages。
+Apply 从磁盘完整重建 preview，不信任旧内存。以下任一漂移都 fail-closed：case snapshot/source chain（包括 pinned 辅助内容）、candidate/reviews/patch bytes、canonical HEAD、主 manifest policy、target set/preimages、path safety 或 `git apply --check`。pinned 辅助 bytes 漂移会使旧确认失效；canonical 辅助 working tree 的独立编辑不更新 case，也不成为本 batch 的输入或写入目标。通过后执行 `git apply <PATCH_PATH>`，验证全部 postimages；失败时仅把本 batch targets 恢复为 exact preimages。
 
-Apply 前后必须证明 HEAD、index、当前 case snapshot 必须不变，并显式重验 snapshot digest。应用只修改 canonical working-tree targets，不自动 `git add`、commit、push，也不更新已有 case snapshot。多个 batch 顺序 preview/确认/apply；后一批自然基于前一批的新 working tree。已确认并应用的本机 working-tree 经验可立即进入后续 Fresh；Git history/push 只在用户另行明确授权后发生。
+Apply 前后必须证明 HEAD、index、当前 case snapshot 必须不变，并显式重验 snapshot digest。应用及失败恢复只修改本批主包 canonical working-tree targets，不触碰辅助包或 case snapshot；不自动 `git add`、commit、push，也不更新已有 case snapshot。多个 batch 顺序 preview/确认/apply；后一批自然基于前一批的新 working tree。已确认并应用的本机 working-tree 经验可立即进入后续 Fresh；Git history/push 只在用户另行明确授权后发生。
 
 ## 清理
 

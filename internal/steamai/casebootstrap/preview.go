@@ -30,7 +30,7 @@ func BuildPreview(git, source, caseRoot string, facts Facts) (Preview, error) {
 	if stateExists {
 		return Preview{}, ErrPartialCase
 	}
-	frozen, err := freezeSource(git, source, facts.Pack)
+	frozen, err := freezeSource(git, source, facts.Pack, facts.AuxPack)
 	if err != nil {
 		return Preview{}, err
 	}
@@ -39,7 +39,7 @@ func BuildPreview(git, source, caseRoot string, facts Facts) (Preview, error) {
 		return Preview{}, err
 	}
 	preview := Preview{
-		SchemaVersion: 1, Revision: frozen.Revision, PackTree: frozen.PackTree,
+		SchemaVersion: 1, Revision: frozen.Revision, PackTree: frozen.PackTree, AuxPackTree: frozen.AuxPackTree,
 		CommonTree: frozen.CommonTree, SourceDigest: frozen.Digest,
 		SnapshotDigest: snapshotDigest, Facts: facts,
 		SourceRecords: frozen.Records, Writes: writes, SourceDiff: frozen.Diff,
@@ -75,7 +75,7 @@ func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWr
 			templatePath, _ := strings.CutPrefix(record.Path, "vnext/")
 			target := ".steamai-vnext/contracts/" + templatePath
 			writes = append(writes, sourceWrite(record, target))
-		case strings.HasPrefix(record.Path, "packs/"+facts.Pack+"/") || strings.HasPrefix(record.Path, "common/"):
+		case snapshotPayloadPath(record.Path, facts.Pack, facts.AuxPack):
 			writes = append(writes, sourceWrite(record, ".steamai-vnext/pack-snapshot/"+record.Path))
 		}
 	}
@@ -89,6 +89,13 @@ func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWr
 	if strings.Contains(caseFile, "{{") {
 		return nil, nil, "", errors.New("case template 仍有未解析 placeholder")
 	}
+	if _, err := validateCaseMarkerText(caseFile, snapshotMetadata{
+		Pack: facts.Pack, AuxPack: facts.AuxPack, Revision: source.Revision,
+		PackTree: source.PackTree, AuxPackTree: source.AuxPackTree, CommonTree: source.CommonTree,
+		PayloadDigest: snapshotDigest,
+	}); err != nil {
+		return nil, nil, "", fmt.Errorf("Fresh case template identity 无效: %w", err)
+	}
 	writes = append(writes, generatedWrite("case", ".steamai-vnext/CLAUDE.md", []byte(caseFile)))
 	writes = append(writes, generatedWrite("artifact-index", ".steamai-vnext/artifacts/index.md", []byte("# Artifact Index\n\nNo artifacts indexed.\n")))
 	for _, member := range facts.Members {
@@ -101,7 +108,7 @@ func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWr
 	}
 
 	immutable := immutableRecords(writes)
-	snapshot := renderSnapshot(source, facts.Pack, snapshotDigest, immutable)
+	snapshot := renderSnapshot(source, facts.Pack, facts.AuxPack, snapshotDigest, immutable)
 	writes = append(writes, generatedWrite("snapshot-metadata", ".steamai-vnext/pack-snapshot/snapshot.yml", []byte(snapshot)))
 	sort.Slice(writes, func(i, j int) bool { return writes[i].TargetPath < writes[j].TargetPath })
 	for i := range writes {
@@ -177,8 +184,13 @@ func renderCaseTemplate(template string, facts Facts, source frozenSource, snaps
 	if len(rows) == 0 {
 		rows = append(rows, "| none | execution | inactive | none |")
 	}
+	auxIdentity := ""
+	if facts.AuxPack != "" {
+		auxIdentity = fmt.Sprintf("- Auxiliary pack：`%s`\n- Auxiliary pack tree：`%s`\n", facts.AuxPack, source.AuxPackTree)
+	}
 	replacements := map[string]string{
-		"{{CASE_NAME}}": facts.Name, "{{GOAL}}": facts.Goal,
+		"{{AUX_PACK_IDENTITY}}": auxIdentity,
+		"{{CASE_NAME}}":         facts.Name, "{{GOAL}}": facts.Goal,
 		"{{AUTHORIZED_SCOPE}}": facts.Authorization, "{{PROHIBITED_ACTIONS}}": facts.Prohibited,
 		"{{STOP_CONDITIONS}}": facts.Stop, "{{PACK_NAME}}": facts.Pack,
 		"{{PACK_REVISION}}": source.Revision, "{{PACK_SNAPSHOT_TREE}}": source.PackTree,
@@ -236,9 +248,9 @@ func immutableRecords(writes []PlannedWrite) []PlannedWrite {
 	return records
 }
 
-func renderSnapshot(source frozenSource, pack, snapshotDigest string, immutable []PlannedWrite) string {
+func renderSnapshot(source frozenSource, pack, auxPack, snapshotDigest string, immutable []PlannedWrite) string {
 	var payloadLines []string
-	for _, record := range snapshotPayloadWritesFromSource(source.Records, pack) {
+	for _, record := range snapshotPayloadWritesFromSource(source.Records, pack, auxPack) {
 		payloadLines = append(payloadLines, fmt.Sprintf(
 			"  - path: %s\n    git-mode: %s\n    head-blob: %s\n    content-blob: %s\n    sha256: %s\n    bytes: %d",
 			record.Path, record.GitMode, record.HeadBlob, record.ContentBlob, record.SHA256, record.Bytes))
@@ -248,16 +260,25 @@ func renderSnapshot(source frozenSource, pack, snapshotDigest string, immutable 
 		immutableLines = append(immutableLines, fmt.Sprintf(
 			"  - path: %s\n    sha256: %s\n    bytes: %d", write.TargetPath, write.SHA256, write.Bytes))
 	}
+	auxIdentity := ""
+	if auxPack != "" {
+		auxIdentity = fmt.Sprintf("aux-pack: %s\naux-pack-tree: %s\n", auxPack, source.AuxPackTree)
+	}
 	return fmt.Sprintf(
-		"schema: steamai-case-snapshot-v2\npack: %s\nrevision: %s\npack-tree: %s\ncommon-tree: %s\nsource-digest: %s\npayload-digest: %s\nfiles:\n%s\nimmutable-files:\n%s\n",
-		pack, source.Revision, source.PackTree, source.CommonTree, source.Digest, snapshotDigest,
+		"schema: steamai-case-snapshot-v2\npack: %s\nrevision: %s\npack-tree: %s\n%scommon-tree: %s\nsource-digest: %s\npayload-digest: %s\nfiles:\n%s\nimmutable-files:\n%s\n",
+		pack, source.Revision, source.PackTree, auxIdentity, source.CommonTree, source.Digest, snapshotDigest,
 		strings.Join(payloadLines, "\n"), strings.Join(immutableLines, "\n"))
 }
 
-func snapshotPayloadWritesFromSource(records []SourceRecord, pack string) []SourceRecord {
+func snapshotPayloadPath(path, pack, auxPack string) bool {
+	return strings.HasPrefix(path, "common/") || strings.HasPrefix(path, "packs/"+pack+"/") ||
+		(auxPack != "" && strings.HasPrefix(path, "packs/"+auxPack+"/"))
+}
+
+func snapshotPayloadWritesFromSource(records []SourceRecord, pack, auxPack string) []SourceRecord {
 	var payload []SourceRecord
 	for _, record := range records {
-		if strings.HasPrefix(record.Path, "packs/"+pack+"/") || strings.HasPrefix(record.Path, "common/") {
+		if snapshotPayloadPath(record.Path, pack, auxPack) {
 			payload = append(payload, record)
 		}
 	}
@@ -285,6 +306,9 @@ func previewIdentity(preview Preview) string {
 		"pack-tree", preview.PackTree, "common-tree", preview.CommonTree,
 		"source-digest", preview.SourceDigest, "snapshot-digest", preview.SnapshotDigest,
 		"facts", string(facts),
+	}
+	if preview.Facts.AuxPack != "" {
+		parts = append(parts, "aux-pack", preview.Facts.AuxPack, "aux-pack-tree", preview.AuxPackTree)
 	}
 	for _, write := range preview.Writes {
 		parts = append(parts, "write", write.SourceKind, write.SourcePath, write.GitMode,

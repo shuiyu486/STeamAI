@@ -1,6 +1,7 @@
 package casebootstrap
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -35,6 +36,7 @@ type Facts struct {
 	Prohibited    string        `json:"prohibited"`
 	Stop          string        `json:"stop"`
 	Pack          string        `json:"pack"`
+	AuxPack       string        `json:"auxPack,omitempty"`
 	Members       []MemberFacts `json:"members"`
 }
 
@@ -82,6 +84,7 @@ type Preview struct {
 	SchemaVersion  int               `json:"schemaVersion"`
 	Revision       string            `json:"revision"`
 	PackTree       string            `json:"packTree"`
+	AuxPackTree    string            `json:"auxPackTree,omitempty"`
 	CommonTree     string            `json:"commonTree"`
 	SourceDigest   string            `json:"sourceDigest"`
 	SnapshotDigest string            `json:"snapshotDigest"`
@@ -95,22 +98,22 @@ type Preview struct {
 }
 
 type frozenSource struct {
-	Root       string
-	Git        string
-	Revision   string
-	PackTree   string
-	CommonTree string
-	Digest     string
-	Records    []SourceRecord
-	ByPath     map[string]SourceRecord
-	Diff       string
+	Root        string
+	Git         string
+	Revision    string
+	PackTree    string
+	AuxPackTree string
+	CommonTree  string
+	Digest      string
+	Records     []SourceRecord
+	ByPath      map[string]SourceRecord
+	Diff        string
 }
 
 func DecodeFacts(reader io.Reader) (Facts, error) {
 	decoder := json.NewDecoder(io.LimitReader(reader, 1<<20))
-	decoder.DisallowUnknownFields()
-	var facts Facts
-	if err := decoder.Decode(&facts); err != nil {
+	var data json.RawMessage
+	if err := decoder.Decode(&data); err != nil {
 		return Facts{}, fmt.Errorf("解析 Fresh facts: %w", err)
 	}
 	var extra any
@@ -119,6 +122,38 @@ func DecodeFacts(reader io.Reader) (Facts, error) {
 			return Facts{}, errors.New("Fresh facts 后存在额外 JSON")
 		}
 		return Facts{}, fmt.Errorf("解析 Fresh facts 结尾: %w", err)
+	}
+	// 只检查顶层两个 pack 选择字段；encoding/json 默认会静默接受重复键，
+	// 包括大小写不同但绑定到同一字段的别名。
+	selection := json.NewDecoder(bytes.NewReader(data))
+	if token, err := selection.Token(); err != nil || token != json.Delim('{') {
+		return Facts{}, errors.New("Fresh facts 必须是 JSON object")
+	}
+	seen := map[string]bool{}
+	for selection.More() {
+		token, err := selection.Token()
+		if err != nil {
+			return Facts{}, err
+		}
+		var value json.RawMessage
+		if err := selection.Decode(&value); err != nil {
+			return Facts{}, err
+		}
+		key := strings.ToLower(token.(string))
+		if key != "pack" && key != "auxpack" {
+			continue
+		}
+		var name string
+		if seen[key] || json.Unmarshal(value, &name) != nil || !packNamePattern.MatchString(name) {
+			return Facts{}, fmt.Errorf("Fresh facts %s 名称无效、显式为空或重复", key)
+		}
+		seen[key] = true
+	}
+	decoder = json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var facts Facts
+	if err := decoder.Decode(&facts); err != nil {
+		return Facts{}, fmt.Errorf("解析 Fresh facts: %w", err)
 	}
 	if err := facts.Validate(); err != nil {
 		return Facts{}, err
@@ -135,8 +170,8 @@ func (facts Facts) Validate() error {
 			return fmt.Errorf("Fresh facts 字段 %s 为空、包含换行或无效", name)
 		}
 	}
-	if !packNamePattern.MatchString(facts.Pack) || strings.HasPrefix(facts.Pack, "_") {
-		return errors.New("selected pack 名称无效")
+	if err := validatePackSelection(facts.Pack, facts.AuxPack); err != nil {
+		return err
 	}
 	if len(facts.Members) > 4 {
 		return errors.New("正式成员超过 3 名执行成员加 1 名 Reviewer")
@@ -172,6 +207,16 @@ func (facts Facts) Validate() error {
 	}
 	if executors > 3 || reviewers > 1 {
 		return errors.New("正式成员超过 3 名执行成员加 1 名 Reviewer")
+	}
+	return nil
+}
+
+func validatePackSelection(pack, auxPack string) error {
+	if !packNamePattern.MatchString(pack) {
+		return errors.New("selected pack 名称无效")
+	}
+	if auxPack != "" && (!packNamePattern.MatchString(auxPack) || auxPack == pack) {
+		return errors.New("auxiliary pack 名称无效或与 selected pack 相同")
 	}
 	return nil
 }

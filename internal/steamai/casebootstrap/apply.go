@@ -70,7 +70,8 @@ func applyPreview(git, source, caseRoot string, preview Preview) error {
 		return fmt.Errorf("%w: %v", ErrSourceDrift, err)
 	}
 	if current.Identity != preview.Identity {
-		if current.Revision != preview.Revision || current.SourceDigest != preview.SourceDigest || current.SnapshotDigest != preview.SnapshotDigest {
+		if current.Revision != preview.Revision || current.PackTree != preview.PackTree || current.AuxPackTree != preview.AuxPackTree ||
+			current.CommonTree != preview.CommonTree || current.SourceDigest != preview.SourceDigest || current.SnapshotDigest != preview.SnapshotDigest {
 			return ErrSourceDrift
 		}
 		return ErrTargetDrift

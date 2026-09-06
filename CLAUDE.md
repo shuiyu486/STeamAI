@@ -12,7 +12,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-verified-learning-v1`，入口为 `docs/verified-learning-roadmap.md`；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前路线是 `steamai-research-capability-v1`，入口为 `docs/research-capability-roadmap.md`：同时深化 Binary RE/Web/API、增强关键分岔点决策，并支持同一 case 主＋可选一个辅助 pack。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
 ## 维护哲学与踩坑护栏
 
@@ -31,7 +31,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - Commander 按需组队；正式成员使用专属目录与目录级 `CLAUDE.md`，由原生 launcher 默认打开屏幕上用户可见的独立 Claude Code 窗口。
 - 成员可直接定向沟通、请求有界验证和共享关键发现；当前主任务优先。每个问题默认一名 owner、最多一名 verifier；实质改派和 durable member 创建只由 Commander 决定。
 - durable member 通常为 1–3 名执行成员加 0–1 名 Reviewer。优先复用已有成员，其次 tactical subagent，只有持续且独立的工作流才新增成员。
-- Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。
+- Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。正式独立会话不得继承会关闭原生历史保存的 child 标记；只修正子进程启动环境，不改全局配置或强制覆盖用户的历史保存选择，具体合同见 `vnext/capabilities.md`。
 - 只持久化团队需要复核的 artifact、evidence、finding、review、replay spec/result、evaluation bundle/attestation、field outcome、learning candidate 与 exact batch patch，不保存全部思考或聊天历史。
 - 经验由 Commander 从 current accepted evidence chain 提炼；Reviewer 先逐 candidate 检查 eligibility，再绑定最终 batch exact patch；用户查看完整 patch 并确认 exact tuple 后才回流 pack。
 - `steamai.exe` 只负责 setup/update/uninstall、卸载后的窄自清理、Fresh 文件机械操作、synthetic readonly matched evaluation bundle、exact learning batch apply、Windows 可见进程启动和必要瞬时互斥。不得扩展为 task/session/message/roster/finding/review/learning 判断控制面。
@@ -43,7 +43,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - source checkout 本身不是 case。`.steamai-vnext/` 完全不存在才是 fresh；完整深验通过才是 current；partial、来源不明或冲突均 fail-closed，不 repair/rollback/迁移/删除用户文件。
 - Fresh preview 以 canonical working tree 当前实际 bytes 为 authority，stage-0 index 定义 current tracked path/mode，HEAD 只作历史 anchor。确认绑定 source records、target action/pre-state、case facts 与全部 writes。
 - Apply 在同卷 sibling staging 中完整生成并验证 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。
-- 初始化把 selected pack 与完整 `common/**` 物化为 case-pinned snapshot；payload digest 覆盖排序后的 path、Git mode/blob、bytes 与 SHA-256。current case 不随 canonical checkout 更新。
+- 初始化把 selected pack（主包）、可选一个不同的辅助 pack 与完整 `common/**` 一次物化为 case-pinned snapshot；common 只复制一次，payload digest 覆盖全部所选包的排序 path、Git mode/blob、bytes 与 SHA-256。辅助只作按需方法来源，不扩大授权、团队或 learning destination；经验仍只回主 pack。current case 不随 canonical checkout 更新，不补装辅助包。
 - setup/update/uninstall 是窄原生产品职责。普通运行不联网；update 必须从 canonical checkout 外运行，并要求 clean canonical checkout，下载与校验全部成功才切换，冲突时停止，不 merge/rebase/stash/reset/clean，source 替换后的旧 checkout 始终保留并输出路径；uninstall 保留 checkout 和所有 case，原生自清理 helper 的已知最小残留会输出精确路径。
 - 不提供旧项目 importer、升级替换、迁移、dual-read、dual-write、active case跨电脑迁移或兼容路径。
 
@@ -54,7 +54,8 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
-- 当前路线：`docs/verified-learning-roadmap.md`
+- 当前路线：`docs/research-capability-roadmap.md`
+- verified-learning 证据与待验项：`docs/verified-learning-roadmap.md`
 - 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
 - 历史薄核心事实：`docs/real-usage-hardening-roadmap.md`
 

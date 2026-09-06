@@ -391,7 +391,7 @@ func (a *app) openCommander() error {
 		Path:             claude,
 		Args:             args,
 		Dir:              caseRoot,
-		Env:              withoutEnvironment(os.Environ(), "CLAUDECODE"),
+		Env:              withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"),
 		InheritedHandles: []uintptr{lease.handle},
 	}, a.stdin, a.stdout, a.stderr)
 }
@@ -436,7 +436,7 @@ func (a *app) openMember(name string) error {
 		Path: claude,
 		Args: []string{memberInitialPrompt, "--add-dir", caseRoot},
 		Dir:  memberRoot,
-		Env:  withoutEnvironment(os.Environ(), "CLAUDECODE"),
+		Env:  withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"),
 	})
 }
 

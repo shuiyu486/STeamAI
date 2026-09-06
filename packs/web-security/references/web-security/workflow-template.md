@@ -1,11 +1,14 @@
-# Authorized Web and API security research workflow
+# Web/API 有界研究流程
 
-1. **确认边界**：记录目标、授权范围、禁止事项、预算和停止条件。
-2. **索引输入**：只为 case-local artifact 建立 alias、相对路径、SHA-256、bytes 与来源说明；不复制真实 artifact 到 pack。
-3. **静态优先**：先执行无副作用的最小观察，生成可复查 evidence。
-4. **形成 finding**：声明结论、置信度、evidence 引用、限制和尚未证明部分。
-5. **有界验证**：需要第二视角时指定一名 verifier；需要 heavy action 时先向用户展示具体动作、目标、预算、副作用和止损条件。
-6. **独立审查**：重要 finding 或交付由 Reviewer 给出 `accepted`、`needs-evidence`、`disputed` 或 `superseded`。
-7. **交付与学习**：只交付可追溯结论；只从 accepted finding/review 提炼脱敏 learning candidate。
+领域方法按需选用，不把研究变成批量扫描。case/member `CLAUDE.md` 决定身份、当前任务与授权边界；pack 不保存进度，也不替代工具权限。
 
-领域重点：passive triage、request hypothesis、bounded replay 与 remediation evidence。任何新证据超出原授权或暴露新的外部副作用时立即停止并升级给 Commander。
+1. **确认用户要解决的问题**：记录对象、允许动作、禁止事项、预算和停止条件。复用任务现有字段，不新增调度、交接或研究状态文件。
+2. **索引输入，静态优先**：用 case-local artifact alias、相对位置、SHA-256/bytes、来源和范围绑定材料。先核对身份、角色/租户、对象归属、环境/版本和观察时点，只读与当前问题有关的有界内容。
+3. **在关键分岔点写出一个假设**：说明预期观察、反证和最小区分检查，以及不同结果会怎样改变结论。普通索引/整理任务不要求机械枚举多个假设。请求行为或修复问题只追加读取 [单一请求假设与有界复核](../../tooling/recipes/request-replay.md)。
+4. **先解释已有观察**：区分未发送成功、发送不确定、响应差异与安全结论；状态码/body hash 不同不自动等于漏洞。按假设核对身份、缓存、动态字段、版本与服务端状态等混杂因素，不能比较时保持 `inconclusive`，或交 Reviewer 要求 `needs-evidence`。
+5. **确需新动作再授权**：展示具体目标、动作、身份引用、允许输出、预算、副作用、隔离/回滚和停止条件。仅当明确 case 授权、该动作的用户确认与 Claude Code 工具权限同时成立才执行。发送不确定时不自动重试；目标、范围、预算或副作用改变就停止并告知 Commander。现有 JSON schema 只声明格式，不提供 executor，也不扩大 readonly evaluator 的网络权限。
+6. **让证据改变后续工作**：E 保存可复查观察，F 说明结论、反证、限制与下一检查。反证成立就停止或收窄旧解释，并通过 native session 定向消息反馈；每个问题一名 owner、最多一名 verifier，正式改派由 Commander 决定。
+7. **修复要有合法对照**：在等价身份、对象、请求条件和服务端状态下比较修复前后，既看问题行为是否受限，也看原本合法的行为是否仍按契约工作。只看拒绝响应不够；版本或状态混杂、缺前后任一侧或合法对照时不宣称无回归。
+8. **独立审查与交付**：重要 finding 或交付由独立 Reviewer 在 R 中复核，不预填结论。最终回答对应用户原始问题，分清已证明、被否定与未知，不以 finding 数量作完成度。恢复复用 native session 与 E/F/R；只有 accepted evidence chain 中的经验经 Reviewer 检查、用户确认 exact patch 后才可回流。
+
+材料不足可以停止；不为得到确定结论扩大流量或改写预期。真实 artifact、敏感日志、凭据和 case 进度不进入 pack。

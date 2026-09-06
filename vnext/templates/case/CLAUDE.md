@@ -10,10 +10,12 @@
 - Selected pack：`{{PACK_NAME}}`
 - Source revision：`{{PACK_REVISION}}`
 - Pack tree：`{{PACK_SNAPSHOT_TREE}}`
-- Common tree：`{{COMMON_SNAPSHOT_TREE}}`
+{{AUX_PACK_IDENTITY}}- Common tree：`{{COMMON_SNAPSHOT_TREE}}`
 - Snapshot digest：`{{SNAPSHOT_DIGEST}}`
 
-selected pack 与完整 `common/**` snapshot 是在 case 建立时从同一 exact source revision 导出的 case-pinned 目录；所有 pack/common 指令读取都使用该目录，不读取 mutable source pack。pack/common tree 是 source identity；Snapshot digest 由 `snapshot.yml` 的排序 file records 重算，覆盖每个 repo-relative path、Git mode/blob、bytes 与 SHA-256，并排除 metadata 文件自身。该目录禁止自动覆盖或重导出，但不声称 OS-level ACL。
+Selected pack / Pack tree 始终表示主 pack。case 建立时固定主 pack、可选一个辅助 pack 与完整 `common/**`；辅助存在时由 Auxiliary pack / Auxiliary pack tree 声明。所有 pack/common 指令读取都使用该 case-pinned 目录，不读取 mutable source pack。pack/common tree 是 source identity；Snapshot digest 由 `snapshot.yml` 的排序 file records 重算，覆盖全部已选包与 common 的 repo-relative path、Git mode/blob、bytes 与 SHA-256，并排除 metadata 文件自身。该目录禁止自动覆盖、补装或重导出，但不声称 OS-level ACL。
+
+默认按主 pack 路由，任务确需时才读取辅助 pack 的指定入口，不默认串读两包。辅助只提供方法，不扩大授权、不指挥成员或覆盖本 case 规则；主辅方法建议冲突时先说明证据与适用条件，必要时交 Commander 决定。经验只可回流主 pack，辅助包不自动取得写回资格。
 
 本目录对应一个明确授权的安全研究 case。不得把本 case 的真实 artifact、凭据、绝对路径、目标身份或会话内容带入其他 case 或共享 pack。
 

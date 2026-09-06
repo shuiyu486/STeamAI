@@ -11,10 +11,15 @@ import (
 
 func materializeCurrentCaseFixture(t *testing.T, root string, memberNames ...string) {
 	t.Helper()
+	materializeCurrentCaseFixtureWithAuxPack(t, root, "", memberNames...)
+}
+
+func materializeCurrentCaseFixtureWithAuxPack(t *testing.T, root, auxPack string, memberNames ...string) {
+	t.Helper()
 	git, source := canonicalFreshFixture(t)
 	facts := casebootstrap.Facts{
 		Name: "synthetic-case", Goal: "test current entry", Authorization: "temporary fixture files only",
-		Prohibited: "network or real artifacts", Stop: "scope drift", Pack: "fixture-pack",
+		Prohibited: "network or real artifacts", Stop: "scope drift", Pack: "fixture-pack", AuxPack: auxPack,
 	}
 	for _, name := range memberNames {
 		facts.Members = append(facts.Members, casebootstrap.MemberFacts{
@@ -44,13 +49,15 @@ func canonicalFreshFixture(t *testing.T) (string, string) {
 		".claude/skills/steamai/SKILL.md":          "# Fixture skill\n",
 		"vnext/learning-feedback.md":               "# Learning contract\n",
 		"vnext/verified-learning.md":               "# Verified learning contract\n",
-		"vnext/templates/case/CLAUDE.md":           "# STeamAI 安全研究 Case\n\n## Case 边界\n\n- Case 名称：`{{CASE_NAME}}`\n- 研究目标：`{{GOAL}}`\n- 授权范围：`{{AUTHORIZED_SCOPE}}`\n- 禁止事项：`{{PROHIBITED_ACTIONS}}`\n- 全局停止条件：`{{STOP_CONDITIONS}}`\n- Selected pack：`{{PACK_NAME}}`\n- Source revision：`{{PACK_REVISION}}`\n- Pack tree：`{{PACK_SNAPSHOT_TREE}}`\n- Common tree：`{{COMMON_SNAPSHOT_TREE}}`\n- Snapshot digest：`{{SNAPSHOT_DIGEST}}`\n\n## 当前团队\n\n| Member | Kind | Durable state | Member source |\n|---|---|---|---|\n{{TEAM_ROSTER_ROWS}}\n",
+		"vnext/templates/case/CLAUDE.md":           "# STeamAI 安全研究 Case\n\n## Case 边界\n\n- Case 名称：`{{CASE_NAME}}`\n- 研究目标：`{{GOAL}}`\n- 授权范围：`{{AUTHORIZED_SCOPE}}`\n- 禁止事项：`{{PROHIBITED_ACTIONS}}`\n- 全局停止条件：`{{STOP_CONDITIONS}}`\n- Selected pack：`{{PACK_NAME}}`\n- Source revision：`{{PACK_REVISION}}`\n- Pack tree：`{{PACK_SNAPSHOT_TREE}}`\n{{AUX_PACK_IDENTITY}}- Common tree：`{{COMMON_SNAPSHOT_TREE}}`\n- Snapshot digest：`{{SNAPSHOT_DIGEST}}`\n\n## 当前团队\n\n| Member | Kind | Durable state | Member source |\n|---|---|---|---|\n{{TEAM_ROSTER_ROWS}}\n",
 		"vnext/templates/member/CLAUDE.md":         "# {{MEMBER_NAME}}\n{{ROLE}}\n{{RESPONSIBILITY}}\n{{TASK_GOAL}}\n{{INPUTS}}\n{{ALLOWED_READS}}\n{{ALLOWED_WRITES}}\n{{DELIVERABLES}}\n{{STOP_OR_ESCALATE}}\n{{EXIT_CONDITIONS}}\n{{ROLE_SPECIFIC_RULES}}\n",
 		"vnext/templates/roles/analysis-member.md": "# Analysis\n",
 		"vnext/templates/roles/reviewer.md":        "# Reviewer\n",
 		"vnext/templates/research/evidence.md":     "# Evidence\n",
 		"packs/fixture-pack/manifest.yml":          "name: fixture-pack\nentrypoints:\n  router: router.md\n",
 		"packs/fixture-pack/router.md":             "# Router\n",
+		"packs/aux-pack/manifest.yml":              "name: aux-pack\nentrypoints:\n  router: router.md\n",
+		"packs/aux-pack/router.md":                 "# Auxiliary router\n",
 		"common/policy.md":                         "# Policy\n",
 	}
 	for rel, text := range files {

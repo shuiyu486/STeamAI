@@ -89,6 +89,8 @@ type RunBundleRecord struct {
 type Preview struct {
 	SchemaVersion     int                `json:"schemaVersion"`
 	Pack              string             `json:"pack"`
+	AuxPack           string             `json:"auxPack,omitempty"`
+	AuxPackTree       string             `json:"auxPackTree,omitempty"`
 	CaseRevision      string             `json:"caseRevision"`
 	CanonicalHead     string             `json:"canonicalHead"`
 	ManifestPath      string             `json:"manifestPath"`

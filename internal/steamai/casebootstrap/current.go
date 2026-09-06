@@ -14,8 +14,10 @@ import (
 type snapshotMetadata struct {
 	Schema         string
 	Pack           string
+	AuxPack        string
 	Revision       string
 	PackTree       string
+	AuxPackTree    string
 	CommonTree     string
 	SourceDigest   string
 	PayloadDigest  string
@@ -25,8 +27,10 @@ type snapshotMetadata struct {
 
 type CurrentIdentity struct {
 	Pack          string
+	AuxPack       string
 	Revision      string
 	PackTree      string
+	AuxPackTree   string
 	CommonTree    string
 	SourceDigest  string
 	PayloadDigest string
@@ -91,7 +95,8 @@ func InspectCurrent(caseRoot string) (CurrentIdentity, error) {
 		return CurrentIdentity{}, err
 	}
 	return CurrentIdentity{
-		Pack: metadata.Pack, Revision: metadata.Revision, PackTree: metadata.PackTree,
+		Pack: metadata.Pack, AuxPack: metadata.AuxPack, Revision: metadata.Revision,
+		PackTree: metadata.PackTree, AuxPackTree: metadata.AuxPackTree,
 		CommonTree: metadata.CommonTree, SourceDigest: metadata.SourceDigest, PayloadDigest: metadata.PayloadDigest,
 		Roster: roster,
 	}, nil
@@ -108,7 +113,11 @@ func validateCaseMarker(caseRoot string, metadata snapshotMetadata) ([]RosterMem
 	if err != nil {
 		return nil, err
 	}
-	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	return validateCaseMarkerText(string(data), metadata)
+}
+
+func validateCaseMarkerText(text string, metadata snapshotMetadata) ([]RosterMember, error) {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if strings.TrimSpace(text) == "" {
 		return nil, errors.New("current case marker 为空")
 	}
@@ -119,8 +128,13 @@ func validateCaseMarker(caseRoot string, metadata snapshotMetadata) ([]RosterMem
 			continue
 		}
 		key, value, ok := strings.Cut(strings.TrimPrefix(line, "- "), "：`")
-		if ok && strings.HasSuffix(value, "`") && fields[key] == "" {
-			fields[key] = strings.TrimSuffix(value, "`")
+		if ok && strings.HasSuffix(value, "`") {
+			if _, exists := fields[key]; exists && (key == "Selected pack" || key == "Pack tree" || key == "Auxiliary pack" || key == "Auxiliary pack tree") {
+				return nil, fmt.Errorf("current case marker %s 重复", key)
+			}
+			if fields[key] == "" {
+				fields[key] = strings.TrimSuffix(value, "`")
+			}
 		}
 	}
 	for key, want := range map[string]string{
@@ -128,6 +142,14 @@ func validateCaseMarker(caseRoot string, metadata snapshotMetadata) ([]RosterMem
 		"Common tree": metadata.CommonTree, "Snapshot digest": metadata.PayloadDigest,
 	} {
 		if fields[key] != want {
+			return nil, fmt.Errorf("current case marker %s 与 snapshot 不匹配", key)
+		}
+	}
+	for key, want := range map[string]string{
+		"Auxiliary pack": metadata.AuxPack, "Auxiliary pack tree": metadata.AuxPackTree,
+	} {
+		value, present := fields[key]
+		if (metadata.AuxPack != "") != present || value != want {
 			return nil, fmt.Errorf("current case marker %s 与 snapshot 不匹配", key)
 		}
 	}
@@ -244,10 +266,11 @@ func validateMembers(caseRoot string, roster []RosterMember) error {
 
 func validateSnapshotPayload(caseRoot string, metadata snapshotMetadata) error {
 	expected := make(map[string]SourceRecord, len(metadata.Files))
+	localRecords := make([]SourceRecord, 0, len(metadata.Files))
 	for _, record := range metadata.Files {
 		clean, err := cleanRelativePath(record.Path)
 		if err != nil || clean != record.Path || expected[record.Path].Path != "" ||
-			(!strings.HasPrefix(record.Path, "packs/"+metadata.Pack+"/") && !strings.HasPrefix(record.Path, "common/")) {
+			!snapshotPayloadPath(record.Path, metadata.Pack, metadata.AuxPack) {
 			return errors.New("snapshot files 列表包含重复或越界路径")
 		}
 		expected[record.Path] = record
@@ -261,6 +284,15 @@ func validateSnapshotPayload(caseRoot string, metadata snapshotMetadata) error {
 		}
 		if len(data) != record.Bytes || hashBytes(data) != record.SHA256 {
 			return fmt.Errorf("snapshot payload %s bytes 漂移", record.Path)
+		}
+		record.Data = data
+		localRecords = append(localRecords, record)
+	}
+	for _, pack := range []string{metadata.Pack, metadata.AuxPack} {
+		if pack != "" {
+			if err := validateSelectedPack(localRecords, pack); err != nil {
+				return fmt.Errorf("snapshot pack %s: %w", pack, err)
+			}
 		}
 	}
 	actual, err := regularFiles(filepath.Join(caseRoot, ".steamai-vnext", "pack-snapshot"), []string{"snapshot.yml"})
@@ -408,6 +440,7 @@ func parseSnapshot(path string) (snapshotMetadata, error) {
 	}
 	lines := strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	var metadata snapshotMetadata
+	packFields := map[string]bool{}
 	section := ""
 	var source *SourceRecord
 	var immutable *PlannedWrite
@@ -439,6 +472,12 @@ func parseSnapshot(path string) (snapshotMetadata, error) {
 				}
 				return snapshotMetadata{}, fmt.Errorf("snapshot 顶层行无效: %s", line)
 			}
+			if key == "pack" || key == "pack-tree" || key == "aux-pack" || key == "aux-pack-tree" {
+				if packFields[key] || strings.TrimSpace(value) == "" {
+					return snapshotMetadata{}, fmt.Errorf("snapshot %s 为空或重复", key)
+				}
+				packFields[key] = true
+			}
 			switch key {
 			case "schema":
 				metadata.Schema = value
@@ -448,6 +487,10 @@ func parseSnapshot(path string) (snapshotMetadata, error) {
 				metadata.Revision = value
 			case "pack-tree":
 				metadata.PackTree = value
+			case "aux-pack":
+				metadata.AuxPack = value
+			case "aux-pack-tree":
+				metadata.AuxPackTree = value
 			case "common-tree":
 				metadata.CommonTree = value
 			case "source-digest":
@@ -508,6 +551,13 @@ func parseSnapshot(path string) (snapshotMetadata, error) {
 		}
 	}
 	flush()
+	if err := validatePackSelection(metadata.Pack, metadata.AuxPack); err != nil {
+		return snapshotMetadata{}, err
+	}
+	if packFields["aux-pack"] != packFields["aux-pack-tree"] ||
+		(packFields["aux-pack-tree"] && !hexIdentityPattern.MatchString(metadata.AuxPackTree)) {
+		return snapshotMetadata{}, errors.New("snapshot auxiliary pack identity 缺半或无效")
+	}
 	if len(metadata.Files) == 0 || len(metadata.ImmutableFiles) == 0 {
 		return snapshotMetadata{}, errors.New("snapshot records 为空")
 	}

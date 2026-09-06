@@ -1,6 +1,6 @@
 # STeamAI case 合同与模板
 
-`vnext/**` 是 canonical `/steamai` Fresh 时物化到 case-local `contracts/` 的声明式合同源。当前产品路线见 `docs/verified-learning-roadmap.md`；用户入口是 Windows 原生 `steamai.exe` + `.claude/skills/steamai/SKILL.md`。
+`vnext/**` 是 canonical `/steamai` Fresh 时物化到 case-local `contracts/` 的声明式合同源。当前产品路线见 `docs/research-capability-roadmap.md`，verified-learning 既有证据与待验项保留在 `docs/verified-learning-roadmap.md`；用户入口是 Windows 原生 `steamai.exe` + `.claude/skills/steamai/SKILL.md`。
 
 本目录只使用 Markdown 声明：
 
@@ -24,7 +24,7 @@
 
 project-local `/steamai` 直接来自 Fresh preview 时 canonical working tree 中 current stage-0 tracked skill 的 exact bytes；HEAD blob 只作历史 anchor，`vnext/` 不保存第二份 skill mirror。
 
-外部 case 同时得到 `.steamai-vnext/contracts/` 中全部模板、learning 合同与 verified-learning 合同，以及 selected pack 与完整 `common/**` snapshot。Fresh preview 绑定 source record 与 target pre-state；Apply 先在 sibling staging 验证完整 state tree 和 payload digest，再发布 exact project-local skill，最后发布 completed marker。分发后日常 current case 不读取 mutable source checkout。verified-learning 引入前的 case 仍可继续 current 研究流程，但新版 learning helper 会在解析旧 artifact 前以明确 capability error 拒绝 preview/apply；不提供迁移、旧 parser 或字段推断。
+外部 case 同时得到 `.steamai-vnext/contracts/` 中全部模板、learning 合同与 verified-learning 合同，以及 selected pack（主包）、可选一个不同的辅助包与完整 `common/**` snapshot。common 只复制一次；辅助只按任务提供方法，learning destination 仍仅限主包。沿用同一 v2 snapshot parser，辅助字段缺省表示单包，不给旧 current 补字段、补包或更新模板。Fresh preview 绑定主辅 identity/tree、source record 与 target pre-state；Apply 先在 sibling staging 验证完整 state tree 和 payload digest，再发布 exact project-local skill，最后发布 completed marker。分发后日常 current case 不读取 mutable source checkout。verified-learning 引入前的 case 仍可继续 current 研究流程，但新版 learning helper 会在解析旧 artifact 前以明确 capability error 拒绝 preview/apply；不提供迁移、旧 parser 或字段推断。
 
 ## 验证原则
 

@@ -17,7 +17,11 @@ steamai __open-member <member-name>
 
 原生入口只验证成员目录与 `CLAUDE.md`，然后从该目录自动打开一个屏幕上立即可见的普通交互式 Claude Code 窗口，并以 `--add-dir <CASE_ROOT>` 加入 case 根访问范围。用户从窗口出现起即可观察、输入、暂停和纠偏；该入口不使用 `--bg`，不保存 PID/session ID，也不管理成员任务或生命周期。原生启动失败时才展示从成员目录执行 `claude --add-dir <CASE_ROOT>` 的手工 fallback。
 
+正式 Commander/member 启动仅在新进程环境中移除 `CLAUDECODE` 与 `CLAUDE_CODE_CHILD_SESSION`：后者可能由 Commander 的 shell 工具继承，若带入独立交互会话会令 Claude Code 关闭 transcript 保存。不得用全局修改或强设 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` 替代这条边界，也不覆盖用户其它明确的历史保存选择。
+
 `--add-dir` 只表达文件访问范围，不用于切换成员身份或加载兄弟目录规则。Fresh Commander 仍从目标 case cwd 启动；`claude "/steamai" --add-dir <CANONICAL_SOURCE>` 会从 added directory 发现 `.claude/skills/steamai/SKILL.md`，且 positional `/steamai` 必须位于 variadic `--add-dir` 之前。项目共享规则已位于成员启动目录的父层级。
+
+主辅 pack 不改变上述成员模型。每个成员仍从自己的目录启动，读取自己的 `CLAUDE.md` 与父级 case 规则；辅助只是任务指定的 pinned 方法文件，不是额外配置根、第二个成员身份或新的记忆系统。新增方法和模板只随后续 Fresh 固定，current 不自动补装。
 
 ## 可选能力
 

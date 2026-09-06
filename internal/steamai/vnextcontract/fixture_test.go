@@ -22,6 +22,7 @@ func TestTemplatesRenderCompleteCaseFixture(t *testing.T) {
 		"{{PACK_NAME}}":            "binary-re",
 		"{{PACK_REVISION}}":        "test-fixture-revision",
 		"{{PACK_SNAPSHOT_TREE}}":   "test-fixture-pack-tree",
+		"{{AUX_PACK_IDENTITY}}":    "",
 		"{{COMMON_SNAPSHOT_TREE}}": "test-fixture-common-tree",
 		"{{SNAPSHOT_DIGEST}}":      "sha256:" + strings.Repeat("d", 64),
 		"{{TEAM_ROSTER_ROWS}}":     "| static-analysis | execution | active | members/static-analysis/CLAUDE.md |\n| reviewer | reviewer | active | members/reviewer/CLAUDE.md |",

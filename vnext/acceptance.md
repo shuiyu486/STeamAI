@@ -55,7 +55,7 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 1. **setup**：默认路径与 `--source <TEMP_CHECKOUT>` 各一次；检查 installed exe、HKCU source/version/PATH ownership；新终端可解析 `steamai`。不使用 PowerShell/.cmd/.bat 产品脚本。
 2. **Fresh**：从外部普通临时项目运行 `steamai`；同一 Commander窗口看到 exact preview；确认前零写；输入 exact synthetic confirmation 后 project-local skill、contracts、pack/common snapshot与marker current。
 3. **Fresh drift**：改变 source或target后，旧确认失效且`.steamai-vnext/`不发布。
-4. **Visible member**：Commander调用 `steamai __open-member <name>`；屏幕上立即出现普通交互 Claude Code窗口，cwd是成员目录，case通过`--add-dir`可读。
+4. **Visible member**：Commander调用 `steamai __open-member <name>`；屏幕上立即出现普通交互 Claude Code窗口，cwd是成员目录，case通过`--add-dir`可读。覆盖从 Claude shell 工具继承 `CLAUDE_CODE_CHILD_SESSION=1` 的真实启动：正式入口应移除该标记，成员正常保存原生 transcript，退出后能以同一 session 恢复；不得在验收脚本中预先删除标记或强设 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` 掩盖产品缺陷。若用户另行明确关闭历史保存，应如实记录该设置边界，不强制覆盖。
 5. **Duplicate Commander**：第一个仍运行时再次在物理同一case（包括path alias）运行`steamai`，第二个明确拒绝。
 6. **Learning batch**：至少3 candidates→3 eligibility reviews→2 targets→1 accepted batch review；preview完整显示source chain/Reviewer/pre-postimage/patch；exact confirmation后只修改targets，HEAD/index/case snapshot不变。
 7. **Update**：从 canonical checkout 外运行，使用 clean checkout 从已发布测试 tag 更新；manifest/hash/tag/revision 均匹配；source 需要变化时与 exe 一起切换，HEAD 已等于 release 时走 exe-only 路径。从 canonical checkout 根或子目录运行时必须在联网前明确拒绝。再分别制造 dirty/untracked/ignored、本地其他 branch 或 stash commit、错误 hash、错误 revision、已存在 staging/backup、文件锁、准备期间 source 漂移、exe 发布后的 Registry 写失败及网络失败，确认旧可用版本保留且无自动 Git 修复；若 Windows 锁使 executable rollback 不完整，错误必须列出保留的新旧 exe/source recovery paths，且不得把 source 回滚成与仍 active 新 exe 不匹配的版本。source 替换成功后旧 checkout 作为 sibling backup 保留，命令输出路径且不自动递归删除。
@@ -117,6 +117,28 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 ```
 
 单独复查 token smoke 可选择 `^TestLiveVerifiedLearningControlSmoke$`；不要把它串进默认 suite，也不要将失败项反复重跑直至通过。测试输出给出仓库外证据目录；所有已尝试调用的成功、失败、超时和无效输出均保留，blocked 后的未执行项明确列出且不能补写结果。有限 synthetic Reviewer 校准 `pass` 也只支持该 frozen suite/runtime 范围，不证明真实研究质量或任意 candidate 改善；它不是 calibration `go` attestation，正式晋级仍需 Reviewer 闭合 suite exact evidence。`completion=complete` 只表示全部预注册 slots 已执行；`decision=no-go` 仍使 live test 返回非零，不能描述为验收通过。结果及已知失败统一记录在当前 roadmap，不在 README 或模板另建结果副本。
+
+## Research capability — 双领域与主辅 pack
+
+本节用于 `steamai-research-capability-v1`，不替代上面的原生能力与 verified-learning gates。成员已有独立目录、任务文件、原生 session 上下文与恢复；不把冷接手未全面测试当作已有缺陷。
+
+### 默认机械与内容合同
+
+- production Fresh→Apply→InspectCurrent 覆盖单包、主＋可选一个辅助包，完整 common 只一份；未声明包、主辅同名、辅助字段空/缺半/重复、幽灵辅助、缺 manifest/router、字节/index/tree 漂移与旧确认都拒绝。负向 fixture 其余 SHA/bindings 尽量自洽，避免仅因旧摘要不匹配而误判覆盖。
+- 同一个 v2 snapshot parser 接受辅助字段缺省的旧单包，读取前后 path set 与 bytes 不变，不访问 canonical，不更新旧 skill/contracts。测试不维护第二套旧 renderer。
+- learning 从双包 case 仍只写主包；辅助 destination 和跨包 patch 拒绝。成功和失败恢复均不改辅助、case snapshot、HEAD/index。辅助经验来源仍要 current accepted evidence、主包适用性和自包含审查。
+- 两领域方法的合成抽象正例、反例、证据不足例与按需路由进入内容合同检查。Binary RE 覆盖 final effect、覆盖写/alias、来源独立性与 keep unknown；Web/API 覆盖发送状态、混杂因素、修复前后与合法行为对照。文本断言只证明规则存在，不证明模型执行正确。
+
+### 真实效果与主辅消费（explicit opt-in）
+
+真实调用、可见窗口或请求必须先得到该动作所需授权与预算。不要把所有真实动作藏进默认 Go tests，也不建设永久四臂框架。
+
+1. 在仓库外用 production Fresh 分别建立现行、仅方法增强、仅决策增强、最终组合的独立合成 case。每组使用对应 exact skill/templates/pack bytes，记录 source/snapshot identity；不能修改同一 current，不能用临时附加几句提示词冒充候选分发。
+2. 运行前冻结任务、评分依据、预算和当前配置解析后的模型，预留未用于调优的任务。隔离各组 session/auto memory，避免前组答案泄漏；不改变用户全局配置，也不假设同一 Git 仓库的不同 cwd 自动隔离 auto memory。
+3. 同题比较检查选择、实际读取的 pinned 方法路径、反证后行动、结论正确性、问题覆盖、无效步骤与费用。不能只检查字段是否写齐；全 unknown、遗漏可支持结论或牺牲正确性换效率均不算增益。
+4. 主辅消费需由真实成员按 exact member cwd 读取所分配的方法入口，观察两包建议冲突是否回到当前 case 规则；不扩大授权、团队或辅助写回资格。原会话恢复与用户纠偏规则保持有效，不另造记忆或交接文件。
+5. readonly evaluator 仅证明其支持的有界静态材料/pack patch 场景，不证明实际 HTTP、工具执行、可见协作或用户纠偏。真实请求/独立 replay 分别走对应授权和环境；任何新校准仍需独立 Reviewer 判断覆盖与 currentness，不能借旧 bounded pass 自动晋级。
+6. 所有失败、超时、负向与不确定结果保留；没有完成 live 时明确 pending。结果只写当前 roadmap，不能以机械全绿宣称研究更准、更快或 V2/V3/V4。
 
 ## 5. Release live
 

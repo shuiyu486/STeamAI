@@ -153,6 +153,69 @@ func TestCaseAndMemberTemplatesKeepTeamBounded(t *testing.T) {
 	}
 }
 
+func TestResearchCapabilityKeepsNativeMembersAndScopedMethods(t *testing.T) {
+	repo := repoRoot(t)
+	skill := readPrototypeFile(t, repo, ".claude/skills/steamai/SKILL.md")
+	for _, required := range []string{
+		"最多一个不同的辅助 pack", "单值 `auxPack`", "完整 `common/**` 只复制一次",
+		"../../pack-snapshot/packs/<aux-pack>/...", "不默认串读两包",
+		"辅助只提供方法", "candidate 与 batch 始终只写主包",
+		"## 关键研究分岔点", "owner 自主选择具体工具和最小区分性检查",
+		"在观察结果前", "机械小任务不强制列多个假设",
+		"不新增任务字段、假设库、记忆库或交接文件", "最终回答对应用户原始问题",
+	} {
+		assertContains(t, skill, required, "research capability skill")
+	}
+	role := readPrototypeFile(t, repo, "vnext/templates/roles/analysis-member.md")
+	for _, required := range []string{"最小区分性检查", "反证出现后实际停止", "探索过程仍留在原生 session", "用户纠偏优先"} {
+		assertContains(t, role, required, "analysis role")
+	}
+	member := readPrototypeFile(t, repo, "vnext/templates/member/CLAUDE.md")
+	assertContains(t, member, "../../pack-snapshot/packs/<aux-pack>/...", "auxiliary member inputs")
+	assertContains(t, member, "优先恢复原 Claude Code 会话", "native member memory")
+
+	binary := readPrototypeFile(t, repo, "packs/binary-re/references/binary-re/singleton-handler-review.md")
+	for _, required := range []string{
+		"输入身份", "坐标和环境", "final VSP payload write", "later overwrite", "部分覆盖",
+		"pointer/source alias", "同一来源的不同导出不是独立证据", "最小区分检查",
+		"缺观察不等于无 payload", "keep unknown", "不要求调用未交付脚本", "不新增 handoff 文件",
+	} {
+		assertContains(t, binary, required, "binary method")
+	}
+	web := readPrototypeFile(t, repo, "packs/web-security/tooling/recipes/request-replay.md")
+	for _, required := range []string{
+		"单一假设", "先写预期和反证", "delivery-uncertain", "禁止自动重试", "混杂因素",
+		"合法对照", "预设身份差异可用于权限对照", "非预期身份漂移",
+		"仅声明数据格式，不是 executor", "readonly evaluator 仍只读静态材料",
+	} {
+		assertContains(t, web, required, "web method")
+	}
+	for _, method := range []string{binary, web} {
+		for _, required := range []string{"合成抽象案例", "**正向**", "**反例**", "**unknown**"} {
+			assertContains(t, method, required, "synthetic method examples")
+		}
+		if len(method) > 16*1024 {
+			t.Fatal("specialist method exceeds the existing reference budget")
+		}
+	}
+	for _, rel := range []string{
+		"packs/binary-re/references/binary-re/singleton-handler-review.md",
+		"packs/binary-re/tooling/recipes/focused-handler-review.md",
+		"packs/binary-re/tooling/recipes/value-flow-mining.md",
+	} {
+		text := readPrototypeFile(t, repo, rel)
+		for _, forbidden := range []string{"task-handoff.md", "auto_mine_handler_semantics.py", "build_routine_ir.py", "mine_routine_superinstructions.py"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s still requires a parallel handoff or undelivered script %q", rel, forbidden)
+			}
+		}
+	}
+	acceptance := readPrototypeFile(t, repo, "vnext/acceptance.md")
+	for _, required := range []string{"对应 exact skill/templates/pack bytes", "隔离各组 session/auto memory", "默认 Go tests", "不证明实际 HTTP"} {
+		assertContains(t, acceptance, required, "research capability acceptance")
+	}
+}
+
 func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 	repo := repoRoot(t)
 	artifact := readPrototypeFile(t, repo, "vnext/templates/research/artifact-index.md")

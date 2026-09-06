@@ -80,6 +80,9 @@ func (f *fakePlatform) OpenVisible(spec processSpec) error {
 }
 
 func TestCommanderLaunchUsesFreshAndCurrentSkillSources(t *testing.T) {
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+	t.Setenv("ANTHROPIC_MODEL", "configured-model")
 	root := t.TempDir()
 	source := makeCanonicalSource(t)
 	claude := makeFakeExecutable(t, "claude.exe")
@@ -91,6 +94,7 @@ func TestCommanderLaunchUsesFreshAndCurrentSkillSources(t *testing.T) {
 	}{
 		{name: "fresh", wantArgs: []string{"/steamai", "--add-dir", source}},
 		{name: "current", prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"/steamai"}},
+		{name: "current auxiliary", prepare: func(root string) { materializeCurrentCaseFixtureWithAuxPack(t, root, "aux-pack") }, wantArgs: []string{"/steamai"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			caseRoot := filepath.Join(root, test.name)
@@ -118,11 +122,7 @@ func TestCommanderLaunchUsesFreshAndCurrentSkillSources(t *testing.T) {
 			if !reflect.DeepEqual(got.InheritedHandles, []uintptr{42}) {
 				t.Fatalf("Commander did not inherit its mutex handle: %#v", got.InheritedHandles)
 			}
-			for _, item := range got.Env {
-				if strings.HasPrefix(strings.ToUpper(item), "CLAUDECODE=") {
-					t.Fatal("nested Claude marker leaked")
-				}
-			}
+			assertIndependentSessionEnvironment(t, got.Env)
 		})
 	}
 }
@@ -139,6 +139,27 @@ func TestCurrentCaseRejectsMalformedSnapshotMarker(t *testing.T) {
 	}
 	if state != casePartial {
 		t.Fatalf("malformed snapshot state = %v", state)
+	}
+}
+
+func TestCurrentAuxPackCorruptionFailsClosedBeforeLaunch(t *testing.T) {
+	for _, pack := range []string{"fixture-pack", "aux-pack"} {
+		t.Run(pack, func(t *testing.T) {
+			root := t.TempDir()
+			materializeCurrentCaseFixtureWithAuxPack(t, root, "aux-pack")
+			path := filepath.Join(root, ".steamai-vnext/pack-snapshot/packs", pack, "router.md")
+			if err := os.WriteFile(path, []byte("corrupt\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			p := &fakePlatform{supported: true}
+			a := testApp(t, p, root, makeFakeExecutable(t, "claude.exe"))
+			if err := a.run(nil); !errors.Is(err, errPartialCase) {
+				t.Fatalf("损坏 %s 未 fail-closed: %v", pack, err)
+			}
+			if len(p.attached) != 0 {
+				t.Fatal("损坏的 case 启动了 Claude")
+			}
+		})
 	}
 }
 
@@ -186,6 +207,9 @@ func TestPartialCaseAndDuplicateCommanderFailClosed(t *testing.T) {
 }
 
 func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+	t.Setenv("ANTHROPIC_MODEL", "configured-model")
 	caseRoot := t.TempDir()
 	materializeCurrentCaseFixture(t, caseRoot)
 	member := filepath.Join(caseRoot, ".steamai-vnext", "members", "static-analysis")
@@ -220,11 +244,29 @@ func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
 	if !reflect.DeepEqual(got.Args, []string{memberInitialPrompt, "--add-dir", caseRoot}) {
 		t.Fatalf("member args = %#v", got.Args)
 	}
+	assertIndependentSessionEnvironment(t, got.Env)
 
 	for _, invalid := range []string{"../escape", "UPPER", "con", "a/b"} {
 		if err := a.run([]string{"__open-member", invalid}); err == nil {
 			t.Fatalf("invalid member %q accepted", invalid)
 		}
+	}
+}
+
+func assertIndependentSessionEnvironment(t *testing.T, env []string) {
+	t.Helper()
+	modelPreserved := false
+	for _, item := range env {
+		key, value, _ := strings.Cut(item, "=")
+		switch strings.ToUpper(key) {
+		case "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION":
+			t.Fatalf("独立会话继承了父级会话标记：%s", key)
+		case "ANTHROPIC_MODEL":
+			modelPreserved = value == "configured-model"
+		}
+	}
+	if !modelPreserved {
+		t.Fatal("独立会话不得改变用户模型配置")
 	}
 }
 

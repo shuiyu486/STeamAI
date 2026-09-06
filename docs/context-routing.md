@@ -6,8 +6,9 @@
 
 ## 当前指针
 
-- 当前路线：`steamai-verified-learning-v1`
-- 当前路线入口：`docs/verified-learning-roadmap.md`
+- 当前路线：`steamai-research-capability-v1`
+- 当前路线入口：`docs/research-capability-roadmap.md`
+- verified-learning 既有证据与未完成门槛：`docs/verified-learning-roadmap.md`
 - 短投影：`docs/batch-plan.md`
 - canonical 产品入口：`cmd/steamai` 与 `.claude/skills/steamai/SKILL.md`
 - 薄核心合同：`vnext/**`
@@ -18,7 +19,8 @@
 
 | 需要判断什么 | 首选入口 | 不要默认读取 |
 |---|---|---|
-| 当前 verified-learning 路线、Gate 1–4 与剩余 live gate | `docs/verified-learning-roadmap.md` | 不把机械 tests 当 calibration/V4 evidence |
+| 当前双领域研究方法、分岔点决策、主辅 pack 与验收 | `docs/research-capability-roadmap.md` | 不把原生上下文/恢复当缺失功能，不把合成测试当研究效果 |
+| verified-learning Gate 1–4 的既有证据与剩余 live gate | `docs/verified-learning-roadmap.md` | 不把机械 tests 当 calibration/V4 evidence |
 | 已完成 Windows 产品基线 | `docs/windows-native-product-roadmap.md` | 不改写为当前路线或复用旧证据证明新行为 |
 | 当前路线短投影 | `docs/batch-plan.md` | 不把它当第二份 roadmap |
 | 安装、quickstart、更新、卸载与产品定位 | `README.md` | 不读历史 source-clone-only 说明 |

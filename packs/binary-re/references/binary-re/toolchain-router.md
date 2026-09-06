@@ -18,7 +18,7 @@
 | VMEnter/source stubs | 静态扫描与已有 sidecar | IDA/x64dbg 静态辅助 | 不把大反汇编带入上下文。 |
 | 真实 context | in-process probe | suspended launcher | 属于执行动作，必须具体确认。 |
 | 离线 dispatch trace | Unicorn + bounded context | memory augmenter | 输出留 case-local sidecar。 |
-| focused handler review | focused trace + value-flow | IDA 静态精读 | 低样本/alias-heavy 必须 Reviewer 复核。 |
+| focused handler review | 已有有界材料，读 `singleton-handler-review.md` | 按缺口选择最小补证 | 先对齐输入并检查 final effect；低样本/alias-heavy 不凭拟合合入，新 trace 另行确认。 |
 | 动态调试 | 隔离环境中的 bounded debugger action | ScyllaHide | 避免裸启动，严格 stop conditions。 |
 
 ## Heavy action

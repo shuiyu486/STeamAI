@@ -124,7 +124,8 @@ func BuildPreview(git, source, caseRoot string, request Request) (Preview, error
 		return Preview{}, err
 	}
 	preview := Preview{
-		SchemaVersion: 1, Pack: identity.Pack, CaseRevision: identity.Revision, CanonicalHead: head,
+		SchemaVersion: 1, Pack: identity.Pack, AuxPack: identity.AuxPack, AuxPackTree: identity.AuxPackTree,
+		CaseRevision: identity.Revision, CanonicalHead: head,
 		ManifestPath: manifestRel, ManifestSHA256: hashBytes(manifest), ManifestBytes: len(manifest),
 		SnapshotDigest: identity.PayloadDigest, Candidates: candidateRecords, Targets: targets,
 		PatchPath: patchRel, PatchSHA256: patchSHA, PatchBytes: len(patchData),
@@ -396,6 +397,10 @@ func renderHumanPreview(preview Preview) string {
 	var out strings.Builder
 	fmt.Fprintln(&out, "STeamAI learning batch exact preview")
 	fmt.Fprintf(&out, "- selected-pack: %s\n- case-revision: %s\n- canonical-head: %s\n- snapshot-digest: %s\n", preview.Pack, preview.CaseRevision, preview.CanonicalHead, preview.SnapshotDigest)
+	fmt.Fprintf(&out, "- learning-writeback: packs/%s/ only (main pack)\n", preview.Pack)
+	if preview.AuxPack != "" {
+		fmt.Fprintf(&out, "- auxiliary-pack: %s (read-only reference; no learning writeback)\n- auxiliary-pack-tree: %s\n", preview.AuxPack, preview.AuxPackTree)
+	}
 	fmt.Fprintf(&out, "- manifest: %s sha256:%s bytes:%d\n", preview.ManifestPath, preview.ManifestSHA256, preview.ManifestBytes)
 	fmt.Fprintln(&out, "- candidates:")
 	for _, item := range preview.Candidates {

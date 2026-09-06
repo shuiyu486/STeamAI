@@ -40,9 +40,17 @@ steamai
 
 Fresh 来源是 setup 绑定的 canonical checkout 当前 working-tree bytes；stage-0 index 定义 current tracked path/mode，HEAD 只是历史 anchor。因此已经审查、用户确认并应用但尚未 commit 的本机经验，也能供后续新 case 使用。preview 绑定 case facts、source records、目标 pre-state 和全部 writes；只有 `CONFIRM STEAMAI FRESH <identity>` 才能 Apply。
 
-Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。case 建立后固定读取自己的 selected pack + 完整 `common/**` snapshot，不随 mutable canonical checkout 漂移。
+Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。case 建立后固定读取自己的主 pack、可选辅助 pack + 完整 `common/**` snapshot，不随 mutable canonical checkout 漂移。
 
 普通项目只运行 `claude` 时，不会加载或携带 STeamAI。
+
+## 研究方法与主辅 pack
+
+当前源码路线同时深化两类方法：Binary RE 的低样本 final-effect/证据复核，以及 Web/API 的单一请求假设、有界验证、差异归因与修复证据。重要研究分岔点先选能改变判断的检查；反证出现后停止、收窄或改派，最终按用户问题说明已证明、被否定与未知。它们不新建成员记忆或调度系统。本轮已完成四组、32 轮真实静态对照并独立复查，质量评分全部平局；方法已落地，但不能据此宣称研究更准或稳定更快。
+
+Fresh 默认选一个主 pack，确需另一套独立维护的方法时，可在同次 preview 加入最多一个不同的辅助 pack。两个包分别固定、完整 common 只复制一次；成员按任务读取指定入口，不默认把两包全部加载。辅助不扩大授权或团队，不覆盖主 case 规则，经验仍只写回主 pack。主辅不是两个 case 合并，也不自动发现其他项目。
+
+已有 current case 保持自己的单包内容、skill 和合同，不补装辅助或迁移；这些源码改动不会自动进入既有 case。新版原生入口沿同一 snapshot parser 接受无辅助字段的单包 case；旧 executable 不承诺读取新双包 snapshot。当前源码路线的状态见 `docs/research-capability-roadmap.md`，不能用已发布 `v1.0.4` 的历史验收证明这些新行为。
 
 ## 团队模型
 
@@ -50,7 +58,7 @@ Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-rep
 - **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开屏幕上独立可见的普通 Claude Code 窗口。
 - **Reviewer**：只读 artifact/evidence/finding/spec/run/candidate/patch，只写 `reviews/` 与任务指定的 exact evaluation attestation，不执行 heavy action或运行 arms。
 - active team 默认最多 3 名执行成员 + 1 名 Reviewer；每个问题一名 owner、最多一名 verifier。
-- Claude Code 原生 session 是工作记忆，`ListAgents` / `SendMessage` 是协作通道，原生 logs/attach/resume/respawn 只作观察与恢复。STeamAI 不自建 task/session/message registry、队列或 supervisor。
+- Claude Code 原生 session 是工作记忆，`ListAgents` / `SendMessage` 是协作通道，原生 logs/attach/resume/respawn 只作观察与恢复。独立 Commander/成员启动会移除继承的 nested/child 会话标记，避免被 Claude Code 当成不保存 transcript 的嵌套会话；不改用户全局配置。STeamAI 不自建 task/session/message registry、队列或 supervisor。
 - 用户在成员窗口里的直接输入优先；跨会话消息不能冒充用户纠偏、改派正式任务或扩大 case 授权。
 - 同一 case 同时只允许一个 Commander；重复启动会拒绝第二个。
 
@@ -124,7 +132,8 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 - case/研究模板与合同：`vnext/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 当前路线：`docs/verified-learning-roadmap.md`
+- 当前路线：`docs/research-capability-roadmap.md`
+- verified-learning 既有证据与待验项：`docs/verified-learning-roadmap.md`
 - 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
 - 自动与人工验收分层：`vnext/acceptance.md`
 

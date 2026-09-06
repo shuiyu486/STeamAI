@@ -31,6 +31,6 @@
 
 1. 运行与修改直接相关的最短验证。
 2. 修改 shared confirmed table 后重建派生产物并检查 coverage/unknown。
-3. 更新 case-local finding/review 或 handoff，不更新 pack 中的 case 进度。
+3. 将已证明、被否定、未知及下一检查写入现有 case-local E/F/R，通过 native session 恢复或定向反馈；不新增 handoff 文件，不更新 pack 中的 case 进度。
 4. 检查 Markdown 预算、链接与 `git diff --check`。
 5. 可复用经验只进入 learning candidate，不直接写 canonical pack。

@@ -18,13 +18,13 @@ type gitEntry struct {
 	Path string
 }
 
-func freezeSource(git, root, pack string) (frozenSource, error) {
+func freezeSource(git, root, pack, auxPack string) (frozenSource, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return frozenSource{}, err
 	}
-	if !packNamePattern.MatchString(pack) || strings.HasPrefix(pack, "_") {
-		return frozenSource{}, errors.New("selected pack 名称无效")
+	if err := validatePackSelection(pack, auxPack); err != nil {
+		return frozenSource{}, err
 	}
 	if err := requirePlainDirectory(root); err != nil {
 		return frozenSource{}, fmt.Errorf("canonical source 根目录无效: %w", err)
@@ -51,6 +51,9 @@ func freezeSource(git, root, pack string) (frozenSource, error) {
 		"vnext/templates",
 		"packs/" + pack,
 		"common",
+	}
+	if auxPack != "" {
+		roots = append(roots, "packs/"+auxPack)
 	}
 	headEntries, err := gitTreeEntries(git, root, revision, roots)
 	if err != nil {
@@ -107,6 +110,16 @@ func freezeSource(git, root, pack string) (frozenSource, error) {
 	if err := validateSelectedPack(records, pack); err != nil {
 		return frozenSource{}, err
 	}
+	var auxPackTree string
+	if auxPack != "" {
+		if err := validateSelectedPack(records, auxPack); err != nil {
+			return frozenSource{}, err
+		}
+		auxPackTree, err = gitWriteTreeForRoot(git, root, "packs/"+auxPack)
+		if err != nil {
+			return frozenSource{}, err
+		}
+	}
 	packTree, err := gitWriteTreeForRoot(git, root, "packs/"+pack)
 	if err != nil {
 		return frozenSource{}, err
@@ -122,7 +135,7 @@ func freezeSource(git, root, pack string) (frozenSource, error) {
 	}
 	return frozenSource{
 		Root: root, Git: git, Revision: revision,
-		PackTree: packTree, CommonTree: commonTree,
+		PackTree: packTree, AuxPackTree: auxPackTree, CommonTree: commonTree,
 		Digest: digestRecords(records), Records: records, ByPath: byPath, Diff: diff,
 	}, nil
 }

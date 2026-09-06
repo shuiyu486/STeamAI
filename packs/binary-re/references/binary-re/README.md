@@ -18,7 +18,8 @@
 | 通用工具选择 | `general-toolchain-router.md`、`../../tooling/README.md` | static triage、saved summary review、风险和止损。 |
 | VMProtect x64 专项 | `workflow-template.md`、`agent-driven-re.md` | VMEnter、context、trace、handler value-flow 与 review。 |
 | VMP/IDA 工具选择 | `toolchain-router.md` | 公开工具短测、IDA sidecar、debug/trace 边界。 |
-| 批量 handler/trace 复核 | `progressive-disclosure.md`、`singleton-handler-review.md` | 固定分片、读取预算与低样本复核。 |
+| 低样本 handler 的 final effect/反证复核 | `singleton-handler-review.md` | 输入对齐、覆盖写/alias、最小区分检查与 keep unknown；按需再读 `../../tooling/recipes/focused-handler-review.md`。 |
+| 批量 handler/trace 的读取预算 | `progressive-disclosure.md` | 只规划有界分片，不默认串读整批材料。 |
 | 功能分析协同 | `lane-collaboration.md` | 目录成员与单写者边界；不创建 lane 状态机。 |
 
 ## 写入与执行边界
