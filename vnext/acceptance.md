@@ -65,16 +65,14 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 
 ## 4. Visible multi-session 与用户纠偏
 
-至少在一个临时current case中完成：
-
-完整产品验收还必须在同一临时 case 中完成以下旅程；任一层不能替代另一层：
+在仓库外临时 current case 中按行为边界完成以下 live gates。共享成员任务、currentness 与研究产物的同一研究链使用同一 case；相互独立的 HOLD、研究往返、容量/恢复可以拆成短 gate 分次验收。各 gate 各自冻结输入与结果并 fail-closed，不要求一个外部控制器同步驱动全部窗口；任一层不能替代另一层：
 
 1. Commander按需打开两名正式成员和最多一名Reviewer；窗口从启动起用户可见、可输入、可暂停。
 2. 用户直接在owner窗口修改当前任务；owner更新自己的任务并通知受影响成员。
 3. 再发送带旧expected task的延迟变更；compare-before-update返回`HOLD_STALE_TASK`，不得覆盖用户纠偏。
 4. 每个问题保持一名 owner 和最多一名 verifier；owner只向一名verifier请求有界复核，不广播、不增加第二verifier。
 5. `__open-member` 的基础启动兼容下限为支持 `--name` 的 Claude Code 2.1.76；Windows 原生消息验收使用 Claude Code 2.1.248 或更高版本。`__open-member` 启动的 session 带 `--name <member-name>`；Commander/成员先在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 把精确 member cwd 唯一映射到实际 name，再要求该 name 在 `ListAgents` 中恰好可达，只有两边唯一相交才用 `SendMessage` 完成定向协作，并同时核对发送 `success:true` 与接收方 incoming record。inventory 单独不能证明可达，`ListAgents` 单独不能证明成员目录身份，仅出现 tool call 或 `success:false` 均不算送达；跨会话 `SendMessage` 不能冒充 user/direct-session correction，也不能扩大授权。
-6. Reviewer round 1 `needs-evidence`返回原owner；补证后只追加round 2 `accepted`，绑定current finding/evidence SHA；再改变输入后accepted stale。
+6. Reviewer round 1 若为 `needs-evidence` 则返回原 owner；补证后只追加完整 round 2，绑定 current finding/evidence SHA，实际 decision 由证据决定，不预填 `accepted`；若最终为 accepted，再改变承重输入后该 accepted stale。
 7. 超过 3 名 active 执行成员或 1 名 active Reviewer 的创建请求必须拒绝；关闭并恢复active成员窗口，确认目录身份与当前任务延续；completed/inactive成员不自动启动。
 
 `claude logs`、`attach`、`respawn`与`claude --resume <session-id>`只作观察/恢复备用；Agent view/background session不是默认成员体验。自动resume不替代用户实际看见和输入。不解析 transcript JSONL，不把session记录重建为产品状态。

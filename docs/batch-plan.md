@@ -10,13 +10,13 @@
 |---|---|
 | 路线 | `steamai-research-execution-v1` |
 | source | `docs/research-execution-roadmap.md` |
-| 当前批次 | A/B/C 实现、实际 IDA 定点导出与真实 loopback/client 路径完成；原研究对照按超时规则闭合为 incomplete/inconclusive；RE-05 可见成员验收按证据分层收口；VL-CLOSE 已闭合为 inconclusive |
-| 状态 | 真人 Owner 纠偏、三个 production 命名可见成员、双来源身份核对及三条逐 msg_id 原生送达已验；完整 stale-task HOLD 与联合 E/F/R 往返未闭合；未启动的 Attempt 09 仓库外脚手架已删除，不重复真人纠偏或整趟验收 |
+| 当前批次 | A/B/C 实现、实际 IDA 定点导出与真实 loopback/client 路径完成；RE-05 的独立 stale HOLD 与联合 E/F/R 短 gate 已闭合；原研究对照按真实证据闭合为 incomplete/inconclusive，VL-CLOSE structural closure 为 complete/inconclusive，仍无 go、candidate、preview 或 Apply |
+| 状态 | 真人 Owner 纠偏、production 命名可见成员及原生消息身份链已验；stale task 返回 `HOLD_STALE_TASK` 且零覆盖；联合 gate 实际经历 round 1 `needs-evidence`、唯一 E3 补证和 append-only round 2 `accepted`，接受范围只到明示映射下的记录级连接；过重且未启动的 Attempt 09 仓库外脚手架已删除 |
 | 目标 | A 定点专业取证；B 跨步骤解释/预测；C 同 case 客户端/API 联合研究 |
 | 实现边界 | 一个显式 IDAPython exporter；原生 curl；现有 E/F/R 直接绑定全部连接，不建执行/图/任务平台 |
 | 不变 | 原生成员/消息/恢复、主＋最多一辅、经验只回主包、旧 current 零改写 |
-| 已验子范围 | 27项 Python、全量 Go/vet；14次真实 loopback GET；IDA 9.3/IDAPython 9.3.0 定点导出；当前 high 模型身份与 Read/resume；36次研究调用、首题盲评平局及超时停止闭包；真人纠偏、命名可见成员、inventory＋ListAgents 身份交叉核对和 success/incoming msg_id 消息链；旧原件 verifier 与锁恢复子路径；生成式 calibration 的10次首次 Reviewer及 complete/inconclusive closure |
-| 未闭合 | stale task 已送达但未在会话清理前返回 `HOLD_STALE_TASK`；可见成员没有产出联合 E/F/R 与整体复审。这两项如未来重验必须拆成独立 live gate，不再串成整趟 attempt。未来只有另建新 calibration suite 且产生真实 go/eligible candidate 时，才可能进入比较与 exact confirmation |
+| 已验子范围 | 27项 Python、全量 Go/vet；14次真实 loopback GET；IDA 9.3/IDAPython 9.3.0 定点导出；当前 high 模型身份与 Read/resume；36次研究调用、首题盲评平局及超时停止闭包；真人纠偏、命名可见成员、HOLD 零覆盖、inventory＋ListAgents 身份交叉核对、success/incoming msg_id 消息链，以及联合 E1/E2/E3/F/index/R 两轮整体审查；旧原件 verifier 与锁恢复子路径；生成式 calibration 的10次首次 Reviewer及 complete/inconclusive closure |
+| 未闭合 | 研究效果对照永久保持 incomplete/inconclusive，不能以有界 joint `accepted` 宣称相对能力提升；客户端采用、真实认证/归属、部署身份和内部机制不在该 accepted 范围。未来只有另建新 calibration suite 且产生真实 go/eligible candidate 时，才可能进入比较与 exact confirmation |
 | 未声称 | 实现即研究增益、fake API 即 IDA、旧 report-copy pass 即 go、complete/inconclusive 即校准通过、合成 Apply 即真实 canonical 回流或 V4 |
 
 ## 验证标准
