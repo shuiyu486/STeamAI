@@ -241,7 +241,7 @@ func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
 	if got.Dir != member {
 		t.Fatalf("member cwd = %s", got.Dir)
 	}
-	if !reflect.DeepEqual(got.Args, []string{memberInitialPrompt, "--add-dir", caseRoot}) {
+	if !reflect.DeepEqual(got.Args, []string{"--name", "static-analysis", memberInitialPrompt, "--add-dir", caseRoot}) {
 		t.Fatalf("member args = %#v", got.Args)
 	}
 	assertIndependentSessionEnvironment(t, got.Env)

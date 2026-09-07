@@ -434,7 +434,7 @@ func (a *app) openMember(name string) error {
 	}
 	return a.platform.OpenVisible(processSpec{
 		Path: claude,
-		Args: []string{memberInitialPrompt, "--add-dir", caseRoot},
+		Args: []string{"--name", name, memberInitialPrompt, "--add-dir", caseRoot},
 		Dir:  memberRoot,
 		Env:  withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"),
 	})

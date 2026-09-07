@@ -55,7 +55,7 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 ## 原生能力探测与降级
 
 - capability/context/file-access probe 是维护者在 canonical source clone 中按 `vnext/acceptance.md` 执行的验收，不是 project-local 日常依赖。probe 不能替代真实独立 session 验收，也不得冒充用户直接纠偏。
-- 若当前 Claude Code 提供 `ListAgents` 与 `SendMessage`，用它们发现和联系独立成员会话；按精确 member cwd 匹配，且不要假定目标一定可达或消息 exactly-once。
+- 若当前 Claude Code 提供 `ListAgents` 与 `SendMessage`，用它们发现和联系独立成员会话；原生 launcher 已用 member 名设置 session 的可读寻址提示，但 session name 不是身份。发送前先在与目标会话相同的 Claude Code 配置域运行 `claude agents --json`，将 exact member cwd 唯一映射到实际 name，再要求该 name 在 `ListAgents` 中恰好可达；inventory 单独不能证明可达，`ListAgents` 单独不能证明成员目录身份。只有两边唯一相交、发送结果明确 `success:true` 且接收方出现 incoming record 才算送达；不要持久化 inventory、假定目标一定可达或消息 exactly-once。Windows live gate 使用明确支持原生跨会话消息的 Claude Code 2.1.248 或更高版本。
 - 若成员会话尚未启动，先调用原生 `steamai __open-member <member-name>` 自动打开可见窗口；原生启动失败时再给用户简短手工指引，不伪造已启动状态。
 - 若跨会话消息不可用，让用户在相应成员终端输入同一段定向任务或纠偏；文件仍提供稳定身份和当前任务。
 - 若原会话可恢复，优先 resume/attach；不可恢复时从同一成员目录启动新会话。

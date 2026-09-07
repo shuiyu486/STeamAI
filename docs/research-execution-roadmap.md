@@ -3,7 +3,7 @@
 ## 读取指南
 
 - 路线 ID：`steamai-research-execution-v1`。
-- 当前状态：`A/B/C 实现与默认回归通过；36研究轮完成、盲评因超时不完整，IDA与完整可见成员旅程未验完`。
+- 当前状态：`A/B/C 实现完成；实际 IDA/IDAPython 定点导出与 14 条真实 loopback/client 路径已验，研究对照按超时停止规则闭合为 incomplete/inconclusive；可见成员验收已证明真人纠偏、命名可见会话与原生消息身份链，完整 stale-task HOLD 和联合 E/F/R 往返未闭合，已停止继续刷 attempt`。
 - 本文只保存本轮范围、状态和证据；完整路由在 `docs/context-routing.md`，短投影在 `docs/batch-plan.md`。
 - 旧 `research-capability` 的方法/主辅与32轮平局事实不改写；verified-learning 正式证据与待验项仍归 `docs/verified-learning-roadmap.md`，本轮并行收尾，不预填 go。
 
@@ -18,12 +18,12 @@
 
 | 批次 | 内容 | 状态 |
 |---|---|---|
-| RE-01 | 工具与模型前置、三类切片和新保留题冻结 | 9题及当前high配置已冻结，真实身份/Read范围/resume通过；尚无真实 IDA 入口证据 |
-| RE-02 | 唯一 IDA 定点 exporter、schema/直接测试与 curl recipe | 实现与27项 Python tests 通过；真实 curl 11场景通过，IDA live 未验 |
-| RE-03 | Binary/Web 跨步骤连接与预测验证 | 方法与相关内容合同已实现；研究效果待验 |
-| RE-04 | 单源 client/API 联合方法与真实双包 case | 方法已实现；3条真实合成客户端/API 路径通过，原生成员整体审查待验 |
-| RE-05 | 默认回归、真实工具/成员旅程、9题独立对照 | 全量 Go/Python/vet 通过；36研究轮完成，Q02盲评超时后停止；可见旅程未完成 |
-| VL-CLOSE | 旧证据离线核对、适用校准/最终单主候选、锁文件恢复 | 旧原件/锁恢复通过；新20运输arms完成但验收代码误拒导致无Reviewer，原suite inconclusive；晋级/Apply未完成 |
+| RE-01 | 工具与模型前置、三类切片和新保留题冻结 | 9题及当前high配置已冻结，真实身份/Read范围/resume通过；IDA 9.3、Python/IDAPython 与官方 MCP 入口已核验 |
+| RE-02 | 唯一 IDA 定点 exporter、schema/直接测试与 curl recipe | 实现与27项 Python tests 通过；真实 curl 11场景及 IDA/IDAPython 定点导出通过 |
+| RE-03 | Binary/Web 跨步骤连接与预测验证 | 方法与相关内容合同已实现；原研究效果对照已因盲评超时闭合为不完整，不能在解盲后补跑 |
+| RE-04 | 单源 client/API 联合方法与真实双包 case | 方法已实现；3条真实合成客户端/API 路径通过；可见成员的完整联合 E/F/R 整体审查未闭合 |
+| RE-05 | 默认回归、真实工具/成员旅程、9题独立对照 | 36次研究调用完成，Q02盲评超时后全局停止并闭合为 incomplete/inconclusive；真人 Owner 纠偏、命名可见会话及原生消息链已验，stale-task HOLD 与研究往返未验；不再重复整趟旅程 |
+| VL-CLOSE | 旧证据离线核对、适用校准/最终单主候选、锁文件恢复 | 旧原件/锁恢复通过；新20运输 arms 经 byte-exact 复核后仅执行10次首次 Reviewer，2个有效、8个协议无效，closure 为 complete/inconclusive；无 go、candidate、preview 或 Apply |
 
 ### 唯一定点脚本
 
@@ -57,7 +57,8 @@ git diff --check
 ## 当前证据与未完成条件
 
 - 2026-09-06 实施基线为 `96e33591`，开始时工作区干净。原生工具版本已核对：curl 8.13.0、Go 1.26.3 windows/amd64、Python 3.10.5、Claude Code 2.1.236；随后首个模型身份探针通过，实际 assistant 为 `gpt-6-astra`，2.322秒、CLI报告费用 `$0.006235`，无工具调用。
-- PATH 与当前可用工具清单没有提供 IDA 入口，不等于断言未安装。需明确可用的合法 IDA/IDAPython 入口后才能完成相关真实验收；不扫描本机目录、不自动安装或以其它后端替代计完成。
+- 2026-09-07 用户提供合法 IDA 9.3 入口后，已并存安装 Python 3.12.10 与 uv 0.12.10，保留 Python 3.10.5；`idapyswitch` dry-run/实际绑定核验通过，GUI 日志确认 Python 3.12.10 / IDAPython 9.3.0。官方 `mrexodia/ida-pro-mcp` 包已安装，Claude Code 以 RE 目录限定的 stdio `steamai-ida-local` MCP 连接，RE 外会话不加载；MCP 环境按插件锁文件使用隔离 CPython 3.11.16，`idapro` 初始化返回 IDA library `9.3.251224`。当前会话又通过 MCP 完成合成 PE 的 `open → lookup → close(save=false)`，不是只注册名称。安装和验收未读取或运行同目录无关第三方脚本，也未改 STeamAI 产品路径。
+- 实际 IDA live 使用仓库外新建的合成 Go Windows x64 PE（input SHA `80dcf74c…`），先由官方 MCP 的 headless idalib 完成 auto-analysis、Hex-Rays/cache warmup、`idb_list` 与不保存关闭；再在 IDA 9.3 GUI 的真实 IDAPython 会话对稳定 `.i64` 副本运行 production `export_function_evidence.py`。目标 `main.transform` 范围 `0x140082260–0x140082298`，成功输出19条指令、39 entries、4695 bytes，artifact SHA `8a1e1171…`；记录的 PE/x64/metapc、input SHA、image base、analysis ready、debugger inactive 均通过，磁盘 `.i64` 前后 SHA 均为 `cb0d85da…`。GUI batch 脚本完成并写出成功 receipt 后，IDA 进程未自行退出，外层300秒等待到期才定点终止该测试 PID；无残留进程，不能把自动退出记为通过。该证据证明本 exporter 的当前 IDA/IDAPython 实机路径可用，不证明目标执行、动态行为、其它架构或任意数据库兼容。
 - 新资产的 production Fresh 回归实际暴露并修复空 `head-blob` 解析问题：stage-0 新文件合法没有 HEAD blob，旧解析先 TrimSpace 删除分隔空格，导致 Apply 后 current 深验失败。现在先解析分隔再规范化值，保留合法缺省 HEAD anchor；其它空必需字段与畸形记录仍拒绝。新脚本/schema 主辅两个方向的 committed/staged-new 固定、漂移拒绝与旧 literal current 零改写 focused tests 通过（35.420 秒），没有提前提交 fixture 掩盖新资产路径。
 - Windows 真实共享锁的生产文件恢复子路径通过：active/previous executable、published/backup source 四个场景，确为 Win32 handle 限制而非注入错误；解除本次 handle 后旧 bytes 恢复。未调用会读取 HKCU 的完整 ActivateUpdate，因此不代表完整安装、Registry 或 Release 验收；显式 gate 与范围见 `vnext/acceptance.md`。
 - B/C 三篇方法与共享路由已写入，8 项直接相关的模板/原生成员/方法合同 focused tests 通过，三篇均小于16 KiB。唯一 IDA exporter 的26项 Python tests 通过（0.044 秒），新增 ResearchExecution 合同通过（0.012 秒）；fake IDA/内容测试不证明实际 IDA 或研究行为。
@@ -65,8 +66,8 @@ git diff --check
 - 独立9题及标准在方法实施之外冻结，freeze SHA `dd02e5e8b6ef9b14cbbc4dc11b1631c9050155d4a0f759f70898b4e405ba7d7c`；每 arm R1 从3张索引选1张，R2只见所选卡。评分按实际所见材料，题作者了解批准主题但未看新实现，不属于外部基准；未先试题调难度。首个配置冻结为 `gpt-6-astra[1m]`、CLI2.1.236、effort xhigh，并由真实探针的 assistant 消息核验。网络中断恢复后只读核对发现当前 effort 已为 high，模型环境选择未变；旧身份文件和探针保留，后续调用须按当前配置另行冻结/核验，不混用不同 runtime 的证据。
 - 独立审查发现并修复 IDA recipe 加载污染：默认 SourceFileLoader 会在 pinned scripts 目录写入 bytecode，导致 current 路径集合漂移；现直接 `runpy.run_path` 加载 exact `.py`，不更改全局配置或放宽 current。新增测试执行 recipe 的实际加载片段及生产 main，旧加载方式红测、新方式绿测，27项 Python tests 通过（0.070秒）；仅 mock IDA，不代表真实宿主。Fresh 与 learningbatch 两个完整包回归分别通过（106.977秒、111.554秒）。
 - 仅含交付源码的隔离副本完成全量回归：272个stage-0文件，明确列入11个新增交付文件，排除临时验收源码及bytecode；main的index未变。27项 Python tests（0.072秒）、`go test -count=1 -p=2 -timeout=30m ./...` 全部包、`go vet ./...` 与暂存差异检查通过，均未启动模型/IDA/HTTP/可见会话。最后的证据状态文档更新不改变方法与生产代码，交付前仍核对差异。
-- 当前 high runtime 的独立身份探针通过（13.374秒、$0.006240）；真实 Read 范围/两轮 resume 通过（22.190秒＋11.861秒、$0.052475）：case内读取成功、已存在的外部无害文件明确因 dontAsk 权限拒绝，第二轮同session仅读新材料并回忆前轮随机值。前置专项已知费用共$0.064950；不含开发会话或未知interactive费用。
-- 可见联合旅程本次不完整：生产 `__open-member` 成功启动一个可见 Reviewer 窗口，但外部 observer 未识别被控制台折行的主题选择提示，120秒无READY后定点清理；未启动其余两成员，未进入研究session、消息或整体review。现有case仍current，不据此报告产品历史保存回归，不自动重开刷通过。另有测试私有配置的冗余 Write 规则警告，已有正确 Edit 规则覆盖文件写入，不是已确认阻塞原因。人工纠偏与实际联合成员协作仍未验。
-- 18个production Fresh对照case的36轮研究全部completed，1164.43秒，CLI报告研究费用$1.966009。两版本同用对应pack README条件路由，没有单给新版预测提示。匿名盲评仅第一题完成（49.78秒、$0.106692），机械裁决为tie；第二题180秒timeout、无stdout/actual-model/费用记录，不能把超时归因为已证实的模型质量问题，其余7题按全局停止未调用。全部领域的效果结论为incomplete/inconclusive，不宣称跃迁、统计显著或全题平局；独立复核确认首题12:12 tie与原材料、观察前预测及范围限定一致，无hard failure；36研究记录与首题Reviewer共97次Read全部与相应文件bytes一致、无offset/limit、完整行数，无截断。Q02只有零字节stdout与deadline错误，原因未知，不能仅据共有的unrecognized_model警告归因为网络/CLI/模型拒绝。
-- 已知专项费用小计$3.125946（两runtime探针、scope两轮、36研究轮、第一题盲评、新学习20运输arms）；第二题timeout与可见onboarding费用未知，不能当0或完整账单。没有重跑已执行题、换模型或降标准。全部临时repo验收代码已按exact bytes归档到仓库外并删除，未stage/commit/push/Release或真实learning Apply。
-- 成员完整旅程、研究增益和旧学习正式收尾尚未完成。本文随实际结果更新，不把计划写成证据。
+- 当前 high runtime 的独立身份探针通过（13.374秒、$0.006240）；真实 Read 范围/两轮 resume 通过（22.190秒＋11.861秒、$0.052475）：case内读取成功、已存在的外部无害文件明确因 dontAsk 权限拒绝，第二轮同session仅读新材料并回忆前轮随机值。后续 Windows 消息验收改用并冻结较保守的 Claude Code 2.1.250（exe SHA `63403e00…`）；`--name` 基础启动门槛为2.1.76，完整 Windows 原生跨会话消息门槛为2.1.248。CLI 自动更新已关闭、插件更新保留；这不改写此前 2.1.236 产生的历史证据。前置专项已知费用共$0.064950；不含开发会话或未知interactive费用。
+- 可见联合旅程的失败按 one-shot 原样保留，不覆盖或伪装通过。Attempts 01/02 暴露主题/trust 页折行识别问题；后续归一化匹配与显式 Windows `VK_DOWN` 修复后，Claude Code 2.1.250 上的 production `__open-member` 已把 Reviewer、Verifier、Owner 启动为三个独立可见、带 `--name <member>` 的普通会话并全部 READY。Attempt 05 由用户亲自在 Owner 窗口输入 exact 纠偏，Owner 仅在“目标”开头加入指定预测前缀，回复 `HUMAN_CORRECTION_APPLIED`；Owner 文件 SHA 固定为 `02fbe923…`，case 仍 current。Attempt 08 又以同配置域 `claude agents --json` 的 exact cwd→name、`ListAgents` 当前可达 name、`SendMessage success:true` 和接收方 incoming origin 四层证据，证明 Owner→Reviewer（`msg_id=80f904a8…`）与 Owner→Verifier（`msg_id=5fb6dfa0…`）两条纠偏通知真实送达；离线复核确认发送与接收的 msg_id/name/body 一一相同。一次性 Commander→Owner stale 消息也得到 `success:true`（`msg_id=2002f093…`）且 Owner transcript 有同 id/body 的 incoming record，但控制器因发送者把 executable 写成带引号的等价命令而提前拒绝并清理成员，Owner 来不及产出 `HOLD_STALE_TASK`。因此该消息只能证明送达，不能证明 compare-before-update HOLD。Attempt 08 result SHA 为 `6db47a90…`；sender/Owner/Reviewer/Verifier 冻结 transcript SHA 分别为 `154f0e24…`、`3708e0f0…`、`4d59204e…`、`bb6938b8…`。case 零研究产物改动、Owner bytes 保留且 production InspectCurrent 通过。这里的“窗口可见”仅来自 Win32 `isWindowVisible=true`；用户没有另行确认实际看见 Attempt 08 的三个窗口。
+- 18个production Fresh对照case各两轮，共36次研究调用全部completed，1164.43秒，CLI报告研究费用$1.966009。两版本同用对应pack README条件路由，没有单给新版预测提示。匿名盲评仅第一题完成（49.78秒、$0.106692），机械裁决为tie；第二题唯一一次Reviewer在180秒timeout，无stdout/actual-model/费用记录，不能把超时归因为已证实的模型质量问题。随后按冻结规则记录 `paid-stopped-after-review-Q02-timeout`，将其余7题闭合为 `not-comparable` 并生成解盲结论；现在补跑会发生在解盲之后，违反 no-rerun 与“先冻结完整评分、后解盲”，故该 suite 永久保持 incomplete/inconclusive，不再续跑。独立复核确认首题12:12 tie与原材料、观察前预测及范围限定一致，无hard failure；36次研究记录与首题Reviewer共97次Read全部与相应文件bytes一致、无offset/limit、完整行数，无截断。Q02只有零字节stdout与deadline错误，原因未知，不能仅据共有的unrecognized_model警告归因为网络/CLI/模型拒绝。
+- 已知专项费用至少$4.032262（两runtime探针、scope两轮、36研究轮、第一题盲评、新学习20运输arms、10次首次Reviewer、两次exact permission probe与Attempt 08一次性stale sender）；第二题timeout、交互式可见成员和onboarding费用未知，不能当0或完整账单。没有重跑已执行题、换模型或降标准。全部临时repo验收代码已按exact bytes归档到仓库外并删除，未发布 Release 或执行真实 learning Apply。
+- 实际 IDA 子项已经闭合；原研究对照也已按冻结停止规则闭合为 `incomplete/inconclusive`，不能在解盲后补跑剩余题。可见旅程已取得真实用户纠偏、production 命名可见成员和三条逐 msg_id 核对的原生送达证据；完整 `HOLD_STALE_TASK`、联合 E/F/R、条件性 verifier 补证及整体复审没有完成，不能打勾。继续把命令拼写、UI onboarding、费用、角色审计和研究语义塞进同一 30 分钟控制器，已成为测试脚手架风险而非最小产品验证；未启动的 Attempt 09 仓库外脚手架已删除，不再要求用户重复纠偏或继续刷 attempt。后续若单独补验，只按 `vnext/acceptance.md` 分层运行一个尚缺的行为，不串联成全有或全无的旅程。旧学习本轮可完成的首次 Reviewer 与 structural closure 已完成但结果为 `inconclusive`，详见 `docs/verified-learning-roadmap.md`；新的研究增益或 learning `go` 证据只能使用另行冻结的新 suite。

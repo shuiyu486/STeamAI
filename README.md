@@ -6,7 +6,7 @@ Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamA
 
 ## 安装
 
-前提：本机已经安装并登录 Claude Code，且有原生 Git for Windows。
+前提：本机已经安装并登录 Claude Code（成员 `--name` 基础启动要求 2.1.76 或更高版本；Windows 原生跨会话消息要求 2.1.248 或更高版本），且有原生 Git for Windows。
 
 1. 从 GitHub Release 下载 `steamai-windows-amd64.exe`、`steamai-release.json` 与 `SHA256SUMS`，先按 `SHA256SUMS` 核验两个文件，再确认 manifest 中的 exe SHA-256 与实际 exe 一致。
 2. 将 exe 放到临时目录并运行：
@@ -63,10 +63,10 @@ Binary 路径提供一个显式 IDAPython 定点导出工具，读取已打开�
 ## 团队模型
 
 - **Commander**：理解目标与授权、按需组队、解决协作冲突、组织审查、集成交付和发起经验回流。
-- **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开屏幕上独立可见的普通 Claude Code 窗口。
+- **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开屏幕上独立可见的普通 Claude Code 窗口，并以成员名设置原生 session 的可读寻址提示；发送前在同一 Claude Code 配置域中取得 `claude agents --json` 的 exact cwd→name 映射，并与 `ListAgents` 的当前可达 name 唯一相交，不能靠任一单独来源认定成员。
 - **Reviewer**：只读 artifact/evidence/finding/spec/run/candidate/patch，只写 `reviews/` 与任务指定的 exact evaluation attestation，不执行 heavy action或运行 arms。
 - active team 默认最多 3 名执行成员 + 1 名 Reviewer；每个问题一名 owner、最多一名 verifier。
-- Claude Code 原生 session 是工作记忆，`ListAgents` / `SendMessage` 是协作通道，原生 logs/attach/resume/respawn 只作观察与恢复。独立 Commander/成员启动会移除继承的 nested/child 会话标记，避免被 Claude Code 当成不保存 transcript 的嵌套会话；不改用户全局配置。STeamAI 不自建 task/session/message registry、队列或 supervisor。
+- Claude Code 原生 session 是工作记忆，`ListAgents` / `SendMessage` 是协作通道，原生 logs/attach/resume/respawn 只作观察与恢复。独立 Commander/成员启动会移除继承的 nested/child 会话标记，避免被 Claude Code 当成不保存 transcript 的嵌套会话；不改用户全局配置。Windows 原生跨会话消息 live 验收使用明确支持该能力的 Claude Code 2.1.248 或更高版本，并同时验证发送结果与接收记录。STeamAI 不自建 task/session/message registry、队列或 supervisor。
 - 用户在成员窗口里的直接输入优先；跨会话消息不能冒充用户纠偏、改派正式任务或扩大 case 授权。
 - 同一 case 同时只允许一个 Commander；重复启动会拒绝第二个。
 

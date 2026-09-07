@@ -73,7 +73,7 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 2. 用户直接在owner窗口修改当前任务；owner更新自己的任务并通知受影响成员。
 3. 再发送带旧expected task的延迟变更；compare-before-update返回`HOLD_STALE_TASK`，不得覆盖用户纠偏。
 4. 每个问题保持一名 owner 和最多一名 verifier；owner只向一名verifier请求有界复核，不广播、不增加第二verifier。
-5. Commander/成员通过`ListAgents` / `SendMessage`完成一次定向协作；跨会话 `SendMessage` 不能冒充 user/direct-session correction，也不能扩大授权。
+5. `__open-member` 的基础启动兼容下限为支持 `--name` 的 Claude Code 2.1.76；Windows 原生消息验收使用 Claude Code 2.1.248 或更高版本。`__open-member` 启动的 session 带 `--name <member-name>`；Commander/成员先在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 把精确 member cwd 唯一映射到实际 name，再要求该 name 在 `ListAgents` 中恰好可达，只有两边唯一相交才用 `SendMessage` 完成定向协作，并同时核对发送 `success:true` 与接收方 incoming record。inventory 单独不能证明可达，`ListAgents` 单独不能证明成员目录身份，仅出现 tool call 或 `success:false` 均不算送达；跨会话 `SendMessage` 不能冒充 user/direct-session correction，也不能扩大授权。
 6. Reviewer round 1 `needs-evidence`返回原owner；补证后只追加round 2 `accepted`，绑定current finding/evidence SHA；再改变输入后accepted stale。
 7. 超过 3 名 active 执行成员或 1 名 active Reviewer 的创建请求必须拒绝；关闭并恢复active成员窗口，确认目录身份与当前任务延续；completed/inactive成员不自动启动。
 

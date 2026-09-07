@@ -142,7 +142,10 @@ func TestNativeCapabilityContractKeepsVisibleSessionDefault(t *testing.T) {
 	for _, required := range []string{
 		"普通、可见的 Claude Code 会话",
 		"positional `/steamai` 必须位于 variadic `--add-dir` 之前",
-		"claude --add-dir <CASE_ROOT>",
+		"--name <member-name>",
+		"claude --name <member-name> --add-dir <CASE_ROOT>",
+		"Claude Code 2.1.76",
+		"Claude Code 2.1.248",
 		"claude agents --json --all",
 		"claude logs <id>",
 		"claude attach <id>",
@@ -150,6 +153,9 @@ func TestNativeCapabilityContractKeepsVisibleSessionDefault(t *testing.T) {
 		"无跨会话消息",
 		"不得回退旧 Go control plane",
 		"不把 session ID",
+		"与目标会话相同的 Claude Code 配置域运行原生 `claude agents --json`",
+		"inventory 单独不能冒充可达 peer",
+		"`ListAgents` 单独也不能证明成员目录身份",
 		"vnext/acceptance.md",
 	} {
 		assertContains(t, contract, required, "native capability contract")
@@ -165,6 +171,9 @@ func TestNativeCapabilityContractKeepsVisibleSessionDefault(t *testing.T) {
 		"超过 3 名 active 执行成员或 1 名 active Reviewer",
 		"needs-evidence",
 		"claude --resume <session-id>",
+		"Claude Code 2.1.76",
+		"inventory 单独不能证明可达",
+		"`ListAgents` 单独不能证明成员目录身份",
 		"跨会话 `SendMessage` 不能冒充 user/direct-session correction",
 		"HOLD_STALE_TASK",
 		"任一层不能替代另一层",

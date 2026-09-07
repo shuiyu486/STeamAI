@@ -31,7 +31,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - Commander 按需组队；正式成员使用专属目录与目录级 `CLAUDE.md`，由原生 launcher 默认打开屏幕上用户可见的独立 Claude Code 窗口。
 - 成员可直接定向沟通、请求有界验证和共享关键发现；当前主任务优先。每个问题默认一名 owner、最多一名 verifier；实质改派和 durable member 创建只由 Commander 决定。
 - durable member 通常为 1–3 名执行成员加 0–1 名 Reviewer。优先复用已有成员，其次 tactical subagent，只有持续且独立的工作流才新增成员。
-- Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。正式独立会话不得继承会关闭原生历史保存的 child 标记；只修正子进程启动环境，不改全局配置或强制覆盖用户的历史保存选择，具体合同见 `vnext/capabilities.md`。
+- Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。正式 member 会话以 member 名设置原生 session 的可读寻址提示，但成员身份仍只来自 cwd 与目录 `CLAUDE.md`；发送前在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 将 exact cwd 唯一映射到 name，再与 `ListAgents` 当前可达 name 唯一相交，并检查 `success:true` 与接收记录，任一单独来源都不够。正式独立会话不得继承会关闭原生历史保存的 child 标记；只修正子进程启动环境，不改全局配置或强制覆盖用户的历史保存选择，具体合同见 `vnext/capabilities.md`。
 - 只持久化团队需要复核的 artifact、evidence、finding、review、replay spec/result、evaluation bundle/attestation、field outcome、learning candidate 与 exact batch patch，不保存全部思考或聊天历史。
 - 经验由 Commander 从 current accepted evidence chain 提炼；Reviewer 先逐 candidate 检查 eligibility，再绑定最终 batch exact patch；用户查看完整 patch 并确认 exact tuple 后才回流 pack。
 - `steamai.exe` 只负责 setup/update/uninstall、卸载后的窄自清理、Fresh 文件机械操作、synthetic readonly matched evaluation bundle、exact learning batch apply、Windows 可见进程启动和必要瞬时互斥。不得扩展为 task/session/message/roster/finding/review/learning 判断控制面。

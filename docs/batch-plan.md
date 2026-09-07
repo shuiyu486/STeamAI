@@ -10,14 +10,14 @@
 |---|---|
 | 路线 | `steamai-research-execution-v1` |
 | source | `docs/research-execution-roadmap.md` |
-| 当前批次 | A/B/C 实现与回归完成；RE-05 和 VL-CLOSE 保留真实未完成验收，超时后暂停新增付费 |
-| 状态 | 实现与默认回归通过；36研究轮完成，盲评超时/可见onboarding导致完整验收仍待收口 |
+| 当前批次 | A/B/C 实现、实际 IDA 定点导出与真实 loopback/client 路径完成；原研究对照按超时规则闭合为 incomplete/inconclusive；RE-05 可见成员验收按证据分层收口；VL-CLOSE 已闭合为 inconclusive |
+| 状态 | 真人 Owner 纠偏、三个 production 命名可见成员、双来源身份核对及三条逐 msg_id 原生送达已验；完整 stale-task HOLD 与联合 E/F/R 往返未闭合；未启动的 Attempt 09 仓库外脚手架已删除，不重复真人纠偏或整趟验收 |
 | 目标 | A 定点专业取证；B 跨步骤解释/预测；C 同 case 客户端/API 联合研究 |
 | 实现边界 | 一个显式 IDAPython exporter；原生 curl；现有 E/F/R 直接绑定全部连接，不建执行/图/任务平台 |
 | 不变 | 原生成员/消息/恢复、主＋最多一辅、经验只回主包、旧 current 零改写 |
-| 已验子范围 | 27项 Python、全量 Go/vet；14次真实 loopback GET；当前 high 模型身份与 Read/resume；36研究轮、首题盲评平局；旧原件 verifier 与锁恢复子路径 |
-| 待验 | 实际 IDA、成员联合行为/可见协作、9题静态对照结论；正式学习适用校准/候选比较/确认 |
-| 未声称 | 实现即研究增益、fake API 即 IDA、旧 report-copy pass 即 go、合成 Apply 即真实 canonical 回流或 V4 |
+| 已验子范围 | 27项 Python、全量 Go/vet；14次真实 loopback GET；IDA 9.3/IDAPython 9.3.0 定点导出；当前 high 模型身份与 Read/resume；36次研究调用、首题盲评平局及超时停止闭包；真人纠偏、命名可见成员、inventory＋ListAgents 身份交叉核对和 success/incoming msg_id 消息链；旧原件 verifier 与锁恢复子路径；生成式 calibration 的10次首次 Reviewer及 complete/inconclusive closure |
+| 未闭合 | stale task 已送达但未在会话清理前返回 `HOLD_STALE_TASK`；可见成员没有产出联合 E/F/R 与整体复审。这两项如未来重验必须拆成独立 live gate，不再串成整趟 attempt。未来只有另建新 calibration suite 且产生真实 go/eligible candidate 时，才可能进入比较与 exact confirmation |
+| 未声称 | 实现即研究增益、fake API 即 IDA、旧 report-copy pass 即 go、complete/inconclusive 即校准通过、合成 Apply 即真实 canonical 回流或 V4 |
 
 ## 验证标准
 
