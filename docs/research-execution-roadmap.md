@@ -4,8 +4,8 @@
 
 - 路线 ID：`steamai-research-execution-v1`。
 - 当前状态：`A/B/C 实现完成；实际 IDA/IDAPython 定点导出与 14 条真实 loopback/client 路径已验，研究对照按超时停止规则闭合为 incomplete/inconclusive；可见成员验收已证明真人纠偏、命名可见会话与原生消息身份链，两个独立短 gate 又分别闭合 stale-task HOLD 零覆盖，以及联合 E/F/R 的 needs-evidence→单次补证→append-only round 2；最终 accepted 只覆盖明示来源映射范围内的记录级联合解释`。
-- 本文只保存本轮范围、状态和证据；完整路由在 `docs/context-routing.md`，短投影在 `docs/batch-plan.md`。
-- 旧 `research-capability` 的方法/主辅与32轮平局事实不改写；verified-learning 正式证据与待验项仍归 `docs/verified-learning-roadmap.md`，本轮并行收尾，不预填 go。
+- 本文保留本路线已验事实和未完成结论，不续写新实验日志；当前路线见 `docs/research-validity-roadmap.md`，完整路由在 `docs/context-routing.md`，短投影在 `docs/batch-plan.md`。
+- 旧 `research-capability` 的方法/主辅与32轮平局事实不改写；verified-learning 正式证据与待验项仍归 `docs/verified-learning-roadmap.md`，不预填 go。
 
 ## 目标与用户画面
 
@@ -23,7 +23,7 @@
 | RE-03 | Binary/Web 跨步骤连接与预测验证 | 方法与相关内容合同已实现；原研究效果对照已因盲评超时闭合为不完整，不能在解盲后补跑 |
 | RE-04 | 单源 client/API 联合方法与真实双包 case | 方法及3条真实合成客户端/API路径已验；可见成员联合 gate 完成初轮 E1/E2/F、Reviewer `needs-evidence`、唯一 E3 补证、同一 F/index 更新与 append-only round 2 `accepted`；接受范围不含客户端采用或内部机制 |
 | RE-05 | 默认回归、真实工具/成员旅程、9题独立对照 | 36次研究调用完成，Q02盲评超时后按冻结规则闭合为 incomplete/inconclusive；真人纠偏、命名可见会话、原生消息链及独立 stale HOLD 零覆盖 gate 已验；不再重复整趟旅程 |
-| VL-CLOSE | 旧证据离线核对、适用校准/最终单主候选、锁文件恢复 | 旧原件/锁恢复通过；新20运输 arms 经 byte-exact 复核后仅执行10次首次 Reviewer，2个有效、8个协议无效，closure 为 complete/inconclusive；无 go、candidate、preview 或 Apply |
+| VL-CLOSE | 旧证据离线核对、已知报告 Reviewer 校准（report-copy）/原计划最终单主候选、锁文件恢复 | 旧原件/锁恢复通过；新20运输 arms 经 byte-exact 复核后仅执行10次首次 Reviewer，2个有效、8个协议无效，closure 为 complete/inconclusive；无 go、candidate、preview 或 Apply |
 
 ### 唯一定点脚本
 

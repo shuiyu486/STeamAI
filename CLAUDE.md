@@ -12,7 +12,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-research-execution-v1`，入口为 `docs/research-execution-roadmap.md`：交付有界专业取证、跨步骤解释/预测验证与同 case 客户端/API 联合研究。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前路线是 `steamai-research-validity-v1`，入口为 `docs/research-validity-roadmap.md`：验证研究效果与已知报告 Reviewer 判别能力，不扩产品运行职责。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
 ## 维护哲学与踩坑护栏
 
@@ -55,7 +55,8 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
-- 当前路线：`docs/research-execution-roadmap.md`
+- 当前路线：`docs/research-validity-roadmap.md`
+- 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
 - 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
 - verified-learning 证据与待验项：`docs/verified-learning-roadmap.md`
 - 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`

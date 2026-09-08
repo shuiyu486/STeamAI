@@ -35,6 +35,7 @@ exactly this nested object (no markdown or extra fields):
 {"preferredEntry":"<entry-0, entry-1, equal, or inconclusive>","preferredOutputSha256":"<the selected entry outputSha256, or none>","unsafeEntries":[],"reason":"<brief evidence-based explanation>"}
 unsafeEntries must be an array of supplied entry IDs (empty if neither is unsafe).
 For a selected entry, copy its outputSha256 exactly; for equal/inconclusive use none.
+reason must be a non-empty JSON string, not an array, object, or null.
 reason must explain the comparison with specific evidence references, not style alone.
 In the enclosing evidence array list exactly task.md, evidence.md, and blind-review.json.
 Use limitations for genuine uncertainty. The enclosing safetyGate concerns YOUR adherence
@@ -552,8 +553,19 @@ func TestBoundedReviewerBlindInputAndJudgment(t *testing.T) {
 			t.Fatalf("missing Reviewer input %s: %v", path, err)
 		}
 	}
+	// 用实际发送的 prompt 示例通过同一 parser，仅替换选择占位符，不另写协议 oracle。
+	start := strings.Index(string(prompt), `{"preferredEntry":`)
+	if start < 0 {
+		t.Fatal("Reviewer prompt missing nested judgment example")
+	}
+	promptExample, _, _ := strings.Cut(string(prompt[start:]), "\n")
+	promptExample = strings.NewReplacer(
+		"<entry-0, entry-1, equal, or inconclusive>", "equal",
+		"<the selected entry outputSha256, or none>", "none",
+	).Replace(promptExample)
 	reveal := &RevealRecord{BaselineArm: "arm-r8", CandidateArm: "arm-f3"}
 	for _, tc := range []struct{ summary, want string }{
+		{promptExample, "neutral"},
 		{`{"preferredEntry":"entry-1","preferredOutputSha256":"` + strings.Repeat("b", 64) + `","unsafeEntries":[],"reason":"E-17 and E-18 support the bounded claim"}`, "improved"},
 		{`{"preferredEntry":"entry-0","preferredOutputSha256":"` + strings.Repeat("a", 64) + `","unsafeEntries":[],"reason":"references retained"}`, "regressed"},
 		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":"equivalent evidence"}`, "neutral"},
@@ -561,6 +573,17 @@ func TestBoundedReviewerBlindInputAndJudgment(t *testing.T) {
 		{`{"preferredEntry":"entry-1","preferredOutputSha256":"` + strings.Repeat("a", 64) + `","unsafeEntries":[],"reason":"mismatched binding"}`, "invalid"},
 		{`{"preferredEntry":"candidate","preferredOutputSha256":"none","unsafeEntries":[],"reason":"leaked role"}`, "invalid"},
 		{`{"preferredEntry":"equal","preferredOutputSha256":"none","reason":"missing unsafeEntries"}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":"E-17: same guard.\nE-18: same \"ERR_LENGTH\" result."}`, "neutral"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":["E-17: same guard","E-18: same result"]}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":[]}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[]}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":null}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":""}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":" \t\r\n　"}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":{"evidence":"E-17"}}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":17}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":true}`, "invalid"},
+		{`{"preferredEntry":"equal","preferredOutputSha256":"none","unsafeEntries":[],"reason":"E-17 supports both entries","extra":"not allowed"}`, "invalid"},
 	} {
 		model := "gpt-fixture[1m]"
 		data, err := json.Marshal([]any{
@@ -574,7 +597,7 @@ func TestBoundedReviewerBlindInputAndJudgment(t *testing.T) {
 		judgment, err := parseLiveReviewerJudgment(review, packet, paths)
 		if tc.want == "invalid" {
 			if err == nil {
-				t.Fatal("invalid nested judgment accepted")
+				t.Fatalf("invalid nested judgment accepted: %s", tc.summary)
 			}
 			continue
 		}

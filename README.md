@@ -54,7 +54,7 @@ Fresh 默认选一个主 pack，确需另一套独立维护的方法时，可在
 
 ## 专业实操与联合研究
 
-当前 `steamai-research-execution-v1` 路线在上述基础上交付三项相互配合的能力：A 将专业方法落实为实际取证步骤；B 核查处理步骤之间的连接，并用尚未查看的分支检验预测；C 在同一授权 case 内对应客户端字段、API 请求/业务结果与客户端处理，形成整体复核结论。状态与未验范围见 `docs/research-execution-roadmap.md`，不沿用旧平局对照证明新能力。
+`steamai-research-execution-v1` 路线在上述基础上交付三项相互配合的能力：A 将专业方法落实为实际取证步骤；B 核查处理步骤之间的连接，并用尚未查看的分支检验预测；C 在同一授权 case 内对应客户端字段、API 请求/业务结果与客户端处理，形成整体复核结论。已验事实与原对照未完成结论见 `docs/research-execution-roadmap.md`，不沿用旧平局对照证明新能力。当前研究效果与 Reviewer 判别能力的验证状态见 `docs/research-validity-roadmap.md`；验证结果不自动授予 learning 晋级资格。
 
 Binary 路径提供一个显式 IDAPython 定点导出工具，读取已打开的授权 Windows x64 稳定数据库副本，只写指定 case artifact；需要用户已有可用 IDA/IDAPython，不自动安装、不执行目标或修改 analysis DB，也不默认要求反编译器。Web 路径直接使用本机原生 curl，仍是具体确认后的单次 loopback GET，不新增 HTTP 执行器、POST、批量或 retry。Fresh 固定这些文件不会自动运行工具；脚本不进入 learningTargets。
 
@@ -140,7 +140,8 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 - case/研究模板与合同：`vnext/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 当前路线：`docs/research-execution-roadmap.md`
+- 当前路线：`docs/research-validity-roadmap.md`
+- 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
 - 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
 - verified-learning 既有证据与待验项：`docs/verified-learning-roadmap.md`
 - 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`

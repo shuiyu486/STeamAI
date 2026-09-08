@@ -2,6 +2,8 @@
 
 本文件保留 `steamai-windows-native-product-v1` 的证据分层，并增加 `steamai-verified-learning-v1` 的独立 Gate 验收。所有自动 fixture 使用临时目录和无真实样本内容；结果不写入模板仓库，不把 session ID、绝对 case path 或 artifact bytes 保存为产品状态。
 
+当前有效性工作范围与执行状态见 `docs/research-validity-roadmap.md`（`steamai-research-validity-v1`）；该入口不新增或放宽本文件的 gate。
+
 ## 证据分层
 
 以下层级互不替代：
