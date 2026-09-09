@@ -11,7 +11,7 @@
 | 路线 | `steamai-autonomous-collaboration-v1` |
 | source | `docs/autonomous-collaboration-roadmap.md` |
 | 当前批次 | 结果导向任务、按需方法/协作、关键审查与真实模板 Fresh 分发回归 |
-| 当前状态 | 首批合同、静态回归与 production Fresh 分发验证完成；实际成员行为与相对收益 pending |
+| 当前状态 | 首批合同、静态回归与 production Fresh 分发验证完成；实际成员行为已完成定点重试，但相对收益仍为 inconclusive |
 | 当前边界 | 不改 Go production、工具配置或执行器，不放宽权限/确认、单写、证据与学习资格 |
 | 既有事实 | 上轮研究 complete/tie，已知报告校准 complete/pass-limited；不证明本轮收益 |
 | 不变 | 原生成员/消息/恢复、主＋最多一辅、经验只回主包、旧 current 零改写 |
