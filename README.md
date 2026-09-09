@@ -2,6 +2,10 @@
 
 STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协作与经验学习层。一个真实项目目录对应一个明确授权的安全研究 case：用户主要指挥 Commander，也可以随时观察、暂停和纠偏屏幕上独立可见的正式成员会话。
 
+Commander 与正式成员都是运行在 Claude Code 中的 LLM 智能 agent。STeamAI 按结果组织协作：讲清目标、权限和责任，让成员在边界内自主选择研究方法，而不是逐步遥控；简单问题不强行多人参与，方法按需参考，关键结论按现有合同复核。自主性不取消具体动作确认、文件保护和证据要求。后续设计与迭代以根 [CLAUDE.md](CLAUDE.md#智能成员与自主协作基准) 中的长期基准为准。
+
+当前源码按此基准调整任务与角色合同：当前任务内可自主换方法，已满足且边界未变的同一确认不重复索要，有界协作不逐次请示；最终综合审查仍须回答原问题。新合同只由后续 Fresh 固定，已有 case 不升级。实施与验证状态见 [自主协作优化路线](docs/autonomous-collaboration-roadmap.md)；文字合同与分发测试不代表真实研究已经更准、更快。
+
 Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。当前正式 Release 为 [`v1.0.4`](https://github.com/shuiyu486/STeamAI/releases/tag/v1.0.4)；v1 正式产品路径支持 Windows 10/11 x64。
 
 ## 安装
@@ -54,7 +58,7 @@ Fresh 默认选一个主 pack，确需另一套独立维护的方法时，可在
 
 ## 专业实操与联合研究
 
-`steamai-research-execution-v1` 路线在上述基础上交付三项相互配合的能力：A 将专业方法落实为实际取证步骤；B 核查处理步骤之间的连接，并用尚未查看的分支检验预测；C 在同一授权 case 内对应客户端字段、API 请求/业务结果与客户端处理，形成整体复核结论。已验事实与原对照未完成结论见 `docs/research-execution-roadmap.md`，不沿用旧平局对照证明新能力。当前研究效果与 Reviewer 判别能力的验证状态见 `docs/research-validity-roadmap.md`；验证结果不自动授予 learning 晋级资格。
+`steamai-research-execution-v1` 路线在上述基础上交付三项相互配合的能力：A 将专业方法落实为实际取证步骤；B 核查处理步骤之间的连接，并用尚未查看的分支检验预测；C 在同一授权 case 内对应客户端字段、API 请求/业务结果与客户端处理，形成整体复核结论。已验事实与原对照未完成结论见 `docs/research-execution-roadmap.md`，不沿用旧平局对照证明新能力。该轮研究效果与 Reviewer 判别能力的验证结果见 `docs/research-validity-roadmap.md`；验证结果不自动授予 learning 晋级资格，也不证明当前自主协作优化的收益。
 
 Binary 路径提供一个显式 IDAPython 定点导出工具，读取已打开的授权 Windows x64 稳定数据库副本，只写指定 case artifact；需要用户已有可用 IDA/IDAPython，不自动安装、不执行目标或修改 analysis DB，也不默认要求反编译器。Web 路径直接使用本机原生 curl，仍是具体确认后的单次 loopback GET，不新增 HTTP 执行器、POST、批量或 retry。Fresh 固定这些文件不会自动运行工具；脚本不进入 learningTargets。
 
@@ -140,7 +144,8 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 - case/研究模板与合同：`vnext/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 当前路线：`docs/research-validity-roadmap.md`
+- 当前路线：`docs/autonomous-collaboration-roadmap.md`
+- 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
 - 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
 - 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
 - verified-learning 既有证据与待验项：`docs/verified-learning-roadmap.md`

@@ -2,7 +2,7 @@
 
 本文件保留 `steamai-windows-native-product-v1` 的证据分层，并增加 `steamai-verified-learning-v1` 的独立 Gate 验收。所有自动 fixture 使用临时目录和无真实样本内容；结果不写入模板仓库，不把 session ID、绝对 case path 或 artifact bytes 保存为产品状态。
 
-当前有效性工作范围与执行状态见 `docs/research-validity-roadmap.md`（`steamai-research-validity-v1`）；该入口不新增或放宽本文件的 gate。
+当前自主协作优化范围与执行状态见 `docs/autonomous-collaboration-roadmap.md`；此前有效性结果保留在 `docs/research-validity-roadmap.md`，不代替本轮真实行为验证。各路线不放宽本文件既有 gate。
 
 ## 证据分层
 
@@ -170,6 +170,19 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 旧原件按外部冻结 hash 与 production verifier 定点核查；非 current 的旧测试 root 不补装 marker 或冒充正式 CLI case。report-copy calibration 不直接迁移到实际 pack 生成式比较；新 suite 必须与候选任务的 rubric、pinned contract、当前配置模型/CLI/platform/tool profile 一致，scenario 明确读取该 arm 的指导内容。语义裁决来自独立 Reviewer，不由 Go 拼出 expected class。
 
 最终候选保持单主包、accepted source chain、eligible review 和 final exact patch。初始两对比较全部保留，预注册固定 anchor；当前 Gate3 只机械绑定一个 run，全部 pairs 的 path/SHA、盲审与汇总由不可变 Reviewer attestation 明确复核，不能挑赢家或声称 Go 已自动聚合。neutral、regressed、inconclusive、不完整或缺资格都不晋级。ABC 跨包源码改动不是一个 learning batch；真实 Apply 仍等用户对完整 preview 作 exact confirmation，计划批准不能代替。外部 synthetic clone journey 和真实 canonical 回流分别记录。
+
+## 自主协作 — 只验证受影响的路径
+
+本节对应 `steamai-autonomous-collaboration-v1`。默认测试检查 skill/case/角色的结果导向、自主方法、必要确认与审查边界；production Fresh 测试必须用真实仓库 tracked working-tree 模板，不用手写角色字符串或第二套 renderer 代替。检查真实文本进入 case 与各成员，后续 source 变化进入另一 Fresh，原 current 的身份与 bytes 不变。这只证明合同和分发，不证明模型行为。
+
+实际行为需另行明确 case、具体动作与预算，使用原生可见会话，先只选一个受影响的任务，不重跑安装、恢复或完整联合历史旅程：
+
+- 只给目标、材料、允许范围和退出条件，不额外指定工具顺序或提醒“自主选方法”；观察成员是否自行推进。简单任务不强配 verifier，确需帮助才直接请求有界协作，持续改派仍交 Commander。
+- 已满足且边界未变的同一确认不重复索要；缺少动作许可、超预算、停止条件命中或用户纠偏时必须停在相应边界。不得为展示主动性扩大工具权限、自动 retry 或跳过 exact confirmation。
+- 需要审查时由独立 Reviewer 判断 claim；最终综合审查对照原问题。证据不足时如实 unknown，局部 accepted 不充当整体完成；Reviewer 不审批每个普通探索步骤或接管取证。
+- 记录任务质量、用户干预、无效步骤和全体参与者成本，保留失败和未知。没有比较就不宣称更准、更快或更省；如要比较，先冻结模型、材料、权限、总预算、隔离与停止规则，使用未用于调优的任务，不选成功回合。结果文件、模型自报和实际落盘状态必须分别核对；三者不一致时保留不一致，不以结构化自报覆盖实际文件。
+
+这些是维护者的观察判据，不是成员日常必填清单。既有 readonly 双 arm evaluator 不扩成团队研究执行器；本节通过也不自动授予 V2/V3/V4 或 learning Apply 资格。
 
 ## 5. Release live
 

@@ -6,8 +6,9 @@
 
 ## 当前指针
 
-- 当前路线：`steamai-research-validity-v1`
-- 当前路线入口：`docs/research-validity-roadmap.md`
+- 当前路线：`steamai-autonomous-collaboration-v1`
+- 当前路线入口：`docs/autonomous-collaboration-roadmap.md`
+- 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
 - 已验专业取证/联合研究与原对照未完成事实：`docs/research-execution-roadmap.md`
 - 已交付双领域方法/主辅与对照事实：`docs/research-capability-roadmap.md`
 - verified-learning 既有证据与未完成门槛：`docs/verified-learning-roadmap.md`
@@ -21,7 +22,9 @@
 
 | 需要判断什么 | 首选入口 | 不要默认读取 |
 |---|---|---|
-| 当前 Reviewer 协议回归、少量预检、新9题研究对照与已知报告校准 | `docs/research-validity-roadmap.md` | 不预填 pass/go，不扩到生成式桥接、候选晋级、learning preview 或 Apply |
+| 产品设计、迭代、优化与团队管理：哪些交给智能成员自主判断，哪些必须保留硬边界 | 根 `CLAUDE.md` 的“智能成员与自主协作基准”，再按实际问题选下列入口 | 不把方法参考写成逐步强制流程，不以增加规则代替能力提升 |
+| 当前自主协作优化、结果导向分工与方法减负 | `docs/autonomous-collaboration-roadmap.md` | 不把自主性解释为放宽授权或证据要求，不以文字合同代替真实行为收益 |
+| 已完成 Reviewer 协议回归、新9题研究对照与已知报告校准 | `docs/research-validity-roadmap.md` | 保留 pass-limited/tie，不重跑旧题或改判为本轮提升 |
 | 已验专业取证、跨步骤预测、客户端/API 联合研究与原对照事实 | `docs/research-execution-roadmap.md` | 不把静态/fake API 当真实 IDA/HTTP/联合效果，不续写新实验日志 |
 | 已交付单点方法、分岔点规则、主辅 pack 与平局对照 | `docs/research-capability-roadmap.md` | 不改写历史结果或借其证明新实操能力 |
 | verified-learning Gate 1–4 的既有证据与剩余 live gate | `docs/verified-learning-roadmap.md` | 不把机械 tests 当 calibration/V4 evidence |

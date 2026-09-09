@@ -216,6 +216,49 @@ func TestResearchCapabilityKeepsNativeMembersAndScopedMethods(t *testing.T) {
 	}
 }
 
+func TestAutonomousCollaborationKeepsMethodsFlexibleAndBoundariesExact(t *testing.T) {
+	repo := repoRoot(t)
+	for _, surface := range []struct {
+		path     string
+		required []string
+	}{
+		{".claude/skills/steamai/SKILL.md", []string{
+			"通过现有七项任务字段", "当前任务内的方法调整不是正式改派",
+			"不要求逐项执行或重复读入未变全文", "不重复索要同一确认",
+			"不允许自动重试或绕过方法中的停止条件", "没有独立复核需要就不安排 verifier",
+			"不审批每次普通探索", "用户原问题及交付范围",
+		}},
+		{"vnext/templates/case/CLAUDE.md", []string{
+			"任务说明预期结果而非固定研究步骤", "pack/recipe 不要求逐项照做",
+			"明确前置条件、资源、数据完整性和停止条件仍须遵守",
+			"新增动作或边界变化仍须按既有要求确认", "Fresh/learning exact confirmation",
+			"不默认安排 verifier",
+		}},
+		{"vnext/templates/roles/analysis-member.md", []string{
+			"任务要求实际取证且动作已获准时", "不只交付操作建议",
+			"不新增字段、假设库或交接文件", "具体缺项和有界请求",
+			"协作与确认沿用父级 case 规则", "具体动作确认、Claude Code 权限和 case 授权边界",
+		}},
+		{"vnext/templates/roles/reviewer.md", []string{
+			"自主选择只读复核路径", "用户原问题与交付范围",
+			"局部 claim 可以 `accepted`，但不代表整个 case 完成",
+			"不审批普通探索步骤", "不执行 heavy action、不运行 evaluation arms",
+		}},
+		{"vnext/acceptance.md", []string{
+			"真实仓库 tracked working-tree 模板", "原 current 的身份与 bytes 不变",
+			"不证明模型行为", "不是成员日常必填清单",
+			"不自动授予 V2/V3/V4 或 learning Apply 资格",
+		}},
+	} {
+		t.Run(surface.path, func(t *testing.T) {
+			text := readPrototypeFile(t, repo, surface.path)
+			for _, required := range surface.required {
+				assertContains(t, text, required, surface.path)
+			}
+		})
+	}
+}
+
 func TestResearchTemplatesPreserveEvidenceAndLearningBoundary(t *testing.T) {
 	repo := repoRoot(t)
 	artifact := readPrototypeFile(t, repo, "vnext/templates/research/artifact-index.md")

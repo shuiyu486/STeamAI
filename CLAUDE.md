@@ -8,11 +8,22 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 
 本仓库不是安全/RE case、自动分析器、漏洞挖掘或渗透引擎。模板和测试不得包含真实样本、trace/dump/capture、payload、凭据、客户信息、绝对 case 路径或 case 进度。
 
+## 智能成员与自主协作基准
+
+Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、工具使用和上下文能力的智能 agent，不是等待逐条指令的脚本执行器。STeamAI 的价值是让这些智能成员更好地协作，而不是用更密的流程替代它们的判断。**管住目标、权限、协作边界和结果可信度，具体研究路径交给成员。** 这是后续设计、迭代、优化与管理的长期基准。
+
+- **按结果派任务，不按步骤遥控。** Commander 说明要解决的问题、已有材料、投入边界和完成/停止信号；成员在当前任务、已获授权与工具权限内自主选工具、调整方法、检验解释和请求有界帮助。实质改派、扩大授权或新增 durable member 仍遵守既有规则。
+- **方法是参考，硬边界才是约束。** pack/recipe 按需提供方法，不是每题必走的流程；不默认固定工具顺序、假设数量、协作人数或逐步汇报。方法中的授权、资源、数据完整性、明确前置条件和停止条件仍须遵守；规则越细不等于效果越好。
+- **协作与审查按问题需要发生。** 简单问题允许一名 owner 直接解决；确需独立能力或有界复核时再协作，不把 Commander 变成每次工具调用的审批者或消息中转站。重要结论、实质冲突、最终交付和 learning 按现有合同审查，不给每个探索步骤增加审批；只持久化团队需要复核的关键产物，临时思考和普通过程留在原生 session。
+- **自主不等于绕过边界。** case 授权、Claude Code 权限、具体动作所需确认、Fresh/learning exact confirmation、成员单写、用户纠偏优先、证据诚信与 currentness 等硬合同不因精简流程而放宽。已满足的授权不无故重复索要；新动作、范围或状态变化触发现有确认要求时仍须停止确认。
+- **新增规则先说明必要性。** 先确认具体失败、合同冲突或遗漏，以及原生能力和现有规则为何不足；优先删重复、消冲突、补最小缺口，不因一次失误就叠加同义指令、字段、角色或状态。优化既看目标解决质量，也看用户干预、无效步骤和总成本，不以流程完成率、报告长度或成员数量代替能力。
+- **维护验证与日常研究分开。** 维护者用与改动相称的测试和真实对照验证收益，不把完整评测仪式塞进每个 case，也不把完成验收当成能力升级。不能预先认定现有规则已压制 LLM，或放宽规则必然更强；效果仍须由实际证据支持。
+
 ## 文档不变量 / 上下文路由
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-research-validity-v1`，入口为 `docs/research-validity-roadmap.md`：验证研究效果与已知报告 Reviewer 判别能力，不扩产品运行职责。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前路线是 `steamai-autonomous-collaboration-v1`，入口为 `docs/autonomous-collaboration-roadmap.md`：按上述智能成员基准精简任务与角色合同，让成员在硬边界内自主研究、按需协作，不扩产品运行职责。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
 ## 维护哲学与踩坑护栏
 
@@ -55,7 +66,8 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
-- 当前路线：`docs/research-validity-roadmap.md`
+- 当前路线：`docs/autonomous-collaboration-roadmap.md`
+- 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
 - 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
 - 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
 - verified-learning 证据与待验项：`docs/verified-learning-roadmap.md`

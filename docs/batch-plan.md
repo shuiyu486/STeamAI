@@ -2,26 +2,25 @@
 
 ## 读取指南
 
-本文件只是当前路线的短投影，不保存完整实施日志。完整路由见 `docs/context-routing.md`；当前状态以 `docs/research-validity-roadmap.md` 为准。专业取证/联合研究已验事实与原对照未完成结论留在 `docs/research-execution-roadmap.md`。已交付单点方法/主辅与真实平局事实留在 `docs/research-capability-roadmap.md`；旧学习门槛留在 `docs/verified-learning-roadmap.md`，不因切换路线改判完成。
+本文件只是当前路线的短投影，不保存完整实施日志。完整路由见 `docs/context-routing.md`；当前状态以 `docs/autonomous-collaboration-roadmap.md` 为准。旧研究对照、专业工具/联合行为与 verified-learning 的各自证据保留在原路线，不因切换路线改判完成。
 
 ## Current projection
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-research-validity-v1` |
-| source | `docs/research-validity-roadmap.md` |
-| 当前批次 | Reviewer 协议回归、少量预检、新9题研究对照、5类×2已知报告 Reviewer 校准（report-copy） |
-| 当前状态 | 两项均完整执行：已知报告校准 complete/pass-limited，格式/类别10/10；新9题对照 complete/tie，新版0胜9平0负，无无效题，未证明相对提升；旧失败及费用缺口保留 |
-| 当前边界 | 不做生成式桥接、候选晋级、learning preview 或 Apply；不改产品 runtime 或 pack/skill/MCP 配置 |
-| 既有事实 | A/B/C 实现、真实工具与有界联合协作已验，详见 `docs/research-execution-roadmap.md`；不在本短投影复制历史日志 |
-| 历史未通过 | 原研究对照 `incomplete/inconclusive`；旧已知报告校准 `complete/inconclusive`，不续刷或改判 |
+| 路线 | `steamai-autonomous-collaboration-v1` |
+| source | `docs/autonomous-collaboration-roadmap.md` |
+| 当前批次 | 结果导向任务、按需方法/协作、关键审查与真实模板 Fresh 分发回归 |
+| 当前状态 | 首批合同、静态回归与 production Fresh 分发验证完成；实际成员行为与相对收益 pending |
+| 当前边界 | 不改 Go production、工具配置或执行器，不放宽权限/确认、单写、证据与学习资格 |
+| 既有事实 | 上轮研究 complete/tie，已知报告校准 complete/pass-limited；不证明本轮收益 |
 | 不变 | 原生成员/消息/恢复、主＋最多一辅、经验只回主包、旧 current 零改写 |
-| 未声称 | 实现即研究增益、报告复制即生成式 go、suite 闭合即验收通过或 V3/V4 |
+| 未声称 | 规则越少必然更强、合同实现即研究增益、验证完成即 V2/V3/V4 |
 
 ## 验证标准
 
-- `python -m unittest discover -s tests/pack_tooling -p "test_*.py"`
+- 对应内容合同与 production Fresh 物化回归，详见当前路线。
 - `go test -count=1 -p=2 -timeout=30m ./...`
 - `go vet ./...`
 - `git diff --check`
-- 默认不调用模型、IDA、HTTP；真实工具、模型、成员、learning 分别按 `vnext/acceptance.md` 验收并保留失败和未知。
+- 默认不调用模型、IDA、HTTP；真实行为须按 `vnext/acceptance.md` 另行授权，保留失败和未知，不重复完整历史旅程。
