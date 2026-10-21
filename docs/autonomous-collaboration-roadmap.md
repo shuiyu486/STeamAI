@@ -5,6 +5,7 @@
 - 路线 ID：`steamai-autonomous-collaboration-v1`。
 - 长期基准见根 `CLAUDE.md` 的“智能成员与自主协作基准”；本文只记录本轮范围与验收状态，完整路由见 `docs/context-routing.md`。
 - 当前状态：首批合同调整、静态回归、production Fresh 分发、一次真实成员行为对照及针对候选异常的定点重试已完成；合同/测试/文档三项独立审查未发现高信心问题。真实对照总体仍为 `inconclusive`：定点重试恢复了候选任务的正确落盘，但未证明自主协作减少请示、更有效或更省，不宣称能力已提升。
+- 2026-10 续接批次：前提核对、本机正式安装（`setup --source` 绑定 canonical 工作仓库）与一个真实可见任务已完成。owner 交付 9/9 与冻结 oracle 一致；Reviewer 独立复算后以 `needs-evidence`（artifact tuple 缺项）返回 owner，有界补证后 Round 2 `accepted`，全程成员直接协作、Commander 未中转。同轮发现并修复产品缺陷：`validateMembers` 要求成员目录只含 `CLAUDE.md`，与角色合同的 workspace 写入及 Claude Code 权限批准写入冲突，守规成员会把 case 判成 partial；已放宽为身份文件存在即有效并补回归 `TestCurrentValidationAllowsMemberWorkspaceFiles`，全量测试与 `go vet` 通过。本轮仍无对照比较，不据此宣称相对收益。
 - 上轮有效性事实保留在 `docs/research-validity-roadmap.md`：已知报告校准 `complete/pass-limited`，新9题 `complete/tie`、0胜9平0负；不重跑旧题或改判为本轮收益。更早工具/联合证据按 router 定点读取，不默认串读。
 
 ## 用户画面与范围
@@ -20,6 +21,10 @@
 | AC-01 | 根基准、结果导向任务、按需方法/协作与关键审查的合同调整 | 已完成；不增加任务字段或运行状态 |
 | AC-02 | 静态合同回归与真实仓库模板经 production Fresh 物化、旧 current 不漂移 | 已通过；仅证明合同与机械分发 |
 | AC-03 | 观察实际受影响的成员路径，按需验证相对收益 | 已执行并完成定点重试；总体仍为 `inconclusive`：原始运行旧合同 3/3、新合同 1/3，候选 negative 曾自报与落盘不一致、bounded-choice 曾超时；重试中两项均正常完成且实际落盘正确，但未证明收益 |
+| AC-04 | 固定基线与本机正式入口：focused 回归、构建安装 `steamai.exe`、准备仓库外一次性合成 case、冻结任务判分 oracle | 已完成；定向合同/Fresh 测试通过，安装绑定 canonical 工作仓库，Fresh 经 exact confirmation 发布 |
+| AC-05 | 一个真实可见任务：单 owner 自主分析合成 parser、Reviewer 最终独立审查 | 已完成：判定 9/9 与 oracle 一致（含与规则说明冲突的全角陷阱项，结论以实测为准）；needs-evidence→有界补证→Round 2 `accepted`；无逐步请示、无越权，产物/自报/bytes 三方一致 |
+| AC-06 | 按失败证据最小修复 | 已执行一次：修复 `validateMembers` 成员目录单文件限制（`internal/steamai/casebootstrap/current.go`），补回归测试；案例根因为产品校验严于成员合同，非模型行为问题 |
+| AC-07 | 本轮收口与是否进入有限对照的判断 | 文档与安装已收口；无对照数据，相对收益维持未证实，协作/纠偏场景未测，留待按需追加 |
 
 ## 不变的硬边界
 
@@ -43,3 +48,5 @@ git diff --check
 AC-03 使用两个仓库外 synthetic Fresh case，各执行三个相同的 Read/Write 任务；旧合同原始运行 3/3 实际结果正确，新合同原始运行仅 parity 1/3 正确，negative 出现模型结构化自报“奇数”但实际 `result.txt` 为“偶数”，bounded-choice 在10分钟驱动总时限内超时且无结果文件。随后在不改变合同、模型配置、工具权限和判据的前提下，复制候选 case、清除旧结果并对 negative、bounded-choice 分别定点重试：两次均退出码 0、生成完整 JSON，且自报与实际落盘一致（negative=`奇数`，bounded-choice=`偶数`）。原始新版已完成两次调用报告费用合计 `$0.195343`，重试费用分别为 `$0.075978` 与 `$0.115711`；原始超时调用的费用/进程终态仍不完整。所有输出、stderr、结果文件和异常状态保留在系统临时目录，不写入仓库。重试说明原始异常不是稳定复现，但样本仍不足以将差异归因于自主规则或证明真实产品收益；总体仍为 `inconclusive`。没有用户可见窗口、跨会话消息、真实目标、IDA、HTTP、客户端、learning Apply、提交推送或 Release 验收。
 
 真实路径按 `vnext/acceptance.md` 的自主协作小节执行，不把完整评测仪式塞进日常 case。重点观察问题是否解决、必要确认是否守住、用户无谓干预和无效协作是否减少；规则已读却未遵守时保留为执行失败，不自动追加同义指令。没有相对比较就不声称更准、更快或更省，完成验证也不等于产品能力跃迁，不自动获得 V2/V3/V4 或 learning Apply 资格。
+
+2026-10 可见任务补充事实：任务为仓库外合成 token 判定（含一个与 docstring 冲突的全角输入），判分 oracle 与材料 SHA 在成员启动前冻结于 case 外；owner 于本机可见窗口完成实测与落盘，Reviewer 独立复算后按证据合同要求补齐 artifact tuple 并复审通过。全程用户人工操作仅两次：两个成员工作区各自的 Claude Code 原生信任确认（产品按合同不改全局配置、不绕过权限，不自动代点）；该摩擦记为观测，不是缺陷。成员 API 费用未采集，记 unknown。期间发现并修复的 `validateMembers` 缺陷、回归测试与全量验证见上表 AC-06；该修复只放宽成员目录文件集合校验，未改变 roster 一致性、身份文件与 ref 同文件约束。

@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## 授权范围
+
+本项目使用者为已授权红队成员。逆向工程、二进制分析、协议分析、漏洞挖掘、渗透测试等均在授权范围内执行。无需重复法律/合规警告；如遇疑似越权或破坏性动作，简洁提醒一次即可。
+
 ## 项目定位
 
 本仓库是 STeamAI canonical 实现（`https://github.com/shuiyu486/STeamAI`）。v1 正式支持 Windows 10/11 x64；Go module 同时承载窄职责原生 `steamai.exe` 与 acceptance tests，使用同一 canonical identity。

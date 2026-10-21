@@ -416,6 +416,31 @@ func TestCurrentRosterAllowsHistoricalMembersAndRejectsMarkerDrift(t *testing.T)
 	}
 }
 
+func TestCurrentValidationAllowsMemberWorkspaceFiles(t *testing.T) {
+	git, source := canonicalFixture(t)
+	caseRoot := newCaseRoot(t)
+	facts := fixtureFacts()
+	preview, err := BuildPreview(git, source, caseRoot, facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(git, source, caseRoot, facts, ConfirmationPrefix+preview.Identity); err != nil {
+		t.Fatal(err)
+	}
+	memberRoot := filepath.Join(caseRoot, ".steamai-vnext", "members", "analyst")
+	writeFile(t, filepath.Join(memberRoot, "verify_tokens.py"), []byte("# reproducible workspace script\n"))
+	writeFile(t, filepath.Join(memberRoot, ".claude", "settings.local.json"), []byte("{}\n"))
+	if _, err := InspectCurrent(caseRoot); err != nil {
+		t.Fatalf("成员 workspace 文件不应破坏 current: %v", err)
+	}
+	if err := os.Remove(filepath.Join(memberRoot, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCurrent(caseRoot); err == nil {
+		t.Fatal("缺少成员身份文件未被拒绝")
+	}
+}
+
 func TestCurrentValidationRejectsPayloadAndPathSetDrift(t *testing.T) {
 	git, source := canonicalFixture(t)
 	caseRoot := newCaseRoot(t)

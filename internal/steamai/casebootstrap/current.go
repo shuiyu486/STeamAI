@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -250,8 +251,10 @@ func validateMembers(caseRoot string, roster []RosterMember) error {
 		if err != nil {
 			return err
 		}
-		if len(files) != 1 || files[0] != "CLAUDE.md" {
-			return fmt.Errorf("current member %s identity 路径集合无效", member.Name)
+		// 成员目录允许承载合同声明的 workspace 文件（含 Claude Code 写入的
+		// .claude/settings.local.json）；身份约束是 CLAUDE.md 存在且与 roster ref 同文件。
+		if !slices.Contains(files, "CLAUDE.md") {
+			return fmt.Errorf("current member %s 缺少身份文件 CLAUDE.md", member.Name)
 		}
 		refPath := filepath.Join(caseRoot, filepath.FromSlash(member.Ref))
 		identityPath := filepath.Join(memberRoot, "CLAUDE.md")
