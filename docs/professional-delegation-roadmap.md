@@ -21,7 +21,7 @@
 | PD-01 | 新路线、合同与路由收口：本文、SKILL.md 路由条款、analysis-member 角色条款、`vnext/capabilities.md` 外部工具接入节、`vnext/acceptance.md` 专业负责人 gate、context-routing/batch-plan/README/根 `CLAUDE.md` 指针 | 完成（机械合同；未安装任何外部工具） |
 | PD-02 | binary-re 固定 REA 上游材料与接入说明：`upstream/rea/**`（6.7.0 / commit `27dc42d1`，拼接 SHA-256 机械校验）、`tooling/integrations/rea.md`、manifest 声明、不进入 learningTargets | 完成（材料固定与合同测试；未注册 MCP、未调用模型/工具） |
 | PD-03 | 真实可见单成员逆向任务端到端：成员 local-scope MCP 可见与正确性、A→B→A 切换、正例命中、导出交接、GUI IDB 保留、不可用路径报告缺口 | 完成（2026-10-23；JS 段与 native 段均过 gate，reviewer 独立复核局部 accepted；详细发现与费用见下节"PD-03 实测记录"；GUI IDB 保留未验，attached 模式未启用） |
-| PD-04 | 有限对照：A=直接 Claude Code+REA vs B=STeamAI 负责人+同一 REA；同模型/材料/预算/未见题 | 未执行；tie/更差为一等结果 |
+| PD-04 | 有限对照：A=直接 Claude Code+REA vs B=STeamAI 负责人+同一 REA；同模型/材料/预算/未见题 | 完成（2026-10-23，两轮：修正前 B 更差、修正后 tie 且成本更高；合同修正已提交 `3167dfaa`；详见下节"PD-04 对照记录"） |
 | PD-05 | Strix `v1.7.0` 有界外部执行资格核查：范围、可确认停止（含内部 agent）、含子代理费用、纠偏生效、产物取回、实际模型六项 | 阻塞：本机未安装 Docker（2026-10-23 实测 `docker: command not found`），本地模式无法启动；解除依赖（安装 Docker Desktop）或明确放弃前不执行。已知 `--max-budget` 覆盖子代理但为响应后检查，停止/时限/并发/热纠偏接口未核实；通过前不自主运行 |
 | PD-06 | 首个外部团队任务交付（一名负责人、单一有界任务、可停止、成果可复核） | 未执行 |
 | 后续 | 游戏脚本负责人单平台试点（Airtest/Playwright，不自建运行器） | 未排期；纯开发任务是否属于安全研究 case 需先收口范围 |
@@ -48,6 +48,25 @@
 - 未验证项：attached/GUI 模式与 GUI IDB 保留（本轮仅 headless）。
 
 费用（Claude Code 实测 `total_cost_usd` 之和）：10 次成员/复核运行合计 **$6.53**（0.34+0.40+0.70+0.62+1.03+0.49+0.77+0.54+0.96+0.68）。执行前申报预算 $2，实超 227%：native 段五次迭代均为真实阻塞（工具超时→响应截断→目标内联→配置转义损坏→adapter 版本错配），非重试刷通过；据此后续批次预算按实际迭代深度重估并继续逐项记录。
+
+## PD-04 对照记录（2026-10-23，合成目标，三组运行）
+
+设计：新合成 Go 探针 `pd04-probe.exe`（`//go:noinline` 的 `main.gammaFn`/`main.deltaFn` + rodata 字符串 `pd04-marker-xyz`，双方均未见）；三道客观题（算法语义/字符串 VA 与引用函数/分段函数语义），标准答案在运行前由维护方用 adapter stdio 机械查询固定（字符串 VA=`0x1400cd796`）；同模型、同 REA 6.7.0、同 ida-pro-mcp `c133c385` adapter、同预算上限 $1.5、同 allowedTools。
+
+| 组 | 配置 | 结果 | 费用 | 产物 |
+|---|---|---|---|---|
+| A | 裸 Claude Code+REA（无合同、无方法材料） | 三题全对（含 FNV-1a vs FNV-1 区分、字符串描述符间接引用链） | $0.49 | 仅 stdout 答案 |
+| B | STeamAI 负责人（Fresh case+七字段任务+pack 材料，**修正前合同**） | 三题 unknown：首次 `binary_session` 版本探测 67KB 超限触发任务级停止条件，忠实停止 | $0.48 | E + 空 bundle（0 记录）+ index |
+| B' | 同 B，**修正后合同**（`3167dfaa`：版本核对走 CLI/serverInfo，输出超限分级处置） | 三题全对，答案与 A 等价 | $1.01 | E（含 evidence_id 链）+ bundle（8 条证据）+ index |
+
+结论（按"tie/更差为一等结果"口径）：
+
+- **修正前 B 更差**：同题同预算下 A 完成而 B 失败，根因是接入合同把非必需的大响应版本探测设为任务级停止条件——STeamAI 层在该配置下对任务结果造成净负值。这本身是对照的有效产出：合同缺陷被真实暴露并已修复。
+- **修正后 B' 与 A tie**：答案等价正确，但 B' 成本为 A 的 2.06 倍；额外产出是可交接的证据链（evidence_id、bundle、index）与边界披露（清理未确认等），该价值未在本对照中定价。
+- 不据此宣称 STeamAI 负责人模式带来研究质量增益；本对照只支持"合同修正消除了自伤性停止"与"证据链产物以约 2 倍成本获得"两个事实。
+- 两组均如实报告 `close_binary` `cleanup_incomplete`（PD-03 已知 worker 生命周期边界，组间一致，非差异项）。
+
+费用合计：$1.98（A $0.49 + B $0.48 + B' $1.01），预算 ≤$4 未超。
 
 ## 预算与授权边界
 
