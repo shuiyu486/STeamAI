@@ -184,6 +184,27 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 
 这些是维护者的观察判据，不是成员日常必填清单。既有 readonly 双 arm evaluator 不扩成团队研究执行器；本节通过也不自动授予 V2/V3/V4 或 learning Apply 资格。
 
+## 专业负责人接入 — steamai-professional-delegation-v1
+
+本节 gate 未执行前，所有外部专业工具（REA、Strix 等）只能作为经用户逐项批准的专项试用；默认 tests 不安装、不注册、不调用它们。
+
+### 默认机械合同（随路线交付）
+
+- pack 内固定上游方法材料（`packs/binary-re/upstream/rea/**`）与接入说明（`tooling/integrations/rea.md`）经 Fresh 物化；材料按 16 KiB 阅读预算切分，拼接后 bytes 与 SHA-256 必须等于上游正式发布原文；`upstream/**` 不进入 learningTargets；旧 current 零改写。
+- 角色/skill 只增加结果导向条款，不新增成员等级、任务字段或 Go 运行状态。
+
+### Live gate（explicit opt-in，逐项用户批准）
+
+1. **PD-03 成员工具可见与正确性**：在 exact 成员目录注册 local-scope MCP 并重启会话后，仅该成员可见工具；核对实际 REA/provider 版本与目标绑定；完成函数 A→B→A 切换不串旧内容、已知字符串/xref 正例命中；已有 GUI IDB 不被保存或关闭；导出 bundle 由另一成员独立读取。REA 不可用路径必须报告具体缺口，不得静默降级。
+2. **PD-04 有限对照**：A=直接 Claude Code+REA，B=STeamAI 负责人+同一 REA；同模型、同材料、同预算、未见题；比较正确性、遗漏、用户干预、重复分析与总成本；tie/更差均为一等结果，不据此宣称增益。
+3. **PD-05 Strix 资格核查**：固定 `v1.7.0`；逐项核实范围限制、可确认停止（含内部 agent）、含子代理的费用核算、纠偏生效方式、产物完整取回与实际模型核对。任一关键项不成立即维持受观察专项试用，不开放自主运行；已知 `--max-budget` 覆盖子代理但为响应后检查，停止/时限/并发/热纠偏接口未核实。
+4. **PD-06 首个外部团队任务**：一名负责人委托单一有界任务；用户可停止且停止被确认；成果进入 artifact/E/F 并经必要复核。
+5. 外部 agent 团队不是 durable member 也不是 tactical subagent；PD-05 通过前不启用相应合同。
+
+### 记录
+
+结果只写当前 roadmap；不保存真实样本、凭据或绝对 case 路径；live 预算在执行前单独批准，旧实验预算不沿用。
+
 ## 5. Release live
 
 在测试tag上实际运行`.github/workflows/release.yml`并检查：

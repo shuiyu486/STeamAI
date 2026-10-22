@@ -4,3 +4,5 @@
 *.json text eol=lf
 *.go text eol=lf
 go.mod text eol=lf
+# 固定上游方法材料按字节保存：拼接 SHA-256 校验依赖 exact bytes。
+packs/binary-re/upstream/rea/** -text

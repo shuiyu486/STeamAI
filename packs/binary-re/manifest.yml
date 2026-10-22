@@ -45,6 +45,8 @@ policies:
 tooling:
   - tooling/README.md
   - tooling/catalog.yml
+  - tooling/integrations/rea.md
+  - upstream/rea/SOURCE.md
   - tooling/schemas/binary-inventory-v1.schema.json
   - tooling/recipes/static-binary-triage.md
   - tooling/recipes/function-behavior-review.md

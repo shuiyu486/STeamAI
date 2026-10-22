@@ -27,7 +27,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-low-friction-collaboration-v1`，入口为 `docs/low-friction-collaboration-roadmap.md`：Fresh 用户批准与机器 exact 校验串分离、exact 成员目录的原生工作区信任窄适配、七字段纠偏验证与有限旧/新 A/B，不开放通用 `--yes` 旁路或配置管理。`docs/autonomous-collaboration-roadmap.md` 保留已完成的自主协作合同轮与可见任务事实，不改判其 `inconclusive` 对照。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前路线是 `steamai-professional-delegation-v1`，入口为 `docs/professional-delegation-roadmap.md`：专业问题在派单时即交给使用固定专业能力的普通 execution 负责人（当前为固定版本 REA 与既有 IDA MCP 的按路线选择，后续 Strix 与脚本框架）；上游方法材料固定于 pack `upstream/**` 并做拼接 SHA-256 校验、不进入 learningTargets；外部 agent 团队须先通过有界外部执行资格验收（范围、停止、费用、纠偏、产物、模型六项），未通过不自主运行。`docs/low-friction-collaboration-roadmap.md` 保留已完成的 Fresh 机器确认、成员工作区自动信任、七字段纠偏与有限旧/新 A/B tie 事实，不改判。`docs/autonomous-collaboration-roadmap.md` 保留已完成的自主协作合同轮与可见任务事实，不改判其 `inconclusive` 对照。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
 ## 维护哲学与踩坑护栏
 
@@ -51,7 +51,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - 经验由 Commander 从 current accepted evidence chain 提炼；Reviewer 先逐 candidate 检查 eligibility，再绑定最终 batch exact patch；用户查看完整 patch 并确认 exact tuple 后才回流 pack。
 - `steamai.exe` 只负责 setup/update/uninstall、卸载后的窄自清理、Fresh 文件机械操作、synthetic readonly matched evaluation bundle、exact learning batch apply、Windows 可见进程启动（含上述唯一例外内的成员工作区信任准备）、Fresh preview 的 exact 校验串机械比对和必要瞬时互斥。不得扩展为 task/session/message/roster/finding/review/learning 判断控制面。
 - 正式产品路径不得新增 PowerShell、`.cmd` 或 `.bat` façade；不恢复旧 Go control plane、adapter host 或兼容 runtime。
-- 唯一新增 pack 工具为 `packs/binary-re/tooling/scripts/export_function_evidence.py`：对已打开的授权 IDA 数据库副本做显式定点只读导出，只写指定 case artifact。catalog/recipe 不自动执行，脚本不进入 learningTargets；不安装宿主、不执行目标、不写 analysis DB。`vnext/**` 仍仅 Markdown，Go 不增加研究执行器；真实 IDA、HTTP、联合行为与静态测试分别验收。
+- 唯一新增 pack 工具为 `packs/binary-re/tooling/scripts/export_function_evidence.py`：对已打开的授权 IDA 数据库副本做显式定点只读导出，只写指定 case artifact。catalog/recipe 不自动执行，脚本不进入 learningTargets；不安装宿主、不执行目标、不写 analysis DB。专业负责人路线新增的 `packs/binary-re/upstream/rea/**` 与 `tooling/integrations/rea.md` 仅为固定上游方法材料与接入说明（拼接 SHA-256 机械校验、不进入 learningTargets），不新增可执行工具。`vnext/**` 仍仅 Markdown，Go 不增加研究执行器；真实 IDA、HTTP、联合行为与静态测试分别验收。
 
 ## 初始化与更新边界
 
@@ -70,7 +70,8 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
-- 当前路线：`docs/autonomous-collaboration-roadmap.md`
+- 当前路线：`docs/professional-delegation-roadmap.md`
+- 已完成低干预启动与纠偏路线：`docs/low-friction-collaboration-roadmap.md`
 - 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
 - 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
 - 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`

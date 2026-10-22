@@ -6,8 +6,9 @@
 
 ## 当前指针
 
-- 当前路线：`steamai-low-friction-collaboration-v1`
-- 当前路线入口：`docs/low-friction-collaboration-roadmap.md`
+- 当前路线：`steamai-professional-delegation-v1`
+- 当前路线入口：`docs/professional-delegation-roadmap.md`
+- 已完成低干预启动与纠偏路线（Fresh 机器确认、自动信任、七字段纠偏、有限 A/B tie）：`docs/low-friction-collaboration-roadmap.md`
 - 已完成自主协作合同轮（含可见任务与 workspace 校验修复）：`docs/autonomous-collaboration-roadmap.md`
 - 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
 - 已验专业取证/联合研究与原对照未完成事实：`docs/research-execution-roadmap.md`
@@ -24,7 +25,8 @@
 | 需要判断什么 | 首选入口 | 不要默认读取 |
 |---|---|---|
 | 产品设计、迭代、优化与团队管理：哪些交给智能成员自主判断，哪些必须保留硬边界 | 根 `CLAUDE.md` 的“智能成员与自主协作基准”，再按实际问题选下列入口 | 不把方法参考写成逐步强制流程，不以增加规则代替能力提升 |
-| 低干预启动（Fresh 机器确认、成员工作区自动信任）、七字段纠偏与有限旧/新 A/B 的当前边界 | `docs/low-friction-collaboration-roadmap.md` | 不把授权分离解释为通用 `--yes` 旁路或开放配置管理，不以一个样本宣称全案完成 |
+| 专业负责人接入（REA/IDA MCP/Strix/后续脚本框架）的当前边界与验收状态 | `docs/professional-delegation-roadmap.md` | 不把上游材料当运行环境、不把外部 agent 团队当 durable member、不把接入当研究增益；PD-03 起 live gate 未执行即专项试用 |
+| 低干预启动（Fresh 机器确认、成员工作区自动信任）、七字段纠偏与有限旧/新 A/B 的已完成事实 | `docs/low-friction-collaboration-roadmap.md` | 不把授权分离解释为通用 `--yes` 旁路或开放配置管理，不以一个样本宣称全案完成 |
 | 已完成自主协作合同轮与可见任务事实 | `docs/autonomous-collaboration-roadmap.md` | 不重跑旧题、不改判 inconclusive，不把合同文字当能力提升 |
 | 已完成 Reviewer 协议回归、新9题研究对照与已知报告校准 | `docs/research-validity-roadmap.md` | 保留 pass-limited/tie，不重跑旧题或改判为本轮提升 |
 | 已验专业取证、跨步骤预测、客户端/API 联合研究与原对照事实 | `docs/research-execution-roadmap.md` | 不把静态/fake API 当真实 IDA/HTTP/联合效果，不续写新实验日志 |

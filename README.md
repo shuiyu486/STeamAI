@@ -4,7 +4,7 @@ STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协�
 
 Commander 与正式成员都是运行在 Claude Code 中的 LLM 智能 agent。STeamAI 按结果组织协作：讲清目标、权限和责任，让成员在边界内自主选择研究方法，而不是逐步遥控；简单问题不强行多人参与，方法按需参考，关键结论按现有合同复核。自主性不取消具体动作确认、文件保护和证据要求。后续设计与迭代以根 [CLAUDE.md](CLAUDE.md#智能成员与自主协作基准) 中的长期基准为准。
 
-当前源码按此基准调整任务与角色合同：当前任务内可自主换方法，已满足且边界未变的同一确认不重复索要，有界协作不逐次请示；最终综合审查仍须回答原问题。新合同只由后续 Fresh 固定，已有 case 不升级。实施与验证状态见 [自主协作优化路线](docs/autonomous-collaboration-roadmap.md)；文字合同与分发测试不代表真实研究已经更准、更快。
+当前源码按此基准调整任务与角色合同：当前任务内可自主换方法，已满足且边界未变的同一确认不重复索要，有界协作不逐次请示；最终综合审查仍须回答原问题。新合同只由后续 Fresh 固定，已有 case 不升级。实施与验证状态见 [专业负责人接入路线](docs/professional-delegation-roadmap.md)；文字合同与分发测试不代表真实研究已经更准、更快。
 
 Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。当前正式 Release 为 [`v1.0.4`](https://github.com/shuiyu486/STeamAI/releases/tag/v1.0.4)；v1 正式产品路径支持 Windows 10/11 x64。
 
@@ -144,7 +144,8 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 - case/研究模板与合同：`vnext/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 当前路线：`docs/autonomous-collaboration-roadmap.md`
+- 当前路线：`docs/professional-delegation-roadmap.md`
+- 已完成低干预启动与纠偏路线：`docs/low-friction-collaboration-roadmap.md`
 - 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
 - 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
 - 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`

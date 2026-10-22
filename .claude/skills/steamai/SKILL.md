@@ -41,6 +41,7 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 4. 成员只按任务文件列出的 pinned paths 读取领域规则；需要新增入口时先由成员向 Commander 请求有界补充，不自行遍历 snapshot。已列方法按问题选用，不要求逐项执行或重复读入未变全文；授权、资源、数据完整性、明确前置条件和停止条件仍是硬边界，不自动批准 heavy action。辅助只提供方法，不改变成员身份、正式任务或团队容量；主辅建议冲突时说明证据与适用条件，必要时交 Commander，不静默覆盖 case 规则。
 5. 使用方法前核对当前观察是否满足前提、是否命中反例；前提未知就选择最小补证，不因领域名称相近而套用。当前 single-pack case 无需辅助也可正常工作；已有 case 不随新模板或 canonical pack 更新。
 6. 仅当问题跨越实质性处理/状态边界时，按主包 router 选择跨步骤方法；若还需要客户端/API 两侧连接，则选择已固定 Web 包的 `references/web-security/client-api-joint-review.md`。成员输入须写 exact `../../pack-snapshot/packs/web-security/references/web-security/client-api-joint-review.md` 及其 manifest/router；没有该包就不假定入口存在，也不补装。只读方法或脚本存在不授权执行，单点任务不默认加载这些方法或增加成员。
+7. 专业程序分析任务在派单时即选择最合适的固定专业入口：主包 `tooling/integrations/` 记录外部工具的接入、路线选择与停止条件，`upstream/` 保存注明来源、版本与拼接 SHA-256 的上游方法材料（不进入 learningTargets）。负责人从任务开始按所选入口执行，不先运行较弱的默认流程；本机工具与 provider 版本由负责人核对并记入 evidence。不为接入自动安装、升级或全局注册外部工具；工具暴露、失败处理与证据交接见对应 integration 文档。
 
 ## 首次建立 case
 

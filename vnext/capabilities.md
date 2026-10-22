@@ -33,6 +33,15 @@ steamai __open-member [--trust-workspace] <member-name>
 - `claude --bg`：用户不需持续观察时的可选后台模式，不是默认。
 - tactical subagent：正式成员内部的窄任务，不成为 durable member。
 
+## 外部专业工具接入（按路线启用）
+
+- 仅当前路线明确启用时，才可在 exact 成员目录为该成员注册 local-scope MCP（同一 Claude 配置域、固定版本、经用户逐项批准）。Fresh 不安装、不升级、不全局注册外部工具或其 skill；`steamai.exe` 不因此获得配置管理职责，Windows 正式路径也不新增 PowerShell、`.cmd` 或 `.bat` 包装。
+- local scope 只决定工具在该目录会话中加载，不是文件或网络隔离；具体动作仍受工具权限、针对该动作的用户确认与 case 授权约束。
+- pack 固定的是方法材料与接入合同，不是运行环境；实际工具、provider 与目标身份须在执行前核对并记录到 evidence，自检通过不能代替真实连接成功。
+- 上游工具的证据标识（如 REA `evidence_id`）只在单一 MCP 连接内有效；跨会话/成员只交接完整导出产物。
+- 外部自带 agent 团队（如 Strix）不是 durable member，也不是 tactical subagent；未通过有界外部执行资格验收（范围、停止、费用、纠偏、产物、模型六项）前不自主运行。
+- 降级规则不变：外部工具缺失或版本不符时如实报告具体缺口；不得回退旧 Go control plane，也不以较弱流程冒充同等交付。
+
 ## 降级
 
 - 无跨会话消息：Commander 给出定向消息，用户在目标成员终端输入；成员目录与研究文件仍是共享面。
