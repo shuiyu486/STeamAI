@@ -2,7 +2,7 @@
 
 本文件保留 `steamai-windows-native-product-v1` 的证据分层，并增加 `steamai-verified-learning-v1` 的独立 Gate 验收。所有自动 fixture 使用临时目录和无真实样本内容；结果不写入模板仓库，不把 session ID、绝对 case path 或 artifact bytes 保存为产品状态。
 
-当前自主协作优化范围与执行状态见 `docs/autonomous-collaboration-roadmap.md`；此前有效性结果保留在 `docs/research-validity-roadmap.md`，不代替本轮真实行为验证。各路线不放宽本文件既有 gate。
+当前专业负责人接入范围与执行状态见 `docs/professional-delegation-roadmap.md`；此前自主协作、低干预启动与研究有效性结果保留在各自路线，不代替本轮真实行为验证。各路线不放宽本文件既有 gate。
 
 ## 证据分层
 
