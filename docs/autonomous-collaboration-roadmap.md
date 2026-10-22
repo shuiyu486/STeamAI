@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-- 路线 ID：`steamai-autonomous-collaboration-v1`。
+- 路线 ID：`steamai-autonomous-collaboration-v1`（本轮已完成，后继路线见 `docs/low-friction-collaboration-roadmap.md`；本文保留事实，不续写新日志）。
 - 长期基准见根 `CLAUDE.md` 的“智能成员与自主协作基准”；本文只记录本轮范围与验收状态，完整路由见 `docs/context-routing.md`。
 - 当前状态：首批合同调整、静态回归、production Fresh 分发、一次真实成员行为对照及针对候选异常的定点重试已完成；合同/测试/文档三项独立审查未发现高信心问题。真实对照总体仍为 `inconclusive`：定点重试恢复了候选任务的正确落盘，但未证明自主协作减少请示、更有效或更省，不宣称能力已提升。
 - 2026-10 续接批次：前提核对、本机正式安装（`setup --source` 绑定 canonical 工作仓库）与一个真实可见任务已完成。owner 交付 9/9 与冻结 oracle 一致；Reviewer 独立复算后以 `needs-evidence`（artifact tuple 缺项）返回 owner，有界补证后 Round 2 `accepted`，全程成员直接协作、Commander 未中转。同轮发现并修复产品缺陷：`validateMembers` 要求成员目录只含 `CLAUDE.md`，与角色合同的 workspace 写入及 Claude Code 权限批准写入冲突，守规成员会把 case 判成 partial；已放宽为身份文件存在即有效并补回归 `TestCurrentValidationAllowsMemberWorkspaceFiles`，全量测试与 `go vet` 通过。本轮仍无对照比较，不据此宣称相对收益。

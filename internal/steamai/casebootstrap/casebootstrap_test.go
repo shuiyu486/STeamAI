@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -25,8 +26,14 @@ func TestPreviewApplyAndCurrentValidation(t *testing.T) {
 	if preview.Identity == "" || preview.SourceDigest == "" || preview.SnapshotDigest == "" {
 		t.Fatalf("preview identity 不完整: %+v", preview)
 	}
-	if !strings.Contains(preview.HumanPreview, ConfirmationPrefix+preview.Identity) {
-		t.Fatal("human preview 缺少 exact confirmation")
+	if preview.CaseRoot != caseRoot || !filepath.IsAbs(preview.CaseRoot) || filepath.Clean(preview.CaseRoot) != preview.CaseRoot {
+		t.Fatalf("preview 未绑定规范绝对 case root: %q", preview.CaseRoot)
+	}
+	if !strings.Contains(preview.HumanPreview, "Case root: "+preview.CaseRoot+"\n") {
+		t.Fatal("human preview 缺少 case root")
+	}
+	if !strings.Contains(preview.HumanPreview, "内部校验串（由 skill 在用户明确授权后使用，无需用户手输）: "+ConfirmationPrefix+preview.Identity) {
+		t.Fatal("human preview 缺少 exact 内部校验串说明")
 	}
 	for _, required := range []string{"source-kind:", "source-path:", "git-mode:", "head-blob:", "content-blob:", "pre-state:absent", "output-sha256:", "output-bytes:"} {
 		if !strings.Contains(preview.HumanPreview, required) {
@@ -67,6 +74,51 @@ func TestPreviewApplyAndCurrentValidation(t *testing.T) {
 	}
 	if err := ValidateCurrent(caseRoot); err != nil {
 		t.Fatalf("删除 source 后 current case 不应失效: %v", err)
+	}
+}
+
+func TestFreshConfirmationIsBoundToCaseRoot(t *testing.T) {
+	git, source := canonicalFixture(t)
+	facts := fixtureFacts()
+	caseA, caseB := newCaseRoot(t), newCaseRoot(t)
+	previewA, err := BuildPreview(git, source, caseA+string(filepath.Separator)+".", facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previewA.CaseRoot != caseA {
+		t.Fatalf("case root 未规范化: %q", previewA.CaseRoot)
+	}
+	before := treeDigest(t, caseB)
+	previewB, err := BuildPreview(git, source, caseB, facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(previewA.Facts, previewB.Facts) || !reflect.DeepEqual(previewA.Writes, previewB.Writes) || previewA.SnapshotDigest != previewB.SnapshotDigest {
+		t.Fatal("不同 case root 不应改变 facts、计划写入或 snapshot digest")
+	}
+	if previewA.Identity == previewB.Identity {
+		t.Fatal("不同 case root 复用了 preview identity")
+	}
+	for _, write := range previewA.Writes {
+		if strings.Contains(string(write.Data), caseA) || strings.Contains(string(write.Data), filepath.ToSlash(caseA)) {
+			t.Fatalf("case root 进入生成文件或 snapshot: %s", write.TargetPath)
+		}
+	}
+	if _, err := Apply(git, source, caseB, facts, ConfirmationPrefix+previewA.Identity); !errors.Is(err, ErrConfirmationRequired) {
+		t.Fatalf("另一 case 的确认应被拒绝，返回 %v", err)
+	}
+	if after := treeDigest(t, caseB); !sameTree(before, after) {
+		t.Fatal("跨 case 确认被拒绝后目标不再是零写入")
+	}
+	applied, err := Apply(git, source, caseB, facts, ConfirmationPrefix+previewB.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Identity != previewB.Identity {
+		t.Fatal("同根 apply 没有绑定 preview identity")
+	}
+	if err := ValidateCurrent(caseB); err != nil {
+		t.Fatalf("同根 apply 后 current validation: %v", err)
 	}
 }
 

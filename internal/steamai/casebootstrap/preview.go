@@ -39,7 +39,7 @@ func BuildPreview(git, source, caseRoot string, facts Facts) (Preview, error) {
 		return Preview{}, err
 	}
 	preview := Preview{
-		SchemaVersion: 1, Revision: frozen.Revision, PackTree: frozen.PackTree, AuxPackTree: frozen.AuxPackTree,
+		SchemaVersion: 1, CaseRoot: caseRoot, Revision: frozen.Revision, PackTree: frozen.PackTree, AuxPackTree: frozen.AuxPackTree,
 		CommonTree: frozen.CommonTree, SourceDigest: frozen.Digest,
 		SnapshotDigest: snapshotDigest, Facts: facts,
 		SourceRecords: frozen.Records, Writes: writes, SourceDiff: frozen.Diff,
@@ -302,7 +302,7 @@ func snapshotPayloadDigest(writes []PlannedWrite) string {
 func previewIdentity(preview Preview) string {
 	facts, _ := json.Marshal(preview.Facts)
 	parts := []string{
-		"schema", strconv.Itoa(preview.SchemaVersion), "revision", preview.Revision,
+		"schema", strconv.Itoa(preview.SchemaVersion), "case-root", preview.CaseRoot, "revision", preview.Revision,
 		"pack-tree", preview.PackTree, "common-tree", preview.CommonTree,
 		"source-digest", preview.SourceDigest, "snapshot-digest", preview.SnapshotDigest,
 		"facts", string(facts),
@@ -349,8 +349,8 @@ func renderHumanPreview(preview Preview) string {
 	}
 	sort.Strings(generated)
 	return fmt.Sprintf(
-		"STeamAI Fresh 零写入预览\nCase: %s\nGoal: %s\nAuthorization: %s\nProhibited: %s\nStop: %s\nSelected pack: %s\nBase revision: %s\nSource digest: %s\nSnapshot digest: %s\n本机未提交且会进入 case 的 source 文件:\n%s\n计划写入:\n%s\n生成文件全文:\n%s\nCanonical working-tree diff:\n%s\nBlockers: 无\n当前仍为零写入。\n确认命令: %s%s\n",
-		preview.Facts.Name, preview.Facts.Goal, preview.Facts.Authorization, preview.Facts.Prohibited,
+		"STeamAI Fresh 零写入预览\nCase: %s\nCase root: %s\nGoal: %s\nAuthorization: %s\nProhibited: %s\nStop: %s\nSelected pack: %s\nBase revision: %s\nSource digest: %s\nSnapshot digest: %s\n本机未提交且会进入 case 的 source 文件:\n%s\n计划写入:\n%s\n生成文件全文:\n%s\nCanonical working-tree diff:\n%s\nBlockers: 无\n当前仍为零写入。\n内部校验串（由 skill 在用户明确授权后使用，无需用户手输）: %s%s\n",
+		preview.Facts.Name, preview.CaseRoot, preview.Facts.Goal, preview.Facts.Authorization, preview.Facts.Prohibited,
 		preview.Facts.Stop, preview.Facts.Pack, preview.Revision, preview.SourceDigest,
 		preview.SnapshotDigest, changedText, strings.Join(targets, "\n"), strings.Join(generated, "\n"),
 		preview.SourceDiff, ConfirmationPrefix, preview.Identity)

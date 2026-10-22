@@ -55,9 +55,9 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 在一次性本机测试账户或明确可恢复的临时安装边界中，用真正构建的 `steamai-windows-amd64.exe` 完成：
 
 1. **setup**：默认路径与 `--source <TEMP_CHECKOUT>` 各一次；检查 installed exe、HKCU source/version/PATH ownership；新终端可解析 `steamai`。不使用 PowerShell/.cmd/.bat 产品脚本。
-2. **Fresh**：从外部普通临时项目运行 `steamai`；同一 Commander窗口看到 exact preview；确认前零写；输入 exact synthetic confirmation 后 project-local skill、contracts、pack/common snapshot与marker current。
+2. **Fresh**：从外部普通临时项目运行 `steamai`；同一 Commander窗口看到 exact preview；确认前零写；用户对该 preview 明确批准后由 Commander 携带 exact synthetic confirmation 执行 Apply，project-local skill、contracts、pack/common snapshot与marker current。
 3. **Fresh drift**：改变 source或target后，旧确认失效且`.steamai-vnext/`不发布。
-4. **Visible member**：Commander调用 `steamai __open-member <name>`；屏幕上立即出现普通交互 Claude Code窗口，cwd是成员目录，case通过`--add-dir`可读。覆盖从 Claude shell 工具继承 `CLAUDE_CODE_CHILD_SESSION=1` 的真实启动：正式入口应移除该标记，成员正常保存原生 transcript，退出后能以同一 session 恢复；不得在验收脚本中预先删除标记或强设 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` 掩盖产品缺陷。若用户另行明确关闭历史保存，应如实记录该设置边界，不强制覆盖。
+4. **Visible member**：Commander调用 `steamai __open-member <name>`；屏幕上立即出现普通交互 Claude Code窗口，cwd是成员目录，case通过`--add-dir`可读。覆盖从 Claude shell 工具继承 `CLAUDE_CODE_CHILD_SESSION=1` 的真实启动：正式入口应移除该标记，成员正常保存原生 transcript，退出后能以同一 session 恢复；不得在验收脚本中预先删除标记或强设 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` 掩盖产品缺陷。若用户另行明确关闭历史保存，应如实记录该设置边界，不强制覆盖。带 `--trust-workspace` 的启动用从未信任过的成员目录验收：不出现用户需点击的信任框，配置域其余 JSON 内容逐字节不变，成员目录位于 git 仓库内时启动被明确拒绝。
 5. **Duplicate Commander**：第一个仍运行时再次在物理同一case（包括path alias）运行`steamai`，第二个明确拒绝。
 6. **Learning batch**：至少3 candidates→3 eligibility reviews→2 targets→1 accepted batch review；preview完整显示source chain/Reviewer/pre-postimage/patch；exact confirmation后只修改targets，HEAD/index/case snapshot不变。
 7. **Update**：从 canonical checkout 外运行，使用 clean checkout 从已发布测试 tag 更新；manifest/hash/tag/revision 均匹配；source 需要变化时与 exe 一起切换，HEAD 已等于 release 时走 exe-only 路径。从 canonical checkout 根或子目录运行时必须在联网前明确拒绝。再分别制造 dirty/untracked/ignored、本地其他 branch 或 stash commit、错误 hash、错误 revision、已存在 staging/backup、文件锁、准备期间 source 漂移、exe 发布后的 Registry 写失败及网络失败，确认旧可用版本保留且无自动 Git 修复；若 Windows 锁使 executable rollback 不完整，错误必须列出保留的新旧 exe/source recovery paths，且不得把 source 回滚成与仍 active 新 exe 不匹配的版本。source 替换成功后旧 checkout 作为 sibling backup 保留，命令输出路径且不自动递归删除。

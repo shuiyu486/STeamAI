@@ -82,6 +82,7 @@ type PlannedWrite struct {
 
 type Preview struct {
 	SchemaVersion  int               `json:"schemaVersion"`
+	CaseRoot       string            `json:"caseRoot"`
 	Revision       string            `json:"revision"`
 	PackTree       string            `json:"packTree"`
 	AuxPackTree    string            `json:"auxPackTree,omitempty"`

@@ -27,7 +27,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-autonomous-collaboration-v1`，入口为 `docs/autonomous-collaboration-roadmap.md`：按上述智能成员基准精简任务与角色合同，让成员在硬边界内自主研究、按需协作，不扩产品运行职责。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前路线是 `steamai-low-friction-collaboration-v1`，入口为 `docs/low-friction-collaboration-roadmap.md`：Fresh 用户批准与机器 exact 校验串分离、exact 成员目录的原生工作区信任窄适配、七字段纠偏验证与有限旧/新 A/B，不开放通用 `--yes` 旁路或配置管理。`docs/autonomous-collaboration-roadmap.md` 保留已完成的自主协作合同轮与可见任务事实，不改判其 `inconclusive` 对照。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
 ## 维护哲学与踩坑护栏
 
@@ -46,10 +46,10 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - Commander 按需组队；正式成员使用专属目录与目录级 `CLAUDE.md`，由原生 launcher 默认打开屏幕上用户可见的独立 Claude Code 窗口。
 - 成员可直接定向沟通、请求有界验证和共享关键发现；当前主任务优先。每个问题默认一名 owner、最多一名 verifier；实质改派和 durable member 创建只由 Commander 决定。
 - durable member 通常为 1–3 名执行成员加 0–1 名 Reviewer。优先复用已有成员，其次 tactical subagent，只有持续且独立的工作流才新增成员。
-- Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。正式 member 会话以 member 名设置原生 session 的可读寻址提示，但成员身份仍只来自 cwd 与目录 `CLAUDE.md`；发送前在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 将 exact cwd 唯一映射到 name，再与 `ListAgents` 当前可达 name 唯一相交，并检查 `success:true` 与接收记录，任一单独来源都不够。正式独立会话不得继承会关闭原生历史保存的 child 标记；只修正子进程启动环境，不改全局配置或强制覆盖用户的历史保存选择，具体合同见 `vnext/capabilities.md`。
+- Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。正式 member 会话以 member 名设置原生 session 的可读寻址提示，但成员身份仍只来自 cwd 与目录 `CLAUDE.md`；发送前在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 将 exact cwd 唯一映射到 name，再与 `ListAgents` 当前可达 name 唯一相交，并检查 `success:true` 与接收记录，任一单独来源都不够。正式独立会话不得继承会关闭原生历史保存的 child 标记；只修正子进程启动环境，不改全局配置或强制覆盖用户的历史保存选择，具体合同见 `vnext/capabilities.md`。唯一窄例外：用户对 case 初始化的批准明确涵盖成员工作区信任时，`__open-member --trust-workspace` 可向该配置域写入 exact 成员目录的原生 `hasTrustDialogAccepted` 记录（复用原生锁协议、其余字节逐字节保留、git 仓库内拒绝）；不带该批准不写任何配置项。
 - 只持久化团队需要复核的 artifact、evidence、finding、review、replay spec/result、evaluation bundle/attestation、field outcome、learning candidate 与 exact batch patch，不保存全部思考或聊天历史。
 - 经验由 Commander 从 current accepted evidence chain 提炼；Reviewer 先逐 candidate 检查 eligibility，再绑定最终 batch exact patch；用户查看完整 patch 并确认 exact tuple 后才回流 pack。
-- `steamai.exe` 只负责 setup/update/uninstall、卸载后的窄自清理、Fresh 文件机械操作、synthetic readonly matched evaluation bundle、exact learning batch apply、Windows 可见进程启动和必要瞬时互斥。不得扩展为 task/session/message/roster/finding/review/learning 判断控制面。
+- `steamai.exe` 只负责 setup/update/uninstall、卸载后的窄自清理、Fresh 文件机械操作、synthetic readonly matched evaluation bundle、exact learning batch apply、Windows 可见进程启动（含上述唯一例外内的成员工作区信任准备）、Fresh preview 的 exact 校验串机械比对和必要瞬时互斥。不得扩展为 task/session/message/roster/finding/review/learning 判断控制面。
 - 正式产品路径不得新增 PowerShell、`.cmd` 或 `.bat` façade；不恢复旧 Go control plane、adapter host 或兼容 runtime。
 - 唯一新增 pack 工具为 `packs/binary-re/tooling/scripts/export_function_evidence.py`：对已打开的授权 IDA 数据库副本做显式定点只读导出，只写指定 case artifact。catalog/recipe 不自动执行，脚本不进入 learningTargets；不安装宿主、不执行目标、不写 analysis DB。`vnext/**` 仍仅 Markdown，Go 不增加研究执行器；真实 IDA、HTTP、联合行为与静态测试分别验收。
 

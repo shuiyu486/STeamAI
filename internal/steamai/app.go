@@ -197,10 +197,14 @@ func (a *app) run(args []string) error {
 		}
 		return a.evaluationSuiteFinalize()
 	case "__open-member":
-		if len(args) != 2 {
+		switch {
+		case len(args) == 2:
+			return a.openMember(args[1], false)
+		case len(args) == 3 && args[1] == "--trust-workspace":
+			return a.openMember(args[2], true)
+		default:
 			return errors.New("内部成员启动参数无效")
 		}
-		return a.openMember(args[1])
 	default:
 		return fmt.Errorf("未知命令 %q；运行 steamai --help 查看支持的入口", args[0])
 	}
@@ -396,7 +400,7 @@ func (a *app) openCommander() error {
 	}, a.stdin, a.stdout, a.stderr)
 }
 
-func (a *app) openMember(name string) error {
+func (a *app) openMember(name string, trustWorkspace bool) error {
 	if !memberNamePattern.MatchString(name) {
 		return errors.New("成员名称无效")
 	}
@@ -427,6 +431,13 @@ func (a *app) openMember(name string) error {
 	}
 	if err := requirePlainPath(caseRoot, filepath.Join(memberRoot, "CLAUDE.md"), false); err != nil {
 		return fmt.Errorf("成员身份文件无效: %w", err)
+	}
+	if trustWorkspace {
+		// 自动信任只在全部成员校验通过后、可见启动前发生；任何配置解析、
+		// 冲突或并发障碍都以具体原因停止启动，不降级为弹信任框。
+		if _, err := prepareMemberWorkspaceTrust(memberRoot); err != nil {
+			return fmt.Errorf("自动信任成员工作区失败: %w", err)
+		}
 	}
 	claude, err := a.resolveNativeExecutable("claude.exe")
 	if err != nil {
