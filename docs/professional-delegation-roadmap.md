@@ -22,7 +22,7 @@
 | PD-02 | binary-re 固定 REA 上游材料与接入说明：`upstream/rea/**`（6.7.0 / commit `27dc42d1`，拼接 SHA-256 机械校验）、`tooling/integrations/rea.md`、manifest 声明、不进入 learningTargets | 完成（材料固定与合同测试；未注册 MCP、未调用模型/工具） |
 | PD-03 | 真实可见单成员逆向任务端到端：成员 local-scope MCP 可见与正确性、A→B→A 切换、正例命中、导出交接、GUI IDB 保留、不可用路径报告缺口 | 完成（2026-10-23；JS 段与 native 段均过 gate，reviewer 独立复核局部 accepted；详细发现与费用见下节"PD-03 实测记录"；GUI IDB 保留未验，attached 模式未启用） |
 | PD-04 | 有限对照：A=直接 Claude Code+REA vs B=STeamAI 负责人+同一 REA；同模型/材料/预算/未见题 | 完成（2026-10-23，两轮：修正前 B 更差、修正后 tie 且成本更高；合同修正已提交 `3167dfaa`；详见下节"PD-04 对照记录"） |
-| PD-05 | Strix `v1.7.0` 有界外部执行资格核查：范围、可确认停止（含内部 agent）、含子代理费用、纠偏生效、产物取回、实际模型六项 | 阻塞：本机未安装 Docker（2026-10-23 实测 `docker: command not found`），本地模式无法启动；解除依赖（安装 Docker Desktop）或明确放弃前不执行。已知 `--max-budget` 覆盖子代理但为响应后检查，停止/时限/并发/热纠偏接口未核实；通过前不自主运行 |
+| PD-05 | Strix `v1.7.0` 有界外部执行资格核查：范围、可确认停止（含内部 agent）、含子代理费用、纠偏生效、产物取回、实际模型六项 | 进行中（2026-10-23）：CLI 已钉 v1.7.0 安装并完成接口核查（见下节"PD-05 接口核查记录"）；运行验证被系统重启阻塞——Docker Desktop、新版 WSL 2.7.13.0 已装，WSL 可选组件已启用但提示"直到重新启动系统前更改将不会生效"；重启后继续：起 Docker → 网关 LLM 连接 → 最小 quick scan 实测六项 |
 | PD-06 | 首个外部团队任务交付（一名负责人、单一有界任务、可停止、成果可复核） | 未执行 |
 | 后续 | 游戏脚本负责人单平台试点（Airtest/Playwright，不自建运行器） | 未排期；纯开发任务是否属于安全研究 case 需先收口范围 |
 
@@ -68,6 +68,21 @@
 
 费用合计：$1.98（A $0.49 + B $0.48 + B' $1.01），预算 ≤$4 未超。
 
+## PD-05 接口核查记录（2026-10-23，CLI 层，未运行）
+
+安装：`pip install strix-agent @ git+...@v1.7.0`（包名 `strix-agent`，非 `strix`）；本地模式依赖 Docker（首次运行自动拉 sandbox 镜像）与 LLM key（LiteLLM 格式，`STRIX_LLM`/`LLM_API_KEY`/`LLM_API_BASE` 或 `~/.strix/cli-config.json`）。
+
+六项接口核查结果（`strix --help` v1.7.0 实测）：
+
+1. **范围**：`-t/--target`（本地目录挂载进 sandbox 可写）、`--scope-mode {auto,diff,full}`、`--instruction`（任务前注入范围约束）——接口存在。
+2. **可确认停止（含内部 agent）**：`--max-turns N` 每 agent 到限强停+渐进 wrap-up 警告；`--max-budget` 到限 clean stop——接口存在；headless 运行中的外部停止确认接口未见，运行终态可确认性待实测。
+3. **含子代理费用**：`--max-budget USD` 覆盖全部 agent，接近时向所有 agent 发渐进警告——接口与文档一致。
+4. **纠偏生效**：任务前 `--instruction` 存在；**headless（`-n`）模式无运行中热纠偏接口**，仅交互 TUI 模式可中途干预——资格核查重要发现：非交互委托期间无法热纠偏。
+5. **产物取回**：报告写入 `strix_runs/<run-name>`（README 声明），`--fail-on` 控制 headless 退出码——待实测。
+6. **实际模型**：`STRIX_LLM` 为 LiteLLM 格式模型名，实际调用模型需运行日志/报告核验——待实测。
+
+环境进展：Docker Desktop 29.9.2 已装（winget 静默）+ `com.docker.service` 已起；新版 WSL 2.7.13.0 已装；WSL 可选组件已启用但**需重启系统生效**（`Wsl/WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED` → `wsl --install --no-distribution` → "直到重新启动系统前更改将不会生效"）。Docker Linux 引擎当前 500（backend not running），预期重启后恢复。
+
 ## 预算与授权边界
 
 - 本轮机械交付（PD-01/PD-02）不安装外部工具、不注册 MCP、不调用模型；live gate（PD-03 起）逐项取得用户批准，预算在执行前单独给出，旧实验预算不沿用。
@@ -84,7 +99,7 @@
 ## 已知事实与不声称
 
 - REA 能力与限制最初来自对 `rea-agents-6.7.0`（commit `27dc42d1`）的源码/文档审计；PD-03 已在本机 live 运行，审计中的 attached 仅 legacy 工具目录、headless 不继承已有 IDB、IDA 结果为 live 等限制全部得到实测印证，并新增上节所列五项集成边界。
-- Strix 控制面结论来自 `v1.7.0` 官方文档，未实测；PD-05 资格核查被外部依赖阻塞：本机未安装 Docker（`docker: command not found`，2026-10-23 实测），Strix 本地模式无法启动，六项核查中"可确认停止、纠偏生效、产物取回"三项依赖真实运行，无 Docker 无法产生证据。
+- Strix 控制面结论：`v1.7.0` 官方文档结论已由本机 CLI 接口核查部分印证（范围/预算/turns 限制接口存在；headless 无热纠偏）；运行中行为（停止终态、产物、实际模型）仍待实测，不据接口存在声称资格通过。
 - 不声称：接入即研究增益、外部团队可自主运行、上游材料等同本机已安装版本、PD-02 机械验收等同 PD-03 live 验收、PD-03 合成目标上的通过等同真实研究目标质量。
 
 ## 验证与完成口径
