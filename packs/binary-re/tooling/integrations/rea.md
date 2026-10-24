@@ -7,7 +7,7 @@
 ## 固定版本与材料
 
 - 方法材料：`../../upstream/rea/`，固定为 `rea-agents@6.7.0`（commit `27dc42d1`）；来源、拼接 SHA-256 与纪律见其 `SOURCE.md`，按任务需要读取切片，不默认串读全部。
-- 本 pack 固定的是方法材料，不是运行环境。负责人执行前用低成本方式核对实际版本（CLI `--version` 或 MCP 初始化 `serverInfo`），不把 `binary_session` 类大响应探测作为任务前置（实测其响应 67–145KB 恒定超限，跳过不影响 `open_binary` 正常工作）；版本核对结果写入对应 evidence，与本合同声明不符时按停止条件处理。
+- 本 pack 固定的是方法材料，不是运行环境。负责人用已批准的 CLI `--version` 或 MCP 初始化 `serverInfo` 核对实际 REA 版本，并记录 Node、provider 身份与目标绑定；区分发行版、协议版本与引擎版本，不能互相代替。不把 `binary_session` 类大响应探测作为必经前置（本机曾见 67–145KB 超限）；没有可核验身份时报告缺口，不把跳过探测当作核验成功。实际版本或目标身份不符时按停止条件处理。
 
 ## 工具暴露边界
 
@@ -43,5 +43,5 @@
 
 输出超限按严重度分级处置（实测 `search_strings`/`search_procedures` 无 `limit` 参数、结果无界，`inspect_analysis_view` 不支持 search 父证据分页）：
 
-- 版本/清单类探测大响应：改用低成本替代（CLI、serverInfo）或跳过，不触发任务停止。
-- 任务必需结果超限：不重试大响应；把 evidence bundle 导出到 case 内 artifact 再从文件读取（唯一有界路径），仅在导出也不可用时停止。
+- 可选清单类探测大响应：可跳过；版本与目标身份等必需核验改用已批准的低输出接口，无法核验仍须停止。
+- 任务必需结果超限：不重试大响应；在已有读写授权内把 evidence bundle 导出到 case 内 artifact，按字段或小范围读取。导出成功不等于内容已读；导出或有界读取仍不足时停止，不读取未授权的 case 外缓存。

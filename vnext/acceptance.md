@@ -15,6 +15,14 @@
 
 fake platform、synthetic fixture、remote CI definition、cross-compile 或 `go test -run` 零匹配不能冒充其它层。
 
+## Live 测试模型与预算
+
+- 测试默认使用当前配置的 `ANTHROPIC_DEFAULT_HAIKU_MODEL` 或 `ANTHROPIC_DEFAULT_SONNET_MODEL`；简单探针优先 Haiku，需要工具协作时可选 Sonnet。Claude Code 显式传 `--model haiku` / `--model sonnet`，或该档位核验后冻结的实际模型值，不能不传参数而继承 `ANTHROPIC_MODEL`。
+- 未经用户针对本次测试明确批准，不用 `ANTHROPIC_DEFAULT_OPUS_MODEL` 或其它顶级模型；通用“继续测试”不算高档模型授权。低成本映射缺失/不可用时报告，不自动升级。
+- evaluation 的 test-only helper 默认从配置冻结 Haiku，未配置该槽位才选 Sonnet；`STEAMAI_LIVE_MODEL=sonnet` 可显式选档位，其固定值/Opus override 不免除本次授权要求。vnextcontract 两项原生 context/journey probe 固定 Haiku，并以 `--setting-sources user` 排除 project/local settings；它们不验证 managed/session 模型策略。机械回归不调用模型。
+- 外部工具采用同一已选档位的实际映射值；只按已核验的 API 格式转换，冻结模型并核对响应侧身份。不改全局配置，不把 Claude Code 档位名当成供应商。
+- 每批执行前给出独立预算、请求/turns 与时限；报告费用、实际账单和未知费用分开。有用量而费用为空或计价失败时保持 unknown，不将汇总 0 当免费或预算保护；先解决计价/额度边界再启动下一付费批次。改变模型后的重跑另记，不覆盖旧记录，也不作跨模型同条件比较。
+
 ## 1. Default automated gates
 
 ```text
@@ -197,7 +205,7 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 
 1. **PD-03 成员工具可见与正确性**：在 exact 成员目录注册 local-scope MCP 并重启会话后，仅该成员可见工具；核对实际 REA/provider 版本与目标绑定；完成函数 A→B→A 切换不串旧内容、已知字符串/xref 正例命中；已有 GUI IDB 不被保存或关闭；导出 bundle 由另一成员独立读取。REA 不可用路径必须报告具体缺口，不得静默降级。
 2. **PD-04 有限对照**：A=直接 Claude Code+REA，B=STeamAI 负责人+同一 REA；同模型、同材料、同预算、未见题；比较正确性、遗漏、用户干预、重复分析与总成本；tie/更差均为一等结果，不据此宣称增益。
-3. **PD-05 Strix 资格核查**：固定 `v1.7.0`；逐项核实范围限制、可确认停止（含内部 agent）、含子代理的费用核算、纠偏生效方式、产物完整取回与实际模型核对。任一关键项不成立即维持受观察专项试用，不开放自主运行；已知 `--max-budget` 覆盖子代理但为响应后检查，停止/时限/并发/热纠偏接口未核实。
+3. **PD-05 Strix 资格核查**：固定 `v1.7.0`；逐项核实范围限制、可确认停止（含内部 agent）、含子代理的费用核算、纠偏生效方式、产物完整取回与实际模型核对。任一关键项不成立即维持受观察专项试用，不开放自主运行；`--max-budget` 是响应后检查，单次超额比例不能当作未来硬上限。预算自然停止不代替用户主动停止验收，启动前 instruction 不代替运行中纠偏；请求日志的 model 字段不等于实际响应模型，缺证保持 unknown。接口与实际行为分开记录在当前 roadmap。
 4. **PD-06 首个外部团队任务**：一名负责人委托单一有界任务；用户可停止且停止被确认；成果进入 artifact/E/F 并经必要复核。
 5. 外部 agent 团队不是 durable member 也不是 tactical subagent；PD-05 通过前不启用相应合同。
 

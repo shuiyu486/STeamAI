@@ -107,7 +107,11 @@ func TestProfessionalDelegationUpstreamIsPinnedAndBounded(t *testing.T) {
 func TestProfessionalDelegationContractsKeepBoundaries(t *testing.T) {
 	repo := repoRoot(t)
 	integration := readPrototypeFile(t, repo, "packs/binary-re/tooling/integrations/rea.md")
-	for _, required := range []string{"rea-agents", "local-scope", "attached", "headless", "evidence_id", "不自动重试"} {
+	for _, required := range []string{
+		"rea-agents", "local-scope", "attached", "headless", "evidence_id", "不自动重试",
+		"provider 身份与目标绑定", "不能互相代替", "无法核验仍须停止",
+		"导出成功不等于内容已读", "未授权的 case 外缓存",
+	} {
 		assertContains(t, integration, required, "tooling/integrations/rea.md")
 	}
 	for _, forbidden := range []string{"npm install", "npx rea-agents@latest"} {
@@ -137,6 +141,19 @@ func TestProfessionalDelegationContractsKeepBoundaries(t *testing.T) {
 	assertContains(t, acceptance, "steamai-professional-delegation-v1", "acceptance.md")
 	assertContains(t, acceptance, "PD-03", "acceptance.md")
 	assertContains(t, acceptance, "PD-05", "acceptance.md")
+	for _, required := range []string{
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL", "--model haiku", "--model sonnet", "不自动升级",
+		"不将汇总 0 当免费或预算保护",
+	} {
+		assertContains(t, acceptance, required, "acceptance.md")
+	}
+	for _, required := range []string{
+		"任一关键项不成立即维持受观察专项试用", "预算自然停止不代替用户主动停止验收",
+		"启动前 instruction 不代替运行中纠偏", "不等于实际响应模型", "未来硬上限",
+	} {
+		assertContains(t, acceptance, required, "acceptance.md")
+	}
 
 	roadmap := readPrototypeFile(t, repo, "docs/professional-delegation-roadmap.md")
 	assertContains(t, roadmap, "steamai-professional-delegation-v1", "professional-delegation-roadmap.md")

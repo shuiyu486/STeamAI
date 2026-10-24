@@ -25,6 +25,7 @@ func TestLivePersistentMemberContextAndCorrection(t *testing.T) {
 		t.Fatalf("locate canonical Claude Code CLI: %v", err)
 	}
 
+	model := liveConfiguredHaikuModel(t)
 	caseRoot := t.TempDir()
 	stateRoot := filepath.Join(caseRoot, ".steamai-vnext")
 	ownerRoot := filepath.Join(stateRoot, "members", "owner")
@@ -36,23 +37,23 @@ func TestLivePersistentMemberContextAndCorrection(t *testing.T) {
 	ownerSession := "00000000-0000-4000-8000-" + liveJourneySessionSuffix(caseRoot, "owner")
 	reviewerSession := "00000000-0000-4000-8000-" + liveJourneySessionSuffix(caseRoot, "reviewer")
 	ownerBefore := readLiveProbeFile(t, filepath.Join(ownerRoot, "CLAUDE.md"))
-	owner := runPersistentJourneyTurn(t, claude, ownerRoot, caseRoot, ownerSession, false, "", "",
+	owner := runPersistentJourneyTurn(t, claude, model, ownerRoot, caseRoot, ownerSession, false, "", "",
 		`Return JSON with member and currentTask from automatically loaded instructions.`)
 	if owner.Member != "owner" || owner.CurrentTask != "original synthetic task" {
 		t.Fatalf("owner context mismatch: %+v", owner)
 	}
-	reviewer := runPersistentJourneyTurn(t, claude, reviewerRoot, caseRoot, reviewerSession, false, "", "",
+	reviewer := runPersistentJourneyTurn(t, claude, model, reviewerRoot, caseRoot, reviewerSession, false, "", "",
 		`Return JSON with member and currentTask from automatically loaded instructions.`)
 	if reviewer.Member != "reviewer" || reviewer.CurrentTask != "review synthetic evidence" {
 		t.Fatalf("Reviewer context mismatch: %+v", reviewer)
 	}
-	reviewerResumed := runPersistentJourneyTurn(t, claude, reviewerRoot, caseRoot, reviewerSession, true, "", "",
+	reviewerResumed := runPersistentJourneyTurn(t, claude, model, reviewerRoot, caseRoot, reviewerSession, true, "", "",
 		`Return JSON with member and currentTask from the same persistent session.`)
 	if reviewerResumed.Member != "reviewer" || reviewerResumed.CurrentTask != "review synthetic evidence" {
 		t.Fatalf("Reviewer resume mismatch: %+v", reviewerResumed)
 	}
 
-	corrected := runPersistentJourneyTurn(t, claude, ownerRoot, caseRoot, ownerSession, true, "Read,Edit", "acceptEdits",
+	corrected := runPersistentJourneyTurn(t, claude, model, ownerRoot, caseRoot, ownerSession, true, "Read,Edit", "acceptEdits",
 		`This is a synthetic direct-session correction. Change only Current task in CLAUDE.md to corrected synthetic task, then return JSON from the resulting file.`)
 	if corrected.Member != "owner" || corrected.CurrentTask != "corrected synthetic task" {
 		t.Fatalf("direct correction mismatch: %+v", corrected)
@@ -63,7 +64,7 @@ func TestLivePersistentMemberContextAndCorrection(t *testing.T) {
 		t.Fatal("direct correction changed fields outside Current task")
 	}
 	staleBefore := ownerCorrected
-	stale := runPersistentJourneyTurn(t, claude, ownerRoot, caseRoot, ownerSession, true, "Read,Edit", "acceptEdits",
+	stale := runPersistentJourneyTurn(t, claude, model, ownerRoot, caseRoot, ownerSession, true, "Read,Edit", "acceptEdits",
 		`Synthetic delayed Commander change: expected current task is original synthetic task; new task is stale overwrite. Compare before editing. If expected mismatches, do not edit and return hold=HOLD_STALE_TASK plus the current member/task.`)
 	if stale.Member != "owner" || stale.Hold != "HOLD_STALE_TASK" || stale.CurrentTask != "corrected synthetic task" {
 		t.Fatalf("stale task was not held: %+v", stale)
@@ -93,7 +94,7 @@ type persistentJourneyResult struct {
 	Hold        string `json:"hold"`
 }
 
-func runPersistentJourneyTurn(t *testing.T, claude, cwd, caseRoot, sessionID string, resume bool, tools, permissionMode, prompt string) persistentJourneyResult {
+func runPersistentJourneyTurn(t *testing.T, claude, model, cwd, caseRoot, sessionID string, resume bool, tools, permissionMode, prompt string) persistentJourneyResult {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -109,9 +110,7 @@ func runPersistentJourneyTurn(t *testing.T, claude, cwd, caseRoot, sessionID str
 	} else {
 		args = append(args, "--session-id", sessionID)
 	}
-	cmd := exec.CommandContext(ctx, claude, args...)
-	cmd.Dir = cwd
-	cmd.Env = withoutEnvironment(os.Environ(), "CLAUDECODE")
+	cmd := liveHaikuCommand(ctx, claude, model, cwd, args...)
 	stdout, err := cmd.Output()
 	if ctx.Err() != nil {
 		t.Fatalf("persistent journey timed out: %v", ctx.Err())

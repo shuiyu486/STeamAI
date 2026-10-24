@@ -162,6 +162,6 @@ go vet ./...
 git diff --check
 ```
 
-fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径；原生 helper 的真实 timeout/process-tree 测试只证明受控 Windows 父子进程清理，不等于 Claude 整体行为验收。真实模型调用的 token smoke 也不能替代 Reviewer calibration；测试按当前 Claude Code 配置冻结模型，不限定 Claude/GPT；主会话实际消息模型须与冻结选择一致，不能把总用量中的额外模型直接视为主模型漂移。live 运行方式见 `vnext/acceptance.md`，当前结果见 active roadmap。默认测试不调用模型。
+fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径；原生 helper 的真实 timeout/process-tree 测试只证明受控 Windows 父子进程清理，不等于 Claude 整体行为验收。真实模型调用的 token smoke 也不能替代 Reviewer calibration；维护/live 测试显式选当前配置的 Haiku/Sonnet 档（`--model haiku` / `--model sonnet`），不继承高档主模型；未经本次明确批准不用 Opus/顶级模型，不限定模型供应商；主会话实际消息模型须与冻结选择一致，不能把总用量中的额外模型直接视为主模型漂移。live 运行方式见 `vnext/acceptance.md`，当前结果见 active roadmap。默认测试不调用模型。
 
 旧 Go control plane、mega CLI、project-local runtime、PowerShell façade、adapter host、legacy `/rekit` 与旧项目 importer 均已删除。STeamAI 不是自动逆向/漏洞挖掘或渗透引擎；危险动作仍受明确 case 授权、具体用户确认与 Claude Code 工具权限约束，`CLAUDE.md` 只提供上下文，不授予权限。

@@ -43,3 +43,5 @@ id_*
 
 # VPS recon case backups pulled locally (RE case artifacts, scripts, results)
 .vps-recon-backup-*/
+__pycache__/
+*.pyc

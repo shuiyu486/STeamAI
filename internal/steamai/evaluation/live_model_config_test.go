@@ -46,7 +46,7 @@ func liveConfiguredModel(t *testing.T) string {
 		layers = append(layers, layer)
 	}
 	env := map[string]string{}
-	for _, key := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+	for _, key := range []string{"STEAMAI_LIVE_MODEL", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
 		if value, ok := os.LookupEnv(key); ok {
 			env[key] = value
 		}
@@ -60,12 +60,8 @@ func liveConfiguredModel(t *testing.T) string {
 }
 
 func resolveLiveModel(env map[string]string, layers []liveModelSettings) (string, error) {
-	settingsModel := ""
 	merged := map[string]string{}
 	for _, layer := range layers {
-		if layer.Model != "" {
-			settingsModel = layer.Model
-		}
 		for key, value := range layer.Env {
 			if key == "ANTHROPIC_MODEL" || strings.HasPrefix(key, "ANTHROPIC_DEFAULT_") && strings.HasSuffix(key, "_MODEL") {
 				merged[key] = value
@@ -73,14 +69,27 @@ func resolveLiveModel(env map[string]string, layers []liveModelSettings) (string
 		}
 	}
 	maps.Copy(merged, env)
-	model := merged["ANTHROPIC_MODEL"]
-	if model == "" {
-		model = settingsModel
+	// 高档模型仅通过调用者显式选择；不继承主会话的 ANTHROPIC_MODEL 或 settings.model。
+	model := merged["STEAMAI_LIVE_MODEL"]
+	explicit := model != ""
+	if !explicit {
+		model = merged["ANTHROPIC_DEFAULT_HAIKU_MODEL"]
+		if model == "" {
+			model = merged["ANTHROPIC_DEFAULT_SONNET_MODEL"]
+		}
+		if model == "" {
+			return "", fmt.Errorf("live test 需要配置 ANTHROPIC_DEFAULT_HAIKU_MODEL 或 ANTHROPIC_DEFAULT_SONNET_MODEL；不回退到主模型或 Opus，显式选择请设置 STEAMAI_LIVE_MODEL")
+		}
 	}
 	switch model {
 	case "opus", "sonnet", "haiku":
+		if !explicit {
+			return "", fmt.Errorf("live test 低成本默认需要配置固定模型，不能冻结别名 %q", model)
+		}
 		model = merged["ANTHROPIC_DEFAULT_"+strings.ToUpper(model)+"_MODEL"]
-	case "default", "opusplan", "sonnet[1m]", "opus[1m]":
+	}
+	switch strings.ToLower(strings.TrimSuffix(model, "[1m]")) {
+	case "default", "auto", "opusplan", "opus", "sonnet", "haiku", "fable":
 		return "", fmt.Errorf("live test 需要配置中可解析的固定模型，不能冻结动态别名 %q", model)
 	}
 	if !modelPattern.MatchString(model) {
@@ -96,19 +105,71 @@ func TestLiveModelConfigurationIsProviderNeutral(t *testing.T) {
 		layers []liveModelSettings
 		want   string
 	}{
-		{"environment", map[string]string{"ANTHROPIC_MODEL": "gpt-fixture[1m]"}, []liveModelSettings{{Model: "claude-fixture"}}, "gpt-fixture[1m]"},
-		{"settings", nil, []liveModelSettings{{Model: "gpt-fixture[1m]"}}, "gpt-fixture[1m]"},
-		{"alias", nil, []liveModelSettings{{Model: "opus", Env: map[string]string{"ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-fixture[1m]"}}}, "gpt-fixture[1m]"},
-		{"settings-env", nil, []liveModelSettings{{Model: "opus", Env: map[string]string{"ANTHROPIC_MODEL": "gpt-fixture[1m]"}}}, "gpt-fixture[1m]"},
-		{"local-layer", nil, []liveModelSettings{{Model: "provider/first"}, {Model: "provider/second"}}, "provider/second"},
-		{"missing", nil, nil, ""},
-		{"unresolved-alias", nil, []liveModelSettings{{Model: "sonnet"}}, ""},
-		{"dynamic-alias", nil, []liveModelSettings{{Model: "opusplan"}}, ""},
+		{"haiku-before-sonnet", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-fixture[1m]", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "gpt-fixture[1m]"},
+		{"sonnet-fallback", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
+		{"empty-haiku", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
+		{"main-opus-ignored", map[string]string{"ANTHROPIC_MODEL": "opus", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/haiku-fixture"}, nil, "provider/haiku-fixture"},
+		{"fixed-main-model-ignored", map[string]string{"ANTHROPIC_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
+		{"settings-main-ignored", nil, []liveModelSettings{{Model: "opus", Env: map[string]string{"ANTHROPIC_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-fixture[1m]"}}}, "gpt-fixture[1m]"},
+		{"local-layer", nil, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/user"}}, {Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/project"}}, {Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/local"}}}, "provider/local"},
+		{"environment-over-settings", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/environment"}, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/settings"}}}, "provider/environment"},
+		{"haiku-tier-before-source", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/environment-sonnet"}, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/settings-haiku"}}}, "provider/settings-haiku"},
+		{"default-cannot-select-opus-alias", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "opus", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive"}, nil, ""},
+		{"default-cannot-select-auto", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "auto"}, nil, ""},
+		{"default-cannot-select-suffixed-alias", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "haiku[1m]"}, nil, ""},
+		{"invalid-haiku-does-not-fallback", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "invalid model", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := resolveLiveModel(test.env, test.layers)
 			if got != test.want || (err != nil) != (test.want == "") {
-				t.Fatalf("model=%q err=%v", got, err)
+				t.Fatalf("model=%q want=%q err=%v", got, test.want, err)
+			}
+		})
+	}
+}
+
+func TestLiveModelConfigurationRequiresLowCostDefault(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		env    map[string]string
+		layers []liveModelSettings
+	}{
+		{"missing", nil, nil},
+		{"empty-defaults", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "", "ANTHROPIC_DEFAULT_SONNET_MODEL": ""}, nil},
+		{"main-opus-only", map[string]string{"ANTHROPIC_MODEL": "opus", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive"}, nil},
+		{"main-fixed-only", map[string]string{"ANTHROPIC_MODEL": "provider/expensive"}, nil},
+		{"settings-main-only", nil, []liveModelSettings{{Model: "provider/expensive", Env: map[string]string{"ANTHROPIC_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive"}}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := resolveLiveModel(test.env, test.layers)
+			if got != "" || err == nil || !strings.Contains(err.Error(), "ANTHROPIC_DEFAULT_HAIKU_MODEL") || !strings.Contains(err.Error(), "ANTHROPIC_DEFAULT_SONNET_MODEL") {
+				t.Fatalf("missing low-cost defaults: model=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestLiveModelConfigurationHonorsExplicitOverride(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		env    map[string]string
+		layers []liveModelSettings
+		want   string
+	}{
+		{"fixed-without-defaults", map[string]string{"STEAMAI_LIVE_MODEL": "gpt-fixture[1m]"}, nil, "gpt-fixture[1m]"},
+		{"overrides-default-and-main", map[string]string{"STEAMAI_LIVE_MODEL": "provider/selected", "ANTHROPIC_MODEL": "provider/main", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/cheap"}, nil, "provider/selected"},
+		{"explicit-opus-alias", map[string]string{"STEAMAI_LIVE_MODEL": "opus"}, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/selected", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/cheap"}}}, "provider/selected"},
+		{"explicit-sonnet-alias", map[string]string{"STEAMAI_LIVE_MODEL": "sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/selected", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/cheap"}, nil, "provider/selected"},
+		{"empty-override-uses-default", map[string]string{"STEAMAI_LIVE_MODEL": "", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/cheap"}, nil, "provider/cheap"},
+		{"unresolved-alias", map[string]string{"STEAMAI_LIVE_MODEL": "sonnet", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/cheap"}, nil, ""},
+		{"nested-alias-rejected", map[string]string{"STEAMAI_LIVE_MODEL": "haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "opus"}, nil, ""},
+		{"dynamic-alias", map[string]string{"STEAMAI_LIVE_MODEL": "opusplan", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/cheap"}, nil, ""},
+		{"invalid-model", map[string]string{"STEAMAI_LIVE_MODEL": "invalid model", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/cheap"}, nil, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := resolveLiveModel(test.env, test.layers)
+			if got != test.want || (err != nil) != (test.want == "") {
+				t.Fatalf("model=%q want=%q err=%v", got, test.want, err)
 			}
 		})
 	}
