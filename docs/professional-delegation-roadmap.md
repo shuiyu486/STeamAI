@@ -19,7 +19,7 @@
 |---|---|---|
 | PD-01 | 角色、skill、capabilities、acceptance 与路线指针 | 完成：机械合同；未安装外部工具 |
 | PD-02 | REA 固定上游材料、接入说明、manifest 与 SHA 校验；不进 learningTargets | 完成：材料与合同测试；本批不注册 MCP/调用模型 |
-| PD-03 | 成员工具可见、目标切换、正例、导出交接、GUI IDB 保留与不可用路径 | 部分通过：JS/native 静态结果与独立交接已验；GUI IDB 未验且当前无已打开 IDB，需用户环境；撤回早先“全过” |
+| PD-03 | 成员工具可见、目标切换、正例、导出交接、GUI IDB 保留与不可用路径 | 通过（限定条件）：JS/native 静态、独立交接与 GUI IDB 保留均实测；可见成员全程未验；撤回早先“全过” |
 | PD-04 | 直接 Claude Code+REA 与 STeamAI 负责人的同模型/材料/预算/未见题比较 | 正式匹配盲测（2026-10-24）tie：两臂新未见题三问全对，盲审 preferred=none；探索记录见下 |
 | PD-05 | Strix `v1.7.0` 范围、停止、费用、纠偏、产物、模型六项资格 | 通过（限定条件）：六项均有 live 实证；范围为指令约束非机械隔离、预算为响应后检查、纠偏机制为停止后新开工而非热消息 |
 | PD-06 | 一名负责人委托首个有界外部团队任务，成果可复核 | 已交付：Strix 静态扫描两项发现均独立 accepted，E/F/index/review 链经 R-PD06-R3 终审 accepted；turns 口径缺口等限制如实保留 |
@@ -27,7 +27,7 @@
 
 ## PD-03 实测记录（2026-10-23）
 
-固定 REA `6.7.0`/`27dc42d1`，exact 成员 cwd 注册 local-scope MCP，CLI 与 serverInfo 分别核对。JS 导出 91957 bytes/2 records；native A→B→A alpha 相同、beta 不同，bundle 670655 bytes/5 records。`R-PD03.md` 局部 accepted（不证明原调用时序/阅读比例）。超限、哈希不匹配、配置损坏、清理未确认均有停止记录；可见会话与 headless 分别验收；GUI IDB 保留仍未验。
+固定 REA `6.7.0`/`27dc42d1`，exact 成员 cwd 注册 local-scope MCP，CLI 与 serverInfo 分别核对。JS 导出 91957 bytes/2 records；native A→B→A alpha 相同、beta 不同，bundle 670655 bytes/5 records。`R-PD03.md` 局部 accepted（不证明原调用时序/阅读比例）。超限、哈希不匹配、配置损坏、清理未确认均有停止记录；可见会话与 headless 分别验收。
 
 集成边界：
 
@@ -35,6 +35,10 @@
 - 搜索无 limit/分页，须导出 case artifact 定向读取；导出不等于已读。`cleanup_incomplete` 不证明 worker 退出。内联小函数缺独立符号，`//go:noinline` 后出现。
 
 10 份客户端报告合计 **$6.534376**（申报 $2，超 227%）。预算失守、副本未同步、JSON 转义损坏均为维护错误；全权授权不使超支合理，不以付费重跑刷通过。
+
+### GUI IDB 保留实测（2026-10-24）
+
+用户 IDA 9.3 装临时 ida-pro-mcp 插件后打开 `pd04-probe.exe.i64`；REA 6.7.0 headless 打开同一 exe 并 close（SHA-256 与上轮一致）。GUI 进程/注册/adapter 会话完好且仍可查询，`.i64` SHA-256 与 mtime 不变——**REA headless 不保存也不关闭用户 GUI 数据库**，与 rea.md 声明一致。验证后已还原（测试 IDA 关闭、插件卸载）。附带发现：Claude 插件 ida-pro-mcp 0.1.0 的 force_gui 在 Windows 把 `sys.executable` 当 IDA 可执行，无法启动 GUI，本验证改手动启动后 adopt。
 
 ## PD-04 对照记录（2026-10-23）
 
@@ -46,7 +50,7 @@
 | B | STeamAI Fresh+任务+pack，修正前合同 | 首次 binary_session 67KB 超限，按任务停止条件退出，三题 unknown | $0.48 | E、空 bundle、index |
 | B' | 同 B，修正后合同 `3167dfaa` | 三题全对，与 A 答案等价 | $1.01 | E、8 记录 bundle、index |
 
-- 修正前 B 更差（合同把非必需大响应设为任务级停止条件，净负值，已暴露并修正）；B' 为同题回归、非新未见题比较，费用 A $0.487240 / B' $1.008449（2.07 倍；A 无相同产物要求，差额不全是证据链成本）。
+- 修正前 B 更差（合同把非必需大响应设为任务级停止条件，净负值，已修正）；B' 同题回归非新题比较，费用 A $0.487240 / B' $1.008449（A 无相同产物要求，差额不全是证据链成本）。
 - 撤回“有效 tie、约 2 倍成本买证据链”推断；保留正确/unknown/费用事实，不声称质量增益。两组均有 `cleanup_incomplete`，非差异项。
 
 ### 正式匹配盲测（2026-10-24）
@@ -55,15 +59,15 @@
 
 ## PD-05 资格核查（2026-10-23，修订结论）
 
-重启后 WSL 默认版本 2、Docker Server 29.9.2 就绪，镜像 `ghcr.io/usestrix/strix-sandbox:1.3.0` 可用。安装的 `strix-agent` 1.7.0 钉到 commit `55bc07991aacb1c26a81b43e7ca53148730d2019`，不以 tag 代替安装身份。
+重启后 WSL 2、Docker Server 29.9.2 就绪，镜像 `ghcr.io/usestrix/strix-sandbox:1.3.0` 可用；`strix-agent` 1.7.0 钉到 commit `55bc07991aacb1c26a81b43e7ca53148730d2019`，不以 tag 代替安装身份。
 
-首轮仅授权合成本地 Flask 静态审查，参数 `-n --scan-mode quick --max-budget 2 --max-turns 30`。进程 exit 0，但 run 为 `stopped`、coverage 为 `budget_exceeded`、SARIF `executionSuccessful:false`、findings 空。SQLite 中读取目标的工具回执持续为空，无 app.py 内容成功返回证据：不是审查完成后零漏洞，不能据此判模型漏检。
+首轮仅授权合成本地 Flask 静态审查（`-n --scan-mode quick --max-budget 2 --max-turns 30`）：exit 0 但 run `stopped`、coverage `budget_exceeded`、findings 空、SQLite 无 app.py 成功返回证据——不是审查后零漏洞，不判模型漏检。
 
 | 资格项 | 已核实事实 | 判定与限制 |
 |---|---|---|
-| 范围 | 控制实验仅一 child、执行标记命令与读取 scope.txt；持久调用未见网络/目标执行/其它文件读取 | 指令约束非机械隔离（本地目录为 writable mount）；不证明扫描范围资格 |
-| 可确认停止 | child 回执 Process running 且输出 marker 后，维护方向独立控制台发 Ctrl+C；interrupted/exit 1，容器前有后无、无强杀 | 主动停机与子命令终止已验；维护信号不冒称用户操作；快照状态不当存活判断 |
-| 费用 | 网关账单逐分验证 zai 参考单价（倍率 1、无高峰）；上轮控制实验核算 $0.981564/$3，重启轮 $0.2224/$1.2 且单事件 cost_usd 全部非空 | 通过：--max-budget 真实生效但仍为响应后检查，请求/turns 上限继续兜底；不用其它供应商价目或汇总中无关用量冒充 |
+| 范围 | 控制实验仅一 child、执行标记命令与读 scope.txt；持久调用未见网络/目标执行/其它读取 | 指令约束非机械隔离（writable mount）；不证明扫描范围资格 |
+| 可确认停止 | child 回执 Process running 且输出 marker 后发 Ctrl+C；interrupted/exit 1、容器前有后无、无强杀 | 主动停机与子命令终止已验；维护信号不冒称用户操作；快照不当存活判断 |
+| 费用 | 网关账单逐分验证 zai 参考单价（倍率 1）；控制实验 $0.981564/$3、重启轮 $0.2224/$1.2，单事件 cost_usd 全非空 | 通过：--max-budget 真实生效但仍为响应后检查，请求/turns 上限兜底；不用其它价目或无关用量冒充 |
 | 纠偏 | 停止（Ctrl+C）与全新目录带新指令重开（`target_45f5`）均 live 实证：旧队伍 ID 未恢复，纠偏任务逐字执行并 completed | 通过（机制=停止后新开工）：`--resume` 先恢复旧 child 的窗口与 headless 无热消息接口为已记录边界 |
 | 产物 | run/coverage/SARIF/log/原始 SQLite 可取回；控制任务 completed，内容与 scope 一致 | 只证明控制任务；无 findings 不代表安全；快照 WAL 缺口见下节 |
 | 实际模型 | 12 个成功响应的 response.model 均 glm-5.3；1 个取消事件无响应身份 | 证明 SDK 规范化响应身份，不穿透网关证明底层模型；不从请求 model 或事件总数推断 |
@@ -114,15 +118,15 @@
 
 - 按 PD-05 修正调用执行（单层 bash、`--instruction-file`、临时 `--config`、真实预算）：run `pd06-target_298c` quick 静态，**$0.66911920/$1.50**，19 响应全部 `glm-5.3`，completed、沙箱清理；宿主退出码 2 原因未查明（绑定 `PD06-298c-host-session`）。
 - 纯静态找到两个预置漏洞（`/file` 路径穿越 CWE-22、`/search` 反射 XSS CWE-79，F-PD06-001/002）；原件按 bytes/SHA-256 登记 index，SARIF 合成位置未当源码定位。独立 Reviewer（haiku、含哈希复核）逐行核对后两项 F 均 accepted，经三轮补证循环 R-PD06-R3 终审 accepted、传递绑定闭合。残余限制：root 17 turns 对 `--max-turns 12` 的口径缺口、退出码仅有会话文字记录、无完整沙箱命令/网络审计。
-- 费用：本轮 PD-06 合计 **$6.12**（Strix $0.67 + 成员/审查会话 $5.45），超出申报 $4 约 53%，主因是两次环境阻塞会话（$1.43）与三轮补证循环；另有环境诊断探针 $0.53 与 PD-05 收尾重启 $0.22。旧两次尝试 $1.055888 保留。
+- 费用：本轮 PD-06 **$6.12**（Strix $0.67 + 成员/审查会话 $5.45），超申报 $4 约 53%（主因两次环境阻塞 $1.43 与三轮补证）；另有诊断探针 $0.53、PD-05 重启 $0.22。旧尝试 $1.055888 保留。
 
 报告核算：PD-03 $6.534376；PD-04 $5.87（旧 $1.977 + 正式盲测 $3.89）；PD-05 $6.068（Astra $4.864274 + Sonnet $0.981564 + 重启 $0.222384）；PD-06 $7.172。合计 **$25.64**，另有诊断探针 $0.53、主会话与维护审计未计；总实付以网关账单为准。
 
 ## 授权与硬边界
 
-- 用户已批准完整方案、重启恢复、低成本重跑与继续完成；不授权降标、无限追加费用或把维护驱动冒称用户直接纠偏。每批单列预算，不沿用旧额度。
-- REA/Strix 许可约束始终适用；外部 agent 不自动继承 Claude Code 逐工具权限。不新增 adapter host、supervisor、任务数据库或配置管理，不改 Go production。
-- Fresh、learning exact confirmation、成员单写、HOLD_STALE_TASK、用户纠偏优先、evidence currentness 不变；upstream 材料不进 learningTargets；旧 current 不升级/迁移。
+- 用户已批准完整方案、重启恢复、低成本重跑与继续完成；不授权降标或把维护驱动冒称用户纠偏。每批单列预算。
+- REA/Strix 许可约束适用；外部 agent 不自动继承逐工具权限。不新增 adapter host/任务数据库，不改 Go production。
+- Fresh、learning exact confirmation、成员单写、用户纠偏优先、evidence currentness 不变；upstream 不进 learningTargets；旧 current 不升级。
 - headless 不覆盖 GUI/可见全程；机械/合成验收不证明真实质量。
 
 ## 验证与完成口径
