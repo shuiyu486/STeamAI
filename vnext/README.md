@@ -1,6 +1,6 @@
 # STeamAI case 合同与模板
 
-`vnext/**` 是 canonical `/steamai` Fresh 时物化到 case-local `contracts/` 的声明式合同源。当前三线实际交付路线与执行状态见 `docs/professional-delivery-roadmap.md`；旧专业负责人接入实验见 `docs/professional-delegation-roadmap.md`，历史研究对照、工具/联合研究与学习证据按 `docs/context-routing.md` 路由，不据旧验收证明新行为；用户入口是 Windows 原生 `steamai.exe` + `.claude/skills/steamai/SKILL.md`。
+`vnext/**` 是 canonical `/steamai` Fresh 时物化到 case-local `contracts/` 的声明式合同源。三线交付结果与未解决问题见 `docs/professional-delivery-results.md`；其它历史证据按 `docs/context-routing.md` 路由，不据旧验收证明新行为；用户入口是 Windows 原生 `steamai.exe` + `.claude/skills/steamai/SKILL.md`。
 
 任务按结果分工，具体方法交给当前授权内的智能成员。共享自主协作与确认边界由 case 模板承载，角色只补自身职责；普通探索不逐步审批，关键结论仍按证据合同审查。不新增任务字段、控制面或成员必读文档。
 
@@ -32,4 +32,4 @@ project-local `/steamai` 直接来自 Fresh preview 时 canonical working tree �
 
 ## 验证原则
 
-自动 tests 证明 deterministic filesystem/Git contract，并通过 fake Claude 覆盖 SuiteSpec prepare→逐 slot run→manifest-bound blind-review packet→SuiteManifest finalize、失败证据保留与 Gate 3 fail-closed；Windows native test binary 还验证 suspended→Job→resume 的普通执行路径，但这些测试不证明真实模型 calibration 或 timeout 下的完整 process-tree cleanup。真实 Windows setup/PATH/process tree、可见 Claude Code 会话、用户纠偏和跨会话消息必须按 `acceptance.md` 独立验收；成员启动的 `--name` 只提供原生寻址提示，消息验收仍须在同一 Claude Code 配置域取得 inventory 的 exact cwd→name，并与 `ListAgents` 当前可达 name 唯一相交，再核对发送 `success:true` 与接收记录。已执行的 live 证据与限制只记录在 active roadmap，不在本目录复制第二份状态。只有重复出现且无法由 Claude Code 原生能力与简单文件解决的问题，才允许增加窄职责、无状态 helper。
+自动 tests 证明 deterministic filesystem/Git contract，并通过 fake Claude 覆盖 SuiteSpec prepare→逐 slot run→manifest-bound blind-review packet→SuiteManifest finalize、失败证据保留与 Gate 3 fail-closed；Windows native test binary 还验证 suspended→Job→resume 的普通执行路径，但这些测试不证明真实模型 calibration 或 timeout 下的完整 process-tree cleanup。真实 Windows setup/PATH/process tree、可见 Claude Code 会话、用户纠偏和跨会话消息必须按 `acceptance.md` 独立验收；成员启动的 `--name` 只提供原生寻址提示，消息验收仍须在同一 Claude Code 配置域取得 inventory 的 exact cwd→name，并与 `ListAgents` 当前可达 name 唯一相交，再核对发送 `success:true` 与接收记录。已执行的 live 证据与限制只记录在对应验收记录（历史批次按 router 追溯），不在本目录复制第二份状态。只有重复出现且无法由 Claude Code 原生能力与简单文件解决的问题，才允许增加窄职责、无状态 helper。

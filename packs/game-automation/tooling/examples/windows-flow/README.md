@@ -22,3 +22,5 @@ python workflow.py --selftest
 2. 实现 `AirtestDevice`（observe/act 走 `airtest`，参考 `../../integrations/airtest.md`），决策核心不改。
 3. fake 单测迁移进项目测试；端到端按 `../../recipes/automation-regression.md` 六场景验收。
 4. 本示例不绑定任何真实窗口；占位符只指向合成窗口。
+
+**停止边界**：参考 Runner 在同步 `observe/act` 返回后才再次读取控制文件，不会中断长调用。接入耗时视觉模型等适配器时，必须另行实现可取消等待、发输入前复核停止与最新状态，并测试“调用期间发 stop 不再输入”；现有 selftest 和等待段急停记录不证明这一点。未满足前只用于有人看护的有界流程，不宣称全时段 ≤2 秒停止或无人值守安全。

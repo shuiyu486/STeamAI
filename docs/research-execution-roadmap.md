@@ -4,7 +4,7 @@
 
 - 路线 ID：`steamai-research-execution-v1`。
 - 当前状态：`A/B/C 实现完成；实际 IDA/IDAPython 定点导出与 14 条真实 loopback/client 路径已验，研究对照按超时停止规则闭合为 incomplete/inconclusive；可见成员验收已证明真人纠偏、命名可见会话与原生消息身份链，两个独立短 gate 又分别闭合 stale-task HOLD 零覆盖，以及联合 E/F/R 的 needs-evidence→单次补证→append-only round 2；最终 accepted 只覆盖明示来源映射范围内的记录级联合解释`。
-- 本文保留本路线已验事实和未完成结论，不续写新实验日志；当前路线见 `docs/research-validity-roadmap.md`，完整路由在 `docs/context-routing.md`，短投影在 `docs/batch-plan.md`。
+- 本文保留本路线已验事实和未完成结论，不续写新实验日志；后续验证见 `docs/research-validity-roadmap.md`，完整路由在 `docs/context-routing.md`；已结束批次不再维护短投影。
 - 旧 `research-capability` 的方法/主辅与32轮平局事实不改写；verified-learning 正式证据与待验项仍归 `docs/verified-learning-roadmap.md`，不预填 go。
 
 ## 目标与用户画面

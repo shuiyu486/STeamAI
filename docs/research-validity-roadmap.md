@@ -4,7 +4,7 @@
 
 - 路线 ID：`steamai-research-validity-v1`。
 - 当前状态：本轮两项验证均已完整执行。已知报告 Reviewer 校准为 `complete / pass-limited`，格式/类别均10/10；新9题研究对照为 `complete / tie`，新版0胜、9平、0负，无无效题，没有证明相对提升。旧观察器错误及 Binary 作者 API 失败原件保留，用户明确授权的输入准备重试不冒充首次成功。
-- 完整路由见 `docs/context-routing.md`，短投影见 `docs/batch-plan.md`。本文只保存本轮窄范围与执行状态，不预填 pass/go。
+- 完整路由见 `docs/context-routing.md`。本文只保存本轮窄范围与执行状态，不预填 pass/go；已结束批次不再维护短投影。
 - `docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究已验事实与原对照 `incomplete/inconclusive`；`docs/verified-learning-roadmap.md` 保留旧校准原件、费用、SHA 与未完成门槛，不续跑或重判旧 suite。
 
 ## 批次与范围

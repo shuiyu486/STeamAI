@@ -2,74 +2,55 @@
 
 ## 读取指南
 
-本文件是新会话和上下文压缩后接手的唯一完整路由入口。新会话先读根 `CLAUDE.md`、本文件、Git 状态，再从下表只选一个场景入口；不要默认串读历史 roadmap、`CHANGELOG.md` 或旧控制面文档。
+本文件是新会话和上下文压缩后接手的唯一完整路由入口。先读根 `CLAUDE.md`、本文件和 Git 状态，再按当前任务只选一个入口；不默认串读历史 roadmap、`CHANGELOG.md` 或所有 pack。
 
-## 当前指针
+当前没有 active 实施路线。专业交付执行计划和无待办短投影已删除，结果与未解决问题见 `docs/professional-delivery-results.md`。日常使用直接读 README/skill；核查历史证据时才读验收记录，旧结果不授予新动作权限。
 
-- 当前路线：`steamai-professional-delivery-v1`（已收束：必需 gate 缺口 NE-1/G-JOINT 原生消息 2026-10-25 补验闭合；真实鼠标 windowed 复测 6/6 通过；遗留限制见路线待解清单）
-- 当前路线入口：`docs/professional-delivery-roadmap.md`（批实施临时细则已随收口删除）
-- 旧专业负责人接入实验：`docs/professional-delegation-roadmap.md`；完成适用性见新路线基线说明
-- 已完成低干预启动与纠偏路线（Fresh 机器确认、自动信任、七字段纠偏、有限 A/B tie）：`docs/low-friction-collaboration-roadmap.md`
-- 已完成自主协作合同轮（含可见任务与 workspace 校验修复）：`docs/autonomous-collaboration-roadmap.md`
-- 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
-- 已验专业取证/联合研究与原对照未完成事实：`docs/research-execution-roadmap.md`
-- 已交付双领域方法/主辅与对照事实：`docs/research-capability-roadmap.md`
-- verified-learning 既有证据与未完成门槛：`docs/verified-learning-roadmap.md`
-- 短投影：`docs/batch-plan.md`
-- canonical 产品入口：`cmd/steamai` 与 `.claude/skills/steamai/SKILL.md`
-- 薄核心合同：`vnext/**`
-- 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
-- 历史薄核心完成事实：`docs/real-usage-hardening-roadmap.md`
+## 当前工作入口
 
-## 按需路由
-
-| 需要判断什么 | 首选入口 | 不要默认读取 |
+| 需要判断什么 | 首选入口 | 读取边界 |
 |---|---|---|
-| 产品设计、迭代、优化与团队管理：哪些交给智能成员自主判断，哪些必须保留硬边界 | 根 `CLAUDE.md` 的“智能成员与自主协作基准”，再按实际问题选下列入口 | 不把方法参考写成逐步强制流程，不以增加规则代替能力提升 |
-| 三个方向的实际交付升级、执行批次、结果与残余限制 | `docs/professional-delivery-roadmap.md` | 先看当前状态/接续点与批次结果区；计划不代表实施授权或功能完成，旧 GUI/比较标题不作当前验收依据；DLV-02～06 领域细则与分层验收细则为批实施临时文件，收口时删除，长期行为在各 pack/合同/acceptance 入口 |
-| 旧专业负责人接入（REA/IDA MCP/Strix）的局部实测与限制 | `docs/professional-delegation-roadmap.md` | 仅追溯对应事实；完成适用性见新路线基线，不默认重读历史账单，不把接入当研究增益 |
-| 低干预启动（Fresh 机器确认、成员工作区自动信任）、七字段纠偏与有限旧/新 A/B 的已完成事实 | `docs/low-friction-collaboration-roadmap.md` | 不把授权分离解释为通用 `--yes` 旁路或开放配置管理，不以一个样本宣称全案完成 |
-| 已完成自主协作合同轮与可见任务事实 | `docs/autonomous-collaboration-roadmap.md` | 不重跑旧题、不改判 inconclusive，不把合同文字当能力提升 |
-| 已完成 Reviewer 协议回归、新9题研究对照与已知报告校准 | `docs/research-validity-roadmap.md` | 保留 pass-limited/tie，不重跑旧题或改判为本轮提升 |
-| 已验专业取证、跨步骤预测、客户端/API 联合研究与原对照事实 | `docs/research-execution-roadmap.md` | 不把静态/fake API 当真实 IDA/HTTP/联合效果，不续写新实验日志 |
-| 已交付单点方法、分岔点规则、主辅 pack 与平局对照 | `docs/research-capability-roadmap.md` | 不改写历史结果或借其证明新实操能力 |
-| verified-learning Gate 1–4 的既有证据与剩余 live gate | `docs/verified-learning-roadmap.md` | 不把机械 tests 当 calibration/V4 evidence |
-| 已完成 Windows 产品基线 | `docs/windows-native-product-roadmap.md` | 不改写为当前路线或复用旧证据证明新行为 |
-| 当前路线短投影 | `docs/batch-plan.md` | 不把它当第二份 roadmap |
-| 安装、quickstart、更新、卸载与产品定位 | `README.md` | 不读历史 source-clone-only 说明 |
-| native shell 机械边界 | `cmd/steamai`、`internal/steamai/app.go`，再按 symbol 路由 | 不把它扩展为团队控制面 |
+| 产品目标、自主协作与管理边界 | 根 `CLAUDE.md` 的“智能成员与自主协作基准” | 不把方法参考改成逐步强制流程，不以加规则代替能力 |
+| 安装、quickstart、更新、卸载 | `README.md` | 区分当前源码与已发布版本；已有 case 不自动更新 |
+| 三线实际可用范围、效果证据与已知缺口 | `docs/professional-delivery-results.md` | 批次收束不等于所有 gate 通过；关注阻塞期间停止、模板伪匹配与 learning 待验项 |
+| native shell 机械边界 | `cmd/steamai`、`internal/steamai/app.go`，再按 symbol 路由 | 不扩为团队控制面 |
 | canonical `/steamai` 行为 | `.claude/skills/steamai/SKILL.md` | 不调用已删除的 `/rekit` 或旧 runtime |
-| case/member/research 模板 | `vnext/README.md`，再只读目标模板 | 不一次加载全部模板 |
-| Claude Code 原生能力 | `vnext/capabilities.md` | 不把 session ID 当身份或授权 |
-| 自动与 live acceptance | `vnext/acceptance.md` | 不把 synthetic/cross-build 当真实用户体验 |
-| learning 批次回流 | `vnext/learning-feedback.md` | 不使用旧单目标 Checkpoint B，不自动写 pack |
-| proof-carrying replay、V0–V4、calibration、promotion、field outcome | `vnext/verified-learning.md` | blind review 优先一次读取 manifest 绑定的 `blind-review.json`，不默认读取全部 run/output，不自动扫描其它 case |
-| Release 构建与产物 | `.github/workflows/release.yml` | 不把 workflow definition 当 published release |
-| pack 编写或内容 | `packs/<pack>/manifest.yml` 与目标 pack 文件 | 不读取真实 case artifact |
-| 历史薄核心事实 | `docs/real-usage-hardening-roadmap.md` | 不据此禁止当前已批准 native shell |
-| 更旧架构事实 | Git history 或 `CHANGELOG.md` 按关键词查询 | 不把历史命令当当前路径 |
+| case/member/research 模板 | `vnext/README.md`，再选目标模板 | 不一次加载全部模板 |
+| 原生 session、消息与恢复 | `vnext/capabilities.md` | session ID 不代表身份或授权 |
+| 自动与 live acceptance | `vnext/acceptance.md` | 静态/fake/headless 不能代替受影响的真实路径 |
+| learning 批次回流 | `vnext/learning-feedback.md` | exact confirmation 不可省，不自动写 pack |
+| replay、V0–V4、calibration、promotion、field outcome | `vnext/verified-learning.md` | 缺证不晋级；盲审读取 manifest 绑定的 immutable packet |
+| Release 构建与产物 | `.github/workflows/release.yml` | workflow 存在不等于已发布 |
+| pack 编写或内容 | `docs/pack-authoring.md` 或 `packs/<pack>/manifest.yml` 与目标文件 | 不读取真实 case artifact，不自动执行工具 |
 
-## 执行纪律
+## 历史证据（只按具体问题读取）
 
-- 当前路线拥有当前边界与验收状态；历史路线只保存当时事实。
-- 代码、skill、README、acceptance 和当前路线冲突时先收口合同，再宣称完成。
-- native shell 只做安装/Fresh/update/uninstall/卸载后窄自清理/synthetic readonly evaluation bundle/exact apply/可见启动/瞬时互斥；不得增加 task、session、message、roster、finding、review 或 learning decision 状态。
-- 大文件按 symbol、标题或行号读取；测试失败保留测试名和关键错误。
-- source checkout 本身不是 case；不得在本仓库创建 `.steamai-vnext/` case state。
+以下旧路线保留证据，不是当前实施任务；不续写新实验、不自动重跑旧题、不把未验项改成完成。
 
-## 验证标准
+| 需要追溯的事实 | 入口 | 不能继承的结论 |
+|---|---|---|
+| 旧专业负责人 REA/IDA/Strix 接入 | `docs/professional-delegation-roadmap.md` | 旧 GUI open/close 不证明分析期间保留；旧 PD-04C 只有有限答案盲评 none，适用范围见专业交付验收记录与 Git 历史 |
+| Fresh 机器确认、工作区信任、七字段纠偏 | `docs/low-friction-collaboration-roadmap.md` | 有限 A/B tie 不证明普遍增益，自动信任不是通用配置管理 |
+| 自主协作合同与可见任务 | `docs/autonomous-collaboration-roadmap.md` | 保留 inconclusive，不把合同落地当效果提升 |
+| 已知报告校准与新9题研究对照 | `docs/research-validity-roadmap.md` | 保留 pass-limited/tie，不作为新行为或 learning 晋级证据 |
+| 专业取证、跨步骤预测、客户端/API 联合 | `docs/research-execution-roadmap.md` | 保留原对照 incomplete/inconclusive，不续写新日志 |
+| 双领域方法、分岔点与主辅 pack | `docs/research-capability-roadmap.md` | 四组32轮平局不证明新能力更强 |
+| verified-learning Gate 1–4 既有证据与未验门槛 | `docs/verified-learning-roadmap.md` | 无 current go/eligible comparative journey；多 case field evidence 仍 pending |
+| Windows 产品基线 | `docs/windows-native-product-roadmap.md` | 已发布 v1.0.4 历史验收不证明后续源码行为 |
+| 薄核心与更旧架构 | `docs/real-usage-hardening-roadmap.md`；必要时 Git history/`CHANGELOG.md` | 历史产品命令不是当前路径，不恢复旧控制面 |
+
+## 执行与验证纪律
+
+- 源码、skill、README 与 acceptance 冲突时先修合同；已完成工作的执行步骤删除，最终结论与失败/未知保留在对应验收记录。没有 active 路线时不另造短投影。
+- native shell 只做已有安装/Fresh/update/uninstall/卸载后自清理/evaluation/exact apply/可见启动/瞬时互斥，不增加团队判断状态。
+- 源仓库不是 case，不在此创建 `.steamai-vnext/`；不保存真实样本、流量、凭据、客户信息或绝对 case 路径。大文件按 symbol、标题或行号读取。
+- 默认验证不调用模型、不占前台。先跑与修改相关的 focused tests；全量机械回归命令如下，受影响的真实行为另按 acceptance 独立验收，不能继承旧版本结果：
 
 ```text
+python -m unittest discover -s tests/pack_tooling -p "test_*.py"
 go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...
 git diff --check
 ```
 
-涉及 Claude Code 或 Windows 外部行为时按 `vnext/acceptance.md` 执行对应 opt-in/manual gate。正式 `v1.0.4` Release 与匿名 latest 下载链路、真实 Windows setup/PATH/Fresh/visible member/duplicate Commander/learning/update/uninstall，以及 Claude Code native context/persistent correction/`HOLD_STALE_TASK`/cross-session message 已按各自范围通过；`v1.0.4` 相对 `v1.0.3` 不改变产品 runtime。后续改动不得沿用这些证据冒充新版本验收；workflow definition、fake platform、cross-compile 或 synthetic fixture 不能替代受影响的真实路径。
-
-## 风险与注意事项
-
-- 产品只支持 fresh/current，不提供旧项目导入、迁移、兼容 runtime、双写或 active case跨电脑迁移。
-- `CLAUDE.md` 是角色上下文，不授予工具权限或扩展 case 授权。
-- actual heavy action 仍依赖明确 case 授权、针对具体动作的用户确认和 Claude Code 权限。
-- 不把真实样本、trace/dump/capture、payload、凭据、客户信息、绝对 case 路径或 case 进度写入仓库。
+`CLAUDE.md` 只提供角色上下文，不授予工具权限；具体动作确认、Fresh/learning exact confirmation 与用户纠偏边界不因文档精简而变化。

@@ -4,7 +4,7 @@
 
 - 路线 ID：`steamai-research-capability-v1`。
 - 当前状态：`双领域方法、关键分岔点决策与主辅 pack 已实现；默认回归通过；32 轮真实静态对照完成，四组质量平局，未证明研究增益；原生成员双包读取、会话保存、同 session 恢复与正常退出已验证`。
-- 本文只保存本路线目标、范围与证据。完整路由见 `docs/context-routing.md`，短投影见 `docs/batch-plan.md`。
+- 本文只保存本路线目标、范围与证据。完整路由见 `docs/context-routing.md`；已结束批次不再维护短投影。
 - verified-learning 的既有证据与待验项仍在 `docs/verified-learning-roadmap.md`，不改写为已完成，也不借其 bounded Reviewer pass 证明本路线增益。
 
 ## 目标与用户画面

@@ -27,7 +27,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-professional-delivery-v1`，唯一执行入口为 `docs/professional-delivery-roadmap.md`：补齐逆向、Web 安全、游戏自动化脚本开发三条业务线，专业工具从任务开始使用，交付可复核结论或可运行代码。该路线已收束（DLV-00～08；必需 gate 缺口 NE-1/G-JOINT 原生消息于 2026-10-25 补验闭合，批次结果与待解清单以其接续点为准，本文件不维护第二份进度）；批实施细则已在长期行为写回后删除，不默认读取全部计划或旧实验。游戏自动化是已明确需求，不再以“是否属于安全研究”推回用户；旧“安全研究-only、唯一 pack 工具”阶段限制已随 DLV-01 的双交付合同与按用途接纳 pack 工具原则一并修订，pack 工具接纳仍以具体用途证明与禁止通用运行器为界，不等于无限执行授权。`docs/professional-delegation-roadmap.md` 保留旧接入实验；其中 GUI 保留与正式比较的完成适用性以新路线的基线说明为准，不能仅凭旧“通过/tie”标题继承完成。上游材料固定于 pack `upstream/**` 并校验、不进入 learningTargets；外部 agent 团队仍须通过对应范围的六项资格验收。`docs/low-friction-collaboration-roadmap.md` 保留已完成的 Fresh 机器确认、成员工作区自动信任、七字段纠偏与有限旧/新 A/B tie 事实，不改判。`docs/autonomous-collaboration-roadmap.md` 保留已完成的自主协作合同轮与可见任务事实，不改判其 `inconclusive` 对照。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前无 active 实施路线。`steamai-professional-delivery-v1` 的执行计划与短投影已删除，最终结果、失败与未验边界收敛到 `docs/professional-delivery-results.md`，仅在核查可用性或历史证据时读取；旧路线统一由 router 按需索引，不默认串读、不继承旧“通过/tie”证明新能力。游戏自动化是已明确需求，不再以“是否属于安全研究”推回用户；研究/开发双交付与按具体用途接纳 pack 工具均为当前合同，继续禁止通用运行器与无限执行授权。上游材料固定于 pack `upstream/**` 并校验、不进入 learningTargets；外部 agent 团队仍须通过对应范围的六项资格验收。历史 tie/inconclusive 与 verified-learning 未完成 live 门槛不因本轮收束而改判。
 
 ## 维护哲学与踩坑护栏
 
@@ -38,7 +38,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - 经验资格来自 accepted evidence chain 与 Reviewer 检查；成熟度按 V0–V4 的 exact evidence 分层，用户 exact confirmation 只授权写入，不提升成熟度，也不来自 Git staging。模板不得预填 `pass/accepted`，Apply 不自动 stage/commit/push，未确认内容留在来源 case。
 - production 路径只保留一个实现；测试调用 production API/CLI，不维护第二套 oracle、renderer 或兼容实现。完成声明按证据分层：unit/synthetic 只证明机械合同，Windows、Claude Code、跨会话和 Release 行为必须由各自真实路径证明。真实 token smoke 不替代独立 Reviewer calibration；维护/live 测试默认显式选择当前 Claude Code 配置的 `ANTHROPIC_DEFAULT_SONNET_MODEL`；仅极简探针或 headless 且 Sonnet 档无命令工具时才降级 `ANTHROPIC_DEFAULT_HAIKU_MODEL`。不继承 `ANTHROPIC_MODEL` 所指的高档模型；未经本次明确批准不得使用 `ANTHROPIC_DEFAULT_OPUS_MODEL`/顶级模型。按任务选最低足够档位并冻结，不强制厂商、不修改用户全局配置；requested model 不等于 actual model，主执行身份由 assistant 消息验证而非用量条目数量推断。盲审只让 Reviewer 一次读取 manifest 绑定的 immutable `blind-review.json`，以短 entry/output SHA 固定内容选择，再由 reveal 映射角色；缺证时不得以降标或重试刷出 `go`。
 - Windows/Release 易错点：正式路径不用 PowerShell/`.cmd`/`.bat`；evaluation arm 先 suspended 启动、加入 kill-on-close Job Object 后再恢复，避免 Start→Assign 的子进程逃逸窗口；update 从 canonical checkout 外运行并保留旧 checkout；uninstall 如实报告 helper 最小残留；`SHA256SUMS` 使用下载后的资产 basename；prerelease 不能成为 latest；公开发布前检查 ignored 本机文件、Git 历史和匿名下载链路。
-- 文档也保持单一职责：根 `CLAUDE.md` 保存长期目标与护栏，`docs/context-routing.md` 只路由，当前 roadmap 保存当前路线证据，`docs/batch-plan.md` 只投影。完成的 roadmap 不改写；出现新的实质目标时建立新路线并更新指针，不靠追加历史让 active docs 膨胀。
+- 文档也保持单一职责：根 `CLAUDE.md` 保存长期目标与护栏，`docs/context-routing.md` 只路由。执行计划只服务正在实施的工作；完成后把长期规则写回对应合同/pack，保留紧凑验收结论、失败/未验边界和 Git 追溯，删除临时计划与重复进度。不改判历史结果，不把残余缺陷改写成完成；只有新的实质目标才另建路线，不靠追加历史让 active docs 膨胀。
 
 ## 薄核心边界
 
@@ -70,15 +70,8 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
-- 当前路线与接续点：`docs/professional-delivery-roadmap.md`
-- 旧专业负责人接入实验：`docs/professional-delegation-roadmap.md`
-- 已完成低干预启动与纠偏路线：`docs/low-friction-collaboration-roadmap.md`
-- 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
-- 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
-- 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
-- verified-learning 证据与待验项：`docs/verified-learning-roadmap.md`
-- 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
-- 历史薄核心事实：`docs/real-usage-hardening-roadmap.md`
+- 三线交付验收与未解决问题：`docs/professional-delivery-results.md`
+- 历史证据、旧路线与未完成 learning 门槛：仅按 `docs/context-routing.md` 选择对应入口
 
 维护源码、模板和文档时先用 CodeGraph 查看结构、调用链与影响面；其返回源码视为已读。不得用 CodeGraph 处理样本、二进制或 case artifact。
 

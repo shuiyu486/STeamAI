@@ -4,9 +4,9 @@ STeamAI 是面向已授权安全研究与自动化开发的、人在环的 Claud
 
 Commander 与正式成员都是运行在 Claude Code 中的 LLM 智能 agent。STeamAI 按结果组织协作：讲清目标、权限和责任，让成员在边界内自主选择研究方法，而不是逐步遥控；简单问题不强行多人参与，方法按需参考，关键结论按现有合同复核。自主性不取消具体动作确认、文件保护和证据要求。后续设计与迭代以根 [CLAUDE.md](CLAUDE.md#智能成员与自主协作基准) 中的长期基准为准。
 
-当前源码按此基准调整任务与角色合同：当前任务内可自主换方法，已满足且边界未变的同一确认不重复索要，有界协作不逐次请示；最终综合审查仍须回答原问题。新合同只由后续 Fresh 固定，已有 case 不升级。[专业能力实际交付路线](docs/professional-delivery-roadmap.md)（`steamai-professional-delivery-v1`，交付批次全部执行完毕）接通了逆向、Web 安全与游戏自动化开发三条线：专业工具（IDA/idalib、Playwright、Airtest 等）从 pack 入口按具体用途接纳，各线经新 Fresh 真实任务验收（逆向/游戏线整体 review accepted；Web 线整体 needs-evidence 的证据缺口与联合线原生消息交接均已于 2026-10-25 补验闭合）；效果对照为小样本探索观察，质量平局（tie）为主，不宣称研究增益。残余限制（可见成员窗口路径未测、运行时补证为输出级等）与批次证据以该文件结果区为准。旧接入实验见 [专业负责人接入路线](docs/professional-delegation-roadmap.md)，完成适用性以新路线基线说明为准；文字合同与分发测试不代表真实研究已经更准、更快。
+当前源码按此基准调整任务与角色合同：当前任务内可自主换方法，已满足且边界未变的同一确认不重复索要，有界协作不逐次请示；最终综合审查仍须回答原问题。新合同只由后续 Fresh 固定，已有 case 不升级。逆向、Web 安全与游戏自动化开发三线已有受控任务交付；专业工具（IDA/idalib、Playwright、Airtest 等）从 pack 入口按具体用途接纳。[专业交付验收记录](docs/professional-delivery-results.md) 保存最终证据与未解决问题：小样本效果对照质量平局（tie）为主，不宣称研究增益；游戏线同步定位期间停止缺口尚未修复，不作为无人值守或实时控制保证。执行计划已移除，日常使用不需要读旧路线。
 
-Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。当前正式 Release 为 [`v1.0.4`](https://github.com/shuiyu486/STeamAI/releases/tag/v1.0.4)；v1 正式产品路径支持 Windows 10/11 x64。
+Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。当前正式 Release 为 [`v1.0.4`](https://github.com/shuiyu486/STeamAI/releases/tag/v1.0.4)；v1 正式产品路径支持 Windows 10/11 x64。**版本区别：本文的三线交付、新合同及后续主辅包能力描述当前源码，不表示下载 `v1.0.4` 已包含这些改动；这轮源码尚未发布新 Release。**
 
 ## 安装
 
@@ -144,14 +144,8 @@ v1 不支持 active case 跨电脑迁移、case import/export、云同步或 ses
 - case/研究模板与合同：`vnext/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 文档路由：`docs/context-routing.md`
-- 当前路线与实施方案：`docs/professional-delivery-roadmap.md`
-- 旧专业负责人接入实验：`docs/professional-delegation-roadmap.md`
-- 已完成低干预启动与纠偏路线：`docs/low-friction-collaboration-roadmap.md`
-- 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
-- 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
-- 已交付方法/主辅与对照事实：`docs/research-capability-roadmap.md`
-- verified-learning 既有证据与待验项：`docs/verified-learning-roadmap.md`
-- 已完成 Windows 产品基线：`docs/windows-native-product-roadmap.md`
+- 三线交付验收与未解决问题：`docs/professional-delivery-results.md`
+- 历史路线与学习待验项：按文档路由定向读取，不作为日常使用前置
 - 自动与人工验收分层：`vnext/acceptance.md`
 
 维护验证：
@@ -163,6 +157,6 @@ go vet ./...
 git diff --check
 ```
 
-fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径；原生 helper 的真实 timeout/process-tree 测试只证明受控 Windows 父子进程清理，不等于 Claude 整体行为验收。真实模型调用的 token smoke 也不能替代 Reviewer calibration；维护/live 测试显式选当前配置的 Haiku/Sonnet 档（`--model haiku` / `--model sonnet`），不继承高档主模型；未经本次明确批准不用 Opus/顶级模型，不限定模型供应商；主会话实际消息模型须与冻结选择一致，不能把总用量中的额外模型直接视为主模型漂移。live 运行方式见 `vnext/acceptance.md`，当前结果见 active roadmap。默认测试不调用模型。
+fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径；原生 helper 的真实 timeout/process-tree 测试只证明受控 Windows 父子进程清理，不等于 Claude 整体行为验收。真实模型调用的 token smoke 也不能替代 Reviewer calibration；维护/live 测试默认显式选当前配置的 Sonnet 档（`--model sonnet`）；仅极简探针或 headless 且 Sonnet 缺命令工具时降级 Haiku，不继承高档主模型；未经本次明确批准不用 Opus/顶级模型，不限定模型供应商；主会话实际消息模型须与冻结选择一致，不能把总用量中的额外模型直接视为主模型漂移。live 运行方式见 `vnext/acceptance.md`，结果按文档路由读取对应验收记录。默认测试不调用模型、不占前台；窗口/真实鼠标验收先取得用户同意的时间窗。
 
 旧 Go control plane、mega CLI、project-local runtime、PowerShell façade、adapter host、legacy `/rekit` 与旧项目 importer 均已删除。STeamAI 不是自动逆向/漏洞挖掘或渗透引擎；危险动作仍受明确 case 授权、具体用户确认与 Claude Code 工具权限约束，`CLAUDE.md` 只提供上下文，不授予权限。

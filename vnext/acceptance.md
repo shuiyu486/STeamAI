@@ -2,7 +2,7 @@
 
 本文件保留 `steamai-windows-native-product-v1` 的证据分层，并增加 `steamai-verified-learning-v1` 的独立 Gate 验收。所有自动 fixture 使用临时目录和无真实样本内容；结果不写入模板仓库，不把 session ID、绝对 case path 或 artifact bytes 保存为产品状态。
 
-当前专业能力实际交付路线与执行状态见 `docs/professional-delivery-roadmap.md`；旧专业负责人接入实验见 `docs/professional-delegation-roadmap.md`，GUI 保留与正式比较的完成适用性按新路线基线说明核查。此前自主协作、低干预启动与研究有效性结果保留在各自路线，不代替本轮真实行为验证。各路线不放宽本文件既有 gate；本轮新 gate 在 DLV-01 同步，计划存在不等于已执行。
+本文件定义验收要求，不维护执行进度。专业交付的实际结果、失败与未解决问题见 `docs/professional-delivery-results.md`；其它历史证据由 `docs/context-routing.md` 按需路由。交付批次收束不等于本文件所有 gate 均已通过，旧验收不证明新行为，计划存在不等于已执行。
 
 ## 证据分层
 
@@ -215,7 +215,7 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 
 ## 专业能力实际交付 — steamai-professional-delivery-v1
 
-本节是三业务线（逆向、Web 安全、Windows 游戏自动化开发）的长期验收合同；批次状态、授权与当前接续点见 `docs/professional-delivery-roadmap.md`。上一节专业负责人接入的局部证据不自动继承为本路线完成。
+本节是三业务线（逆向、Web 安全、Windows 游戏自动化开发）的长期验收合同；实际覆盖范围与未解决问题见 `docs/professional-delivery-results.md`。上一节专业负责人接入的局部证据不自动继承为全部完成。
 
 ### 默认机械合同（随 DLV-01/02 交付）
 
@@ -227,14 +227,14 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 
 - **G-TOOLS**（DLV-02 binary/web、DLV-05 game）：新 Fresh case 仅凭仓库入口完成专业小操作、导出与跨会话阅读；错版本、缺工具、目标错配、输出超限、停止未知必须明确失败。逐工具分别核实，REA 成功不代 Strix/Airtest 通过。
 - **G-RE / G-WEB / G-GAME**（DLV-03/04/05）：各自业务线的完整交付链——逆向功能链与运行时补证且 GUI 保留经实际后端分析补验；Web 浏览器/API 实证与修复回归；游戏脚本在正常、扰动、停止、恢复条件下符合预期（停止后不再发新输入 ≤2 秒或记录实测上界）。
-- **G-JOINT**（DLV-06）：原生消息交接＋真实字段/请求/结果关联，版本/对象错配被拒绝；不以局部 accepted 冒充整体。实际验收范围为 case artifact 接力＋接收事实与关联证据（DLV-06 整体 review accepted）；**原生消息交接已于 2026-10-25 以正式可见成员窗口路径补验闭合**（Commander 正式改派＋成员间原生 token 交接＋success/incoming 双侧独立凭证，token 一致，见 roadmap DLV-06 结果区）。该 gate 两部分均有真实路径证据。
+- **G-JOINT**（DLV-06）：原生消息交接＋真实字段/请求/结果关联，版本/对象错配被拒绝；不以局部 accepted 冒充整体。消息须按原生寻址合同核对 success 与 incoming 双侧记录；内容关联须独立审查。实际结果仅记验收记录，不在此复制进度。
 - **G-FRESH**（DLV-07）：全新目录按本轮内容重走三线必需路径，无历史缓存与维护者内部修补；三线工程可用与有限效果观察分开记录，tie/更差如实保留。
 - 涉及真实安装（Playwright/Airtest）、外部目标或网络动作前，逐项取得用户对精确目标与恢复方式的批准；维护 fixtures 在仓库外生成，仓库只存生成器与无敏感合成源。
 - 维护测试与验收默认走无窗口后台通道（headless 会话、无窗口 fixture、文件消息通道），不占前台窗口/真实鼠标/键盘（用户 2026-10-25 再确认）；仅当被验收对象本身是可见成员窗口或真实鼠标通道时，先取得用户对时间窗的同意，最小窗口数执行，用完立即关闭。
 
 ### 记录
 
-结果只写当前 roadmap 的批次结果区；证据区分 unit/synthetic、真实工具、可见成员、用户直接纠偏与比较结论；费用按批汇总，不建计费平台。
+结果只写对应验收记录；执行中可暂存当前路线，收束后删除实施计划与重复进度。证据区分 unit/synthetic、真实工具、可见成员、用户直接纠偏与比较结论；失败、未验项与 Git 追溯保留，费用按批汇总，不建计费平台。
 
 ## 5. Release live
 
