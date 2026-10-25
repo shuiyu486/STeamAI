@@ -4,9 +4,11 @@
 
 ## 结构
 
-- `workflow.py`：状态枚举、`DecisionCore`、`DeviceAdapter`/`FakeDevice`、`Runner`（控制文件暂停/停止、ledger、时间线）。无第三方依赖。
+- `workflow.py`：状态枚举、`DecisionCore`、`DeviceAdapter`/`FakeDevice`、`Runner`（控制文件暂停/停止、可取消准备、ledger、时间线）。无第三方依赖。
 - `config.example.json`：目标绑定、识别条件、动作/等待上限、非幂等清单的配置形状。
 - `requirements.txt`：真实窗口执行时的依赖 pin（安装需用户批准；fake 单测不需要）。
+
+**adapter 接口（prepare 与输入分离）**：`observe(checkpoint)`、`prepare(action, checkpoint)`（耗时截图/定位在此完成，期间反复调用 `checkpoint` 响应停止）、`act(action, prepared)`（只发短输入）。Runner 在准备返回后与 pending 落盘后各复核一次控制文件，晚到的停止不消费过期定位；暂停期间保持观察但不发输入。
 
 ## 自检
 
@@ -23,4 +25,4 @@ python workflow.py --selftest
 3. fake 单测迁移进项目测试；端到端按 `../../recipes/automation-regression.md` 六场景验收。
 4. 本示例不绑定任何真实窗口；占位符只指向合成窗口。
 
-**停止边界**：参考 Runner 在同步 `observe/act` 返回后才再次读取控制文件，不会中断长调用。接入耗时视觉模型等适配器时，必须另行实现可取消等待、发输入前复核停止与最新状态，并测试“调用期间发 stop 不再输入”；现有 selftest 和等待段急停记录不证明这一点。未满足前只用于有人看护的有界流程，不宣称全时段 ≤2 秒停止或无人值守安全。
+**停止边界**：Runner 的停止检查点是控制文件轮询（`poll_interval` ≤0.2s）；`prepare` 内的耗时步骤（视觉模型调用、外部进程）必须反复调用传入的 `checkpoint`，让 stop/estop 在长调用期间立即生效并丢弃未完成的定位；不合作的同步 adapter 只能靠准备后的复核兜底，其长调用期间无法中断。验收须覆盖"识别期间发 stop"与"输入前发 stop"两类负例（见 `tests/pack_tooling/test_windows_flow.py`）；等待段与复核点的实测时延不外推到不合作 adapter 的阻塞段。

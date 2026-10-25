@@ -28,7 +28,7 @@ Windows 桌面游戏自动化脚本开发从任务开始使用固定版本的 Ai
 自绘游戏窗口没有 UIA 控件可枚举，定位只能走视觉；按以下顺序选择，不把标定敏感的模板匹配当默认：
 
 1. **原生控件枚举**：目标是标准控件窗口（非自绘）时，`EnumChildWindows`/UI Automation 取控件 rect，通常比图像标定直接；仍须核对 DPI、坐标系与目标控件支持。
-2. **LLM 视觉定位**（自绘窗口、慢速有界流程的默认候选）：截图（目标支持时可用 PrintWindow+PW_RENDERFULLCONTENT 穿遮挡，ndarray 注意 BGR→RGB 与 DPI 对齐）→ headless `claude -p` 读图返回 JSON bbox → 核对当前目标、停止信号与状态后点击。实测合成窗口 green/orange 两状态误差 ≤1px，不代表任意动态 UI 或渲染后端都可靠。当前逐次 CLI 调用约 30–60s，不适合实时循环；长调用须可取消，返回后拒绝使用过期截图/坐标。放宽 join/等待超时只解决编排问题，不解决停止与状态过期。参考 workflow 的同步 act 不自带这一保证，适配器须实现并验收后才投入对应使用。
+2. **LLM 视觉定位**（自绘窗口、慢速有界流程的默认候选）：截图（目标支持时可用 PrintWindow+PW_RENDERFULLCONTENT 穿遮挡，ndarray 注意 BGR→RGB 与 DPI 对齐）→ headless `claude -p` 读图返回 JSON bbox → 复核停止与状态后点击。实测合成窗口 green/orange 两状态误差 ≤1px，不代表任意动态 UI 或渲染后端都可靠。当前逐次 CLI 调用约 30–60s，不适合实时循环；定位调用放在 adapter 的 `prepare` 阶段并接受 Runner 传入的 checkpoint（调用期间反复轮询控制文件，stop 立即放弃并丢弃过期坐标），返回后由 Runner 复核再发输入。放宽 join/等待超时只解决编排问题，不解决停止与状态过期。
 3. **模板匹配**（aircv）：仅极简单、静态、渲染可控的场景；对 DPI 缩放、坐标系表示（BGR/RGB、ndarray/PIL）、标定后渲染变化敏感——失败时先怀疑坐标系与截图管线，不要在阈值参数上打转；collect 等多色块场景颜色掩码要把按钮与背景装饰分成独立 band，不能整图 min/max 合并。
 
 选择记录在脚本入口（如 `DLV05_LOCATE=llm|template`），验收报告注明所用定位方式。

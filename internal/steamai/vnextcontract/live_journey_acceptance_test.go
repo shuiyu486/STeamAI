@@ -25,7 +25,7 @@ func TestLivePersistentMemberContextAndCorrection(t *testing.T) {
 		t.Fatalf("locate canonical Claude Code CLI: %v", err)
 	}
 
-	model := liveConfiguredHaikuModel(t)
+	model := liveConfiguredProbeModel(t)
 	caseRoot := t.TempDir()
 	stateRoot := filepath.Join(caseRoot, ".steamai-vnext")
 	ownerRoot := filepath.Join(stateRoot, "members", "owner")
@@ -110,7 +110,7 @@ func runPersistentJourneyTurn(t *testing.T, claude, model, cwd, caseRoot, sessio
 	} else {
 		args = append(args, "--session-id", sessionID)
 	}
-	cmd := liveHaikuCommand(ctx, claude, model, cwd, args...)
+	cmd := liveProbeCommand(ctx, claude, model, cwd, args...)
 	stdout, err := cmd.Output()
 	if ctx.Err() != nil {
 		t.Fatalf("persistent journey timed out: %v", ctx.Err())

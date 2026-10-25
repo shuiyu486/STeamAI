@@ -251,11 +251,27 @@ func mergeTrustEntry(original []byte, projectKey string) (merged []byte, already
 	return combined, false, nil
 }
 
-// validateTrustScope 核对信任目标不会扩大到成员目录之外：成员目录必须存在且
-// 不是 reparse point；祖先链上出现 .git 时原生信任会锚定整个 repo root，
-// 超出本次授权的 exact 成员范围，必须停止。
-func validateTrustScope(memberRoot string) error {
-	if !filepath.IsAbs(memberRoot) {
+// gitAnchor 返回从 dir（含自身）向上最近一个包含 .git 条目的目录；都不含时返回空串。
+func gitAnchor(dir string) string {
+	for {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// validateTrustScope 核对信任目标不会扩大到本次授权之外：原生对 git 仓库内目录的
+// 信任锚定最近 repo root。允许的锚只有两种——exact 成员目录（成员自身是嵌套仓库
+// 根，范围不大于成员）与 case 根（case 建在仓库根，范围恰等于本次 case 授权边界，
+// 与普通目录 case 的授权范围一致）。锚超出 case 根（case 位于仓库子目录）或介于
+// 成员与 case 根之间时拒绝，并列出可执行的下一步；不猜写、不降级弹框。
+func validateTrustScope(memberRoot, caseRoot string) error {
+	if !filepath.IsAbs(memberRoot) || !filepath.IsAbs(caseRoot) {
 		return errors.New("信任目标必须是绝对路径")
 	}
 	info, err := os.Stat(memberRoot)
@@ -265,22 +281,26 @@ func validateTrustScope(memberRoot string) error {
 	if err := rejectReparse(memberRoot); err != nil {
 		return fmt.Errorf("信任目标无效: %w", err)
 	}
-	for dir := memberRoot; ; dir = filepath.Dir(dir) {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return fmt.Errorf("成员目录位于 git 仓库内（%s），原生信任会扩大到整个仓库根，拒绝自动信任", dir)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return nil
-		}
+	anchor := gitAnchor(memberRoot)
+	if anchor == "" || strings.EqualFold(anchor, memberRoot) || strings.EqualFold(anchor, caseRoot) {
+		return nil
 	}
+	if pathWithin(caseRoot, anchor) {
+		return fmt.Errorf(
+			"case 根 %s 位于 git 仓库 %s 内，原生信任会锚定整个仓库根，超出本次 case 授权；"+
+				"请改在成员窗口首次启动时手动接受信任框（由你本人批准仓库级信任），或把 case 建在仓库根/仓库外目录",
+			caseRoot, anchor)
+	}
+	return fmt.Errorf(
+		"成员目录 %s 之上、case 根之内存在嵌套 git 仓库 %s，原生信任会锚定该仓库，范围超出 exact 成员；请移除嵌套仓库或手动接受信任框",
+		memberRoot, anchor)
 }
 
 // prepareMemberWorkspaceTrust 在当前配置域为目标成员目录写入原生信任记录。
-// 已信任时零写入返回 true；任何解析、冲突或并发障碍都以具体原因失败，
-// 不重置配置、不静默重试。
-func prepareMemberWorkspaceTrust(memberRoot string) (bool, error) {
-	if err := validateTrustScope(memberRoot); err != nil {
+// caseRoot 用于核对原生信任锚不超出本次 case 授权边界。已信任时零写入返回 true；
+// 任何解析、冲突或并发障碍都以具体原因失败，不重置配置、不静默重试。
+func prepareMemberWorkspaceTrust(memberRoot, caseRoot string) (bool, error) {
+	if err := validateTrustScope(memberRoot, caseRoot); err != nil {
 		return false, err
 	}
 	configPath, err := claudeConfigPath()

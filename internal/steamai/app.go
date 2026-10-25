@@ -435,7 +435,7 @@ func (a *app) openMember(name string, trustWorkspace bool) error {
 	if trustWorkspace {
 		// 自动信任只在全部成员校验通过后、可见启动前发生；任何配置解析、
 		// 冲突或并发障碍都以具体原因停止启动，不降级为弹信任框。
-		if _, err := prepareMemberWorkspaceTrust(memberRoot); err != nil {
+		if _, err := prepareMemberWorkspaceTrust(memberRoot, caseRoot); err != nil {
 			return fmt.Errorf("自动信任成员工作区失败: %w", err)
 		}
 	}

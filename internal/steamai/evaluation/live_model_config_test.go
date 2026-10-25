@@ -70,15 +70,16 @@ func resolveLiveModel(env map[string]string, layers []liveModelSettings) (string
 	}
 	maps.Copy(merged, env)
 	// 高档模型仅通过调用者显式选择；不继承主会话的 ANTHROPIC_MODEL 或 settings.model。
+	// 默认档位为 Sonnet（用户 2026-10-25 规则）；未配置 Sonnet 槽位才降级 Haiku。
 	model := merged["STEAMAI_LIVE_MODEL"]
 	explicit := model != ""
 	if !explicit {
-		model = merged["ANTHROPIC_DEFAULT_HAIKU_MODEL"]
+		model = merged["ANTHROPIC_DEFAULT_SONNET_MODEL"]
 		if model == "" {
-			model = merged["ANTHROPIC_DEFAULT_SONNET_MODEL"]
+			model = merged["ANTHROPIC_DEFAULT_HAIKU_MODEL"]
 		}
 		if model == "" {
-			return "", fmt.Errorf("live test 需要配置 ANTHROPIC_DEFAULT_HAIKU_MODEL 或 ANTHROPIC_DEFAULT_SONNET_MODEL；不回退到主模型或 Opus，显式选择请设置 STEAMAI_LIVE_MODEL")
+			return "", fmt.Errorf("live test 需要配置 ANTHROPIC_DEFAULT_SONNET_MODEL 或 ANTHROPIC_DEFAULT_HAIKU_MODEL；不回退到主模型或 Opus，显式选择请设置 STEAMAI_LIVE_MODEL")
 		}
 	}
 	switch model {
@@ -105,19 +106,19 @@ func TestLiveModelConfigurationIsProviderNeutral(t *testing.T) {
 		layers []liveModelSettings
 		want   string
 	}{
-		{"haiku-before-sonnet", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-fixture[1m]", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "gpt-fixture[1m]"},
-		{"sonnet-fallback", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
-		{"empty-haiku", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
-		{"main-opus-ignored", map[string]string{"ANTHROPIC_MODEL": "opus", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/haiku-fixture"}, nil, "provider/haiku-fixture"},
+		{"sonnet-before-haiku", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/haiku-fixture", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
+		{"haiku-fallback", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-fixture[1m]"}, nil, "gpt-fixture[1m]"},
+		{"empty-sonnet", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/haiku-fixture", "ANTHROPIC_DEFAULT_SONNET_MODEL": ""}, nil, "provider/haiku-fixture"},
+		{"main-opus-ignored", map[string]string{"ANTHROPIC_MODEL": "opus", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
 		{"fixed-main-model-ignored", map[string]string{"ANTHROPIC_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, "provider/sonnet-fixture"},
-		{"settings-main-ignored", nil, []liveModelSettings{{Model: "opus", Env: map[string]string{"ANTHROPIC_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-fixture[1m]"}}}, "gpt-fixture[1m]"},
-		{"local-layer", nil, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/user"}}, {Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/project"}}, {Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/local"}}}, "provider/local"},
-		{"environment-over-settings", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/environment"}, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/settings"}}}, "provider/environment"},
-		{"haiku-tier-before-source", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/environment-sonnet"}, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/settings-haiku"}}}, "provider/settings-haiku"},
-		{"default-cannot-select-opus-alias", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "opus", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive"}, nil, ""},
-		{"default-cannot-select-auto", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "auto"}, nil, ""},
-		{"default-cannot-select-suffixed-alias", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "haiku[1m]"}, nil, ""},
-		{"invalid-haiku-does-not-fallback", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "invalid model", "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/sonnet-fixture"}, nil, ""},
+		{"settings-main-ignored", nil, []liveModelSettings{{Model: "opus", Env: map[string]string{"ANTHROPIC_MODEL": "provider/expensive", "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-fixture[1m]"}}}, "gpt-fixture[1m]"},
+		{"local-layer", nil, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/user"}}, {Env: map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/project"}}, {Env: map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/local"}}}, "provider/local"},
+		{"environment-over-settings", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/environment"}, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/settings"}}}, "provider/environment"},
+		{"sonnet-tier-before-source", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/environment-haiku"}, []liveModelSettings{{Env: map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/settings-sonnet"}}}, "provider/settings-sonnet"},
+		{"default-cannot-select-opus-alias", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "opus", "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/expensive"}, nil, ""},
+		{"default-cannot-select-auto", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "auto"}, nil, ""},
+		{"default-cannot-select-suffixed-alias", map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "sonnet[1m]"}, nil, ""},
+		{"invalid-sonnet-does-not-fallback", map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/haiku-fixture", "ANTHROPIC_DEFAULT_SONNET_MODEL": "invalid model"}, nil, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := resolveLiveModel(test.env, test.layers)

@@ -118,7 +118,8 @@ class FakeDevice(object):
         self.observe_times = []  # 每次 observe 的单调时间（顺序断言用）
         self.released = False
 
-    def observe(self):
+    def observe(self, checkpoint):
+        checkpoint()
         self.observe_count += 1
         self.observe_times.append(time.time())  # 墙钟：与控制/动作时刻可比
         if self.script:
@@ -132,7 +133,11 @@ class FakeDevice(object):
     def _sleep(self, seconds):
         time.sleep(seconds)
 
-    def act(self, action):
+    def prepare(self, action, checkpoint):
+        checkpoint()
+        return None  # fake 无耗时定位；真实 adapter 在此完成可取消的截图/定位
+
+    def act(self, action, prepared):
         self.acts.append((action, self.clock()))
         return True
 
@@ -225,8 +230,18 @@ class ControlFile(object):
             pass
 
 
+class StopRequested(Exception):
+    """checkpoint 在长调用期间观察到 stop/estop；放弃当前动作，走统一停止出口。"""
+
+
 class Runner(object):
-    """主循环：poll 控制 → observe → decide → act/wait。停止判据由时间线验收。"""
+    """主循环：poll 控制 → observe → decide → prepare → 复核 → act/wait。
+
+    停止语义：observe/prepare 都是可传入 checkpoint 的调用——adapter 在耗时步骤
+    （截图、视觉定位、外部进程）中反复调用 checkpoint，主循环在 stop/estop 时经
+    StopRequested 立即放弃；prepare 返回后、输入发出前再复核一次控制文件，晚到的
+    停止不消费过期定位结果。停止判据由时间线验收。
+    """
 
     def __init__(self, core, device, ledger, control, timeline_path, poll_interval):
         self.core = core
@@ -234,9 +249,12 @@ class Runner(object):
         self.ledger = ledger
         self.control = control
         self.timeline = open(timeline_path, "a", encoding="utf-8")
+        if not 0 < poll_interval <= 0.2:
+            raise ValueError("poll_interval 必须在 (0, 0.2] 秒：控制轮询间隔即停止响应上界的一部分")
         self.poll_interval = poll_interval
         self.paused = False
         self.stop_requested_at = None
+        self.need_fresh_step = False  # resume 后恢复从重新观察开始（清空等待计数）
 
     def log(self, event, **fields):
         rec = {"t": time.time(), "event": event}
@@ -244,27 +262,55 @@ class Runner(object):
         self.timeline.write(json.dumps(rec, ensure_ascii=False) + "\n")
         self.timeline.flush()
 
+    def _consume_stop(self, cmd):
+        if cmd in ("stop", "estop"):
+            self.stop_requested_at = time.time()
+            self.log("control.%s" % cmd)
+            return True
+        return False
+
+    def checkpoint(self):
+        """控制文件检查点：长调用内调用；stop/estop 抛 StopRequested，pause/resume 就地生效。"""
+        cmd = self.control.poll()
+        if self._consume_stop(cmd):
+            raise StopRequested()
+        if cmd == "pause":
+            self.paused = True
+            self.log("control.pause")
+        elif cmd == "resume":
+            self.paused = False
+            self.need_fresh_step = True  # 恢复从重新观察开始
+            self.log("control.resume")
+
     def run(self):
+        try:
+            self._run_loop()
+        except StopRequested:
+            pass
+        finally:
+            self.device.release()
+            self.log("run.exit", last_event=time.time())
+            self.timeline.close()
+        return {"stop_requested_at": self.stop_requested_at}
+
+    def _run_loop(self):
         step_ctx = {"waited": 0.0, "retries": 0}
         last_obs = None
         self.log("run.start")
         while True:
-            cmd = self.control.poll()
-            if cmd in ("stop", "estop"):
-                self.stop_requested_at = time.time()
-                self.log("control.%s" % cmd)
-                break
-            if cmd == "pause":
-                self.paused = True
-                self.log("control.pause")
-            elif cmd == "resume":
-                self.paused = False
-                step_ctx = {"waited": 0.0, "retries": 0}  # 恢复从重新观察开始
-                self.log("control.resume")
+            self.checkpoint()
+            # 暂停≠停止：保持观察（时间线与 observe 计数仍推进），但冻结决策
+            # 推进——不累计 waited/retries、不决策、不发输入；仅目标消失时停止
+            obs = self.device.observe(self.checkpoint)
             if self.paused:
+                if obs.state is State.GONE:
+                    self.log("stop", reason="target gone while paused")
+                    break
                 time.sleep(self.poll_interval)
                 continue
-            obs = self.device.observe()
+            if self.need_fresh_step:
+                self.need_fresh_step = False
+                step_ctx = {"waited": 0.0, "retries": 0}
             if last_obs is not None and obs.state is not last_obs.state:
                 step_ctx = {"waited": 0.0, "retries": 0}
             if obs.state is State.UNKNOWN:
@@ -276,11 +322,22 @@ class Runner(object):
                 if self.core.is_non_idempotent(action) and self.ledger.has(action):
                     self.log("act.skip-ledger", action=action.value)
                     continue
+                # 准备阶段（定位等耗时操作）不发送输入；adapter 经 checkpoint 响应停止
+                prepared = self.device.prepare(action, self.checkpoint)
+                # 输入发出前复核：准备期间或最后瞬间到达的停止不消费过期定位
+                if self._consume_stop(self.control.poll()):
+                    raise StopRequested()
+                if self.paused:
+                    self.log("act.discard-prepared", action=action.value)
+                    continue
                 if self.core.is_non_idempotent(action):
                     # 输入发出前先落盘 pending：中断后无法确认是否已执行，
                     # 重启时决策层对 pending 暂停等待确认
                     self.ledger.begin(action)
-                self.device.act(action)
+                    # pending 落盘与输入之间的最后复核：停止时保留 pending（无法确认是否已执行）
+                    if self._consume_stop(self.control.poll()):
+                        raise StopRequested()
+                self.device.act(action, prepared)
                 self.log("act", action=action.value)
                 if self.core.is_non_idempotent(action):
                     self.ledger.commit(action)
@@ -297,10 +354,6 @@ class Runner(object):
             elif decision is Decision.STOP:
                 self.log("stop", reason=str(payload))
                 break
-        self.device.release()
-        self.log("run.exit", last_event=time.time())
-        self.timeline.close()
-        return {"stop_requested_at": self.stop_requested_at}
 
 
 def selftest():

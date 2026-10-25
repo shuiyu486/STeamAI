@@ -17,7 +17,7 @@ steamai __open-member [--trust-workspace] <member-name>
 
 原生入口只验证成员目录与 `CLAUDE.md`，然后从该目录自动打开一个屏幕上立即可见的普通交互式 Claude Code 窗口，以 `--name <member-name>` 给原生 session 一个可读的寻址提示，并以 `--add-dir <CASE_ROOT>` 加入 case 根访问范围；这条基础启动路径要求支持 `--name` 的 Claude Code 2.1.76 或更高版本。session name 不构成成员身份；发送前先在与目标会话相同的 Claude Code 配置域运行原生 `claude agents --json`，将 exact member cwd 唯一映射到实际 session name，再用 `ListAgents` 确认同名 peer 此刻可达，只有两边唯一相交才向该 name 发送。用户从窗口出现起即可观察、输入、暂停和纠偏；该入口不使用 `--bg`，不保存 PID/session ID，也不管理成员任务或生命周期。原生启动失败时才展示从成员目录执行 `claude --name <member-name> --add-dir <CASE_ROOT>` 的手工 fallback。
 
-`--trust-workspace` 是内部显式选项，只在用户对本次 case 初始化的批准明确涵盖成员工作区信任时由新版 canonical skill 传入：原生入口在全部成员校验通过后、打开窗口前，向当前配置域的 Claude Code 项目记录写入该 exact 成员目录的 `hasTrustDialogAccepted: true`，用户无需逐个点击信任框。该写入只发生在校验通过的 exact 成员目录上：复用与原生一致的 `.claude.json.lock` 目录锁和原子替换，其余 JSON 内容逐字节保留，已信任时零写入；成员目录位于 git 仓库内（原生信任会锚定整个仓库根）、配置畸形、存在重复/大小写别名键或锁持续被持有时，该成员启动以具体原因停止，不降级弹框、不扩大信任、不静默重试。不带该选项的调用保持原有行为，不为旧 case 静默新增信任。
+`--trust-workspace` 是内部显式选项，只在用户对本次 case 初始化的批准明确涵盖成员工作区信任时由新版 canonical skill 传入：原生入口在全部成员校验通过后、打开窗口前，向当前配置域的 Claude Code 项目记录写入该 exact 成员目录的 `hasTrustDialogAccepted: true`，用户无需逐个点击信任框。该写入只发生在校验通过的 exact 成员目录上：复用与原生一致的 `.claude.json.lock` 目录锁和原子替换，其余 JSON 内容逐字节保留，已信任时零写入。原生对 git 仓库内目录的信任锚定最近 repo root，因此只有两种锚被允许——exact 成员目录与 case 根（case 建在仓库根，范围恰等于本次 case 授权）；case 位于仓库子目录（锚超出 case）或成员与 case 根之间存在嵌套仓库时，该成员启动以具体原因停止并列出可执行下一步，不降级弹框、不扩大信任、不静默重试。配置畸形、存在重复/大小写别名键或锁持续被持有时同样停止。不带该选项的调用保持原有行为，不为旧 case 静默新增信任。
 
 正式 Commander/member 启动仅在新进程环境中移除 `CLAUDECODE` 与 `CLAUDE_CODE_CHILD_SESSION`：后者可能由 Commander 的 shell 工具继承，若带入独立交互会话会令 Claude Code 关闭 transcript 保存。不得用全局修改或强设 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` 替代这条边界，也不覆盖用户其它明确的历史保存选择。
 

@@ -129,32 +129,56 @@ func TestMergeTrustEntryRejections(t *testing.T) {
 	}
 }
 
-func TestValidateTrustScopeRejectsGitReposAndBadPaths(t *testing.T) {
+func TestValidateTrustScopeAnchorsGitTrustToCaseBoundary(t *testing.T) {
 	root := t.TempDir()
-	plain := filepath.Join(root, "members", "researcher")
+	caseRoot := filepath.Join(root, "case")
+	plain := filepath.Join(caseRoot, ".steamai-vnext", "members", "researcher")
 	if err := os.MkdirAll(plain, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateTrustScope(plain); err != nil {
+	if err := validateTrustScope(plain, caseRoot); err != nil {
 		t.Fatalf("plain member dir rejected: %v", err)
 	}
-	// 仓库内成员：原生信任会锚定 repo root，超出 exact 成员范围。
-	repo := filepath.Join(root, "repo")
-	memberInRepo := filepath.Join(repo, "case", ".steamai-vnext", "members", "researcher")
+	// case 根即仓库根：原生信任锚定 case 根，范围恰好等于本次 case 授权边界。
+	if err := os.Mkdir(filepath.Join(caseRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateTrustScope(plain, caseRoot); err != nil {
+		t.Fatalf("case-root repo rejected: %v", err)
+	}
+	// case 位于仓库子目录：锚=外层仓库根，超出 case 授权，拒绝并给出指引。
+	nested := filepath.Join(root, "repo", "case")
+	memberInRepo := filepath.Join(nested, ".steamai-vnext", "members", "researcher")
 	if err := os.MkdirAll(memberInRepo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(root, "repo", ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateTrustScope(memberInRepo); err == nil || !strings.Contains(err.Error(), "git") {
-		t.Fatalf("member inside git repo accepted: %v", err)
+	err := validateTrustScope(memberInRepo, nested)
+	if err == nil || !strings.Contains(err.Error(), "超出本次 case 授权") || !strings.Contains(err.Error(), "信任框") {
+		t.Fatalf("case inside parent repo accepted or lacks guidance: %v", err)
 	}
-	if err := validateTrustScope(filepath.Join(root, "missing")); err == nil {
+	// 成员目录与 case 根之间的嵌套仓库：锚超出 exact 成员，拒绝。
+	mid := filepath.Join(root, "repo2", "case")
+	memberInMid := filepath.Join(mid, ".steamai-vnext", "members", "x")
+	if err := os.MkdirAll(memberInMid, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(mid, ".steamai-vnext", "members", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateTrustScope(memberInMid, mid); err == nil || !strings.Contains(err.Error(), "嵌套") {
+		t.Fatalf("nested repo between member and case accepted: %v", err)
+	}
+	if err := validateTrustScope(filepath.Join(root, "missing"), caseRoot); err == nil {
 		t.Fatal("missing member dir accepted")
 	}
-	if err := validateTrustScope("relative/path"); err == nil {
+	if err := validateTrustScope("relative/path", caseRoot); err == nil {
 		t.Fatal("relative member dir accepted")
+	}
+	if err := validateTrustScope(plain, "relative/case"); err == nil {
+		t.Fatal("relative case root accepted")
 	}
 }
 
@@ -169,7 +193,7 @@ func TestWriteClaudeConfigPersistsBackupAndCleansUp(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(trustFixtureConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	already, err := prepareMemberWorkspaceTrust(filepath.Join(configDir, "members", "researcher"))
+	already, err := prepareMemberWorkspaceTrust(filepath.Join(configDir, "members", "researcher"), configDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +205,7 @@ func TestWriteClaudeConfigPersistsBackupAndCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	already, err = prepareMemberWorkspaceTrust(filepath.Join(configDir, "members", "researcher"))
+	already, err = prepareMemberWorkspaceTrust(filepath.Join(configDir, "members", "researcher"), configDir)
 	if err != nil || !already {
 		t.Fatalf("second call = (%v, %v) want (true, nil)", already, err)
 	}
