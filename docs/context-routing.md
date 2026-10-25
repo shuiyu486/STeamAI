@@ -6,7 +6,7 @@
 
 ## 当前指针
 
-- 当前路线：`steamai-professional-delivery-v1`（已收束：必需 gate 缺口 NE-1/G-JOINT 原生消息 2026-10-25 补验闭合；真实鼠标复测待用户时间窗；批次结果见路线接续点与结果区）
+- 当前路线：`steamai-professional-delivery-v1`（已收束：必需 gate 缺口 NE-1/G-JOINT 原生消息 2026-10-25 补验闭合；真实鼠标 windowed 复测 6/6 通过；遗留限制见路线待解清单）
 - 当前路线入口：`docs/professional-delivery-roadmap.md`（批实施临时细则已随收口删除）
 - 旧专业负责人接入实验：`docs/professional-delegation-roadmap.md`；完成适用性见新路线基线说明
 - 已完成低干预启动与纠偏路线（Fresh 机器确认、自动信任、七字段纠偏、有限 A/B tie）：`docs/low-friction-collaboration-roadmap.md`

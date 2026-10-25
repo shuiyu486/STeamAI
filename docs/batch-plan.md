@@ -11,7 +11,7 @@
 | 路线 | `steamai-professional-delivery-v1` |
 | source | `docs/professional-delivery-roadmap.md` |
 | 目标 | 逆向完整功能分析、Web 实际验证/修复回归、Windows 游戏自动化开发；专业项目能力成为新 Fresh 可消费的交付路径 |
-| 当前状态 | 路线收束：DLV-00–08 done（08 四轮 Reviewer 至 accepted）；NE-1 与 G-JOINT 原生消息两项必需项缺口已于 2026-10-25 授权补验闭合；真实鼠标复测失败于模板脱节（待用户时间窗） |
+| 当前状态 | 路线收束：DLV-00–08 done（08 四轮 Reviewer 至 accepted）；NE-1 与 G-JOINT 原生消息两项必需项缺口已于 2026-10-25 授权补验闭合；真实鼠标 windowed 复测 6/6 通过（LLM 视觉定位）；遗留 headless 纯色模板零方差伪匹配限制 |
 | 下一步 | 无待执行批次；Git 已授权提交推送；维护回到根 CLAUDE.md 与 context-routing 常规入口 |
 | 批次 | 00 基线 → 01 合同 → 02 接入 → 03 逆向 / 04 Web / 05 游戏 → 06 联合 → 07 验收 → 08 收尾 |
 | 实施细则 | 批实施临时细则已随收口删除；长期行为在 README、根 CLAUDE.md、skill、vnext 模板/acceptance 与各 pack 入口 |
