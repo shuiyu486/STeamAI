@@ -24,6 +24,8 @@
 | VMProtect x64 专项 | `workflow-template.md`、`agent-driven-re.md` | VMEnter、context、trace、handler value-flow 与 review。 |
 | VMP/IDA 工具选择 | `toolchain-router.md` | 公开工具短测、IDA sidecar、debug/trace 边界。 |
 | 低样本 handler 的 final effect/反证复核 | `singleton-handler-review.md` | 输入对齐、覆盖写/alias、最小区分检查与 keep unknown；按需再读 `../../tooling/recipes/focused-handler-review.md`。 |
+| 间接调用/函数表/回调的目标解析 | `../../tooling/recipes/indirect-call-resolution.md` | 引用点定位、表来源判定、idx 边界封闭性与候选匹配；运行期改写整点 keep unknown。 |
+| 无符号/误导符号下的定位与命名 | `../../tooling/recipes/static-binary-triage.md` 的无符号与误导符号节 | 结构证据建临时别名，归因止步结构等价层级；符号与结构矛盾时并列记录。 |
 | 批量 handler/trace 的读取预算 | `progressive-disclosure.md` | 只规划有界分片，不默认串读整批材料。 |
 | 功能分析协同 | `lane-collaboration.md` | 目录成员与单写者边界；不创建 lane 状态机。 |
 

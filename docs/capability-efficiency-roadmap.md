@@ -18,8 +18,8 @@
 | U1 | Git 内 case 信任边界、模型档位落实到代码与测试、工具可用性四态报告、错误信息可执行化 | U0 | done |
 | U2 | 自动化执行链：可取消定位、输入前复核停止/状态、坐标校验负例、异常退出资源清理 | U0 | done |
 | U3 | 协作与上下文精简、证据生成与复核提效 | U0 | done |
-| U4 | 逆向/Web 复杂任务能力、自动化定位缓存与性能 | U1–U3 | active |
-| U5 | 冻结评测：12 配对＋6 留出＋6 裸臂 | U4 | pending |
+| U4 | 逆向/Web 复杂任务能力、自动化定位缓存与性能 | U1–U3 | done |
+| U5 | 冻结评测：12 配对＋6 留出＋6 裸臂 | U4 | active |
 | U6 | 安装一致性、发布候选就绪（不发布）、文档收束 | U5 | pending |
 
 ## 评测协议（U0 冻结）
@@ -42,6 +42,12 @@
 - 已知未解（更新）：~~同步定位停止缺口~~（U2 修复）；~~headless 模板伪匹配~~（U2 修复：纹理模板+坐标校验）；~~Git 内 case 信任~~（U1 修复；headless 探针证明信任仅作用可见窗口，git 内 case-at-repo-root 可见窗口全链验证可选未做）；~~llm 定位模式六场景~~（U2 完成 6/6；sc4 曾报 "start not fired" 系 harness join 超时默认 30s 小于 llm 定位单次时长所致误报，harness 已按模式自适应放宽后连续两轮 6/6）。
 
 ## 批次结果区
+
+### U4 定位蒸馏与专业方法补缺（2026-10-25，done）
+
+- **LLM 定位蒸馏**（游戏线性能，fixture `airtest_device.py`）：首次 llm 定位成功后把 bbox 裁剪为本次运行内本地模板；后续同目标先本地 aircv 匹配（毫秒级、全图搜索可跟踪窗口位移），失配（外观/尺寸变化）自动回退 llm 并更新模板。只存内存不落盘（进程重启失效，符合重启不带状态语义）。实测：同按钮首次 llm 28.2s → 蒸馏命中 **0.013s**（约 2000×），命中坐标通过目标端 bbox 校验（`runs/distill-smoke`）；llm 六场景 6/6 语义不变（`llm_calls_total=8`）；fixture 单测 23/23（新增蒸馏命中不调 llm、位移跟踪 delta≤2px、失配回退、StopRequested 不留半成品）。方法入 pack `tooling/integrations/airtest.md`（定位蒸馏条：纪律=命中不豁免坐标校验与点击后状态复核）。harness join 超时按定位模式自适应（llm/windowed 120s）修复 sc4 误报。
+- **逆向/Web 方法补缺**（对照 U5 题型 grep 审查确认三缺口后补）：新 recipe `indirect-call-resolution.md`（引用点定位、表来源判定、idx 边界封闭性、运行期改写整点 keep unknown，含合成案例）；`static-binary-triage.md` 增无符号/误导符号节（结构证据建临时别名、归因止步结构等价、符号与结构矛盾并列记录）；`request-sequence-review.md` 增状态转移节（前态+操作+后态三段证据、两次 200 不证明转移、只读序列天然对照）；`request-replay.md` 差异归因表增请求头/限流行（计数维度先确定再比较）并强化限流下禁止自动重试。manifest 与两包 README 路由表登记。
+- 验证：`go test ./...` 全 ok、`go vet` 干净、Python pack tooling 39/39；`git diff --check` 干净。
 
 ### U3 协作与上下文精简、证据提效（2026-10-25，done）
 

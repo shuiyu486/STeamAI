@@ -52,6 +52,7 @@ tooling:
   - tooling/recipes/function-behavior-review.md
   - tooling/recipes/public-tool-triage.md
   - tooling/recipes/focused-handler-review.md
+  - tooling/recipes/indirect-call-resolution.md
   - tooling/recipes/value-flow-mining.md
   - tooling/recipes/vmenter-context-probe.md
   - tooling/recipes/unicorn-trace.md
