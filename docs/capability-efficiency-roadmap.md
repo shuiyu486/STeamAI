@@ -15,10 +15,10 @@
 | 批次 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | U0 | 工作区收尾提交、基线测试快照、评测协议与题目规格冻结 | 无 | done |
-| U1 | Git 内 case 信任边界、模型档位落实到代码与测试、工具可用性四态报告、错误信息可执行化 | U0 | active |
-| U2 | 自动化执行链：可取消定位、输入前复核停止/状态、坐标校验负例、异常退出资源清理 | U0 | pending |
-| U3 | 协作与上下文精简、证据生成与复核提效 | U0 | pending |
-| U4 | 逆向/Web 复杂任务能力、自动化定位缓存与性能 | U1–U3 | pending |
+| U1 | Git 内 case 信任边界、模型档位落实到代码与测试、工具可用性四态报告、错误信息可执行化 | U0 | done |
+| U2 | 自动化执行链：可取消定位、输入前复核停止/状态、坐标校验负例、异常退出资源清理 | U0 | done |
+| U3 | 协作与上下文精简、证据生成与复核提效 | U0 | done |
+| U4 | 逆向/Web 复杂任务能力、自动化定位缓存与性能 | U1–U3 | active |
 | U5 | 冻结评测：12 配对＋6 留出＋6 裸臂 | U4 | pending |
 | U6 | 安装一致性、发布候选就绪（不发布）、文档收束 | U5 | pending |
 
@@ -36,27 +36,34 @@
 
 ## 接续点
 
-- 当前批次：U2 尾段（llm 定位模式 headless 六场景后台验证中）＋U1 收尾提交；随后 U3。
-- 已完成：U0（基线+协议冻结）；U1 代码与合同（Git 内 case 信任锚定边界、Sonnet 默认档落实 vnextcontract/evaluation helper 与四份合同文档）；U2 主体（prepare/输入分离+checkpoint 可取消定位+输入前/pending 后双复核+暂停保持观察冻结推进、仓库 12 用例、坐标校验入 fixture、带纹理模板修复纯色伪匹配并 6/6）。
+- 当前批次：U4（逆向/Web 复杂任务能力、自动化定位缓存与性能）。
+- 已完成：U0（基线+协议冻结）；U1（Git 内 case 信任锚定边界、Sonnet 默认档入码、headless 探针结论）；U2（prepare/输入分离+checkpoint 可取消定位+双复核+暂停冻结推进、仓库 12 用例、坐标校验与纹理模板 6/6、llm 定位六场景 6/6）；U3（SKILL 精简+证据防漂移条款）。
 - 实测事实（U2）：坐标校验生效前 template 模式 aircv 恒报 (104,26) 全部误定位（1/6）——证实并拦截了 DLV-05 记录的纯色模板伪匹配；渲染加纹理+按 bbox 裁剪模板后 template 模式 6/6、零误定位。历史 headless 6/6 的 template 定位从未正确（消息通道不校验坐标所致），旧记录限制已闭合并升级为真实拦截。
-- 已知未解（更新）：~~同步定位停止缺口~~（U2 修复：prepare checkpoint+双复核+仓库负例）；~~headless 模板伪匹配~~（U2 修复：纹理模板+坐标校验）；Git 内 case 信任（U1 修复，待 headless 真实探针补验）；llm 定位模式六场景（进行中）。
+- 已知未解（更新）：~~同步定位停止缺口~~（U2 修复）；~~headless 模板伪匹配~~（U2 修复：纹理模板+坐标校验）；~~Git 内 case 信任~~（U1 修复；headless 探针证明信任仅作用可见窗口，git 内 case-at-repo-root 可见窗口全链验证可选未做）；~~llm 定位模式六场景~~（U2 完成 6/6；sc4 曾报 "start not fired" 系 harness join 超时默认 30s 小于 llm 定位单次时长所致误报，harness 已按模式自适应放宽后连续两轮 6/6）。
 
 ## 批次结果区
 
-### U1 真实项目启动（2026-10-25，代码完成；live 探针待补）
+### U3 协作与上下文精简、证据提效（2026-10-25，done）
+
+- **SKILL.md 精简**：团队协作章程 11 条→指针＋3 条 Commander 侧规则（细则以 case `CLAUDE.md` 协作章程为唯一 durable source，本文件不重复维护第二份；保留 roster lifecycle/成员单写/`HOLD_STALE_TASK` 零覆盖锚短语）；研究产物节→指针＋2 条合同要点（目录结构以 case `CLAUDE.md` 为准，保留 artifact tuple 绑定与"绑定所审源码版本或 exact diff"）。19700→18599 chars（−5.6%，重复条款去重为指针；合同必需的 3 个断言短语以最短形式保留在 Commander 规则内）。
+- **证据防脚本漂移条款**（`common/policies/evidence.md`）：复跑或续跑沿用既有登记脚本；确需修改先更新 artifact 登记再执行，回执绑定执行时实际使用的脚本 SHA——堵住"事后换脚本不重跑"使旧回执失去 exact 绑定的缺口。
+- 验证：vnextcontract 全绿（精简首轮曾误删 3 个合同断言短语致 `TestPrototypeSkillDefinesNativeTeamBoundary`/`TestAutonomousCollaborationKeepsMethodsFlexibleAndBoundariesExact` 红，已定位补回）；`go test ./...` 全 ok、`go vet` 干净、Python pack tooling 39/39。
+- 如实记录：U3"证据生成与复核提效"实际交付为 evidence 防漂移条款与 SKILL 去重，未含更大范围的模板重构——按"概念数不增长"约束，复核提速主要收益应来自 U4 的方法深化与 U5 评测实测，不在本轮预铺。
+
+### U1 真实项目启动（2026-10-25，done）
 
 - **Git 内 case 信任边界**：`claude_trust.go` 新增 `gitAnchor`，`validateTrustScope(memberRoot, caseRoot)` 允许两种锚——exact 成员目录与 case 根（case 建在仓库根，原生信任范围恰等于 case）；case 位于仓库子目录或成员与 case 根间有嵌套仓库时拒绝并列出可执行下一步（手动信任框/调整 case 位置）。`CLAUDE.md`/`capabilities.md`/`SKILL.md`/`acceptance.md` 四处合同同步；测试改为三布局正负例（`TestValidateTrustScopeAnchorsGitTrustToCaseBoundary`）。
 - **Sonnet 默认档落实到代码**：`resolveLiveModel`（evaluation live helper）默认先 Sonnet 后 Haiku；vnextcontract probe `freezeLiveProbeModel` 优先 Sonnet 槽位缺失降 Haiku（原固定 Haiku）；acceptance.md 同步。测试表全部更新（Sonnet 优先/降级/无效不回退）。
 - 验证：`go test ./internal/steamai ./evaluation ./vnextcontract ./casebootstrap` 全绿（信任+模型改动后）。
 - headless 探针（2026-10-25，$0.06）：未信任 git 目录中 `claude -p` 正常返回（无信任阻塞）——headless 会话不受工作区信任影响，信任仅作用于可见窗口启动；探针因此无法区分信任状态。git 内（case 在仓库根）自动信任的可见窗口全链验证未做（需用户同意时间窗，可选），边界如实保留：代码依据原生锚定语义（case-at-repo-root 时锚=case=授权边界）。
 
-### U2 自动化执行链（2026-10-25，主体完成；llm 模式验证中）
+### U2 自动化执行链（2026-10-25，done）
 
 - **workflow.py 执行链重构**：`StopRequested` + `checkpoint()`；observe/prepare 接受 checkpoint，prepare（耗时定位）与 act（短输入）分离；输入发出前与 pending 落盘后双复核控制文件；暂停保持观察但冻结决策推进（不累计 waited/retries、不决策、仅目标消失停），resume 重置上下文。poll_interval 构造校验 (0,0.2]。模板/recipe/integration/README 四处 pack 文档同步。
 - **仓库测试**：新增 `tests/pack_tooling/test_windows_flow.py` 13 用例——正常链/停止前后/observe 期间停止/prepare 无回调停止/协作式 prepare 停止/子进程取消收尸/pending 后停止不 commit/暂停丢弃过期准备并重观察/prepare 异常无 pending/输入失败保留 pending/pending 重启暂停/轮询界校验；Python pack tooling 39/39。
 - **fixture 坐标校验（修伪匹配验证缺口）**：`fake_game_headless.py` 消息须带 `at` 且落按钮 bbox，误定位记 `mislocated-click` 拒绝；`airtest_device.py` 新接口（prepare/act 分离、`llm_locate` Popen 轮询可取消+checkpoint 杀子进程）、消息携带坐标；fixture 单测 20/20（新增取消收尸用例）。
 - **实测**：坐标校验生效后旧纯色模板 aircv 恒报 (104,26)→1/6（真实暴露 DLV-05 伪匹配限制）；渲染按钮加纹理（边框+文字）+按固定 bbox 裁剪模板后 template 模式 **6/6、零误定位**（`report-template-textured-6of6.json`）；estop 0.113-0.127s（等待段）。
-- 进行中：llm 定位模式六场景（真实模型调用，后台）。
+- **llm 定位模式六场景**：**6/6**（Sonnet 档，两轮全过，`report-llm-6of6.json`）。首轮 sc4 曾报 "start not fired"，根因是 harness join 超时默认 30s 小于 llm 定位单次 30–60s（重试可达 90s）——误报而非执行链缺陷；harness join 超时已按定位模式自适应（llm/windowed 120s、template 30s），修后 llm 与 template 模式各连续两轮 6/6。
 
 ### U0 基线与协议冻结（2026-10-25，done）
 

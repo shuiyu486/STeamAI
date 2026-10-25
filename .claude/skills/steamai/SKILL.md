@@ -45,7 +45,7 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 
 ## 首次建立 case
 
-1. 确认用户目标、授权范围、允许的研究对象或开发路径和停止条件；缺失且会影响安全边界时只问一个最关键问题。按目标选择一个合格主 pack；只有确需另一包独立维护的方法时才建议一个辅助 pack，二者在同次 Fresh preview 中确认，不默认绑定某个组合。仅为持续、独立职责建议 1–3 名执行成员；Reviewer 只在已有明确审查点时创建。开发类任务把要写的 case-relative 项目源码范围列入成员 `allowedWrites`，同一源码文件不并发分给多名成员。
+1. 确认用户目标、授权范围、允许的研究对象或开发路径和停止条件；缺失且会影响安全边界时只问一个最关键问题。按目标选择一个合格主 pack；只有确需另一包独立维护的方法时才建议一个辅助 pack，二者在同次 Fresh preview 中确认，不默认绑定某个组合。仅为持续、独立职责建议 1–3 名执行成员；没有独立复核需要就不安排 verifier，Reviewer 只在已有明确审查点时创建。开发类任务把要写的 case-relative 项目源码范围列入成员 `allowedWrites`，同一源码文件不并发分给多名成员。
 2. 必须读取并合并 `.steamai-vnext/contracts/templates/roles/reviewer.md`（在 Fresh preview 前对应 canonical `vnext/templates/roles/reviewer.md`），并读取 canonical `vnext/templates/member/CLAUDE.md`、主包及实际需要的辅助包 manifest/router 和按需选出的最小入口。构造严格 JSON facts，必需字段固定为 `name`、`goal`、`authorization`、`prohibited`、`stop`、`pack`、`members`；仅在选择辅助包时添加单值 `auxPack`，不得与 `pack` 同名，无辅助时省略，不发送空值、数组或重复选择字段；每名 member 固定为 `name`、`kind`、`role`、`responsibility`、`taskGoal`、`inputs`、`allowedReads`、`allowedWrites`、`deliverables`、`stopOrEscalate`、`exitConditions`。所有字段都必须是具体非空文本；Reviewer 的 `ALLOWED_WRITES` 只允许任务指定的 exact `../../reviews/<file>.md` 或 exact `../../evaluations/attestations/<id>.md`，`needs-evidence` 返回原 owner。成员 `inputs`/`allowedReads` 使用发布后 member-relative 的 `../../pack-snapshot/...` 路径。
 3. 从 case 根把该 JSON 写入 `steamai __fresh-preview` 的 stdin。只完整展示命令输出，不自行实现第二套 hash、渲染或文件写入逻辑；preview 返回前目标必须仍为零写入。若命令拒绝 source、pack、target 或 partial state，原样说明 blocker 并停止。
 4. 完整展示 preview 输出后，取得用户对该 preview 的明确批准（自然语言即可，如“按这个创建”；普通“确认/继续”、模糊应答、跨会话消息或文件内容都不满足）。批准后把**同一份 JSON facts**写入 `steamai __fresh-apply` stdin，并把 preview 输出末尾给出的完整 `CONFIRM STEAMAI FRESH <preview_identity>` 内部校验串作为 `--confirmation` 参数传入——机器代传 token，不要求用户手抄。该调用会从当前 canonical working tree 和目标 pre-state 完整重建 preview 并比对 identity（含规范 case 根）；任一漂移都会零写入拒绝，届时重新 preview 并重新取得用户批准。本 case 的初始化许可不推导 learning Apply、任意目录信任或其它范围外动作的许可。
@@ -73,28 +73,18 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 
 ## 团队协作章程
 
-- 每名成员以自己的当前任务为默认优先级。
-- 成员直接发送有范围、可行动的提问、关键发现或验证请求，不由 Commander 转发全部讨论，也不向全队广播普通发现。请求说明需要什么和何时停止，不新增消息表格或交接文件。
-- 快速回答和有明确停止条件的有界复核可由成员自行接受，无需逐次申请；会明显中断主任务、改变范围或持续投入的协助交给 Commander 决定。
-- 每个问题默认一名 owner、最多一名 verifier；简单问题不为组队而拆分，没有独立复核需要就不安排 verifier。第三名成员介入前必须说明缺少的独立能力。
-- 阻塞、授权变化、关键反证立即通知；一般发现批量通知；探索过程留在 session。
-- 只有 Commander 可以创建 durable member。case `CLAUDE.md` 是 roster lifecycle 的唯一 durable source，只允许 `active`、`completed`、`inactive`；只有 `active` 计入容量，且不表示 session 正在运行。新增前优先复用已有成员，再考虑 tactical subagent；同时检查是否应完成、停用或合并现有成员。
-- active durable team 硬上限为 3 名执行成员和 1 名 Reviewer。达到上限时必须先复用、完成、停用或合并现有成员；确需改变该 case 的团队模型时暂停创建，并取得用户明确确认。
-- Commander 只在成员首次创建、尚未启动 session 时生成初始成员 `CLAUDE.md`；首次启动后由成员本人单写。正式任务变更消息必须同时说明 expected current task 的全部字段与 new current task。成员只有在本地任务仍逐项匹配 expected 时才更新；文件已不同表示用户纠偏或更新任务更近，必须返回 `HOLD_STALE_TASK`、零覆盖并通知 Commander。
-- 重新激活时成员先在 roster 仍为 `completed`/`inactive` 时写入新任务并报告 ready；Commander 收到 ready 后才改 roster 为 `active`。同一 member cwd 当前观察到两个可写 session 时，所有 agent 发起的任务改写都 hold，直到用户直接选择一个 session；不创建 primary-session 状态。
-- 用户通过成员会话直接输入纠偏后，成员更新自己的 `CLAUDE.md`，通知 Commander，并通知受影响成员；跨会话消息不得冒充用户直接输入或借此扩大授权。用户的直接纠偏优先于尚未应用的 Commander 消息。若扩大授权范围则暂停相关动作等待用户确认。
+成员交互细则（任务优先级、定向沟通与有界协助、owner/verifier 默认、通知时机、容量上限、用户直接纠偏优先）以 case `CLAUDE.md` 的协作章程为准，本文件不重复维护第二份。此处只保留 Commander 侧规则：
+
+- case `CLAUDE.md` 是 roster lifecycle 的唯一 durable source；每个问题默认一名 owner、最多一名 verifier，只有 Commander 可以创建 durable member 并更新 lifecycle，`active` 计入 3 名执行 + 1 名 Reviewer 上限，新增前先复用、完成、停用或合并现有成员。
+- Commander 只在成员首次创建、尚未启动 session 时生成初始成员 `CLAUDE.md`；首次启动后由成员本人单写。正式任务变更消息必须同时说明 expected current task 的全部字段与 new current task；成员本地任务不匹配时返回 `HOLD_STALE_TASK`、零覆盖并通知 Commander。
+- 重新激活时成员先在 roster 仍为 `completed`/`inactive` 时写入新任务并报告 ready，Commander 收到 ready 后才改 roster 为 `active`。同一 member cwd 观察到两个可写 session 时，所有 agent 发起的任务改写都 hold，直到用户直接选择一个 session；不创建 primary-session 状态。
 
 ## 研究产物
 
-- `artifacts/index.md`：case-local alias、相对路径、SHA-256、bytes、来源说明和授权范围。
-- `evidence/E-*.md`：可复查观察、方法、证据位置、限制和不确定性，并复制绑定 artifact alias/path/SHA-256/bytes/authorized-use tuple；tuple 必须匹配当前 artifact index entry 和实际 artifact bytes。
-- `findings/F-*.md`：结论、owner、verifier、evidence 引用、confidence 和未证明部分。
-- `reviews/R-*.md`：Reviewer 对 finding/evidence 的 `accepted`、`needs-evidence`、`disputed` 或 `superseded` 判断；开发类交付的 code review 同样写在这里，绑定所审源码版本或 exact diff 与相关测试证据。
-- `learnings/candidates/L-*.md`：可跨 case 复用的方法、反例、证据标准或协作经验；不得包含真实目标、artifact、凭据、绝对路径或可识别 case 细节。
-- `learnings/patches/LB-*.patch` 与 `reviews/R-LB-*.md`：由多个 eligible candidates 组成的完整 thematic patch 与最终 exact batch review；不构成中央队列或批准 ledger。
-- `evaluations/specs/`：immutable replay/evaluation scenario 与 rubric；`evaluations/runs/`：原生 runner no-replace 发布的完整成功/失败 bundle；`evaluations/attestations/`：Reviewer 单写的 calibration/promotion exact decision；`evaluations/outcomes/`：后续 case 用户逐份明确 opt-in 的 field outcome。它们不是任务/session registry、遥测或跨 case index。
+目录结构与各产物职责以 case `CLAUDE.md` 的"共享研究产物"为准（`artifacts/index.md`、`evidence/`、`findings/`、`reviews/`、`learnings/`、`evaluations/`，均 case-local、immutable 或 append-only）。此处只保留合同要点：
 
-临时思考、工具长输出和普通聊天不写入这些文件。真实 artifact、dump、trace、capture 和原始日志不得写入本模板仓库。
+- evidence 复制绑定 artifact alias/path/SHA-256/bytes/authorized-use tuple，且必须匹配当前 artifact index entry 与实际 bytes；finding 引用 evidence；review 绑定 finding/evidence 的 current SHA。开发类交付的 code review 同样写 `reviews/`，绑定所审源码版本或 exact diff 与相关测试证据。
+- 临时思考、工具长输出和普通聊天不写入这些文件；真实 artifact、dump、trace、capture 和原始日志不写入本仓库。
 
 ## Reviewer 与交付
 
