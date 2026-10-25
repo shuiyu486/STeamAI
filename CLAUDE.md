@@ -27,7 +27,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前无 active 实施路线。`steamai-professional-delivery-v1` 的执行计划与短投影已删除，最终结果、失败与未验边界收敛到 `docs/professional-delivery-results.md`，仅在核查可用性或历史证据时读取；旧路线统一由 router 按需索引，不默认串读、不继承旧“通过/tie”证明新能力。游戏自动化是已明确需求，不再以“是否属于安全研究”推回用户；研究/开发双交付与按具体用途接纳 pack 工具均为当前合同，继续禁止通用运行器与无限执行授权。上游材料固定于 pack `upstream/**` 并校验、不进入 learningTargets；外部 agent 团队仍须通过对应范围的六项资格验收。历史 tie/inconclusive 与 verified-learning 未完成 live 门槛不因本轮收束而改判。
+当前无 active 实施路线。`steamai-professional-delivery-v1` 的执行计划与短投影已删除，最终结果、失败与未验边界收敛到 `docs/professional-delivery-results.md`，仅在核查可用性或历史证据时读取；旧路线统一由 router 按需索引，不默认串读、不继承旧“通过/tie”证明新能力。`steamai-capability-efficiency-v1`（2026-10-25，U0–U6 完结）同理收束于 `docs/capability-efficiency-roadmap.md`：其 42 run 冻结评测正确性全过而效果全 tie——停止缺口修复、坐标校验/纹理模板、定位蒸馏与信任边界是已实测的可靠性改善，不构成“方法库提升 LLM 效果”的证明，tie 结论不改判。游戏自动化是已明确需求，不再以“是否属于安全研究”推回用户；研究/开发双交付与按具体用途接纳 pack 工具均为当前合同，继续禁止通用运行器与无限执行授权。上游材料固定于 pack `upstream/**` 并校验、不进入 learningTargets；外部 agent 团队仍须通过对应范围的六项资格验收。历史 tie/inconclusive 与 verified-learning 未完成 live 门槛不因本轮收束而改判。
 
 ## 维护哲学与踩坑护栏
 
@@ -71,6 +71,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
 - 三线交付验收与未解决问题：`docs/professional-delivery-results.md`
+- 实用能力与效率路线（U0–U6）验收结论：`docs/capability-efficiency-roadmap.md`
 - 历史证据、旧路线与未完成 learning 门槛：仅按 `docs/context-routing.md` 选择对应入口
 
 维护源码、模板和文档时先用 CodeGraph 查看结构、调用链与影响面；其返回源码视为已读。不得用 CodeGraph 处理样本、二进制或 case artifact。

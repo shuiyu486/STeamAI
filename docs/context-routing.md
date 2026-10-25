@@ -13,6 +13,7 @@
 | 产品目标、自主协作与管理边界 | 根 `CLAUDE.md` 的“智能成员与自主协作基准” | 不把方法参考改成逐步强制流程，不以加规则代替能力 |
 | 安装、quickstart、更新、卸载 | `README.md` | 区分当前源码与已发布版本；已有 case 不自动更新 |
 | 三线实际可用范围、效果证据与已知缺口 | `docs/professional-delivery-results.md` | 批次收束不等于所有 gate 通过；关注阻塞期间停止、模板伪匹配与 learning 待验项 |
+| 实用能力与效率路线（U0–U6）的验收结论 | `docs/capability-efficiency-roadmap.md` | 42 run 冻结评测全对全 tie：只交付可靠性改善，方法库增益未被证明也不被否定；评测材料在 `%TEMP%\steamai-pd\u-cap\` |
 | native shell 机械边界 | `cmd/steamai`、`internal/steamai/app.go`，再按 symbol 路由 | 不扩为团队控制面 |
 | canonical `/steamai` 行为 | `.claude/skills/steamai/SKILL.md` | 不调用已删除的 `/rekit` 或旧 runtime |
 | case/member/research 模板 | `vnext/README.md`，再选目标模板 | 不一次加载全部模板 |
