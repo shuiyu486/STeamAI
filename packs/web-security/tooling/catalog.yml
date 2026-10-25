@@ -20,6 +20,36 @@ entries:
     inputs: [exact-loopback-url, identity-reference, explicit-scope, existing-case-artifact-directory]
     outputs: [bounded-response-body, transfer-metadata, evidence-reference]
     risk: specific-confirmation-and-tool-permission
+
+integrations:
+  - id: strix-static-analysis
+    integration: tooling/integrations/strix.md
+    purpose: 委托固定版本 Strix 对授权目标做有界静态安全分析；产出待核线索，不自动 accepted。
+    inputs: [authorized-target-copy, instruction-file, budget-and-turn-limits]
+    outputs: [report-or-sarif-candidate, cost-summary, cleanup-confirmation]
+    risk: six-item-qualification-then-specific-confirmation
+    stopConditions: [scope-drift, budget-exhausted, empty-or-unknown-output, cleanup-unconfirmed]
+  - id: playwright-browser-validation
+    integration: tooling/integrations/playwright.md
+    purpose: 固定版本 Playwright 在独立 context 中完成浏览器端实证与修复回归。
+    inputs: [approved-origins, role-contexts, scenario-script]
+    outputs: [dom-or-state-observations, sanitized-trace-or-har, evidence-reference]
+    risk: specific-confirmation-and-tool-permission
+    stopConditions: [scope-drift, unexpected-origin, budget-exhausted, auth-state-leak-suspected]
+
+entries:
+  - id: browser-api-validation
+    recipe: tooling/recipes/browser-api-validation.md
+    purpose: 浏览器表现与服务端事实分开取证再连接，附阴性对照。
+    inputs: [authorized-app, role-credentials, hypothesis]
+    outputs: [dual-side-evidence, negative-controls, connection-notes]
+    risk: review-before-use
+  - id: fix-regression
+    recipe: tooling/recipes/fix-regression.md
+    purpose: 修复验收的双面证据：缺陷阻断且合法业务保留。
+    inputs: [proven-finding, assigned-source-path, pre-fix-baseline]
+    outputs: [fix-diff, dual-side-retest-receipt, residual-state-check]
+    risk: review-before-use
 schemas:
   - tooling/schemas/bounded-replay-request-v1.schema.json
   - tooling/schemas/bounded-replay-result-v1.schema.json

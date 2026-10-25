@@ -7,6 +7,7 @@
 | 路径 | 用途 |
 |---|---|
 | `catalog.yml` | capability、状态、输入输出、side effects、确认要求和止损。 |
+| `integrations/rea.md` | 固定版本 REA 的接入、路线选择、证据交接与超限处置。 |
 | `recipes/static-binary-triage.md` | passive metadata/section/import/string sidecar。 |
 | `recipes/function-behavior-review.md` | saved function/API summary 的只读复核。 |
 | 其余 `recipes/*.md` | VMP/IDA、trace、value-flow 与成员协同。 |

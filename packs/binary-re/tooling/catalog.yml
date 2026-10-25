@@ -70,6 +70,43 @@ tools:
     requiredContext: [exact-database, allowed-operations, output-limit, stop-conditions]
     stopConditions: [shared-state-write, scope-drift, output-limit]
 
+  - id: rea-program-analysis
+    status: auxiliary
+    purpose: 新目标系统性程序分析、多格式证据整理与版本比较优先走固定版本 REA；已有高价值 IDB 的定点操作直达现有 IDA 入口。
+    integration: tooling/integrations/rea.md
+    inputs: [authorized-target-copy, verified-provider-identity, explicit-scope]
+    outputs: [exported-evidence-bundle, target-and-provider-identity-records]
+    sideEffects: [process-execution, bounded-filesystem-write]
+    requiresUserConfirmation: true
+    requiredContext: [exact-target, local-scope-mcp-registration, version-check, output-limit, stop-conditions]
+    stopConditions: [version-or-identity-mismatch, scope-drift, output-limit, cleanup-unconfirmed]
+    reusableNotes:
+      - 固定 rea-agents@6.7.0；接入、路线选择与超限处置见 tooling/integrations/rea.md。
+      - evidence_id 只在单一 MCP 连接内有效；跨会话只交接完整导出 bundle。
+
+  - id: function-version-compare
+    status: mainline-template
+    recipe: tooling/recipes/function-version-compare.md
+    purpose: 两个版本目标的功能级比较，交付改变/未观察到改变/不可比较三类判定。
+    inputs: [two-version-artifacts-with-hash, per-version-behavior-chain-evidence]
+    outputs: [version-diff-finding, incomparable-list]
+    sideEffects: [filesystem-read]
+    requiresUserConfirmation: false
+    stopConditions: [missing-version, asymmetric-analysis-depth, output-limit]
+
+  - id: runtime-observation
+    status: mainline-template
+    recipe: tooling/recipes/runtime-observation.md
+    purpose: 静态结论的最小运行时对照：先预测后运行，输出级证据，需要内部状态才升级调试器。
+    inputs: [authorized-synthetic-or-approved-target, static-prediction]
+    outputs: [prediction-vs-observation-record]
+    sideEffects: [process-execution]
+    requiresUserConfirmation: true
+    requiredContext: [exact-target-hash, run-command, duration-limit, expected-outputs]
+    stopConditions: [unexpected-side-effect, scope-drift, prediction-unfalsifiable]
+
+
+
   - id: x64dbg-mcp
     status: cautious
     purpose: Bounded dynamic debugging in an isolated authorized environment.

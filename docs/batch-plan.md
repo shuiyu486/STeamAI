@@ -2,25 +2,25 @@
 
 ## 读取指南
 
-本文件只是当前路线的短投影，不保存完整实施日志。完整路由见 `docs/context-routing.md`；当前状态以 `docs/professional-delegation-roadmap.md` 为准。旧研究对照、低干预启动、自主协作合同轮与 verified-learning 的各自证据保留在原路线，不因切换路线改判完成。
+本文件只是当前路线的短投影，不保存完整实施日志。完整路由见 `docs/context-routing.md`；目标、状态与接续点以 `docs/professional-delivery-roadmap.md` 为准。旧研究对照与专业接入记录留在各自路线，不凭旧完成标题继承本轮验收。
 
 ## Current projection
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `steamai-professional-delegation-v1` |
-| source | `docs/professional-delegation-roadmap.md` |
-| 当前批次 | PD-01~PD-06：专业负责人接入（REA 固定材料/合同 → 真实可见任务 → 有限对照 → Strix 资格核查 → 首个外部团队任务） |
-| 当前状态 | PD-01~06 全部有结论：03 通过（限定条件：GUI IDB 保留已实测，可见成员全程未验）、04 正式匹配盲测 tie（2026-10-24）、05 通过（限定条件：计价网关核验、停止后新开工）、06 已交付并经三轮独立复审 accepted。详见当前路线 |
-| 当前边界 | 不自动安装/升级/全局注册外部工具；`upstream/**` 不进 learningTargets；外部 agent 团队通过六项资格验收前不自主运行；不改 Go production |
-| 既有事实 | 低干预 A/B 第九窗口两审均 tie；自主协作对照 inconclusive；研究有效性 pass-limited/tie——均不据此宣称增益 |
-| 不变 | 原生成员/消息/恢复、主＋最多一辅、经验只回主包、旧 current 零改写、learning exact confirmation |
-| 未声称 | 接入即研究增益、上游材料等同本机已装版本、机械验收等同 live 验收 |
+| 路线 | `steamai-professional-delivery-v1` |
+| source | `docs/professional-delivery-roadmap.md` |
+| 目标 | 逆向完整功能分析、Web 实际验证/修复回归、Windows 游戏自动化开发；专业项目能力成为新 Fresh 可消费的交付路径 |
+| 当前状态 | 路线收束：DLV-00–08 done（08 四轮 Reviewer 至 accepted）；NE-1 与 G-JOINT 原生消息两项必需项缺口已于 2026-10-25 授权补验闭合；真实鼠标复测失败于模板脱节（待用户时间窗） |
+| 下一步 | 无待执行批次；Git 已授权提交推送；维护回到根 CLAUDE.md 与 context-routing 常规入口 |
+| 批次 | 00 基线 → 01 合同 → 02 接入 → 03 逆向 / 04 Web / 05 游戏 → 06 联合 → 07 验收 → 08 收尾 |
+| 实施细则 | 批实施临时细则已随收口删除；长期行为在 README、根 CLAUDE.md、skill、vnext 模板/acceptance 与各 pack 入口 |
+| 当前边界 | 不自动安装或改全局配置，不新增 Go 控制面；计划不等于 live/外部动作/提交发布的授权；范围变化按具体请求处理 |
+| 基线缺口 | 旧 GUI 探针不足以证明实际后端分析保留；旧 PD-04C 保留有限答案盲评 none，不承继正式比较结论；详见新路线 |
+| 不变 | 原生成员/消息/恢复、主＋最多一辅、成员单写、旧 current 零改写、learning exact confirmation |
+| 不再重复讨论 | 游戏自动化已是用户明确目标；按低成本档位和宽松批次额度执行，费用简报，不逐分反复审计 |
+| 未声称 | 工程可用等于研究增益（A/B tie 探索观察级）、可见成员窗口路径已验、旧合成/静态证据覆盖真实工具与可见协作 |
 
 ## 验证标准
 
-- 对应内容合同与 production Fresh 物化回归，详见当前路线。
-- `go test -count=1 -p=2 -timeout=30m ./...`
-- `go vet ./...`
-- `git diff --check`
-- 默认不调用模型、IDA、HTTP、REA 或 Strix；真实行为须按 `vnext/acceptance.md` 专业负责人接入节另行授权，保留失败和未知。
+本次仅验证计划路径、引用与现有合同回归。实施按主路线分批验收，默认测试不调用模型或专业工具；结束整轮前再跑相关完整测试。临时细则已在长期行为与结果迁移、引用修复后删除，未删除任何未完成项。

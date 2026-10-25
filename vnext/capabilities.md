@@ -36,6 +36,8 @@ steamai __open-member [--trust-workspace] <member-name>
 ## 外部专业工具接入（按路线启用）
 
 - 仅当前路线明确启用时，才可在 exact 成员目录为该成员注册 local-scope MCP（同一 Claude 配置域、固定版本、经用户逐项批准）。Fresh 不安装、不升级、不全局注册外部工具或其 skill；`steamai.exe` 不因此获得配置管理职责，Windows 正式路径也不新增 PowerShell、`.cmd` 或 `.bat` 包装。
+- 非 MCP 形态的专业工具（Python 库、官方 CLI 等）以固定版本的 pack integration 说明接入：使用方在获准环境自行安装/调用，工具调用是任务里的显式动作；STeamAI 不代装、不托管进程、不维护工具配置管理器。
+- pack 工具按具体用途接纳：新工具须先证明上游/native 能力不足，限定输入/输出、无后台常驻、显式调用，并作为 pack 明示入口进入 case；工具脚本不进入 learningTargets。继续禁止通用运行器、adapter host 或第二套执行控制面。
 - local scope 只决定工具在该目录会话中加载，不是文件或网络隔离；具体动作仍受工具权限、针对该动作的用户确认与 case 授权约束。
 - pack 固定的是方法材料与接入合同，不是运行环境；实际工具、provider 与目标身份须在执行前核对并记录到 evidence，自检通过不能代替真实连接成功。
 - 上游工具的证据标识（如 REA `evidence_id`）只在单一 MCP 连接内有效；跨会话/成员只交接完整导出产物。

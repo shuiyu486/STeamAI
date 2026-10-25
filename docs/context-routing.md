@@ -6,8 +6,9 @@
 
 ## 当前指针
 
-- 当前路线：`steamai-professional-delegation-v1`
-- 当前路线入口：`docs/professional-delegation-roadmap.md`
+- 当前路线：`steamai-professional-delivery-v1`（已收束：必需 gate 缺口 NE-1/G-JOINT 原生消息 2026-10-25 补验闭合；真实鼠标复测待用户时间窗；批次结果见路线接续点与结果区）
+- 当前路线入口：`docs/professional-delivery-roadmap.md`（批实施临时细则已随收口删除）
+- 旧专业负责人接入实验：`docs/professional-delegation-roadmap.md`；完成适用性见新路线基线说明
 - 已完成低干预启动与纠偏路线（Fresh 机器确认、自动信任、七字段纠偏、有限 A/B tie）：`docs/low-friction-collaboration-roadmap.md`
 - 已完成自主协作合同轮（含可见任务与 workspace 校验修复）：`docs/autonomous-collaboration-roadmap.md`
 - 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
@@ -25,7 +26,8 @@
 | 需要判断什么 | 首选入口 | 不要默认读取 |
 |---|---|---|
 | 产品设计、迭代、优化与团队管理：哪些交给智能成员自主判断，哪些必须保留硬边界 | 根 `CLAUDE.md` 的“智能成员与自主协作基准”，再按实际问题选下列入口 | 不把方法参考写成逐步强制流程，不以增加规则代替能力提升 |
-| 专业负责人接入（REA/IDA MCP/Strix/后续脚本框架）的当前边界与验收状态 | `docs/professional-delegation-roadmap.md` | 不把上游材料当运行环境、不把外部 agent 团队当 durable member、不把接入当研究增益；PD-03 起 live gate 未执行即专项试用 |
+| 三个方向的实际交付升级、执行批次、结果与残余限制 | `docs/professional-delivery-roadmap.md` | 先看当前状态/接续点与批次结果区；计划不代表实施授权或功能完成，旧 GUI/比较标题不作当前验收依据；DLV-02～06 领域细则与分层验收细则为批实施临时文件，收口时删除，长期行为在各 pack/合同/acceptance 入口 |
+| 旧专业负责人接入（REA/IDA MCP/Strix）的局部实测与限制 | `docs/professional-delegation-roadmap.md` | 仅追溯对应事实；完成适用性见新路线基线，不默认重读历史账单，不把接入当研究增益 |
 | 低干预启动（Fresh 机器确认、成员工作区自动信任）、七字段纠偏与有限旧/新 A/B 的已完成事实 | `docs/low-friction-collaboration-roadmap.md` | 不把授权分离解释为通用 `--yes` 旁路或开放配置管理，不以一个样本宣称全案完成 |
 | 已完成自主协作合同轮与可见任务事实 | `docs/autonomous-collaboration-roadmap.md` | 不重跑旧题、不改判 inconclusive，不把合同文字当能力提升 |
 | 已完成 Reviewer 协议回归、新9题研究对照与已知报告校准 | `docs/research-validity-roadmap.md` | 保留 pass-limited/tie，不重跑旧题或改判为本轮提升 |

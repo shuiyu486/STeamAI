@@ -1,0 +1,76 @@
+schemaVersion: 2
+name: game-automation
+version: 0.1.0
+description: 面向已授权 Windows 游戏自动化脚本开发的声明式开发 pack（识别状态→执行动作→检查结果→有界恢复/停止）。
+maturity: declarative-vnext
+
+entrypoints:
+  router: references/game-automation/README.md
+  team: references/game-automation/README.md
+  workflow: references/game-automation/workflow-template.md
+  tooling: references/game-automation/toolchain-router.md
+
+references:
+  - references/game-automation/README.md
+  - references/game-automation/workflow-template.md
+  - references/game-automation/toolchain-router.md
+  - references/game-automation/task-handoff.template.md
+
+templates:
+  - references/game-automation/task-handoff.template.md
+
+policies:
+  - policies/README.md
+  - ../../common/policies/context-budget.md
+  - ../../common/policies/review-first.md
+  - ../../common/policies/write-boundaries.md
+  - ../../common/policies/verification.md
+  - ../../common/policies/evidence.md
+
+tooling:
+  - tooling/README.md
+  - tooling/catalog.yml
+  - tooling/integrations/airtest.md
+  - tooling/recipes/windows-stateful-automation.md
+  - tooling/recipes/automation-regression.md
+  - tooling/examples/windows-flow/README.md
+  - tooling/examples/windows-flow/requirements.txt
+  - tooling/examples/windows-flow/config.example.json
+  - tooling/examples/windows-flow/workflow.py
+
+teamHints:
+  suggestedMembers: 1-2
+  reviewer: on-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
+
+heavyActions:
+  - id: automation-input-injection
+    title: 向目标窗口注入输入
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, target-missing, unexpected-dialog, budget-exhausted]
+  - id: non-idempotent-action
+    title: 提交/支付/领取等非幂等操作
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, budget-exhausted, unexpected-side-effect]
+
+learningTargets:
+  - references/game-automation/*.md
+
+denyPatterns:
+  - real-game-identifiers
+  - real-account-credentials
+  - raw-artifacts
+  - absolute-case-paths
+  - customer-environment-details
+  - screenshots-without-redaction
+  - anti-detection-evasion-recipes
+
+budgets:
+  CLAUDE.local.md: 8192
+  defaultMarkdown: 16384

@@ -15,9 +15,12 @@
 |---|---|---|
 | 通用 binary/function/API 分析 | `general-analysis.md`、`general-workflow.md` | 从 passive sidecar 到 finding/review 的轻到重路线。 |
 | 跨函数/处理步骤的行为解释与预测 | `bounded-behavior-chain.md` | 核对 producer/consumer 连接和未见分支，不把局部摘要直接拼成整体。 |
+| 两版本目标的功能级比较 | `../../tooling/recipes/function-version-compare.md` | 改变/未观察到改变/不可比较三类判定；符号漂移不当语义证据。 |
+| 静态结论的运行时对照 | `../../tooling/recipes/runtime-observation.md` | 先预测后运行；需要内部状态才升级调试器入口。 |
 | 同 case 客户端/API 联合问题 | `bounded-behavior-chain.md` 的联合路由说明 | 仅需 Web 联合方法且已冻结 Web 主/辅助包时，按任务 exact path 读取其唯一联合入口；不补装或默认跨包读取。 |
 | 团队分工与复核 | `general-agent-team.md` | Commander、focused member、verifier 与 Reviewer。 |
 | 通用工具选择 | `general-toolchain-router.md`、`../../tooling/README.md` | static triage、saved summary review、风险和止损。 |
+| 系统性程序分析（REA）与 IDA 分工 | `general-toolchain-router.md` 的专业入口行、`../../tooling/integrations/rea.md` | 新目标系统分析优先 REA；已有高价值 IDB 定点操作直达 IDA，不用 headless 新库冒充继承。 |
 | VMProtect x64 专项 | `workflow-template.md`、`agent-driven-re.md` | VMEnter、context、trace、handler value-flow 与 review。 |
 | VMP/IDA 工具选择 | `toolchain-router.md` | 公开工具短测、IDA sidecar、debug/trace 边界。 |
 | 低样本 handler 的 final effect/反证复核 | `singleton-handler-review.md` | 输入对齐、覆盖写/alias、最小区分检查与 keep unknown；按需再读 `../../tooling/recipes/focused-handler-review.md`。 |

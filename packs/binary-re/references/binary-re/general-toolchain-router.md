@@ -18,6 +18,8 @@
 | static triage | header/section/import/export/string/symbol summary | bounded index query | 原始二进制与 raw output 留 case-local。 |
 | function/API hypothesis | saved disassembly/decompiler/API summary | callgraph/xref summary | 不执行样本，只引用脱敏 ref。 |
 | behavior review | behavior candidate + precondition note | saved trace/debug summary | Reviewer 默认只读。 |
+| 系统性程序分析（新目标、多格式、版本比较） | REA：`../../tooling/integrations/rea.md` | 现有 IDA 入口 | 固定版本；先核对 provider/目标身份。 |
+| 已有高价值 IDB 的定点操作 | 现有 IDA MCP / `ida-function-evidence` | REA | 不用 headless 新库冒充继承 GUI 积累。 |
 | VMP/IDA 专项 | `toolchain-router.md` | `../../tooling/catalog.yml` | 按专项止损和确认边界执行。 |
 | dynamic/writeback | exact user-confirmed action | 先补 passive sidecar | 必须同时满足 Claude Code 工具权限。 |
 

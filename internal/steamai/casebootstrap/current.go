@@ -154,10 +154,15 @@ func validateCaseMarkerText(text string, metadata snapshotMetadata) ([]RosterMem
 			return nil, fmt.Errorf("current case marker %s 与 snapshot 不匹配", key)
 		}
 	}
-	for _, key := range []string{"Case 名称", "研究目标", "授权范围", "禁止事项", "全局停止条件"} {
+	for _, key := range []string{"Case 名称", "授权范围", "禁止事项", "全局停止条件"} {
 		if strings.TrimSpace(fields[key]) == "" {
 			return nil, fmt.Errorf("current case marker 缺少 %s", key)
 		}
+	}
+	// 目标字段：现行模板为 "Case 目标"（研究/开发双交付），历史 case 物化为
+	// "研究目标"；深验接受任一非空形态，不重写旧 case 文件。
+	if strings.TrimSpace(fields["Case 目标"]) == "" && strings.TrimSpace(fields["研究目标"]) == "" {
+		return nil, fmt.Errorf("current case marker 缺少 Case 目标")
 	}
 	if strings.ContainsAny(fields["Case 名称"], "\r\n\x00") {
 		return nil, errors.New("current case marker Case 名称无效")

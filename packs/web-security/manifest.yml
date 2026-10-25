@@ -33,9 +33,13 @@ policies:
 tooling:
   - tooling/README.md
   - tooling/catalog.yml
+  - tooling/integrations/strix.md
+  - tooling/integrations/playwright.md
   - tooling/recipes/passive-triage.md
   - tooling/recipes/request-replay.md
   - tooling/recipes/curl-read-evidence.md
+  - tooling/recipes/browser-api-validation.md
+  - tooling/recipes/fix-regression.md
   - tooling/schemas/bounded-replay-request-v1.schema.json
   - tooling/schemas/bounded-replay-result-v1.schema.json
   - tooling/schemas/openapi-inventory-v1.schema.json

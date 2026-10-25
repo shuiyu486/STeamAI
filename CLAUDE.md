@@ -8,7 +8,7 @@
 
 本仓库是 STeamAI canonical 实现（`https://github.com/shuiyu486/STeamAI`）。v1 正式支持 Windows 10/11 x64；Go module 同时承载窄职责原生 `steamai.exe` 与 acceptance tests，使用同一 canonical identity。
 
-STeamAI 是面向安全研究的、人在环的 Claude Code 多会话团队协作与经验学习层：一个真实项目目录对应一个明确授权的 case；用户主要指挥 Commander，也可观察和纠偏成员；成员身份与当前任务由专属目录的 `CLAUDE.md` 承载；会话、消息、恢复和工具调用复用 Claude Code 原生能力；STeamAI 只补安装/Fresh 的机械边界、Windows 可见进程启动、瞬时单 Commander 互斥、artifact/evidence/finding/review、proof-carrying replay、经校准的比较证据、explicit opt-in field outcome 与经确认的经验批次回流。
+STeamAI 是面向已授权安全研究与自动化开发的、人在环的 Claude Code 多会话团队协作与经验学习层：一个真实项目目录对应一个明确授权的 case，研究类任务交付可复核结论，开发类任务（工具链、修复补丁、自动化脚本、项目代码等）交付可运行代码；用户主要指挥 Commander，也可观察和纠偏成员；成员身份与当前任务由专属目录的 `CLAUDE.md` 承载；会话、消息、恢复和工具调用复用 Claude Code 原生能力；STeamAI 只补安装/Fresh 的机械边界、Windows 可见进程启动、瞬时单 Commander 互斥、artifact/evidence/finding/review、proof-carrying replay、经校准的比较证据、explicit opt-in field outcome 与经确认的经验批次回流。
 
 本仓库不是安全/RE case、自动分析器、漏洞挖掘或渗透引擎。模板和测试不得包含真实样本、trace/dump/capture、payload、凭据、客户信息、绝对 case 路径或 case 进度。
 
@@ -27,7 +27,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 
 本项目文档必须按需路由、渐进式披露。`docs/context-routing.md` 是唯一完整路由表；新会话只读取本文件、router、Git 状态和 router 选中的一个场景入口。不要默认串读历史 roadmap、`CHANGELOG.md` 或旧 release 文档。
 
-当前路线是 `steamai-professional-delegation-v1`，入口为 `docs/professional-delegation-roadmap.md`：专业问题在派单时即交给使用固定专业能力的普通 execution 负责人（当前为固定版本 REA 与既有 IDA MCP 的按路线选择，后续 Strix 与脚本框架）；上游方法材料固定于 pack `upstream/**` 并做拼接 SHA-256 校验、不进入 learningTargets；外部 agent 团队须先通过有界外部执行资格验收（范围、停止、费用、纠偏、产物、模型六项），未通过不自主运行。`docs/low-friction-collaboration-roadmap.md` 保留已完成的 Fresh 机器确认、成员工作区自动信任、七字段纠偏与有限旧/新 A/B tie 事实，不改判。`docs/autonomous-collaboration-roadmap.md` 保留已完成的自主协作合同轮与可见任务事实，不改判其 `inconclusive` 对照。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
+当前路线是 `steamai-professional-delivery-v1`，唯一执行入口为 `docs/professional-delivery-roadmap.md`：补齐逆向、Web 安全、游戏自动化脚本开发三条业务线，专业工具从任务开始使用，交付可复核结论或可运行代码。该路线已收束（DLV-00～08；必需 gate 缺口 NE-1/G-JOINT 原生消息于 2026-10-25 补验闭合，批次结果与待解清单以其接续点为准，本文件不维护第二份进度）；批实施细则已在长期行为写回后删除，不默认读取全部计划或旧实验。游戏自动化是已明确需求，不再以“是否属于安全研究”推回用户；旧“安全研究-only、唯一 pack 工具”阶段限制已随 DLV-01 的双交付合同与按用途接纳 pack 工具原则一并修订，pack 工具接纳仍以具体用途证明与禁止通用运行器为界，不等于无限执行授权。`docs/professional-delegation-roadmap.md` 保留旧接入实验；其中 GUI 保留与正式比较的完成适用性以新路线的基线说明为准，不能仅凭旧“通过/tie”标题继承完成。上游材料固定于 pack `upstream/**` 并校验、不进入 learningTargets；外部 agent 团队仍须通过对应范围的六项资格验收。`docs/low-friction-collaboration-roadmap.md` 保留已完成的 Fresh 机器确认、成员工作区自动信任、七字段纠偏与有限旧/新 A/B tie 事实，不改判。`docs/autonomous-collaboration-roadmap.md` 保留已完成的自主协作合同轮与可见任务事实，不改判其 `inconclusive` 对照。`docs/research-validity-roadmap.md` 保留已完成的已知报告校准 `pass-limited` 与新9题 `tie` 事实，不据此宣称本轮自主协作已有效。`docs/research-execution-roadmap.md` 保留专业取证、预测/联合研究的已验事实与原对照 incomplete/inconclusive，不续写新实验日志。`docs/research-capability-roadmap.md` 保留已交付的双领域单点方法、分岔点规则、主辅 pack 及真实对照平局事实，不改写为新能力完成。`docs/verified-learning-roadmap.md` 保留 verified-learning 的既有证据与未完成 live 门槛，不改判完成；`docs/windows-native-product-roadmap.md` 保留已完成的 Windows 产品基线；`docs/batch-plan.md` 只作短投影。`docs/real-usage-hardening-roadmap.md` 保留 `steamai-vnext-thin-core-v1` 已完成的历史验收事实，不改写为当前产品边界。
 
 ## 维护哲学与踩坑护栏
 
@@ -36,13 +36,13 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - 以“概念数、持久状态和用户步骤不增长”为默认约束。不要因未来可能需要而增加 daemon、Hub、GUI/TUI、数据库、supervisor、兼容层或通用控制面；达到当前可验证目标后停止。
 - 正式成员是目录拥有身份的、屏幕上独立可见的普通 Claude Code 会话，不是 subagent、PID 或 session record。一个目录就是一个授权 case；不同 case 不自动发现、迁移、扫描或汇总。
 - 经验资格来自 accepted evidence chain 与 Reviewer 检查；成熟度按 V0–V4 的 exact evidence 分层，用户 exact confirmation 只授权写入，不提升成熟度，也不来自 Git staging。模板不得预填 `pass/accepted`，Apply 不自动 stage/commit/push，未确认内容留在来源 case。
-- production 路径只保留一个实现；测试调用 production API/CLI，不维护第二套 oracle、renderer 或兼容实现。完成声明按证据分层：unit/synthetic 只证明机械合同，Windows、Claude Code、跨会话和 Release 行为必须由各自真实路径证明。真实 token smoke 不替代独立 Reviewer calibration；维护/live 测试显式选择当前 Claude Code 配置的 `ANTHROPIC_DEFAULT_HAIKU_MODEL` 或 `ANTHROPIC_DEFAULT_SONNET_MODEL`，不继承 `ANTHROPIC_MODEL` 所指的高档模型；未经本次明确批准不得使用 `ANTHROPIC_DEFAULT_OPUS_MODEL`/顶级模型。按任务选最低足够档位并冻结，不强制厂商、不修改用户全局配置；requested model 不等于 actual model，主执行身份由 assistant 消息验证而非用量条目数量推断。盲审只让 Reviewer 一次读取 manifest 绑定的 immutable `blind-review.json`，以短 entry/output SHA 固定内容选择，再由 reveal 映射角色；缺证时不得以降标或重试刷出 `go`。
+- production 路径只保留一个实现；测试调用 production API/CLI，不维护第二套 oracle、renderer 或兼容实现。完成声明按证据分层：unit/synthetic 只证明机械合同，Windows、Claude Code、跨会话和 Release 行为必须由各自真实路径证明。真实 token smoke 不替代独立 Reviewer calibration；维护/live 测试默认显式选择当前 Claude Code 配置的 `ANTHROPIC_DEFAULT_SONNET_MODEL`；仅极简探针或 headless 且 Sonnet 档无命令工具时才降级 `ANTHROPIC_DEFAULT_HAIKU_MODEL`。不继承 `ANTHROPIC_MODEL` 所指的高档模型；未经本次明确批准不得使用 `ANTHROPIC_DEFAULT_OPUS_MODEL`/顶级模型。按任务选最低足够档位并冻结，不强制厂商、不修改用户全局配置；requested model 不等于 actual model，主执行身份由 assistant 消息验证而非用量条目数量推断。盲审只让 Reviewer 一次读取 manifest 绑定的 immutable `blind-review.json`，以短 entry/output SHA 固定内容选择，再由 reveal 映射角色；缺证时不得以降标或重试刷出 `go`。
 - Windows/Release 易错点：正式路径不用 PowerShell/`.cmd`/`.bat`；evaluation arm 先 suspended 启动、加入 kill-on-close Job Object 后再恢复，避免 Start→Assign 的子进程逃逸窗口；update 从 canonical checkout 外运行并保留旧 checkout；uninstall 如实报告 helper 最小残留；`SHA256SUMS` 使用下载后的资产 basename；prerelease 不能成为 latest；公开发布前检查 ignored 本机文件、Git 历史和匿名下载链路。
 - 文档也保持单一职责：根 `CLAUDE.md` 保存长期目标与护栏，`docs/context-routing.md` 只路由，当前 roadmap 保存当前路线证据，`docs/batch-plan.md` 只投影。完成的 roadmap 不改写；出现新的实质目标时建立新路线并更新指针，不靠追加历史让 active docs 膨胀。
 
 ## 薄核心边界
 
-- 一个 STeamAI 项目对应一个明确授权的安全研究 case；不同 case 只通过审查、脱敏且用户确认的 pack 经验共享。
+- 一个 STeamAI 项目对应一个明确授权的安全研究或自动化开发 case；不同 case 只通过审查、脱敏且用户确认的 pack 经验共享。
 - Commander 按需组队；正式成员使用专属目录与目录级 `CLAUDE.md`，由原生 launcher 默认打开屏幕上用户可见的独立 Claude Code 窗口。
 - 成员可直接定向沟通、请求有界验证和共享关键发现；当前主任务优先。每个问题默认一名 owner、最多一名 verifier；实质改派和 durable member 创建只由 Commander 决定。
 - durable member 通常为 1–3 名执行成员加 0–1 名 Reviewer。优先复用已有成员，其次 tactical subagent，只有持续且独立的工作流才新增成员。
@@ -51,7 +51,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - 经验由 Commander 从 current accepted evidence chain 提炼；Reviewer 先逐 candidate 检查 eligibility，再绑定最终 batch exact patch；用户查看完整 patch 并确认 exact tuple 后才回流 pack。
 - `steamai.exe` 只负责 setup/update/uninstall、卸载后的窄自清理、Fresh 文件机械操作、synthetic readonly matched evaluation bundle、exact learning batch apply、Windows 可见进程启动（含上述唯一例外内的成员工作区信任准备）、Fresh preview 的 exact 校验串机械比对和必要瞬时互斥。不得扩展为 task/session/message/roster/finding/review/learning 判断控制面。
 - 正式产品路径不得新增 PowerShell、`.cmd` 或 `.bat` façade；不恢复旧 Go control plane、adapter host 或兼容 runtime。
-- 唯一新增 pack 工具为 `packs/binary-re/tooling/scripts/export_function_evidence.py`：对已打开的授权 IDA 数据库副本做显式定点只读导出，只写指定 case artifact。catalog/recipe 不自动执行，脚本不进入 learningTargets；不安装宿主、不执行目标、不写 analysis DB。专业负责人路线新增的 `packs/binary-re/upstream/rea/**` 与 `tooling/integrations/rea.md` 仅为固定上游方法材料与接入说明（拼接 SHA-256 机械校验、不进入 learningTargets），不新增可执行工具。`vnext/**` 仍仅 Markdown，Go 不增加研究执行器；真实 IDA、HTTP、联合行为与静态测试分别验收。
+- pack 工具按具体用途接纳：每个工具先证明上游/native 不够，限定输入/输出、无后台常驻、显式调用、不进入 learningTargets；既有的 `packs/binary-re/tooling/scripts/export_function_evidence.py`（对已打开的授权 IDA 数据库副本做显式定点只读导出，只写指定 case artifact）与专业交付路线新增的各 pack integration/工具入口都按此原则。catalog/recipe 不自动执行；不安装宿主、不执行目标、不写 analysis DB，继续禁止通用运行器与 adapter host。`packs/binary-re/upstream/**` 与 `tooling/integrations/*.md` 仅为固定上游方法材料与接入说明（拼接 SHA-256 机械校验、不进入 learningTargets）。`vnext/**` 仍仅 Markdown，Go 不增加研究执行器；真实 IDA、HTTP、联合行为与静态测试分别验收。
 
 ## 初始化与更新边界
 
@@ -70,7 +70,8 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 - 薄核心合同与模板：`vnext/**`
 - contract tests：`internal/steamai/vnextcontract/**`
 - pack/common：`packs/<pack>/**`、`common/**`
-- 当前路线：`docs/professional-delegation-roadmap.md`
+- 当前路线与接续点：`docs/professional-delivery-roadmap.md`
+- 旧专业负责人接入实验：`docs/professional-delegation-roadmap.md`
 - 已完成低干预启动与纠偏路线：`docs/low-friction-collaboration-roadmap.md`
 - 已完成研究对照与已知报告校准：`docs/research-validity-roadmap.md`
 - 已验专业取证/联合研究与原对照事实：`docs/research-execution-roadmap.md`
@@ -90,4 +91,4 @@ go vet ./...
 git diff --check
 ```
 
-显式 live gate 按 `vnext/acceptance.md` 分层执行。默认测试不启动 Claude Code。fake process、remote workflow、cross-compile 或 synthetic fixture 不代表真实 Windows setup/PATH、可见窗口、用户纠偏、跨会话协作、evaluator calibration/comparative result、field outcome、learning apply 或 formal release。涉及 canonical skill、Fresh、pack snapshot、learning batch、update/uninstall 或 Release 时追加对应 focused tests 与真实产品路径验收。
+显式 live gate 按 `vnext/acceptance.md` 分层执行。默认测试不启动 Claude Code。维护测试与验收默认使用无窗口后台通道（headless 会话、无窗口 fixture、文件消息通道），不占用前台窗口、真实鼠标或键盘；仅当被验收对象本身是可见成员窗口或真实鼠标通道（后台无法替代）时，才可在用户明确同意的时间窗内短暂使用前台，完成后立即关闭全部自开窗口。fake process、remote workflow、cross-compile 或 synthetic fixture 不代表真实 Windows setup/PATH、可见窗口、用户纠偏、跨会话协作、evaluator calibration/comparative result、field outcome、learning apply 或 formal release。涉及 canonical skill、Fresh、pack snapshot、learning batch、update/uninstall 或 Release 时追加对应 focused tests 与真实产品路径验收。

@@ -1,0 +1,76 @@
+schemaVersion: 2
+pack: game-automation
+mode: declarative
+
+tools:
+  - id: airtest-desktop-automation
+    status: candidate
+    purpose: Windows 桌面游戏窗口的图像识别状态检查与有界键鼠输入，用于授权目标的自动化脚本。
+    inputs: [approved-window-binding, config-with-action-limits]
+    outputs: [run-logs, step-observations, failure-screenshots-case-local]
+    sideEffects: [process-execution, input-injection-to-approved-target, bounded-filesystem-write]
+    requiresUserConfirmation: true
+    requiredContext: [exact-target-binding, action-limits, stop-and-emergency-stop, output-limit]
+    stopConditions: [target-missing, window-unfocused, unexpected-dialog, low-confidence, budget-exhausted, stop-requested]
+    reusableNotes:
+      - 固定版本与运行接口见 tooling/integrations/airtest.md；环境预检通过并经用户批准后才实操。
+      - 非幂等动作（提交/支付/领取）不进入自动重试路径。
+
+  - id: poco-control-tree
+    status: auxiliary
+    purpose: 目标提供 SDK/控件树支持时的结构化状态读取与控件操作。
+    inputs: [sdk-integration-verified, approved-window-binding]
+    outputs: [control-tree-observations]
+    sideEffects: [depends-on-target-sdk]
+    requiresUserConfirmation: true
+    requiredContext: [exact-target-binding, sdk-version, stop-conditions]
+    stopConditions: [sdk-missing, version-mismatch, scope-drift]
+    reusableNotes:
+      - 仅当控件树实际可用时使用；无 SDK 时不承诺，图像识别兜底并声明不确定性。
+
+  - id: state-decision-logic
+    status: mainline-template
+    purpose: 与执行框架解耦的状态决策：识别→校验前置→单步动作→等待预期→校验结果的纯逻辑层，可用 fake adapter 单测。
+    inputs: [state-observation-or-fake, config-with-action-limits]
+    outputs: [next-action-decision, log-records]
+    sideEffects: []
+    requiresUserConfirmation: false
+    stopConditions: [unknown-state, retry-limit, config-invalid]
+    reusableNotes:
+      - 自动化决策逻辑（正常、失焦、超时、未知状态、停止、恢复）默认用 fake adapter 覆盖单测；真实框架不在默认单测启动。
+
+entries:
+  - id: windows-stateful-automation
+    recipe: tooling/recipes/windows-stateful-automation.md
+    purpose: Windows 桌面目标上有状态自动化的实现方法（状态枚举、识别通道、有界等待、非幂等保护）。
+    inputs: [approved-window-binding, state-sequence, action-and-wait-limits, non-idempotent-list]
+    outputs: [run-logs, input-timeline, ledger, bounded-failure-screenshots]
+    risk: review-before-use
+  - id: automation-regression
+    recipe: tooling/recipes/automation-regression.md
+    purpose: 自动化脚本验收与改后回归的六场景矩阵（正常/延迟/错误/暂停恢复/停止/重复启动）。
+    inputs: [script-under-test, synthetic-or-approved-target, scenario-configs]
+    outputs: [scenario-results, stop-latency-measurement, regression-record]
+    risk: review-before-use
+
+examples:
+  - id: windows-flow-reference
+    path: tooling/examples/windows-flow/
+    purpose: 决策核心与执行框架解耦的参考骨架（State/DecisionCore/FakeDevice/Runner、控制文件、ledger、时间线）；--selftest 无需第三方依赖。
+    reusableNotes:
+      - 接真实目标时只实现 AirtestDevice，决策核心不改；示例不绑定任何真实窗口。
+
+integrations:
+  - id: airtest-desktop-automation
+    integration: tooling/integrations/airtest.md
+    purpose: 固定版本 Airtest 的 Windows 桌面窗口状态识别与有界输入。
+    inputs: [approved-window-binding, config-with-action-limits]
+    outputs: [run-logs, step-observations, failure-screenshots-case-local]
+    risk: six-item-qualification-then-specific-confirmation
+    stopConditions: [target-missing, window-unfocused, unexpected-dialog, low-confidence, budget-exhausted]
+
+schemas: []
+constraints:
+  - No entry executes automatically.
+  - Input injection and non-idempotent actions require exact target binding, specific user confirmation, and tool permission.
+  - Stop on target missing, unexpected dialog, low confidence, budget exhaustion, or user stop request; after stop no new input until re-observation.

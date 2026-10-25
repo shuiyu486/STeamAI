@@ -1,0 +1,34 @@
+{
+  "target": {
+    "window_title": "SYNTHETIC WINDOW TITLE (placeholder)",
+    "window_class": "",
+    "process_name": ""
+  },
+  "flow": {
+    "states": ["IDLE", "LOADING", "READY", "COLLECTED", "RESULT"],
+    "terminal_state": "RESULT"
+  },
+  "recognition": {
+    "primary_channel": "window-title-api",
+    "image_templates_dir": "artifacts/templates/",
+    "image_threshold": 0.85,
+    "low_confidence_action": "pause"
+  },
+  "limits": {
+    "max_actions_total": 50,
+    "max_runtime_seconds": 300,
+    "step_wait_timeout_seconds": 30,
+    "poll_interval_seconds": 0.2,
+    "retry_limit_per_step": 2
+  },
+  "non_idempotent_actions": ["collect_reward"],
+  "control": {
+    "control_file": "control.json",
+    "ledger_file": "ledger.json",
+    "timeline_file": "timeline.jsonl"
+  },
+  "stop": {
+    "max_stop_latency_seconds": 2.0,
+    "emergency_release_resources": true
+  }
+}

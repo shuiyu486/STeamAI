@@ -27,7 +27,8 @@
 已知限制（随上游版本更新重核）：
 
 - 复用当前 GUI 数据库的 attached 模式只认 legacy 工具目录；现代目录的 attached 生命周期未适配，缺工具即拒绝。
-- headless 模式复制输入新建私有库，不继承已有 IDB 的分析积累；关闭按 `save:false` 释放，不保存也不关闭用户 GUI 数据库。
+- headless 模式复制输入新建私有库，不继承已有 IDB 的分析积累；关闭按 `save:false` 释放，不保存也不关闭用户 GUI 数据库。headless decompile 需分页/分片读取，防止单响应超限。
+- 关闭回执的 `cleanup_incomplete` 不证明 worker 进程已退出；需要确认释放时以进程观察为准，连接关闭不等于目标已清理。
 - IDA 结果为 live 观察，不套用其他后端的快照缓存收益。
 
 ## 证据交接

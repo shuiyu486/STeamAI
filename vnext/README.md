@@ -1,6 +1,6 @@
 # STeamAI case 合同与模板
 
-`vnext/**` 是 canonical `/steamai` Fresh 时物化到 case-local `contracts/` 的声明式合同源。当前专业负责人接入路线见 `docs/professional-delegation-roadmap.md`，历史研究对照、工具/联合研究与学习证据按 `docs/context-routing.md` 路由，不据旧验收证明新行为；用户入口是 Windows 原生 `steamai.exe` + `.claude/skills/steamai/SKILL.md`。
+`vnext/**` 是 canonical `/steamai` Fresh 时物化到 case-local `contracts/` 的声明式合同源。当前三线实际交付路线与执行状态见 `docs/professional-delivery-roadmap.md`；旧专业负责人接入实验见 `docs/professional-delegation-roadmap.md`，历史研究对照、工具/联合研究与学习证据按 `docs/context-routing.md` 路由，不据旧验收证明新行为；用户入口是 Windows 原生 `steamai.exe` + `.claude/skills/steamai/SKILL.md`。
 
 任务按结果分工，具体方法交给当前授权内的智能成员。共享自主协作与确认边界由 case 模板承载，角色只补自身职责；普通探索不逐步审批，关键结论仍按证据合同审查。不新增任务字段、控制面或成员必读文档。
 

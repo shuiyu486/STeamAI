@@ -1,0 +1,2 @@
+# 真实窗口执行依赖（安装需用户明确批准；fake adapter 单测与 --selftest 无需安装）
+airtest==1.4.3

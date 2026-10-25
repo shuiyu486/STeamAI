@@ -62,6 +62,8 @@ tooling:
   - tooling/scripts/export_function_evidence.py
   - tooling/schemas/ida-function-evidence-v1.schema.json
   - tooling/recipes/lane-collaboration.md
+  - tooling/recipes/function-version-compare.md
+  - tooling/recipes/runtime-observation.md
 
 teamHints:
   suggestedMembers: 1-3

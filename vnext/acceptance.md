@@ -2,7 +2,7 @@
 
 本文件保留 `steamai-windows-native-product-v1` 的证据分层，并增加 `steamai-verified-learning-v1` 的独立 Gate 验收。所有自动 fixture 使用临时目录和无真实样本内容；结果不写入模板仓库，不把 session ID、绝对 case path 或 artifact bytes 保存为产品状态。
 
-当前专业负责人接入范围与执行状态见 `docs/professional-delegation-roadmap.md`；此前自主协作、低干预启动与研究有效性结果保留在各自路线，不代替本轮真实行为验证。各路线不放宽本文件既有 gate。
+当前专业能力实际交付路线与执行状态见 `docs/professional-delivery-roadmap.md`；旧专业负责人接入实验见 `docs/professional-delegation-roadmap.md`，GUI 保留与正式比较的完成适用性按新路线基线说明核查。此前自主协作、低干预启动与研究有效性结果保留在各自路线，不代替本轮真实行为验证。各路线不放宽本文件既有 gate；本轮新 gate 在 DLV-01 同步，计划存在不等于已执行。
 
 ## 证据分层
 
@@ -17,7 +17,7 @@ fake platform、synthetic fixture、remote CI definition、cross-compile 或 `go
 
 ## Live 测试模型与预算
 
-- 测试默认使用当前配置的 `ANTHROPIC_DEFAULT_HAIKU_MODEL` 或 `ANTHROPIC_DEFAULT_SONNET_MODEL`；简单探针优先 Haiku，需要工具协作时可选 Sonnet。Claude Code 显式传 `--model haiku` / `--model sonnet`，或该档位核验后冻结的实际模型值，不能不传参数而继承 `ANTHROPIC_MODEL`。
+- 测试默认使用当前配置的 `ANTHROPIC_DEFAULT_SONNET_MODEL`；仅极简探针或 headless 且 Sonnet 档无命令工具的场景降级 `ANTHROPIC_DEFAULT_HAIKU_MODEL`。Claude Code 显式传 `--model sonnet` / `--model haiku`，或该档位核验后冻结的实际模型值，不能不传参数而继承 `ANTHROPIC_MODEL`（用户 2026-10-25 指示：测试档位默认 Sonnet）。
 - 未经用户针对本次测试明确批准，不用 `ANTHROPIC_DEFAULT_OPUS_MODEL` 或其它顶级模型；通用“继续测试”不算高档模型授权。低成本映射缺失/不可用时报告，不自动升级。
 - evaluation 的 test-only helper 默认从配置冻结 Haiku，未配置该槽位才选 Sonnet；`STEAMAI_LIVE_MODEL=sonnet` 可显式选档位，其固定值/Opus override 不免除本次授权要求。vnextcontract 两项原生 context/journey probe 固定 Haiku，并以 `--setting-sources user` 排除 project/local settings；它们不验证 managed/session 模型策略。机械回归不调用模型。
 - 外部工具采用同一已选档位的实际映射值；只按已核验的 API 格式转换，冻结模型并核对响应侧身份。不改全局配置，不把 Claude Code 档位名当成供应商。
@@ -212,6 +212,29 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 ### 记录
 
 结果只写当前 roadmap；不保存真实样本、凭据或绝对 case 路径；live 预算在执行前单独批准，旧实验预算不沿用。
+
+## 专业能力实际交付 — steamai-professional-delivery-v1
+
+本节是三业务线（逆向、Web 安全、Windows 游戏自动化开发）的长期验收合同；批次状态、授权与当前接续点见 `docs/professional-delivery-roadmap.md`。上一节专业负责人接入的局部证据不自动继承为本路线完成。
+
+### 默认机械合同（随 DLV-01/02 交付）
+
+- 研究/开发双交付合同：case/member/role/skill 模板表达两类任务，同一套七字段与 artifact/evidence/review 产物；开发任务的 `allowedWrites` 可列 case-relative 项目源码路径，同一源码文件不并发写；开发 `accepted` 不自动取得 V0–V4 或 learning 资格；不为开发任务伪造安全 finding。
+- pack 专业工具按具体用途接纳：固定版本、限定输入/输出、无后台、显式调用、不进 learningTargets；继续禁止通用运行器/adapter host。新增 pack/integration/示例必须进入 manifest 指向的 Fresh 物化路径并由 casebootstrap 生产路径测试覆盖；旧 current case 零改写。
+- 默认测试不安装、不注册、不调用 Playwright/Airtest/Strix/REA；自动化决策逻辑用 fake adapter 覆盖，真实工具留 live gate。
+
+### Live gate（explicit opt-in，按批次用户批准）
+
+- **G-TOOLS**（DLV-02 binary/web、DLV-05 game）：新 Fresh case 仅凭仓库入口完成专业小操作、导出与跨会话阅读；错版本、缺工具、目标错配、输出超限、停止未知必须明确失败。逐工具分别核实，REA 成功不代 Strix/Airtest 通过。
+- **G-RE / G-WEB / G-GAME**（DLV-03/04/05）：各自业务线的完整交付链——逆向功能链与运行时补证且 GUI 保留经实际后端分析补验；Web 浏览器/API 实证与修复回归；游戏脚本在正常、扰动、停止、恢复条件下符合预期（停止后不再发新输入 ≤2 秒或记录实测上界）。
+- **G-JOINT**（DLV-06）：原生消息交接＋真实字段/请求/结果关联，版本/对象错配被拒绝；不以局部 accepted 冒充整体。实际验收范围为 case artifact 接力＋接收事实与关联证据（DLV-06 整体 review accepted）；**原生消息交接已于 2026-10-25 以正式可见成员窗口路径补验闭合**（Commander 正式改派＋成员间原生 token 交接＋success/incoming 双侧独立凭证，token 一致，见 roadmap DLV-06 结果区）。该 gate 两部分均有真实路径证据。
+- **G-FRESH**（DLV-07）：全新目录按本轮内容重走三线必需路径，无历史缓存与维护者内部修补；三线工程可用与有限效果观察分开记录，tie/更差如实保留。
+- 涉及真实安装（Playwright/Airtest）、外部目标或网络动作前，逐项取得用户对精确目标与恢复方式的批准；维护 fixtures 在仓库外生成，仓库只存生成器与无敏感合成源。
+- 维护测试与验收默认走无窗口后台通道（headless 会话、无窗口 fixture、文件消息通道），不占前台窗口/真实鼠标/键盘（用户 2026-10-25 再确认）；仅当被验收对象本身是可见成员窗口或真实鼠标通道时，先取得用户对时间窗的同意，最小窗口数执行，用完立即关闭。
+
+### 记录
+
+结果只写当前 roadmap 的批次结果区；证据区分 unit/synthetic、真实工具、可见成员、用户直接纠偏与比较结论；费用按批汇总，不建计费平台。
 
 ## 5. Release live
 
