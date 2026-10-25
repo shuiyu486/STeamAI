@@ -9,7 +9,7 @@ Windows 桌面目标上的识别→动作→等待→校验实现方法。参考
 ## 步骤
 
 1. **枚举状态**：把目标流程的所有可观测状态写成封闭集合（含失焦、目标消失、意外弹窗、未知状态）。每个状态一个决策，禁止"else 里继续点"。
-2. **选定识别通道**：优先窗口 API 可查的稳定值（标题/控件文本）；图像识别处理阈值、缩放、遮挡的不确定性，低置信度即暂停，坐标常量只作辅助。参考 `tooling/integrations/airtest.md`。
+2. **选定识别通道**：优先窗口 API 可查的稳定值（标题/控件文本）；自绘窗口定位按 `tooling/integrations/airtest.md` 的方法分层——原生控件枚举 > LLM 视觉定位（自绘默认，读图返回 bbox，无需标定）> 模板匹配（仅极简单静态场景，失败先查坐标系/截图管线而非阈值）。坐标常量只作辅助。
 3. **决策核心与执行分离**：`decide(state, ledger, config)` 是纯逻辑，用 fake adapter 单测；Airtest 只做 observe/act。结构参考 `tooling/examples/windows-flow/`。
 4. **等待**：每个等待都是状态轮询（timeout + poll_interval 上限），到达上限按超时决策（重试有界或暂停），不用固定 sleep 堆叠。
 5. **非幂等保护**：两阶段登记——执行前查 ledger 并落盘 pending，成功后 commit 为 done（原子替换写入）；中断后重启先 observe + 查 ledger：done 不再触发、pending 残留=无法确认是否已执行，暂停等待确认，不当未执行重发；登记损坏 fail-closed 报错。

@@ -195,7 +195,7 @@
 
 **五轮 review 终审（REVIEW-dlv05-round5.md）**：**accepted**——round 1 rejected（类型缺陷+断言缺口）、round 2/3/4 needs-evidence（测试指针、顺序区分力、waited 覆盖、措辞收紧）逐轮闭合；round 5 确认两类指定回归均有可区分断言、sc4 落盘一致、数值对齐。
 
-**真实鼠标通道复测尝试（2026-10-25，未完成——用户指示前台验证须事先同意时间窗，调试中止）**：`DLV05_MODE=windowed` sc1 复跑 FAIL——Runner 只到 run.start，模板匹配 confidence 恒 0.297（阈值 0.85）报 "template not found: start.png"；重跑 make_templates.py 重标定后仍 0.297，collect 模板另发现颜色掩码把按钮与底部装饰并成 155px 高 bbox（手动精裁修正）。根因候选：PrintWindow 截图与模板坐标系/色彩表示不一致（probe 证实 print_window_client 返回 ndarray 非 PIL Image），待用户同意时间窗后继续定位。历史 6/6 report 已备份 `report-headless-6of6-archived.json`，复测写同一 report.json 不影响档案。该项保持未闭合。
+**定位方法升级为 LLM 视觉定位（2026-10-25，用户指出模板匹配为最笨路径后执行）**：模板匹配复测失败（confidence 恒 0.297、重标定无效，PrintWindow 截图与模板坐标系/色彩表示不一致）后，放弃在模板参数上打转，改为方法分层：原生控件枚举 > **LLM 视觉定位（自绘窗口默认）** > 模板（仅极简单静态场景）。实现：`airtest_device.py` 增加 `llm_locate`（截图→headless claude 读图→JSON bbox→中心点，`DLV05_LOCATE` 可覆盖，默认 headless=template 快通道/windowed=llm；编排超时 `DLV05_JOIN_TIMEOUT` 可调）。**验证（全部后台无窗口）**：离屏渲染图定位两状态全中（bbox 误差≤1px，$0.096/次）；headless 强制 llm 模式 sc1 端到端 PASS；默认通道六场景 6/6 无回归；单测 19/19（含 llm 解析与默认策略 3 项）。分层说明已写入 pack（airtest.md 方法分层节+windows-stateful-automation.md）。**真实鼠标 windowed 端到端复测仍留待用户同意时间窗**（前台约束）；模板管线的坐标系 bug 不再修（已被 llm 定位取代）。历史 6/6 report 备份 `report-headless-6of6-archived.json`。
 
 **限制（如实）**：真实鼠标通道修复后未复测（用户使用电脑，`DLV05_MODE=windowed` 保留待空闲复跑）；act/commit 间异常 kill 未构造复现（两阶段静态处理+单测形状验证）；执行期（同步调用内部）stop 时序未采集（act-timing.json 为样本粗估：headless 通道 max 12ms+poll 200ms≈0.212s，不构成已验证上界）；首轮窗口版 6/6 的 report 原件被后续重跑覆盖（数据留存于 round 1 引用与本记录）；工程通道坑记录：`#`/正则转义在 `Windows:///` URI 被截断（`.` 通配绕开）、Windows 设备无 `exists`、aircv 需 `from airtest import aircv`、snapshot 用 mss 抓屏幕区域不穿遮挡（PrintWindow+RENDERFULLCONTENT 可穿）、tkinter 不响应 PostMessage 合成点击、失焦判定用 IsIconic 而非前台（后台自动化正常形态）。
 
