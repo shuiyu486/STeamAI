@@ -37,6 +37,9 @@ tooling:
   - tooling/examples/windows-flow/requirements.txt
   - tooling/examples/windows-flow/config.example.json
   - tooling/examples/windows-flow/workflow.py
+  - tooling/examples/windows-flow/localize.py
+  - tooling/examples/windows-flow/synth_target.py
+  - tooling/examples/windows-flow/synth_device.py
 
 teamHints:
   suggestedMembers: 1-2

@@ -26,7 +26,7 @@
 observe() → 状态 + 置信度
 decide(state, ledger, config) → 动作 | 等待(上限) | 暂停(原因) | 停止(原因)
 act(action) → 记录时间戳；非幂等动作两阶段：先查 ledger → begin(pending 落盘)
-              → 执行 → commit(done)；中断后 pending 残留=无法确认，暂停待确认
+              → 执行且确认成功 → commit(done)；结果未确认或中断留下 pending，停止并待确认
 wait_for(expected, timeout, poll_interval) → 状态轮询，不用固定 sleep 堆叠
 ```
 

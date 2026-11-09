@@ -23,6 +23,10 @@ fake platform、synthetic fixture、remote CI definition、cross-compile 或 `go
 - 外部工具采用同一已选档位的实际映射值；只按已核验的 API 格式转换，冻结模型并核对响应侧身份。不改全局配置，不把 Claude Code 档位名当成供应商。
 - 每批执行前给出独立预算、请求/turns 与时限；报告费用、实际账单和未知费用分开。有用量而费用为空或计价失败时保持 unknown，不将汇总 0 当免费或预算保护；先解决计价/额度边界再启动下一付费批次。改变模型后的重跑另记，不覆盖旧记录，也不作跨模型同条件比较。
 
+## 有界方法回归（独立于 learning gates）
+
+`STEAMAI_CAPABILITY_DELIVERY_LIVE=1 go test -count=1 -timeout=45m ./internal/steamai/evaluation -run '^TestCapabilityDeliveryLiveComparison$' -v` 显式启动六题双臂 synthetic readonly 方法对照：仅使用核验后的 Sonnet 槽位，每臂 240 秒/0.50 美元，整批最多 12 次调用/6 美元，无自动重试。默认测试只校验材料、严格评分与调用记录审计，不发模型请求。首对前置失败即保留 blocked/incomplete 并停止；答案字段正确不抵消运行失败或读取违规。方法文件不是完整 Fresh case，此回归不签发 calibration/promotion，也不证明原路线的效率目标。实际结果与本机证据指针见 `docs/capability-efficiency-results.md`。
+
 ## 1. Default automated gates
 
 ```text

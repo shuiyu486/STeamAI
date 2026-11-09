@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0 # 离线方法回归需要读取固定历史基线 60576c08
 
       - name: Set up Go
         uses: actions/setup-go@v5

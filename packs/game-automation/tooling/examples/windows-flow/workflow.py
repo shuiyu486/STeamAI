@@ -234,13 +234,26 @@ class StopRequested(Exception):
     """checkpoint 在长调用期间观察到 stop/estop；放弃当前动作，走统一停止出口。"""
 
 
+class InputUnconfirmed(Exception):
+    """目标的预期结果未确认（act 返回非 True）。
+
+    act 合同：返回 True 表示目标预期结果已确认（不只是"输入已发出且未抛异常"）；
+    其余返回值或异常都是未确认。非幂等动作保留 pending、不 commit、不重试：
+    无法确认是否已执行时，上层暂停等待确认（恢复合同）。目标端拒绝/未命中
+    同样走此路径——目标拒绝不等同真实无误点，确认只以 adapter 合同为准。
+    """
+
+
 class Runner(object):
     """主循环：poll 控制 → observe → decide → prepare → 复核 → act/wait。
 
     停止语义：observe/prepare 都是可传入 checkpoint 的调用——adapter 在耗时步骤
     （截图、视觉定位、外部进程）中反复调用 checkpoint，主循环在 stop/estop 时经
-    StopRequested 立即放弃；prepare 返回后、输入发出前再复核一次控制文件，晚到的
-    停止不消费过期定位结果。停止判据由时间线验收。
+    StopRequested 立即放弃；prepare 返回后与 pending 落盘后的末端复核统一走
+    checkpoint：停止不消费过期定位，pause/resume 就地生效；期间观察到 resume
+    （need_fresh_step 置位）即丢弃定位结果并重新观察。act 必须返回 True 表示
+    目标预期结果已确认，否则 InputUnconfirmed（保留 pending，不重试）。
+    停止判据由时间线验收。
     """
 
     def __init__(self, core, device, ledger, control, timeline_path, poll_interval):
@@ -248,9 +261,9 @@ class Runner(object):
         self.device = device
         self.ledger = ledger
         self.control = control
-        self.timeline = open(timeline_path, "a", encoding="utf-8")
         if not 0 < poll_interval <= 0.2:
             raise ValueError("poll_interval 必须在 (0, 0.2] 秒：控制轮询间隔即停止响应上界的一部分")
+        self.timeline = open(timeline_path, "a", encoding="utf-8")
         self.poll_interval = poll_interval
         self.paused = False
         self.stop_requested_at = None
@@ -324,20 +337,29 @@ class Runner(object):
                     continue
                 # 准备阶段（定位等耗时操作）不发送输入；adapter 经 checkpoint 响应停止
                 prepared = self.device.prepare(action, self.checkpoint)
-                # 输入发出前复核：准备期间或最后瞬间到达的停止不消费过期定位
-                if self._consume_stop(self.control.poll()):
-                    raise StopRequested()
-                if self.paused:
+                # 输入发出前复核统一走 checkpoint：停止抛出；pause/resume 就地生效，
+                # 不再被"只看停止"的轮询吞掉。期间观察到 resume（need_fresh_step
+                # 置位且本轮不会清除）即定位过期：丢弃重新观察，不用旧定位发输入。
+                self.checkpoint()
+                if self.paused or self.need_fresh_step:
                     self.log("act.discard-prepared", action=action.value)
                     continue
                 if self.core.is_non_idempotent(action):
                     # 输入发出前先落盘 pending：中断后无法确认是否已执行，
                     # 重启时决策层对 pending 暂停等待确认
                     self.ledger.begin(action)
-                    # pending 落盘与输入之间的最后复核：停止时保留 pending（无法确认是否已执行）
-                    if self._consume_stop(self.control.poll()):
-                        raise StopRequested()
-                self.device.act(action, prepared)
+                    # pending 落盘与输入之间的最后复核：停止时保留 pending（无法确认
+                    # 是否已执行）；pause/resume 同样保留 pending 且不输入——
+                    # 已落盘的登记不因未发送输入而清除，交决策层暂停等待确认。
+                    self.checkpoint()
+                    if self.paused or self.need_fresh_step:
+                        self.log("act.discard-pending", action=action.value)
+                        continue
+                # act 合同：返回 True 表示目标的预期结果已确认（不只是"输入已发出"）；
+                # 其余返回值/异常一律未确认——保留 pending、不 commit、不重试。
+                if self.device.act(action, prepared) is not True:
+                    raise InputUnconfirmed(
+                        "act(%s) outcome unconfirmed" % action.value)
                 self.log("act", action=action.value)
                 if self.core.is_non_idempotent(action):
                     self.ledger.commit(action)
