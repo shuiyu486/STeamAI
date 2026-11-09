@@ -8,6 +8,8 @@
 
 本仓库是 STeamAI canonical 实现（`https://github.com/shuiyu486/STeamAI`）。v1 正式支持 Windows 10/11 x64；Go module 同时承载窄职责原生 `steamai.exe` 与 acceptance tests，使用同一 canonical identity。
 
+**现阶段的平台与验收范围仅限 Windows 10/11 x64。** 日常开发、维护验证和 CI 以 Windows 正常运行为交付要求，CI 只运行 Windows；不默认增加或等待 Linux/macOS/三平台 CI，不为非 Windows 专属失败开展兼容性修复或阻塞交付。只有用户明确提出跨平台支持时才扩大范围；保留非 Windows stub、通用代码或历史多平台记录不代表跨平台验收要求。
+
 STeamAI 是面向已授权安全研究与自动化开发的、人在环的 Claude Code 多会话团队协作与经验学习层：一个真实项目目录对应一个明确授权的 case，研究类任务交付可复核结论，开发类任务（工具链、修复补丁、自动化脚本、项目代码等）交付可运行代码；用户主要指挥 Commander，也可观察和纠偏成员；成员身份与当前任务由专属目录的 `CLAUDE.md` 承载；会话、消息、恢复和工具调用复用 Claude Code 原生能力；STeamAI 只补安装/Fresh 的机械边界、Windows 可见进程启动、瞬时单 Commander 互斥、artifact/evidence/finding/review、proof-carrying replay、经校准的比较证据、explicit opt-in field outcome 与经确认的经验批次回流。
 
 本仓库不是安全/RE case、自动分析器、漏洞挖掘或渗透引擎。模板和测试不得包含真实样本、trace/dump/capture、payload、凭据、客户信息、绝对 case 路径或 case 进度。

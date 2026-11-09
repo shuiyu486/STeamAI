@@ -29,6 +29,8 @@ fake platform、synthetic fixture、remote CI definition、cross-compile 或 `go
 
 ## 1. Default automated gates
 
+现阶段仅验收 Windows 10/11 x64，平台范围以根 `CLAUDE.md` 为准。以下默认回归在 Windows 上运行，`.github/workflows/release-gate.yml` 仅使用 `windows-latest`；不要求 Linux/macOS 或三平台 CI 通过，不将其专属失败作为当前交付阻塞。未经用户明确要求，不增加跨平台验收。
+
 ```text
 go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...

@@ -18,7 +18,7 @@
 | canonical `/steamai` 行为 | `.claude/skills/steamai/SKILL.md` | 不调用已删除的 `/rekit` 或旧 runtime |
 | case/member/research 模板 | `vnext/README.md`，再选目标模板 | 不一次加载全部模板 |
 | 原生 session、消息与恢复 | `vnext/capabilities.md` | session ID 不代表身份或授权 |
-| 自动与 live acceptance | `vnext/acceptance.md` | 静态/fake/headless 不能代替受影响的真实路径 |
+| 自动与 live acceptance | `vnext/acceptance.md` | 现阶段仅 Windows；不默认三平台 CI，静态/fake/headless 不能代替受影响的真实路径 |
 | learning 批次回流 | `vnext/learning-feedback.md` | exact confirmation 不可省，不自动写 pack |
 | replay、V0–V4、calibration、promotion、field outcome | `vnext/verified-learning.md` | 缺证不晋级；盲审读取 manifest 绑定的 immutable packet |
 | Release 构建与产物 | `.github/workflows/release.yml` | workflow 存在不等于已发布 |
