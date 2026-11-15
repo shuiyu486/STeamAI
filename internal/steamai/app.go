@@ -197,14 +197,13 @@ func (a *app) run(args []string) error {
 		}
 		return a.evaluationSuiteFinalize()
 	case "__open-member":
-		switch {
-		case len(args) == 2:
-			return a.openMember(args[1], false)
-		case len(args) == 3 && args[1] == "--trust-workspace":
-			return a.openMember(args[2], true)
-		default:
-			return errors.New("内部成员启动参数无效")
+		name, trustWorkspace, model, err := memberLaunchOptions(args[1:])
+		if err != nil {
+			return err
 		}
+		return a.openMember(name, trustWorkspace, model)
+	case "__member-session":
+		return a.memberSession(args[1:])
 	default:
 		return fmt.Errorf("未知命令 %q；运行 steamai --help 查看支持的入口", args[0])
 	}
@@ -368,7 +367,7 @@ func (a *app) openCommander() error {
 	if err != nil {
 		return fmt.Errorf("找不到原生 Claude Code: %w", err)
 	}
-	args := []string{"/steamai"}
+	args := []string{"--model", "opus", "/steamai"}
 	if state == caseFresh {
 		source, err := a.platform.CanonicalSource()
 		if err != nil {
@@ -400,55 +399,145 @@ func (a *app) openCommander() error {
 	}, a.stdin, a.stdout, a.stderr)
 }
 
-func (a *app) openMember(name string, trustWorkspace bool) error {
-	if !memberNamePattern.MatchString(name) {
-		return errors.New("成员名称无效")
+// 模型档位由 Commander 按任务选择；原生层只验证并传给 Claude Code，不推断角色能力。
+func memberLaunchOptions(args []string) (name string, trustWorkspace bool, model string, err error) {
+	model = "sonnet"
+	seenModel := false
+	invalid := func() (string, bool, string, error) {
+		return "", false, "", errors.New("内部成员启动参数无效：__open-member [--trust-workspace] [--model opus|sonnet] <member-name>")
 	}
-	if _, reserved := windowsReservedNames[strings.ToLower(name)]; reserved {
-		return errors.New("成员名称是 Windows 保留名称")
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--trust-workspace":
+			if trustWorkspace {
+				return invalid()
+			}
+			trustWorkspace = true
+		case "--model":
+			if seenModel || i+1 == len(args) {
+				return invalid()
+			}
+			i++
+			model = args[i]
+			if model != "opus" && model != "sonnet" {
+				return invalid()
+			}
+			seenModel = true
+		default:
+			if name != "" || strings.HasPrefix(args[i], "-") {
+				return invalid()
+			}
+			name = args[i]
+		}
 	}
-	caseRoot, err := a.cwd()
+	if name == "" {
+		return invalid()
+	}
+	return name, trustWorkspace, model, nil
+}
+
+func (a *app) openMember(name string, trustWorkspace bool, model string) error {
+	caseRoot, member, err := a.memberProcess(name, model)
 	if err != nil {
 		return err
 	}
-	caseRoot, err = filepath.Abs(caseRoot)
+	exe, err := a.executable()
 	if err != nil {
 		return err
 	}
-	state, err := inspectCase(caseRoot)
+	exe, err = filepath.Abs(exe)
 	if err != nil {
 		return err
 	}
-	if state != caseCurrent {
-		return errors.New("只能从完整 current case 启动成员")
+	if err := validateNativeExecutablePath(exe); err != nil {
+		return err
 	}
-	memberRoot := filepath.Join(caseRoot, ".steamai-vnext", "members", name)
-	if !pathWithin(memberRoot, filepath.Join(caseRoot, ".steamai-vnext", "members")) {
-		return errors.New("成员路径越出 current case")
-	}
-	if err := requirePlainPath(caseRoot, memberRoot, true); err != nil {
-		return fmt.Errorf("成员目录无效: %w", err)
-	}
-	if err := requirePlainPath(caseRoot, filepath.Join(memberRoot, "CLAUDE.md"), false); err != nil {
-		return fmt.Errorf("成员身份文件无效: %w", err)
+	configDir := "-" // 明确使用默认配置域，不继承 WezTerm server 的其它配置域。
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		configDir, err = filepath.Abs(dir)
+		if err != nil {
+			return fmt.Errorf("解析 Claude Code 配置目录: %w", err)
+		}
 	}
 	if trustWorkspace {
-		// 自动信任只在全部成员校验通过后、可见启动前发生；任何配置解析、
-		// 冲突或并发障碍都以具体原因停止启动，不降级为弹信任框。
-		if _, err := prepareMemberWorkspaceTrust(memberRoot, caseRoot); err != nil {
+		// 信任准备只在父启动器执行，pane 内 helper 不写配置。
+		if _, err := prepareMemberWorkspaceTrust(member.Dir, caseRoot); err != nil {
 			return fmt.Errorf("自动信任成员工作区失败: %w", err)
 		}
 	}
+	return a.platform.OpenVisible(processSpec{
+		Path: exe,
+		Args: []string{"__member-session", "--config-dir", configDir, "--model", model, name},
+		Dir:  caseRoot,
+		Env:  member.Env,
+	})
+}
+
+// WezTerm tab 从 server 继承环境；在 pane 内重新清洗，避免正式会话被判为嵌套。
+// 此内部入口只启动已校验的成员，不接受任意命令或环境变量载荷。
+func (a *app) memberSession(args []string) error {
+	if len(args) != 5 || args[0] != "--config-dir" || args[2] != "--model" ||
+		(args[1] != "-" && !filepath.IsAbs(args[1])) {
+		return errors.New("内部成员会话参数无效")
+	}
+	name, trust, model, err := memberLaunchOptions(args[2:])
+	if err != nil || trust {
+		return errors.New("内部成员会话参数无效")
+	}
+	_, spec, err := a.memberProcess(name, model)
+	if err != nil {
+		return err
+	}
+	spec.Env = withoutEnvironment(spec.Env, "CLAUDE_CONFIG_DIR")
+	if args[1] != "-" {
+		spec.Env = append(spec.Env, "CLAUDE_CONFIG_DIR="+filepath.Clean(args[1]))
+	}
+	return a.platform.RunAttached(spec, a.stdin, a.stdout, a.stderr)
+}
+
+func (a *app) memberProcess(name, model string) (string, processSpec, error) {
+	fail := func(err error) (string, processSpec, error) { return "", processSpec{}, err }
+	if !memberNamePattern.MatchString(name) {
+		return fail(errors.New("成员名称无效"))
+	}
+	if _, reserved := windowsReservedNames[strings.ToLower(name)]; reserved {
+		return fail(errors.New("成员名称是 Windows 保留名称"))
+	}
+	caseRoot, err := a.cwd()
+	if err != nil {
+		return fail(err)
+	}
+	caseRoot, err = filepath.Abs(caseRoot)
+	if err != nil {
+		return fail(err)
+	}
+	state, err := inspectCase(caseRoot)
+	if err != nil {
+		return fail(err)
+	}
+	if state != caseCurrent {
+		return fail(errors.New("只能从完整 current case 启动成员"))
+	}
+	memberRoot := filepath.Join(caseRoot, ".steamai-vnext", "members", name)
+	if !pathWithin(memberRoot, filepath.Join(caseRoot, ".steamai-vnext", "members")) {
+		return fail(errors.New("成员路径越出 current case"))
+	}
+	if err := requirePlainPath(caseRoot, memberRoot, true); err != nil {
+		return fail(fmt.Errorf("成员目录无效: %w", err))
+	}
+	if err := requirePlainPath(caseRoot, filepath.Join(memberRoot, "CLAUDE.md"), false); err != nil {
+		return fail(fmt.Errorf("成员身份文件无效: %w", err))
+	}
 	claude, err := a.resolveNativeExecutable("claude.exe")
 	if err != nil {
-		return fmt.Errorf("找不到原生 Claude Code: %w", err)
+		return fail(fmt.Errorf("找不到原生 Claude Code: %w", err))
 	}
-	return a.platform.OpenVisible(processSpec{
+	return caseRoot, processSpec{
 		Path: claude,
-		Args: []string{"--name", name, memberInitialPrompt, "--add-dir", caseRoot},
+		Args: []string{"--model", model, "--name", name, memberInitialPrompt, "--add-dir", caseRoot},
 		Dir:  memberRoot,
 		Env:  withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"),
-	})
+	}, nil
 }
 
 func rejectCaseInsideSource(caseRoot, source string) error {

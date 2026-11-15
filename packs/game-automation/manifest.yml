@@ -31,6 +31,16 @@ tooling:
   - tooling/README.md
   - tooling/catalog.yml
   - tooling/integrations/airtest.md
+  - tooling/integrations/dm.md
+  - tooling/dm-docs-update.md
+  - tooling/scripts/dm_docs.py
+  - tooling/scripts/dm_docs.selection.json
+  - tooling/examples/dm-cpp-mfc/README.md
+  - tooling/examples/dm-cpp-mfc/CMakeLists.txt
+  - upstream/dm-7.2520/README.md
+  - upstream/dm-7.2520/SOURCE.md
+  - upstream/dm-7.2520/cpp-mfc.md
+  - upstream/dm-7.2520/color-format.md
   - tooling/recipes/windows-stateful-automation.md
   - tooling/recipes/automation-regression.md
   - tooling/examples/windows-flow/README.md
@@ -72,7 +82,6 @@ denyPatterns:
   - absolute-case-paths
   - customer-environment-details
   - screenshots-without-redaction
-  - anti-detection-evasion-recipes
 
 budgets:
   CLAUDE.local.md: 8192

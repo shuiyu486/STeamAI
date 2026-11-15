@@ -7,6 +7,7 @@
 | `agent-team.md` | 组队、成员协作、纠偏与 durable member 边界。 |
 | `subagents.md` | 使用短命 tactical subagent。 |
 | `tool-adapters.md` | 选择外部工具或准备 heavy action。 |
+| `../tooling/windows-desktop-mcp.md` | 需要 Windows 通用截图、鼠标、键盘能力或配置该基础 MCP。 |
 | `context-budget.md` | 控制上下文和大文件读取。 |
 | `review-first.md` | 覆盖、删除、发布或经验回流前。 |
 | `write-boundaries.md` | 判断文件写入与外部副作用。 |

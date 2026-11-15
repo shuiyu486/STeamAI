@@ -143,7 +143,7 @@ func TestNativeCapabilityContractKeepsVisibleSessionDefault(t *testing.T) {
 		"普通、可见的 Claude Code 会话",
 		"positional `/steamai` 必须位于 variadic `--add-dir` 之前",
 		"--name <member-name>",
-		"claude --name <member-name> --add-dir <CASE_ROOT>",
+		"claude --model <opus或sonnet> --name <member-name> --add-dir <CASE_ROOT>",
 		"Claude Code 2.1.76",
 		"Claude Code 2.1.248",
 		"claude agents --json --all",

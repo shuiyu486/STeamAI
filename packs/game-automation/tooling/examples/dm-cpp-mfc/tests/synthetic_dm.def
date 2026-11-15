@@ -1,0 +1,4 @@
+LIBRARY synthetic_dm
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

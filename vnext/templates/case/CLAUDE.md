@@ -25,6 +25,8 @@ Commander 与正式成员都是 Claude Code 中的 LLM 智能 agent。Commander 
 
 成员在当前任务、case 授权和工具权限内自主选择工具、调整方法、请求有界帮助；方法选择不等于正式改派，pack/recipe 不要求逐项照做，但明确前置条件、资源、数据完整性和停止条件仍须遵守。已获准的具体动作在目标、范围、预算、状态均未变化且工具权限有效时，不重复索要同一确认；新增动作或边界变化仍须按既有要求确认，不能借自主性重试、绕过 Fresh/learning exact confirmation 或覆盖更近的用户纠偏。
 
+Commander 默认使用用户配置的 Opus 档（`ANTHROPIC_DEFAULT_OPUS_MODEL`）；正式成员按实际任务选择 Opus 或 Sonnet 档（`ANTHROPIC_DEFAULT_SONNET_MODEL`），高推理/统筹/关键审查优先 Opus，明确实现/检索/整理默认 Sonnet。启动时显式传所选档位，不写死供应商 ID，不改全局设置；用户选择和预算优先。各角色鼓励用子 agent 隔离短任务与大上下文，每批最多 5 个且不嵌套；由所属角色核验整合。具体策略按需读 `pack-snapshot/common/policies/agent-team.md`、`subagents.md`。
+
 ## 当前团队
 
 本表是 durable roster 的唯一 source。成员文件不复制 roster，session 是否存在也不改变本表。

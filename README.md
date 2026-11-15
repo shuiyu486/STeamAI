@@ -46,7 +46,34 @@ Fresh 来源是 setup 绑定的 canonical checkout 当前 working-tree bytes；s
 
 Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。case 建立后固定读取自己的主 pack、可选辅助 pack + 完整 `common/**` snapshot，不随 mutable canonical checkout 漂移。
 
-普通项目只运行 `claude` 时，不会加载或携带 STeamAI。
+普通项目只运行 `claude` 时，不会加载或携带 STeamAI；另行明确启用的 user-scope MCP 属于 Claude Code 用户配置，会在同一配置域的其它项目可见。
+
+### 终端、模型和桌面操作
+
+- **终端**：成员优先开在主会话所在 WezTerm 窗口的新标签页，不另起一堆 console；不在 WezTerm 内但已安装它时开新 WezTerm 窗口，未安装才保留原生 console。启动失败如实报告，不向已有标签发输入、不重复启动。标签仍是独立、可输入和纠偏的正式成员。
+- **模型**：Commander 显式用 `opus` 档，成员按任务选 `opus` / `sonnet`（默认 Sonnet）；分别沿用用户的 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL`。复杂推理、统筹与关键审查优先高档；明确实现和整理用 Sonnet。不写死供应商 ID，不改全局模型。已有会话不强切。
+- **子 agent**：各角色鼓励用显式 Sonnet 子 agent 分担短任务与大文件筛选，每批最多 5 个且不嵌套；主角色保留判断和整合，不把大段搜索结果搬回上下文。
+- **桌面 MCP**：跨 pack 的基础入口在 [`common/tooling/windows-desktop-mcp.md`](common/tooling/windows-desktop-mcp.md)。固定 Windows-MCP 0.8.9，关闭遥测，只暴露截图、键鼠等 9 项必要工具；通过 Claude Code 原生 user scope 一次接入，而非为每个软件造脚本。首次下载/注册与前台测试分别需要具体批准；仅复制入口不代表已安装或可控。它不能保证操作所有游戏、提权窗口或 UAC 界面，也不取代大漠、Airtest、Playwright。
+
+WezTerm 新标签继承 server 的环境，启动器会保留 Claude 配置域并清理嵌套会话标记，但不传递全部临时 shell 环境或把 token 放入命令行。模型槽位请使用 Claude Code 用户配置；实际响应模型仍以服务返回为准。这轮包含原生 Go 改动，需要新版 `steamai.exe`，仅更新文档不会改变已安装旧入口；已有 case 的固定 snapshot 不自动更新。已打开的 Claude Code 会话不保证热发现新 MCP；需要时先正常退出，再从原目录 resume 同一会话，不在旧会话仍运行时另开同目录 writer。
+
+本机已通过 WezTerm 同窗新标签的真实两轮交互，以及 Windows-MCP 对自建窗口的裁剪截图、一次点击和短文本键入；测试窗口均正常关闭。环境、首次失败原因及未验范围见[终端与桌面验收记录](docs/windows-desktop-results.md)，不代表任意游戏或所有 DPI 配置已通过。
+
+### 游戏自动化怎么选工具
+
+大漠与 Airtest 都保留，按任务选择，不是二选一淘汰：Airtest 适合沿用 Python 图像自动化与现有参考工程；明确选择大漠或已有大漠字库/脚本时，先评估复用，不要求重做成 Airtest。普通任务不默认两套工具同时操作同一窗口。
+
+在独立项目的 Commander 对话中，可以直接说：
+
+> 这个项目使用大漠＋C++/MFC，不再依赖按键精灵。从内置基础工程开始，先核对我的大漠版本和编译环境，再开发具体功能；不自动升级大漠或运行旧脚本。Airtest 继续保留。
+
+大漠入口见 `packs/game-automation/tooling/integrations/dm.md`：
+
+- **离线查接口**：`upstream/dm-7.2520/README.md` 收录 42 个常用接口和线程/字库限制，不需要安装 `dm-api`。
+- **换新版文档**：`tooling/dm-docs-update.md` 提供可运行的 CHM 比较/导入命令；新旧版本分开存，变更页需检查，不会自动替换 DLL 或旧项目资料。
+- **脱离按键精灵**：`tooling/examples/dm-cpp-mfc/README.md` 提供实际 C++/MFC 源码、CMake、开始/暂停/停止、日志、SDK 版本探针、注册码许可（密码框、private stdin）与自建目标测试，交付 `dm_console` / `dm_worker` / `dm_demo_target` 三个 Win32 EXE。真实链路（MFC 开始按钮 → `Ver` → `Reg` → 绑定 → 取色 → 点击/按键 → 解绑 → 目标关闭）已在非活动桌面的自建目标上实测通过，界面/执行进程正常退出，用户输入桌面不切换；准确边界见工程 README。具体游戏业务不在基础工程内，也不迁移既有游戏。
+
+以上相对路径均位于 `packs/game-automation/`。新 Fresh 会带上资料和源码，已有 case 不自动补装。接入不捆绑 DLL、不自动注册/安装；真实脚本、字库、凭据和绝对 case 路径不进入源码仓库。
 
 ## 研究方法与主辅 pack
 
@@ -67,7 +94,7 @@ Binary 路径提供一个显式 IDAPython 定点导出工具，读取已打开�
 ## 团队模型
 
 - **Commander**：理解目标与授权、按需组队、解决协作冲突、组织审查、集成交付和发起经验回流。
-- **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开屏幕上独立可见的普通 Claude Code 窗口，并以成员名设置原生 session 的可读寻址提示；发送前在同一 Claude Code 配置域中取得 `claude agents --json` 的 exact cwd→name 映射，并与 `ListAgents` 的当前可达 name 唯一相交，不能靠任一单独来源认定成员。
+- **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开用户可见、可输入的普通 Claude Code 会话（WezTerm 同窗新标签优先），并以成员名设置原生 session 的可读寻址提示；发送前在同一 Claude Code 配置域中取得 `claude agents --json` 的 exact cwd→name 映射，并与 `ListAgents` 的当前可达 name 唯一相交，不能靠任一单独来源认定成员。
 - **Reviewer**：只读 artifact/evidence/finding/spec/run/candidate/patch，只写 `reviews/` 与任务指定的 exact evaluation attestation，不执行 heavy action或运行 arms。
 - active team 默认最多 3 名执行成员 + 1 名 Reviewer；每个问题一名 owner、最多一名 verifier。
 - Claude Code 原生 session 是工作记忆，`ListAgents` / `SendMessage` 是协作通道，原生 logs/attach/resume/respawn 只作观察与恢复。独立 Commander/成员启动会移除继承的 nested/child 会话标记，避免被 Claude Code 当成不保存 transcript 的嵌套会话；不改用户全局配置。Windows 原生跨会话消息 live 验收使用明确支持该能力的 Claude Code 2.1.248 或更高版本，并同时验证发送结果与接收记录。STeamAI 不自建 task/session/message registry、队列或 supervisor。

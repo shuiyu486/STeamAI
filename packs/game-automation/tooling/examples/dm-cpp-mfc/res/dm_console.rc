@@ -1,0 +1,4 @@
+// 仅嵌入应用清单；窗体控件全部在代码中创建。
+LANGUAGE 0x9, 0x1
+
+1 24 "dm_console.manifest"

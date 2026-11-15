@@ -12,16 +12,20 @@ vNext 薄核心只假定：
 成员启动目录是 `.steamai-vnext/members/<member>/`。Windows 10/11 x64 正式路径由 Commander 在 case 根调用：
 
 ```text
-steamai __open-member [--trust-workspace] <member-name>
+steamai __open-member [--trust-workspace] [--model opus|sonnet] <member-name>
 ```
 
-原生入口只验证成员目录与 `CLAUDE.md`，然后从该目录自动打开一个屏幕上立即可见的普通交互式 Claude Code 窗口，以 `--name <member-name>` 给原生 session 一个可读的寻址提示，并以 `--add-dir <CASE_ROOT>` 加入 case 根访问范围；这条基础启动路径要求支持 `--name` 的 Claude Code 2.1.76 或更高版本。session name 不构成成员身份；发送前先在与目标会话相同的 Claude Code 配置域运行原生 `claude agents --json`，将 exact member cwd 唯一映射到实际 session name，再用 `ListAgents` 确认同名 peer 此刻可达，只有两边唯一相交才向该 name 发送。用户从窗口出现起即可观察、输入、暂停和纠偏；该入口不使用 `--bg`，不保存 PID/session ID，也不管理成员任务或生命周期。原生启动失败时才展示从成员目录执行 `claude --name <member-name> --add-dir <CASE_ROOT>` 的手工 fallback。
+原生入口验证成员目录与 `CLAUDE.md`，然后从该目录启动用户可见、可输入的普通交互式 Claude Code 会话。位于 WezTerm 时，按当前 `WEZTERM_PANE` 在同一窗口新开标签；标签承载独立正式成员，不是 subagent 或 split pane。不在 WezTerm 内但能找到它时打开新的 WezTerm 窗口；未安装时保留原生 console。已选 WezTerm 后失败就报告，不重试其它窗口或重复启动、不向已有标签发送输入。以 `--model opus|sonnet` 显式传档（成员默认 Sonnet），以 `--name <member-name>` 给原生 session 一个可读的寻址提示，并以 `--add-dir <CASE_ROOT>` 加入 case 根访问范围；这条基础启动路径要求支持 `--name` 的 Claude Code 2.1.76 或更高版本。session name 不构成成员身份；发送前先在与目标会话相同的 Claude Code 配置域运行原生 `claude agents --json`，将 exact member cwd 唯一映射到实际 session name，再用 `ListAgents` 确认同名 peer 此刻可达，只有两边唯一相交才向该 name 发送。用户从窗口出现起即可观察、输入、暂停和纠偏；该入口不使用 `--bg`，不保存 PID/session ID，也不管理成员任务或生命周期。原生启动失败时才展示从成员目录执行 `claude --model <opus或sonnet> --name <member-name> --add-dir <CASE_ROOT>` 的手工 fallback。
 
 `--trust-workspace` 是内部显式选项，只在用户对本次 case 初始化的批准明确涵盖成员工作区信任时由新版 canonical skill 传入：原生入口在全部成员校验通过后、打开窗口前，向当前配置域的 Claude Code 项目记录写入该 exact 成员目录的 `hasTrustDialogAccepted: true`，用户无需逐个点击信任框。该写入只发生在校验通过的 exact 成员目录上：复用与原生一致的 `.claude.json.lock` 目录锁和原子替换，其余 JSON 内容逐字节保留，已信任时零写入。原生对 git 仓库内目录的信任锚定最近 repo root，因此只有两种锚被允许——exact 成员目录与 case 根（case 建在仓库根，范围恰等于本次 case 授权）；case 位于仓库子目录（锚超出 case）或成员与 case 根之间存在嵌套仓库时，该成员启动以具体原因停止并列出可执行下一步，不降级弹框、不扩大信任、不静默重试。配置畸形、存在重复/大小写别名键或锁持续被持有时同样停止。不带该选项的调用保持原有行为，不为旧 case 静默新增信任。
 
 正式 Commander/member 启动仅在新进程环境中移除 `CLAUDECODE` 与 `CLAUDE_CODE_CHILD_SESSION`：后者可能由 Commander 的 shell 工具继承，若带入独立交互会话会令 Claude Code 关闭 transcript 保存。不得用全局修改或强设 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` 替代这条边界，也不覆盖用户其它明确的历史保存选择。
 
-`--add-dir` 只表达文件访问范围，不用于切换成员身份或加载兄弟目录规则。Fresh Commander 仍从目标 case cwd 启动；`claude "/steamai" --add-dir <CANONICAL_SOURCE>` 会从 added directory 发现 `.claude/skills/steamai/SKILL.md`，且 positional `/steamai` 必须位于 variadic `--add-dir` 之前。项目共享规则已位于成员启动目录的父层级。
+WezTerm pane 由 server 派生，不能假定继承 Commander 的临时 shell 环境。两条可见路径统一启动内部 `__member-session --config-dir <目录或-> --model <档位> <成员>`，helper 在 pane 内复用成员校验、清理上述标记，再前台执行 Claude Code；不嵌套开终端，不写信任或其它配置，不接受任意 exe/env 载荷。`-` 明确清除 server 的 `CLAUDE_CONFIG_DIR`、使用默认配置域；非默认域传绝对目录，仅影响 Claude 子进程。不把 token、完整环境或设置文件内容放进命令行。用户在 Claude 配置中定义的模型槽位继续生效；临时 shell 的其它变量不保证跨 WezTerm server 继承。
+
+Commander 显式选 `opus`，成员由负责人按任务选 `opus` / `sonnet`；Claude Code 将 alias 解析到用户的 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL`，CLI 选择优先于 `ANTHROPIC_MODEL`，不在 Go 中解析厂商 ID。已有会话不被强切，用户选择、预算与服务限制优先；请求档位不等于网关实际返回模型。各角色的短任务鼓励显式 Sonnet 子 agent，每批最多 5 个且不嵌套；维护/live 验收按独立预算选档。
+
+`--add-dir` 只表达文件访问范围，不用于切换成员身份或加载兄弟目录规则。Fresh Commander 仍从目标 case cwd 启动；`claude --model opus "/steamai" --add-dir <CANONICAL_SOURCE>` 会从 added directory 发现 `.claude/skills/steamai/SKILL.md`，且 positional `/steamai` 必须位于 variadic `--add-dir` 之前。项目共享规则已位于成员启动目录的父层级。
 
 主辅 pack 不改变上述成员模型。每个成员仍从自己的目录启动，读取自己的 `CLAUDE.md` 与父级 case 规则；辅助只是任务指定的 pinned 方法文件，不是额外配置根、第二个成员身份或新的记忆系统。新增方法和模板只随后续 Fresh 固定，current 不自动补装。
 
@@ -35,7 +39,7 @@ steamai __open-member [--trust-workspace] <member-name>
 
 ## 外部专业工具接入（按路线启用）
 
-- 仅当前路线明确启用时，才可在 exact 成员目录为该成员注册 local-scope MCP（同一 Claude 配置域、固定版本、经用户逐项批准）。Fresh 不安装、不升级、不全局注册外部工具或其 skill；`steamai.exe` 不因此获得配置管理职责，Windows 正式路径也不新增 PowerShell、`.cmd` 或 `.bat` 包装。
+- 专业目标工具默认在 exact 成员目录注册 local-scope MCP（同一 Claude 配置域、固定版本、经用户逐项批准）。跨项目共用的 Windows 桌面能力有一个明确例外：用户批准具体包、版本、工具白名单和配置域后，可通过 Claude Code 原生 `claude mcp add --scope user` 注册，供该配置域所有项目使用；不由 Fresh 或启动器暗中安装/注册。基础入口见 `common/tooling/windows-desktop-mcp.md`。`--add-dir` 不会带入 MCP 配置，不能拿它替代 scope 选择。`steamai.exe` 不因此获得配置管理职责，Windows 正式路径也不新增 PowerShell、`.cmd` 或 `.bat` 包装。
 - 非 MCP 形态的专业工具（Python 库、官方 CLI 等）以固定版本的 pack integration 说明接入：使用方在获准环境自行安装/调用，工具调用是任务里的显式动作；STeamAI 不代装、不托管进程、不维护工具配置管理器。
 - pack 工具按具体用途接纳：新工具须先证明上游/native 能力不足，限定输入/输出、无后台常驻、显式调用，并作为 pack 明示入口进入 case；工具脚本不进入 learningTargets。继续禁止通用运行器、adapter host 或第二套执行控制面。
 - local scope 只决定工具在该目录会话中加载，不是文件或网络隔离；具体动作仍受工具权限、针对该动作的用户确认与 case 授权约束。

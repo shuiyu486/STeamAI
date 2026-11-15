@@ -6,6 +6,10 @@
 | 任务 | 读取 |
 |---|---|
 | 选择自动化框架/入口 | `references/game-automation/toolchain-router.md` |
+| 大漠接入、既有资产与 C++/MFC | `tooling/integrations/dm.md` |
+| 大漠接口与线程/字库离线资料 | `upstream/dm-7.2520/README.md`（其它版本先核对对应 CHM） |
+| 更新大漠文档、比较新版变化 | `tooling/dm-docs-update.md` |
+| 不依赖按键精灵的 C++/MFC 基础工程 | `tooling/examples/dm-cpp-mfc/README.md` |
 | Airtest 接入、安装与运行接口 | `tooling/integrations/airtest.md` |
 | 工具能力与止损 | `tooling/catalog.yml` |
 

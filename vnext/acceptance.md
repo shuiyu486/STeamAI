@@ -17,6 +17,8 @@ fake platform、synthetic fixture、remote CI definition、cross-compile 或 `go
 
 ## Live 测试模型与预算
 
+以下是维护验收策略，与日常 Commander 默认 Opus、成员按任务选择 Opus/Sonnet 的产品策略分开。日常角色选档不自动授权付费维护批次；模型切换的机械参数测试不等于实际服务返回身份验证。
+
 - 测试默认使用当前配置的 `ANTHROPIC_DEFAULT_SONNET_MODEL`；仅极简探针或 headless 且 Sonnet 档无命令工具的场景降级 `ANTHROPIC_DEFAULT_HAIKU_MODEL`。Claude Code 显式传 `--model sonnet` / `--model haiku`，或该档位核验后冻结的实际模型值，不能不传参数而继承 `ANTHROPIC_MODEL`（用户 2026-10-25 指示：测试档位默认 Sonnet）。
 - 未经用户针对本次测试明确批准，不用 `ANTHROPIC_DEFAULT_OPUS_MODEL` 或其它顶级模型；通用“继续测试”不算高档模型授权。低成本映射缺失/不可用时报告，不自动升级。
 - evaluation 的 test-only helper 默认从配置冻结 Sonnet，未配置该槽位才降级 Haiku；`STEAMAI_LIVE_MODEL` 可显式选档位，其固定值/Opus override 不免除本次授权要求。vnextcontract 两项原生 context/journey probe 同样优先冻结 Sonnet 槽位（缺失才降 Haiku），并以 `--setting-sources user` 排除 project/local settings；它们不验证 managed/session 模型策略。机械回归不调用模型。
@@ -78,6 +80,13 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 8. **Uninstall**：只移除installed exe、setup拥有的PATH和定位信息；checkout、local commits和case保留；运行中exe先重命名，同字节临时原生 helper 在卸载命令退出后删除已安装入口；普通用户不需要管理员权限或重启；helper 自身残留的精确路径必须输出，进程退出后验证可手工删除。
 
 这些步骤涉及HKCU/PATH和真实窗口，不能由普通unit test假装完成。执行结果记录在case外的短验收摘要中，只写pass/fail与必要能力边界。
+
+### WezTerm、模型档位与桌面 MCP
+
+- 默认机械测试：覆盖同窗新标签、无 pane 的一次新窗口、未安装的 console、WezTerm 失败不重试；helper 的成员 cwd/argv、嵌套标记再次清理、显式默认/自定义配置域；Commander `opus` 和成员 `sonnet`/`opus` 的精确参数，不调用模型。
+- WezTerm live：仅在用户同意的前台时间窗内，用临时 current case 从真实主 pane 启动一名 Sonnet 成员，核对新 pane 与主 pane 的 window ID 一致、cwd/身份/配置域正确、可输入且保存历史；退出后清理自开标签，不关闭用户原标签。无 marker 的新 WezTerm 窗口另验。单元假进程不证明这些行为。
+- 模型 live：最短有界 Sonnet 请求验证 alias 与响应身份；Commander Opus 参数机械验证不代替 Opus 实际请求验收，也不自动授予该付费测试许可。不为换模型另开已有成员的可写副本。
+- Desktop MCP：按 `common/tooling/windows-desktop-mcp.md` 分别验证安装、原生 scope、9 项工具协议、真实截图/点击/键入。安装注册和前台时间窗分别明确批准；协议读通不能替代实际鼠标操作，工具可见也不能保证所有游戏可控。只对自建无害窗口测试，不抓取用户其它窗口。
 
 ## 4. Visible multi-session 与用户纠偏
 

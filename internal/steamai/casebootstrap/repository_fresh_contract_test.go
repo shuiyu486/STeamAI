@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -168,11 +170,10 @@ func TestRepositoryFourStateAvailabilityMaterializeThroughFresh(t *testing.T) {
 	}
 }
 
-// TestRepositoryGameAutomationExamplesMaterializeThroughFresh 验证
-// game-automation 三个新 example 按真实仓库实际 bytes 经生产 Fresh 进入
-// pack snapshot，InspectCurrent 绿。三个文件是生产交付：stage-0 index 缺失
-// 即漏 git add/漏交付，直接 Fatal，不得静默跳过 CI。
-func TestRepositoryGameAutomationExamplesMaterializeThroughFresh(t *testing.T) {
+// TestRepositoryGameAutomationAssetsMaterializeThroughFresh 验证
+// game-automation 的示例和两种工具入口按真实仓库 bytes 经生产 Fresh
+// 进入 snapshot。stage-0 index 缺失即漏交付，不得静默跳过 CI。
+func TestRepositoryGameAutomationAssetsMaterializeThroughFresh(t *testing.T) {
 	git, err := exec.LookPath("git")
 	if err != nil {
 		t.Skip("git is required")
@@ -181,13 +182,62 @@ func TestRepositoryGameAutomationExamplesMaterializeThroughFresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const exampleDir = "packs/game-automation/tooling/examples/windows-flow"
-	examples := []string{
-		exampleDir + "/localize.py",
-		exampleDir + "/synth_target.py",
-		exampleDir + "/synth_device.py",
+	const packRoot = "packs/game-automation"
+	assets := []string{
+		packRoot + "/tooling/examples/windows-flow/localize.py",
+		packRoot + "/tooling/examples/windows-flow/synth_target.py",
+		packRoot + "/tooling/examples/windows-flow/synth_device.py",
+		packRoot + "/tooling/integrations/dm.md",
+		packRoot + "/tooling/integrations/airtest.md",
+		packRoot + "/references/game-automation/toolchain-router.md",
 	}
-	probe, err := gitIndexEntries(git, repository, []string{exampleDir})
+	// 大漠资料按版本目录自动发现：所有 dm-* 版本目录的全部普通文件（含
+	// 未来版本目录内的 selection.json），不固定版本号、页数或扩展名。
+	versions, err := filepath.Glob(filepath.Join(repository, filepath.FromSlash(packRoot+"/upstream/dm-*")))
+	if err != nil || len(versions) == 0 {
+		t.Fatalf("缺少大漠版本资料目录: %v", err)
+	}
+	for _, version := range versions {
+		pages, err := os.ReadDir(version)
+		if err != nil || len(pages) == 0 {
+			t.Fatalf("大漠版本资料目录为空: %s: %v", version, err)
+		}
+		for _, page := range pages {
+			if page.IsDir() {
+				t.Fatalf("大漠版本资料目录不应包含子目录: %s/%s", version, page.Name())
+			}
+			assets = append(assets, packRoot+"/upstream/"+filepath.Base(version)+"/"+page.Name())
+		}
+	}
+	// C++/MFC 基础工程与 dm_docs 资料工具按目录闭包枚举；source 交付闭包
+	// 不得携带构建产物或 pycache。新增文件自动纳入，不需要登记清单。
+	for _, root := range []string{packRoot + "/tooling/examples/dm-cpp-mfc", packRoot + "/tooling/scripts"} {
+		err := filepath.WalkDir(filepath.Join(repository, filepath.FromSlash(root)), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(repository, path)
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				if slices.Contains([]string{"__pycache__", "build", "CMakeFiles", "dist"}, entry.Name()) {
+					t.Fatalf("source 交付闭包含构建产物目录: %s", filepath.ToSlash(rel))
+				}
+				return nil
+			}
+			if slices.Contains([]string{"CMakeCache.txt", "cmake_install.cmake"}, entry.Name()) || strings.HasSuffix(entry.Name(), ".pyc") {
+				t.Fatalf("source 交付闭包含构建产物: %s", filepath.ToSlash(rel))
+			}
+			assets = append(assets, filepath.ToSlash(rel))
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	assets = append(assets, packRoot+"/tooling/dm-docs-update.md")
+	probe, err := gitIndexEntries(git, repository, []string{packRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,28 +246,28 @@ func TestRepositoryGameAutomationExamplesMaterializeThroughFresh(t *testing.T) {
 		tracked[entry.Path] = true
 	}
 	var missing []string
-	for _, example := range examples {
-		if !tracked[example] {
-			missing = append(missing, example)
+	for _, asset := range assets {
+		if !tracked[asset] {
+			missing = append(missing, asset)
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("game-automation 生产 example 未进入 stage-0 index（漏 git add 即漏交付，不得静默通过 CI）: %v", missing)
+		t.Fatalf("game-automation 交付文件未进入 stage-0 index（漏 git add 即漏交付，不得静默通过 CI）: %v", missing)
 	}
 
 	fixture := buildRealRepoFreshFixture(t, "game-automation",
 		"../../pack-snapshot/packs/game-automation/manifest.yml ../../pack-snapshot/packs/game-automation/references/game-automation/README.md")
 	root := newCaseRoot(t)
 	preview, _ := fixture.applyFresh(t, root)
-	for _, example := range examples {
-		repoBytes, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(example)))
+	for _, asset := range assets {
+		repoBytes, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(asset)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		write := writeForTarget(t, preview, ".steamai-vnext/pack-snapshot/"+example)
+		write := writeForTarget(t, preview, ".steamai-vnext/pack-snapshot/"+asset)
 		caseBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(write.TargetPath)))
 		if err != nil || !bytes.Equal(write.Data, repoBytes) || !bytes.Equal(caseBytes, repoBytes) || hashBytes(caseBytes) != write.SHA256 {
-			t.Fatalf("example 未按实际 bytes 进入 pack snapshot: %s: %v", example, err)
+			t.Fatalf("交付文件未按实际 bytes 进入 pack snapshot: %s: %v", asset, err)
 		}
 	}
 }

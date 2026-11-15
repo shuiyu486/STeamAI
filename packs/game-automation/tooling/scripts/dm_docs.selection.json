@@ -1,0 +1,330 @@
+{
+  "schema": 1,
+  "sdk_label": "7.2520",
+  "chm_sha256": "8c041a1a03e300427c335e7b5dfc0458a44cb4283aaf95ec9c21ce73b2d27427",
+  "chm_bytes": 1897774,
+  "pages": [
+    {
+      "output": "BindWindow.md",
+      "source": "后台设置/BindWindow.htm",
+      "source_sha256": "aac1da8f949e5e9851d5b1fd5ba8807999aa66aeedb372d152e17601a16a2fc5",
+      "output_sha256": "cc959e5f0fc2e3c82306a46c2a81ecb10dc6c73abc6a541d7cd630696007b036",
+      "review": "reviewed"
+    },
+    {
+      "output": "BindWindowEx.md",
+      "source": "后台设置/BindWindowEx.htm",
+      "source_sha256": "bc705860d8a6b004fc13a3ebcb4e6d7ad834fdb8b4ff7a7fac056434aade6bb8",
+      "output_sha256": "2661af51f44eb90a64fb383892c5c9ae92e33c646eccd399f7fea1db14d76d72",
+      "review": "reviewed"
+    },
+    {
+      "output": "Capture.md",
+      "source": "图色/Capture.htm",
+      "source_sha256": "7f726d8493e9d770a4e9e4bce1ccfef2ca907309ad39360860b8708b67626ca0",
+      "output_sha256": "a0e8b6ce6c0014976e0f7e5bb2d1d0ef9dd90f46c9de2e137d1dd5e27e5ecb3c",
+      "review": "reviewed"
+    },
+    {
+      "output": "ClientToScreen.md",
+      "source": "窗口/ClientToScreen.htm",
+      "source_sha256": "eac3e911482754ec4f887d9025a412f2b27d7adb069764dec6a514f2002e7047",
+      "output_sha256": "00607586045107e9f9cab6390dddedac29d5bff59225acc54e8c5f71cd0b365f",
+      "review": "reviewed"
+    },
+    {
+      "output": "CmpColor.md",
+      "source": "图色/CmpColor.htm",
+      "source_sha256": "3f7fac0111d53f2839f8c32463a0a8832fce045cc0fca2dc2e3391383a56d0f3",
+      "output_sha256": "e3b487ac27ea252ba4048c1bd38b08a9e880d3d15f78f7d2c4cb69085677bd73",
+      "review": "reviewed"
+    },
+    {
+      "output": "EnableShareDict.md",
+      "source": "文字识别/EnableShareDict.htm",
+      "source_sha256": "ede77cf029d2b53d3616efa05bd0d353cd0dd3c69e1de35fbac4cfd8e7d2c407",
+      "output_sha256": "78cb7317dc3fa054ab0825a80d97fc0c27030bde5f125b427bba685be272c380",
+      "review": "reviewed"
+    },
+    {
+      "output": "EnumWindow.md",
+      "source": "窗口/EnumWindow.htm",
+      "source_sha256": "26504c7159fbec7eca26b34cd7394850e9585e8560c1e5e13f2679235f7b5788",
+      "output_sha256": "3d62a0f830d770283173325459428c7f8339b5ba5c0925b3f53b68b1ba9ed60b",
+      "review": "reviewed"
+    },
+    {
+      "output": "FindColor.md",
+      "source": "图色/FindColor.htm",
+      "source_sha256": "8f0232e31b82ea86f48fe5a62a795e6e4a75304fd4fd79eb0bb0ef496752f443",
+      "output_sha256": "929a87230714f6dde87abfaa62b05a26cbbbeb3f90b784d406fd8eaf4d8895ac",
+      "review": "reviewed"
+    },
+    {
+      "output": "FindPic.md",
+      "source": "图色/FindPic.htm",
+      "source_sha256": "f383aa8218b908ca1596e1902f088a9332e6a2a7b90bb5b797ac4ab3d29cc1f4",
+      "output_sha256": "27327fe9f52492be1efa69a52c3eadc35fd19ad4aab4a57a4790840edee8b784",
+      "review": "reviewed"
+    },
+    {
+      "output": "FindStr.md",
+      "source": "文字识别/FindStr.htm",
+      "source_sha256": "db1c6f4c02b55480d16d9c88800a1dbcfc77af0c2227270af9827d9297e571b8",
+      "output_sha256": "f388ac7329c6d80c62333899556fc638717805b90a0eac697b7cdc0402f4df21",
+      "review": "reviewed"
+    },
+    {
+      "output": "FindStrEx.md",
+      "source": "文字识别/FindStrEx.htm",
+      "source_sha256": "3f6000eff90d1f79aefe2f2ce3438f866f7a05457ba577428a8823bdfecfd8ed",
+      "output_sha256": "3eabcf5b7f2406cd9b64930cd1d697f9bf3e797f278eedf29876b8752b006590",
+      "review": "reviewed"
+    },
+    {
+      "output": "FindStrFast.md",
+      "source": "文字识别/FindStrFast.htm",
+      "source_sha256": "fe114c1ad9be90be49a7b882f6caeaaf35a858109ddb7e83a6a351a35b08fe18",
+      "output_sha256": "ecfaeceb64c231e8ac2090354cf67e924748a15885a8c3368545d88c81a30001",
+      "review": "reviewed"
+    },
+    {
+      "output": "FindWindow.md",
+      "source": "窗口/FindWindow.htm",
+      "source_sha256": "c7518c0703c45009908c64ddb25f4a9a0b7190bb13c78d70a97653af0bb23a7a",
+      "output_sha256": "5253ea4f8d5eda001eebb212454a8193a2013b6a3e6000b0374f0799c04d6bd6",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetBasePath.md",
+      "source": "基本设置/GetBasePath.htm",
+      "source_sha256": "797129ca97cb415f14c15fbe251242264ba79ccb839d07f94cea9eea4b1fdd5a",
+      "output_sha256": "4633a2b8c089d7a861bda62d78a2fbdf9e97b4d487087339b17ec8ff5f94bd9a",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetBindWindow.md",
+      "source": "后台设置/GetBindWindow.htm",
+      "source_sha256": "5a7913d689df974ee1c7c2f4d777d5ac640741de7aa90578c2906c6a21c5f268",
+      "output_sha256": "76b3ea14c4d60566c420baf26a283b1f5ac3cd1e7c09125161eceeb2547e14f1",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetClientSize.md",
+      "source": "窗口/GetClientSize.htm",
+      "source_sha256": "4aa2db237e571b921585fdc2095e17684be5e3ac245de83818fae4007a0f6595",
+      "output_sha256": "7d19835d8ab7b1120b18398368db2c8226b7d54a3eb79e38fcf5e3a60894f0bd",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetDmCount.md",
+      "source": "基本设置/GetDmCount.htm",
+      "source_sha256": "433a38243ca55b3466604804304d40bf06e62a4ff976c3cf8e1d376f1b8dd58a",
+      "output_sha256": "b06225b13aab3a4966d36c21f61a284c49582ec2e405a374d5b9ce2b89bb6f2b",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetID.md",
+      "source": "基本设置/GetID.htm",
+      "source_sha256": "36be9b6af03cba8852ddc18b66705be6d3f7a7b729793ae452789609f53a1bee",
+      "output_sha256": "6740e5c5c7c53869d50293d59c4e45d55e9e47b6a96348792799e42d2532c82e",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetLastError.md",
+      "source": "基本设置/GetLastError.htm",
+      "source_sha256": "e63a78339771a6830a19c873be3050739003592284b8266f1297a833d01be4eb",
+      "output_sha256": "ac104ca1544d3bb580b92ec8774f29a16c89b33bc4f7ae49a44e25998b59b8d8",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetNowDict.md",
+      "source": "文字识别/GetNowDict.htm",
+      "source_sha256": "e2a9f09dd67a22032de2167a0a4e2dd9db8d764df8ab6144025439c791d22c7d",
+      "output_sha256": "3e08b7f5c70e37e2b49c8904cd54576c448d674ae237341f3c66f30f5fb13c7e",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetPath.md",
+      "source": "基本设置/GetPath.htm",
+      "source_sha256": "d8360c7c87a106fa0d2e0dba9ce7501dc68b7224227bab9803e2d0b24ef5dc26",
+      "output_sha256": "b054ab29b5fd73c54f92bbd968e3288a8ce9807a3cd060590bd8fc9cc794eb54",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetWindowClass.md",
+      "source": "窗口/GetWindowClass.htm",
+      "source_sha256": "e4a629648abfb98b990c29111384e69665c4ab12043bd64fac3d79e5bec1effd",
+      "output_sha256": "1728b59d7a490b349cc0f85768eb12d078f1ee0ccbcd4b30620f990e5a9ddb9e",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetWindowProcessId.md",
+      "source": "窗口/GetWindowProcessId.htm",
+      "source_sha256": "0ea831db83e52ced16ea96be2dc2c25e15352e3fc85aae0d0be61e03e929b559",
+      "output_sha256": "3efea11f6a11e64105872da198b75f4cf7f377b44a62d81f11b1cef199dd0923",
+      "review": "reviewed"
+    },
+    {
+      "output": "GetWindowTitle.md",
+      "source": "窗口/GetWindowTitle.htm",
+      "source_sha256": "2cfabd2918b93a7a3d9ff7130b7a95e7d106a7d393693c1f9e127c29e4c31cf6",
+      "output_sha256": "d24f0437d04d329ef555f34934c360a1b27f6d787fae1630b5a8e1dfa70e8c07",
+      "review": "reviewed"
+    },
+    {
+      "output": "IsBind.md",
+      "source": "后台设置/IsBind.htm",
+      "source_sha256": "9da4670b6fe7c0bd9499307a5a293a4a2de353f07da3bfd5371ccf8d41834718",
+      "output_sha256": "03305aa511f5e55207050959c1c536ee32b35fffde674c91c85e40804a56feaf",
+      "review": "reviewed"
+    },
+    {
+      "output": "KeyDown.md",
+      "source": "键鼠/KeyDown.htm",
+      "source_sha256": "2c908e2d0ce374c31bf7536d055bcc8e2b33425091f53ceed7d6a8a531a52af3",
+      "output_sha256": "3f4bb684cc73225c65b673b459e4c69363b5b2e11f936cc1f041a665fce03d62",
+      "review": "reviewed"
+    },
+    {
+      "output": "KeyPress.md",
+      "source": "键鼠/KeyPress.htm",
+      "source_sha256": "60071f3c51d563d60ec02d2f5491a8954d89886ea3bf6fd7943f0e7d28d06820",
+      "output_sha256": "ad4b3e42163db4a81246599351e2d7e95a758af50ec99f7adc63741daf6405db",
+      "review": "reviewed"
+    },
+    {
+      "output": "KeyUp.md",
+      "source": "键鼠/KeyUp.htm",
+      "source_sha256": "86bdf985e1291b44ea894527d8fad7b3ccf8d1b1f9db1fda55c3d4972c024858",
+      "output_sha256": "f6595b0391dac824cf3fe31b3233e799273087b00c1255d9916c7a8fcc2c69b5",
+      "review": "reviewed"
+    },
+    {
+      "output": "LeftClick.md",
+      "source": "键鼠/LeftClick.htm",
+      "source_sha256": "216d312fb35c3262b872913f53b61c65605c2a1ee3d74cc3cd654def94dd9222",
+      "output_sha256": "5e05211387a9ebfea5590d7b988d09b632a32125cef4831849b3c55454cf62ea",
+      "review": "reviewed"
+    },
+    {
+      "output": "MoveTo.md",
+      "source": "键鼠/MoveTo.htm",
+      "source_sha256": "73eaf2b76fc064b170f4d11f937d917f578306630afc604becbde17ea8c4dc96",
+      "output_sha256": "d66066166928cc75c28dc860107583bdd9f9af03004758bffacf47f3e2215fbd",
+      "review": "reviewed"
+    },
+    {
+      "output": "Ocr.md",
+      "source": "文字识别/Ocr.htm",
+      "source_sha256": "3c4b10c854fb9fc7e6344e372c9274a1dd115e11329a63b09c65f47e094fe92b",
+      "output_sha256": "a045642755ab5d0a1c1535e395b6efee6da7a205ff396ffb1080edc5ff024169",
+      "review": "reviewed"
+    },
+    {
+      "output": "OcrEx.md",
+      "source": "文字识别/OcrEx.htm",
+      "source_sha256": "476bf99667d5a58e32549b4056bc1fedf868ac61638a99b2bb5de4bd994052c4",
+      "output_sha256": "325419709cb3196d87a8983d56fecff48c9047ec1398ea43e58a42fd16fc8780",
+      "review": "reviewed"
+    },
+    {
+      "output": "Reg.md",
+      "source": "基本设置/Reg.htm",
+      "source_sha256": "f2eb457524019b7ab7089d9c3aac5d24ea386d36f77ebb5b37041a2d327b86a3",
+      "output_sha256": "2936aa71a15fce8eecd854af51dbd217f2786a126b8306c1a1313be69f4ec50b",
+      "review": "reviewed"
+    },
+    {
+      "output": "RightClick.md",
+      "source": "键鼠/RightClick.htm",
+      "source_sha256": "dd18dcea9aefcee54bf8149e8e7fd0898ec734dd47519002f7bac7fd9e749c85",
+      "output_sha256": "4c8dd7a2d50ae8b3618a54e43ff732444046da146d3cdd0ac545409236c21d92",
+      "review": "reviewed"
+    },
+    {
+      "output": "ScreenToClient.md",
+      "source": "窗口/ScreenToClient.htm",
+      "source_sha256": "5712bc24075db0e82c7be54eda6d74959aed1d767d11fe4bee4cf8bb05039a9d",
+      "output_sha256": "2479c3ade5339f7eb99be072da160cbb3a3bdd561949eb3f89e903e45996a9f2",
+      "review": "reviewed"
+    },
+    {
+      "output": "SetDict.md",
+      "source": "文字识别/SetDict.htm",
+      "source_sha256": "ff5706f005a941153e18cf28ac5d6dd37014fbad3f9265039729ba4e6df47b36",
+      "output_sha256": "fa277072ce5772e6d7c187109315b2146143ff8f9c3190d58641fefc27786085",
+      "review": "reviewed"
+    },
+    {
+      "output": "SetKeypadDelay.md",
+      "source": "键鼠/SetKeypadDelay.htm",
+      "source_sha256": "fff171f5cab793b3d5855c58f3f4dd45995a86f00c57eac788b35ff9c8c3087c",
+      "output_sha256": "896387eaafd84b927369480d4b68114c622904aaee01c34cac858dcf825aedc9",
+      "review": "reviewed"
+    },
+    {
+      "output": "SetMouseDelay.md",
+      "source": "键鼠/SetMouseDelay.htm",
+      "source_sha256": "4c7531ed1d5bf1d9f70bf14bc6d7a48242871ba3d9e9ab5d3e8925d86735bca5",
+      "output_sha256": "e06dad8224b99077d5bc7daf2fefd44983554f269bd4bc9149f4a369e79abce0",
+      "review": "reviewed"
+    },
+    {
+      "output": "SetPath.md",
+      "source": "基本设置/SetPath.htm",
+      "source_sha256": "4ebc39e8aaaabeafb25239bd76211c8154dd5a4f5b63e093a2fd79095d0eb40c",
+      "output_sha256": "38c6465abf2923002f6c36016dc420061f209c4b767d0ccdac82cd945af9f4ac",
+      "review": "reviewed"
+    },
+    {
+      "output": "UnBindWindow.md",
+      "source": "后台设置/UnBindWindow.htm",
+      "source_sha256": "79bd6e2e4c1a828299fdd0ed3590c75c756cff76844be558bef12390f5631b4b",
+      "output_sha256": "f731af3aff5a6a2e84042cf4faf2e2c0935c70cc85c1b86ea7b649bb803ed278",
+      "review": "reviewed"
+    },
+    {
+      "output": "UseDict.md",
+      "source": "文字识别/UseDict.htm",
+      "source_sha256": "0f58f27705b53bdf5aa73dac0604b8b1158f2e649fced5321cb4489abc6362f2",
+      "output_sha256": "04e7bf25af151aa3a96d2019f7da1fcfee9ab0d7ab27fd61152723593f522e32",
+      "review": "reviewed"
+    },
+    {
+      "output": "Ver.md",
+      "source": "基本设置/Ver.htm",
+      "source_sha256": "f675f22beb154a5e56bf62463de8d9270e047bb5d98d03b786f99e6f2b1745aa",
+      "output_sha256": "1428b14337e70a39b1fc7d2a544059c2da290fa42b595dae5bc44759fd32e55c",
+      "review": "reviewed"
+    },
+    {
+      "output": "binding-scope.md",
+      "source": "常见问题/后台绑定会对哪些接口有影响.htm",
+      "source_sha256": "08118c6a7408e08171f803da86f98dc2f37f165d183316165016670e0a591239",
+      "output_sha256": "60e16a41142e8c156b11c5871ea38d00d08f343c6244dedb43fe5ee6ec4365c7",
+      "review": "reviewed"
+    },
+    {
+      "output": "input-channel.md",
+      "source": "常见问题/为什么不能和别的后台插件混用.htm",
+      "source_sha256": "df0cfe61de15d1b8e8c64655bea1398fec24d510cde826c30eff71142f1df9c9",
+      "output_sha256": "79c36bb7a04b0f9e411b01171456fdcdfb9670fb4e296b0c4b7ba6d498446321",
+      "review": "reviewed"
+    },
+    {
+      "output": "object-scope.md",
+      "source": "常见问题/插件接口生效范围.htm",
+      "source_sha256": "fc37fe951d810c1e595857874fd7ead6b3ffdb8fd56ebe9483534c77125a7708",
+      "output_sha256": "781736f2f2b82be32ac321c18845bed839d8794e05f02b4e44d34217f0015ef3",
+      "review": "reviewed"
+    },
+    {
+      "output": "threading.md",
+      "source": "常见问题/如何在多线程下使用.htm",
+      "source_sha256": "35c596e8b41493c94002a96da2193ec0cd6d76e4cfa6cb6359aec8ba8a8093d5",
+      "output_sha256": "33a9d7698dce4eb77b7f6ab0a8bcd84dd94fe513f37765bdebf61977388a7b20",
+      "review": "reviewed"
+    }
+  ]
+}

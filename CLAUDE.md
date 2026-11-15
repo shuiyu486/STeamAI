@@ -45,7 +45,8 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 ## 薄核心边界
 
 - 一个 STeamAI 项目对应一个明确授权的安全研究或自动化开发 case；不同 case 只通过审查、脱敏且用户确认的 pack 经验共享。
-- Commander 按需组队；正式成员使用专属目录与目录级 `CLAUDE.md`，由原生 launcher 默认打开屏幕上用户可见的独立 Claude Code 窗口。
+- Commander 按需组队；正式成员使用专属目录与目录级 `CLAUDE.md`，由原生 launcher 打开用户可见、可直接输入的独立 Claude Code 会话。主会话在 WezTerm 时优先复用同一窗口的新标签页，不把终端标签误当后台 subagent。
+- 日常 Commander 默认 Claude Code 的 Opus 档（`ANTHROPIC_DEFAULT_OPUS_MODEL`）；成员按任务自主选档：复杂推理/统筹/关键审查优先 Opus，明确实现/检索/整理默认 Sonnet（`ANTHROPIC_DEFAULT_SONNET_MODEL`）。原生入口只传显式档位，不做角色能力判断或改全局配置；用户选择和预算优先。各角色鼓励用 Sonnet 子 agent 隔离短链路和大上下文，每批最多 5 个且不嵌套，所属角色核验整合。维护/live 验收仍遵守上方单独的模型与预算规则。
 - 成员可直接定向沟通、请求有界验证和共享关键发现；当前主任务优先。每个问题默认一名 owner、最多一名 verifier；实质改派和 durable member 创建只由 Commander 决定。
 - durable member 通常为 1–3 名执行成员加 0–1 名 Reviewer。优先复用已有成员，其次 tactical subagent，只有持续且独立的工作流才新增成员。
 - Claude Code 原生 session 是工作记忆，原生消息是协作通道；不自建 session 身份、消息总线、任务数据库、generation/owner ledger 或 supervisor recovery。正式 member 会话以 member 名设置原生 session 的可读寻址提示，但成员身份仍只来自 cwd 与目录 `CLAUDE.md`；发送前在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 将 exact cwd 唯一映射到 name，再与 `ListAgents` 当前可达 name 唯一相交，并检查 `success:true` 与接收记录，任一单独来源都不够。正式独立会话不得继承会关闭原生历史保存的 child 标记；只修正子进程启动环境，不改全局配置或强制覆盖用户的历史保存选择，具体合同见 `vnext/capabilities.md`。唯一窄例外：用户对 case 初始化的批准明确涵盖成员工作区信任时，`__open-member --trust-workspace` 可向该配置域写入 exact 成员目录的原生 `hasTrustDialogAccepted` 记录（复用原生锁协议、其余字节逐字节保留；原生信任锚定最近 git 仓库根，仅当锚等于 exact 成员目录或 case 根时允许，锚超出 case 授权时拒绝并给出指引）；不带该批准不写任何配置项。
@@ -57,7 +58,7 @@ Commander 与正式成员都运行在 Claude Code 中，是具有 LLM 推理、�
 
 ## 初始化与更新边界
 
-- 日常入口是目标目录中的 `steamai`。Fresh 时 native shell 以 case cwd 启动 `claude "/steamai" --add-dir <CANONICAL_SOURCE>`；current case 只启动 `claude "/steamai"`。
+- 日常入口是目标目录中的 `steamai`。Fresh 时 native shell 以 case cwd 启动 `claude --model opus "/steamai" --add-dir <CANONICAL_SOURCE>`；current case 启动 `claude --model opus "/steamai"`。模型档位由 Claude Code 按用户配置解析，已有会话不被强制切换。
 - source checkout 本身不是 case。`.steamai-vnext/` 完全不存在才是 fresh；完整深验通过才是 current；partial、来源不明或冲突均 fail-closed，不 repair/rollback/迁移/删除用户文件。
 - Fresh preview 以 canonical working tree 当前实际 bytes 为 authority，stage-0 index 定义 current tracked path/mode，HEAD 只作历史 anchor。确认绑定 source records、target action/pre-state、case facts 与全部 writes。
 - Apply 在同卷 sibling staging 中完整生成并验证 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。

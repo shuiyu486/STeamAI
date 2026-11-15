@@ -388,9 +388,16 @@ func TestOpenMemberTrustWorkspaceWritesRecordAndLaunches(t *testing.T) {
 	if err := a.run([]string{"__open-member", "--trust-workspace", "static-analysis"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.visible) != 1 || p.visible[0].Dir != memberRoot {
-		t.Fatalf("visible launches = %#v", p.visible)
+	if len(p.visible) != 1 || p.visible[0].Dir != caseRoot {
+		t.Fatal("成员 helper 未从 case 根启动")
 	}
+	if err := a.run(p.visible[0].Args); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.attached) != 1 || p.attached[0].Dir != memberRoot {
+		t.Fatal("成员未从专属目录启动")
+	}
+	assertIndependentSessionEnvironment(t, p.attached[0].Env)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)

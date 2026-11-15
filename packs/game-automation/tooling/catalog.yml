@@ -3,6 +3,32 @@ pack: game-automation
 mode: declarative
 
 tools:
+  - id: dm-window-automation
+    status: candidate
+    purpose: 用户选择大漠或已有大漠资产时，复用字库与窗口操作能力开发普通脚本或 C++/MFC 应用；与 Airtest 并存，不自动迁移旧脚本。
+    inputs: [user-selected-sdk-version, version-matched-documentation, approved-window-binding, config-with-action-limits]
+    outputs: [case-local-source-and-build-instructions, run-logs, step-observations]
+    sideEffects: [process-execution, sdk-loading, input-injection-to-approved-target, bounded-filesystem-write]
+    requiresUserConfirmation: true
+    requiredContext: [sdk-and-process-bitness, version-matched-documentation, exact-target-binding, approved-input-mode, action-limits, stop-and-emergency-stop, output-limit]
+    stopConditions: [version-mismatch, documentation-gap, target-missing, binding-invalid, input-mode-invalid, unexpected-dialog, low-confidence, budget-exhausted, stop-requested]
+    reusableNotes:
+      - 固定版本与资料查询见 tooling/integrations/dm.md；离线接口目录为 upstream/dm-7.2520/README.md，按需读页，不依赖外部插件；已有 7.2520 资产默认保留，不自动升级、安装或注册。
+      - 后台需求不等于后台能力；exact 模式获准且识别/输入实测有效前，不允许失焦后继续或切换输入通道。
+      - SDK、CHM、旧脚本、字库和凭据留在授权位置，不进入 pack；本条目不声明运行验收通过。
+
+  - id: dm-document-update
+    status: explicit-local-tool
+    purpose: CHM 没有稳定的逐页导出/差异审查接口；显式提取并核对所选接口，复用未变的已审节选，拒绝将变更页自动当作已审。
+    inputs: [exact-local-chm, sdk-version-label, reviewed-selection, new-output-directory]
+    outputs: [page-change-report, new-document-snapshot, source-hashes]
+    sideEffects: [temporary-chm-extraction, bounded-new-directory-write]
+    requiresUserConfirmation: false
+    requiredContext: [authorized-document-input, explicit-output-directory]
+    stopConditions: [source-mismatch, unsafe-path, output-exists, pending-review, invalid-encoding]
+    reusableNotes:
+      - 入口 tooling/dm-docs-update.md；不执行帮助页代码，不加载 SDK，不覆盖已有资料或 case，不自动注册/升级。
+
   - id: airtest-desktop-automation
     status: candidate
     purpose: Windows 桌面游戏窗口的图像识别状态检查与有界键鼠输入，用于授权目标的自动化脚本。
@@ -54,13 +80,28 @@ entries:
     risk: review-before-use
 
 examples:
+  - id: dm-cpp-mfc-starter
+    path: tooling/examples/dm-cpp-mfc/
+    purpose: 脱离按键精灵的 C++/MFC 基础工程；界面控制/日志、同位数 worker、自建目标窗口 demo、合成测试与构建部署说明。
+    reusableNotes:
+      - 默认演示不加载 SDK；版本查询与窗口测试分别确认。窗口测试先 Reg 成功，再绑定自建目标；许可仅走私有管道，不含游戏业务或任意方法调用协议。
+      - MFC 按钮到真实 SDK 的自建窗口链路已通过；合成测试不替代真实 SDK、可见外观或游戏验收，准确范围见工程 README。
+
   - id: windows-flow-reference
     path: tooling/examples/windows-flow/
     purpose: 决策核心与执行框架解耦的参考骨架（State/DecisionCore/FakeDevice/Runner、控制文件、ledger、时间线）；--selftest 无需第三方依赖。
     reusableNotes:
-      - 接真实目标时只实现 AirtestDevice，决策核心不改；示例不绑定任何真实窗口。
+      - 此 Python/Airtest 示例接真实目标时实现 AirtestDevice，决策核心不改；不绑定真实窗口，也不要求大漠 C++/MFC 项目采用此工程。
 
 integrations:
+  - id: dm-window-automation
+    integration: tooling/integrations/dm.md
+    purpose: 大漠版本与资料核对、已有资产复用及 C++/MFC 工程接入；不内置 SDK、不自动执行。
+    inputs: [user-selected-sdk-version, version-matched-documentation, approved-window-binding, config-with-action-limits]
+    outputs: [case-local-source-and-build-instructions, run-logs, step-observations]
+    risk: specific-confirmation-before-sdk-loading-or-input
+    stopConditions: [version-mismatch, documentation-gap, target-missing, binding-invalid, input-mode-invalid, unexpected-dialog, low-confidence, budget-exhausted]
+
   - id: airtest-desktop-automation
     integration: tooling/integrations/airtest.md
     purpose: 固定版本 Airtest 的 Windows 桌面窗口状态识别与有界输入。

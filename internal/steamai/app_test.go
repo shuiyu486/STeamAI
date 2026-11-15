@@ -92,9 +92,9 @@ func TestCommanderLaunchUsesFreshAndCurrentSkillSources(t *testing.T) {
 		prepare  func(string)
 		wantArgs []string
 	}{
-		{name: "fresh", wantArgs: []string{"/steamai", "--add-dir", source}},
-		{name: "current", prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"/steamai"}},
-		{name: "current auxiliary", prepare: func(root string) { materializeCurrentCaseFixtureWithAuxPack(t, root, "aux-pack") }, wantArgs: []string{"/steamai"}},
+		{name: "fresh", wantArgs: []string{"--model", "opus", "/steamai", "--add-dir", source}},
+		{name: "current", prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"--model", "opus", "/steamai"}},
+		{name: "current auxiliary", prepare: func(root string) { materializeCurrentCaseFixtureWithAuxPack(t, root, "aux-pack") }, wantArgs: []string{"--model", "opus", "/steamai"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			caseRoot := filepath.Join(root, test.name)
@@ -207,6 +207,7 @@ func TestPartialCaseAndDuplicateCommanderFailClosed(t *testing.T) {
 }
 
 func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	t.Setenv("ANTHROPIC_MODEL", "configured-model")
@@ -238,17 +239,93 @@ func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
 		t.Fatalf("visible launches = %d", len(p.visible))
 	}
 	got := p.visible[0]
-	if got.Dir != member {
-		t.Fatalf("member cwd = %s", got.Dir)
+	if got.Dir != caseRoot || filepath.Base(got.Path) != "steamai.exe" {
+		t.Fatalf("member helper path=%q cwd=%q", got.Path, got.Dir)
 	}
-	if !reflect.DeepEqual(got.Args, []string{"--name", "static-analysis", memberInitialPrompt, "--add-dir", caseRoot}) {
+	if !reflect.DeepEqual(got.Args, []string{"__member-session", "--config-dir", "-", "--model", "sonnet", "static-analysis"}) {
 		t.Fatalf("member args = %#v", got.Args)
 	}
 	assertIndependentSessionEnvironment(t, got.Env)
+	// pane 可能重新继承 server 的 child 标记和不同配置域，helper 必须再次清洗。
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := a.run(got.Args); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.attached) != 1 || p.attached[0].Dir != member || p.attached[0].Path != claude ||
+		!reflect.DeepEqual(p.attached[0].Args, []string{"--model", "sonnet", "--name", "static-analysis", memberInitialPrompt, "--add-dir", caseRoot}) {
+		t.Fatal("pane 内 Claude 路径、参数或成员 cwd 不符")
+	}
+	assertIndependentSessionEnvironment(t, p.attached[0].Env)
+	for _, entry := range p.attached[0].Env {
+		if strings.HasPrefix(strings.ToUpper(entry), "CLAUDE_CONFIG_DIR=") {
+			t.Fatal("默认配置域被 server 的配置域覆盖")
+		}
+	}
+	configDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	if err := a.run([]string{"__open-member", "--model", "opus", "static-analysis"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.visible) != 2 || !reflect.DeepEqual(p.visible[1].Args, []string{"__member-session", "--config-dir", configDir, "--model", "opus", "static-analysis"}) {
+		t.Fatal("成员 helper 未保留所选模型与配置域")
+	}
+	assertIndependentSessionEnvironment(t, p.visible[1].Env)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := a.run(p.visible[1].Args); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.attached) != 2 || p.attached[1].Args[1] != "opus" ||
+		!strings.Contains(strings.Join(p.attached[1].Env, "\n"), "CLAUDE_CONFIG_DIR="+configDir) {
+		t.Fatal("pane 内 Claude 未保留所选模型与配置域")
+	}
+	assertIndependentSessionEnvironment(t, p.attached[1].Env)
+	for _, args := range [][]string{
+		{"__member-session"},
+		{"__member-session", "--config-dir", "relative", "--model", "sonnet", "static-analysis"},
+		{"__member-session", "--config-dir", "-", "--model", "other", "static-analysis"},
+		{"__member-session", "--config-dir", "-", "--model", "sonnet", "../escape"},
+		{"__member-session", "--config-dir", "-", "--model", "sonnet", "static-analysis", "--trust-workspace"},
+	} {
+		if err := a.run(args); err == nil {
+			t.Fatalf("invalid pane helper accepted: %v", args)
+		}
+	}
+	if len(p.attached) != 2 {
+		t.Fatal("invalid helper options launched a member")
+	}
 
 	for _, invalid := range []string{"../escape", "UPPER", "con", "a/b"} {
 		if err := a.run([]string{"__open-member", invalid}); err == nil {
 			t.Fatalf("invalid member %q accepted", invalid)
+		}
+	}
+}
+
+func TestMemberLaunchOptions(t *testing.T) {
+	for _, test := range []struct {
+		args  []string
+		trust bool
+		model string
+	}{
+		{[]string{"worker"}, false, "sonnet"},
+		{[]string{"--trust-workspace", "worker"}, true, "sonnet"},
+		{[]string{"--model", "opus", "worker"}, false, "opus"},
+		{[]string{"--trust-workspace", "--model", "sonnet", "worker"}, true, "sonnet"},
+		{[]string{"--model", "opus", "--trust-workspace", "worker"}, true, "opus"},
+	} {
+		name, trust, model, err := memberLaunchOptions(test.args)
+		if err != nil || name != "worker" || trust != test.trust || model != test.model {
+			t.Fatalf("%v: name=%q trust=%v model=%q err=%v", test.args, name, trust, model, err)
+		}
+	}
+	for _, args := range [][]string{
+		nil, {"--model"}, {"--model", "opus"}, {"--model", "unknown", "worker"},
+		{"--model", "opus", "--model", "sonnet", "worker"},
+		{"--trust-workspace", "--trust-workspace", "worker"},
+		{"--unknown", "worker"}, {"worker", "second"}, {"--model", "--trust-workspace", "worker"},
+	} {
+		if _, _, _, err := memberLaunchOptions(args); err == nil {
+			t.Fatalf("invalid member options accepted: %v", args)
 		}
 	}
 }

@@ -36,6 +36,7 @@ func TestRepositoryHasOnlyTheNativeWindowsProductShell(t *testing.T) {
 		"internal/steamai/path.go":                           true,
 		"internal/steamai/platform_other.go":                 true,
 		"internal/steamai/platform_windows.go":               true,
+		"internal/steamai/platform_wezterm_windows.go":       true,
 		"internal/steamai/release_manifest.go":               true,
 		"internal/steamai/setup.go":                          true,
 		"internal/steamai/update.go":                         true,

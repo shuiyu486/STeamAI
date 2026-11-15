@@ -593,6 +593,11 @@ func (nativePlatform) RunAttached(spec processSpec, stdin io.Reader, stdout, std
 }
 
 func (nativePlatform) OpenVisible(spec processSpec) error {
+	// WezTerm 会话内优先复用当前窗口新标签（其次明确的新窗口）；失败按合同
+	// 如实报诊断，不静默换 terminal。无 WezTerm 痕迹时保留原生可见 console 路径。
+	if handled, err := openVisibleWezTerm(spec); handled || err != nil {
+		return err
+	}
 	app, err := syscall.UTF16PtrFromString(spec.Path)
 	if err != nil {
 		return err

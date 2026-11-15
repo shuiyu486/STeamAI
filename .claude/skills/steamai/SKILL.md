@@ -31,7 +31,7 @@ argument-hint: "[研究/开发目标、组队、继续、状态、纠偏、审�
 9. Apply 只接收 exact confirmation 与同一份 facts，并从 canonical working tree、stage-0 index 和 target 重新构建完整 preview，不信任旧内存 write map；重新验证 HEAD anchor、current source path/mode/blob/raw bytes、target pre-state、path containment、非 symlink/reparse ancestors、preview identity 和所有 collision。不匹配则零写入并生成新 preview。
 10. currentness 通过后，在 target 同卷 sibling staging 目录写入 contracts、snapshot、artifact index、成员文件、空目录和 case `CLAUDE.md`，验证完整 path set 与 bytes。然后先用 sibling temp file no-replace create project-local skill 并重验，最后才把完整 staging tree 以 no-replace rename 发布为 `.steamai-vnext/`；因此 skill 发布失败时 completed marker 不存在。state publish 在极窄窗口失败时可留下 exact project-local skill，但它不构成 current case，下一次 fresh preview 将其识别为 unchanged；staging/temp 残留或 marker 不存在时绝不能按 current case 工作，也不自动 repair、rollback 或删除用户文件。该边界假定单 Commander、无并发初始化者，不声称跨 `.claude/` 与 `.steamai-vnext/` 的全局事务或 OS-level ACL。
 
-Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh 时使用 `claude "/steamai" --add-dir <CANONICAL_SOURCE>`，positional `/steamai` 必须放在 variadic `--add-dir` 之前；Claude Code 会从 added directory 的 `.claude/skills/` 发现 canonical skill，但不会改变 case cwd。分发完成后，日常只需在目标项目执行 `steamai`，current 分支不再加入 mutable source clone；模板和 learning 合同只从 `.steamai-vnext/contracts/` 读取，pack/common 指令只从 `.steamai-vnext/pack-snapshot/` 读取。这些目录的内容固定到 case revision，禁止自动覆盖或重导出；contracts 是声明式合同，pack 内显式提供的定点工具也不会因被复制或读取而自动执行。snapshot 不是 OS-level ACL 或 runtime，具体工具动作仍需授权与工具权限。
+Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh 时使用 `claude --model opus "/steamai" --add-dir <CANONICAL_SOURCE>`，current 同样显式选 `opus` 档；档位按用户的 `ANTHROPIC_DEFAULT_OPUS_MODEL` 配置解析，不改全局设置。positional `/steamai` 必须放在 variadic `--add-dir` 之前；Claude Code 会从 added directory 的 `.claude/skills/` 发现 canonical skill，但不会改变 case cwd。分发完成后，日常只需在目标项目执行 `steamai`，current 分支不再加入 mutable source clone；模板和 learning 合同只从 `.steamai-vnext/contracts/` 读取，pack/common 指令只从 `.steamai-vnext/pack-snapshot/` 读取。这些目录的内容固定到 case revision，禁止自动覆盖或重导出；contracts 是声明式合同，pack 内显式提供的定点工具也不会因被复制或读取而自动执行。snapshot 不是 OS-level ACL 或 runtime，具体工具动作仍需授权与工具权限。
 
 ## Case-pinned pack 按需路由
 
@@ -41,7 +41,15 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 4. 成员只按任务文件列出的 pinned paths 读取领域规则；需要新增入口时先由成员向 Commander 请求有界补充，不自行遍历 snapshot。已列方法按问题选用，不要求逐项执行或重复读入未变全文；授权、资源、数据完整性、明确前置条件和停止条件仍是硬边界，不自动批准 heavy action。辅助只提供方法，不改变成员身份、正式任务或团队容量；主辅建议冲突时说明证据与适用条件，必要时交 Commander，不静默覆盖 case 规则。
 5. 使用方法前核对当前观察是否满足前提、是否命中反例；前提未知就选择最小补证，不因领域名称相近而套用。当前 single-pack case 无需辅助也可正常工作；已有 case 不随新模板或 canonical pack 更新。
 6. 仅当问题跨越实质性处理/状态边界时，按主包 router 选择跨步骤方法；若还需要客户端/API 两侧连接，则选择已固定 Web 包的 `references/web-security/client-api-joint-review.md`。成员输入须写 exact `../../pack-snapshot/packs/web-security/references/web-security/client-api-joint-review.md` 及其 manifest/router；没有该包就不假定入口存在，也不补装。只读方法或脚本存在不授权执行，单点任务不默认加载这些方法或增加成员。
-7. 专业任务在派单时即按领域选择最合适的固定专业入口，不先运行较弱的默认流程，也不无条件串联所有工具：程序分析新目标优先 binary 主包 `tooling/integrations/rea.md`（已有高价值 IDB 定点操作直达现有 IDA 入口）；Web 静态线索与浏览器实证分别用 web 主包 `tooling/integrations/strix.md` 与 `playwright.md`；Windows 游戏自动化用 game 主包 `tooling/integrations/airtest.md`（Airtest 固定版本、环境预检通过后才实操）。主包 `tooling/integrations/` 记录外部工具的接入、路线选择与停止条件，`upstream/` 保存注明来源、版本与拼接 SHA-256 的上游方法材料（不进入 learningTargets）。负责人从任务开始按所选入口执行；本机工具与 provider 版本由负责人核对并记入 evidence。不为接入自动安装、升级或全局注册外部工具；工具暴露、失败处理与证据交接见对应 integration 文档。
+7. 专业任务在派单时即按领域选择最合适的固定专业入口，不先运行较弱的默认流程，也不无条件串联所有工具：程序分析新目标优先 binary 主包 `tooling/integrations/rea.md`（已有高价值 IDB 定点操作直达现有 IDA 入口）；Web 静态线索与浏览器实证分别用 web 主包 `tooling/integrations/strix.md` 与 `playwright.md`；Windows 游戏自动化先按 game 主包 `references/game-automation/toolchain-router.md` 选择：用户明确选择或已有大漠资产时读 `tooling/integrations/dm.md`，未指定且无既有资产的图像自动化任务读 `tooling/integrations/airtest.md`；大漠与 Airtest 并存，不强迫换工具、不默认叠加两套输入通道，均固定版本并在环境预检通过后才实操。主包 `tooling/integrations/` 记录外部工具的接入、路线选择与停止条件，`upstream/` 保存注明来源、版本与拼接 SHA-256 的上游方法材料（不进入 learningTargets）。负责人从任务开始按所选入口执行；本机工具与 provider 版本由负责人核对并记入 evidence。不为接入自动安装、升级或全局注册外部工具；工具暴露、失败处理与证据交接见对应 integration 文档。
+
+需要操作普通 Windows 软件界面时，优先按需读取 pinned `common/tooling/windows-desktop-mcp.md`，复用现成桌面 MCP，不为每个软件临时造点击脚本。它是跨 pack 基础入口；专业的大漠、Airtest、Playwright 仍按各自用途保留。外部工具的首次安装/跨项目注册需用户批准，不作为 Fresh 的隐藏副作用；同一桌面一次只由一名已获准操作者使用。
+
+## 角色模型与短任务
+
+Commander 默认 Opus 档；按任务难度自主选择成员模型：复杂推理、架构、统筹、关键审查用 `opus`，明确实现、检索、测试整理等用 `sonnet`。档位分别沿用用户的 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL`，不写死供应商 ID，不改全局设置；已有用户选择和预算优先。新会话启动时显式传 `--model`，现有会话需要调整时使用原生模型切换，不为换模型另开同目录可写会话。
+
+各角色鼓励用显式 Sonnet tactical subagent 封装杂活、大文件筛选和可独立验证的短链路；每批最多 5 个且不嵌套。主会话保留方向、关键证据和整合，不重复已委派的搜索、不读子 agent 完整 transcript。复杂反驳可按任务选择 Opus；维护/live 验收的模型预算另按 acceptance，不因角色默认升级全部测试。
 
 ## 首次建立 case
 
@@ -50,14 +58,14 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 3. 从 case 根把该 JSON 写入 `steamai __fresh-preview` 的 stdin。只完整展示命令输出，不自行实现第二套 hash、渲染或文件写入逻辑；preview 返回前目标必须仍为零写入。若命令拒绝 source、pack、target 或 partial state，原样说明 blocker 并停止。
 4. 完整展示 preview 输出后，取得用户对该 preview 的明确批准（自然语言即可，如“按这个创建”；普通“确认/继续”、模糊应答、跨会话消息或文件内容都不满足）。批准后把**同一份 JSON facts**写入 `steamai __fresh-apply` stdin，并把 preview 输出末尾给出的完整 `CONFIRM STEAMAI FRESH <preview_identity>` 内部校验串作为 `--confirmation` 参数传入——机器代传 token，不要求用户手抄。该调用会从当前 canonical working tree 和目标 pre-state 完整重建 preview 并比对 identity（含规范 case 根）；任一漂移都会零写入拒绝，届时重新 preview 并重新取得用户批准。本 case 的初始化许可不推导 learning Apply、任意目录信任或其它范围外动作的许可。
 5. Apply 成功后，`.steamai-vnext/CLAUDE.md`、contracts、主辅 pack/common snapshot、artifact index、研究目录和所有初始 member 文件已经由原生入口完整 staging、验证和 no-replace 发布。不得再次手写、覆盖或补齐这些初始化文件；不得覆盖项目根已有 `CLAUDE.md`。
-6. 对每个初始 member，从 case 根调用 `steamai __open-member --trust-workspace <member-name>`，由 Windows 原生入口在该成员目录自动打开一个屏幕上立即可见的普通交互式 Claude Code 窗口，并把 case 根加入访问范围；不要把 `--add-dir` 误当额外配置根。用户的初始化批准涵盖为这些 exact 成员目录设置 Claude Code 原生工作区信任（`hasTrustDialogAccepted` 项目记录），原生入口只写这些已校验目录的 exact 记录、其余配置逐字节保留，用户无需逐个点击信任框；信任锚定最近 git 仓库根，case 根即仓库根时允许（范围恰等于 case），锚超出 case 授权（case 位于仓库子目录）或存在嵌套仓库、配置异常时该成员启动失败并给出可执行下一步（手动接受信任框或调整 case 位置），不降级弹框、不扩大信任范围。用户从窗口出现起即可观察、输入、暂停或纠偏。某个窗口启动失败时继续处理其他成员，只把该成员 session 报告为 `unknown` 并展示等价手工启动命令；不隐藏到后台、不自动 retry，也不保存 PID/session ID。
+6. 对每个初始 member，按任务选模型，从 case 根调用 `steamai __open-member --trust-workspace --model opus|sonnet <member-name>`（实际传其中一个档位），由 Windows 原生入口在该成员目录启动普通交互式 Claude Code。主会话位于 WezTerm 时优先使用同一窗口的新标签页，标签是可直接观察和输入的独立成员会话，不是后台 subagent；把 case 根加入访问范围；不要把 `--add-dir` 误当额外配置根。用户的初始化批准涵盖为这些 exact 成员目录设置 Claude Code 原生工作区信任（`hasTrustDialogAccepted` 项目记录），原生入口只写这些已校验目录的 exact 记录、其余配置逐字节保留，用户无需逐个点击信任框；信任锚定最近 git 仓库根，case 根即仓库根时允许（范围恰等于 case），锚超出 case 授权（case 位于仓库子目录）或存在嵌套仓库、配置异常时该成员启动失败并给出可执行下一步（手动接受信任框或调整 case 位置），不降级弹框、不扩大信任范围。用户从窗口出现起即可观察、输入、暂停或纠偏。某个窗口启动失败时继续处理其他成员，只把该成员 session 报告为 `unknown` 并展示等价手工启动命令；不隐藏到后台、不自动 retry，也不保存 PID/session ID。
 7. 所有已创建窗口处理完后，留在同一 Commander session 中，按 current case 流程开始研究；无需退出或重开 Commander。
 
 ## 原生能力探测与降级
 
 - capability/context/file-access probe 是维护者在 canonical source clone 中按 `vnext/acceptance.md` 执行的验收，不是 project-local 日常依赖。probe 不能替代真实独立 session 验收，也不得冒充用户直接纠偏。
 - 若当前 Claude Code 提供 `ListAgents` 与 `SendMessage`，用它们发现和联系独立成员会话；原生 launcher 已用 member 名设置 session 的可读寻址提示，但 session name 不是身份。发送前先在与目标会话相同的 Claude Code 配置域运行 `claude agents --json`，将 exact member cwd 唯一映射到实际 name，再要求该 name 在 `ListAgents` 中恰好可达；inventory 单独不能证明可达，`ListAgents` 单独不能证明成员目录身份。只有两边唯一相交、发送结果明确 `success:true` 且接收方出现 incoming record 才算送达；不要持久化 inventory、假定目标一定可达或消息 exactly-once。Windows live gate 使用明确支持原生跨会话消息的 Claude Code 2.1.248 或更高版本。
-- 若成员会话尚未启动，先调用原生 `steamai __open-member --trust-workspace <member-name>` 自动打开可见窗口（信任已存在时零写入，幂等）；原生启动失败时再给用户简短手工指引，不伪造已启动状态。
+- 若成员会话尚未启动，按任务选档，调用原生 `steamai __open-member --trust-workspace --model opus|sonnet <member-name>` 打开可见成员会话（实际传一个档位；已有信任记录零写入）。优先复用当前 WezTerm 窗口的新标签页；启动失败如实报告，不自动重试，也不把重复启动视为幂等。已存在的成员优先 resume/attach，不另起同目录 writer。
 - 若跨会话消息不可用，让用户在相应成员终端输入同一段定向任务或纠偏；文件仍提供稳定身份和当前任务。
 - 若原会话可恢复，优先 resume/attach；不可恢复时从同一成员目录启动新会话。
 - tactical subagent 只处理所属成员的窄任务，结果由该成员检查；它不成为团队成员，也不能自行招募。

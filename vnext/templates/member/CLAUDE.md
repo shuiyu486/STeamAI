@@ -26,6 +26,10 @@ Commander 不因本 session 不可达而代写本文件。重新激活时，成�
 
 团队 roster、成员容量、用户纠偏和研究产物规则由父目录 `.steamai-vnext/CLAUDE.md` 唯一拥有；本文件不复制 roster。角色特有例外：`{{ROLE_SPECIFIC_RULES}}`
 
+## 模型与短任务
+
+按当前任务难度选择 Claude Code 配置的模型档：明确的实现/检索/整理默认 Sonnet，复杂推理/统筹/关键审查优先 Opus；已有用户模型选择和预算优先，不能因调整模型另起同目录可写会话。鼓励把可独立验证的杂活、大文件筛选与短链路交给显式 Sonnet 子 agent；每批最多 5 个且不嵌套，由本成员核验整合，只带回必要结论与证据。子 agent 不扩大本任务授权、写入或工具权限；具体策略按任务需要读取 `../../pack-snapshot/common/policies/agent-team.md` 与 `subagents.md`。
+
 ## 完成
 
 完成当前任务后通知 Commander。本任务完成不等于整个 case 完成；在 Commander 明确重新激活前，不自行领取新主任务。

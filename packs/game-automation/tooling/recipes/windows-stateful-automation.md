@@ -9,11 +9,11 @@ Windows 桌面目标上的识别→动作→等待→校验实现方法。参考
 ## 步骤
 
 1. **枚举状态**：把目标流程的所有可观测状态写成封闭集合（含失焦、目标消失、意外弹窗、未知状态）。每个状态一个决策，禁止"else 里继续点"。
-2. **选定识别通道**：优先窗口 API 可查的稳定值（标题/控件文本）；自绘窗口定位按 `tooling/integrations/airtest.md` 的方法分层——原生控件枚举 > LLM 视觉定位（自绘默认，读图返回 bbox，无需标定）> 模板匹配（仅极简单静态场景，失败先查坐标系/截图管线而非阈值）。坐标常量只作辅助。
-3. **决策核心与执行分离**：`decide(state, ledger, config)` 是纯逻辑，用 fake adapter 单测；Airtest 只做 observe/act。结构参考 `tooling/examples/windows-flow/`。
+2. **选定识别通道**：按 toolchain router 选工具，优先复用已核对的窗口 API、字库、识别参数或图像资产。大漠任务按 `tooling/integrations/dm.md` 核对对应版本与字库，不因窗口自绘就强制改用 LLM；Airtest 任务仍按 `tooling/integrations/airtest.md` 的定位分层。两条路径都核对 DPI、坐标系与识别结果，坐标常量只作辅助。
+3. **决策核心与执行分离**：`decide(state, ledger, config)` 是纯逻辑，用 fake adapter 单测；选定工具只负责观察与动作准备/执行。Python/Airtest 可参考 `tooling/examples/windows-flow/`；大漠 C++/MFC 复用原则而非强套 Python 工程，不新增通用 adapter host。
 4. **等待**：每个等待都是状态轮询（timeout + poll_interval 上限），到达上限按超时决策（重试有界或暂停），不用固定 sleep 堆叠。
 5. **非幂等保护**：两阶段登记——执行前查 ledger 并落盘 pending，成功后 commit 为 done（原子替换写入）；中断后重启先 observe + 查 ledger：done 不再触发、pending 残留=无法确认是否已执行，暂停等待确认，不当未执行重发；登记损坏 fail-closed 报错。
-6. **扰动处理**：窗口位移/失焦→重新定位后继续；意外弹窗→暂停或停止并记录，不盲点关闭；目标消失→安全停止。
+6. **扰动处理**：窗口位移后重新校验坐标；前台模式失焦先暂停，恢复前重新观察；后台模式仅在 exact 绑定及识别/输入均实测有效时允许非前台，绑定失效即停止且不回退前台输入；意外弹窗→暂停或停止并记录，不盲点关闭；目标消失→安全停止。
 7. **停止与暂停**：控制轮询间隔 ≤200ms；紧急停止独立于主循环语义（见 workflow-template 停止语义）。结束释放连接与自有资源。
 
 ## 输出

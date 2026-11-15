@@ -11,6 +11,15 @@
 
 active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commander 可以创建 durable member；新增前优先复用现有成员，其次使用 tactical subagent。case `CLAUDE.md` 是 roster lifecycle 的唯一 durable source：只允许 `active`、`completed`、`inactive`，且只有 `active` 计入上限；这些状态不表示 session 是否运行。
 
+## 模型按任务分配
+
+- Commander 默认使用 Claude Code 的 `opus` 档，对应用户配置的 `ANTHROPIC_DEFAULT_OPUS_MODEL`；架构取舍、复杂推理、跨成员统筹和关键结论审查也优先该档。
+- 目标明确的实现、资料检索、测试整理与其它低推理负担工作默认使用 `sonnet` 档，对应 `ANTHROPIC_DEFAULT_SONNET_MODEL`。按当前任务难度选择，不把角色名称永久绑定到某一档。
+- Commander 在启动正式成员前自主选择档位，调用 `steamai __open-member [--trust-workspace] --model opus|sonnet <member-name>`；未指定时成员默认 Sonnet。档位是用户的配置映射，不写死供应商模型 ID，不修改全局模型配置。
+- 成员发现当前任务需要更高推理能力时，说明具体原因并请求调整；已有会话由用户用 Claude Code 原生模型菜单的仅本会话选项切换，不保存为全局默认，不能悄悄另起同目录可写会话。已有用户模型选择、预算或服务限制优先，不因失败无界升级或重试。
+- 每个角色都鼓励把可独立验证的短任务交给 Sonnet tactical subagent，主会话保留判断、关键证据与整合；复杂反驳可显式选 Opus。每批最多 5 个且不嵌套，具体边界见 `subagents.md`。
+- 这是日常产品角色策略；维护/live 验收仍按 `vnext/acceptance.md` 显式冻结模型与预算，不把日常 Opus 默认当成所有付费测试授权。请求档位与服务实际响应模型分别核对，不凭角色自报判断已生效。
+
 ## 协作边界
 
 - 每名成员的当前主任务优先；普通发现不广播。
