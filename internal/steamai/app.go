@@ -22,7 +22,7 @@ const canonicalModule = "github.com/shuiyu486/STeamAI"
 var (
 	errUnsupportedPlatform      = errors.New("STeamAI 原生入口当前只支持 Windows 10/11 x64")
 	errPartialCase              = errors.New("当前目录包含不完整或冲突的 STeamAI 状态")
-	errCommanderRunning         = errors.New("当前 case 已有 Commander 正在运行，请切换到原窗口")
+	errCommanderRunning         = errors.New("当前项目的 Commander 锁仍被占用。原窗口还在请切回；若已退出，请核实旧版遗留的后台进程。未启动第二个 Commander")
 	errCanonicalMutationRunning = errors.New("canonical checkout 正在被另一个 learning apply 或 update 修改；请稍后重试")
 	memberNamePattern           = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	gitIdentityPattern          = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
@@ -44,12 +44,26 @@ const (
 	casePartial
 )
 
+const (
+	memberWindowAddressEnv = "STEAMAI_MEMBER_WINDOW_PIPE"
+	memberWindowWeztermMux = "wezterm-mux" // 只能由既有 mux 开标签，不是管道地址。
+)
+
+// 窗口请求只指向本项目一个已有成员；命令、目录、Claude 配置域和信任选项均不能由请求指定。
+type memberWindowRequest struct {
+	CaseID string `json:"caseId"`
+	Name   string `json:"name"`
+	Tier   string `json:"tier"`
+}
+
 type processSpec struct {
-	Path             string
-	Args             []string
-	Dir              string
-	Env              []string
-	InheritedHandles []uintptr
+	Path string
+	Args []string
+	Dir  string
+	Env  []string
+	// 只有直属 Commander 获得不可继承的锁副本。
+	CommanderLock    uintptr
+	OpenMemberWindow func(memberWindowRequest) error
 }
 
 type commanderLease struct {
@@ -147,9 +161,17 @@ func (a *app) run(args []string) error {
 		return errUnsupportedPlatform
 	}
 	if len(args) == 0 {
-		return a.openCommander()
+		return a.openCommander("/steamai")
 	}
 	switch args[0] {
+	case "-r", "--resume", "-c", "--continue":
+		if len(args) != 1 {
+			return fmt.Errorf("%s 不接受其他参数；用 steamai -r 选择历史对话，或用 steamai -c 继续最近的对话", args[0])
+		}
+		if args[0] == "-r" || args[0] == "--resume" {
+			return a.openCommander("--resume")
+		}
+		return a.openCommander("--continue")
 	case "help", "--help", "-h":
 		fmt.Fprint(a.stdout, usageText)
 		return nil
@@ -196,12 +218,14 @@ func (a *app) run(args []string) error {
 			return errors.New("内部 evaluation suite finalize 参数无效")
 		}
 		return a.evaluationSuiteFinalize()
+	case "models":
+		return a.modelsCommand(args[1:])
 	case "__open-member":
-		name, trustWorkspace, model, err := memberLaunchOptions(args[1:])
+		name, trustWorkspace, tier, err := memberLaunchOptions(args[1:])
 		if err != nil {
 			return err
 		}
-		return a.openMember(name, trustWorkspace, model)
+		return a.openMember(name, trustWorkspace, tier)
 	case "__member-session":
 		return a.memberSession(args[1:])
 	default:
@@ -212,7 +236,12 @@ func (a *app) run(args []string) error {
 const usageText = `STeamAI Windows 原生入口
 
 用法：
-  steamai                         创建或继续当前 case
+  steamai                         在当前项目打开新的 Commander 对话
+  steamai -r                      选择历史对话（--resume）
+  steamai -c                      继续当前目录最近一次对话（--continue）
+  steamai -h                      查看命令用法（--help）
+  steamai models                  查看本机 STeamAI 高档和常规档（默认 opus / sonnet）
+  steamai models --high <别名> --standard <别名>   两项各选 opus、sonnet 或 haiku
   steamai setup [--source PATH]   安装并绑定 canonical STeamAI checkout
   steamai update                  更新到最新正式版 exe 与 canonical checkout
   steamai uninstall               卸载入口并保留 checkout 与 case
@@ -347,7 +376,7 @@ func (a *app) freshInputs() (git, source, caseRoot string, facts casebootstrap.F
 	return git, source, caseRoot, facts, err
 }
 
-func (a *app) openCommander() error {
+func (a *app) openCommander(entry string) error {
 	caseRoot, err := a.cwd()
 	if err != nil {
 		return fmt.Errorf("读取当前目录: %w", err)
@@ -355,6 +384,14 @@ func (a *app) openCommander() error {
 	caseRoot, err = filepath.Abs(caseRoot)
 	if err != nil {
 		return fmt.Errorf("规范化当前目录: %w", err)
+	}
+	// 成员目录没有自己的 case marker，不能当作 Fresh Commander 恢复成员历史。
+	if entry != "/steamai" {
+		for part := range strings.SplitSeq(caseRoot, string(filepath.Separator)) {
+			if strings.EqualFold(part, ".steamai-vnext") {
+				return errors.New("恢复 Commander 请在原项目根目录运行，不要在 .steamai-vnext 内运行；成员请使用自己的会话")
+			}
+		}
 	}
 	state, err := inspectCase(caseRoot)
 	if err != nil {
@@ -367,7 +404,16 @@ func (a *app) openCommander() error {
 	if err != nil {
 		return fmt.Errorf("找不到原生 Claude Code: %w", err)
 	}
-	args := []string{"--model", "opus", "/steamai"}
+	tiers, err := a.configuredModelTiers()
+	if err != nil {
+		return err
+	}
+	// 只给已有项目的新对话指明项目内入口；分工和接班规则仍以该项目的文件为准。
+	var entryHint string
+	if state == caseCurrent && entry == "/steamai" {
+		entryHint = "本次是已有项目的新 Commander 对话：先读 .steamai-vnext/CLAUDE.md，沿其中的当前任务和产物入口核实进度，按项目约定接手。"
+	}
+	args := append(tiers.claudeArgs(tierHigh, entryHint), entry)
 	if state == caseFresh {
 		source, err := a.platform.CanonicalSource()
 		if err != nil {
@@ -394,17 +440,37 @@ func (a *app) openCommander() error {
 		Path:             claude,
 		Args:             args,
 		Dir:              caseRoot,
-		Env:              withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"),
-		InheritedHandles: []uintptr{lease.handle},
+		Env:              withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", memberWindowAddressEnv),
+		CommanderLock:    lease.handle,
+		OpenMemberWindow: a.memberWindowOpener(caseRoot, identity, os.Getenv("CLAUDE_CONFIG_DIR")),
 	}, a.stdin, a.stdout, a.stderr)
 }
 
-// 模型档位由 Commander 按任务选择；原生层只验证并传给 Claude Code，不推断角色能力。
-func memberLaunchOptions(args []string) (name string, trustWorkspace bool, model string, err error) {
-	model = "sonnet"
-	seenModel := false
+const (
+	tierHigh     = "high"
+	tierStandard = "standard"
+)
+
+// 把本次启动使用的两个别名交给 LLM；任务分档与原生子 agent 调用仍由角色决定。
+func (tiers modelTiers) claudeArgs(tier, entryHint string) []string {
+	model := tiers.Standard
+	if tier == tierHigh {
+		model = tiers.High
+	}
+	policy := fmt.Sprintf("本次 STeamAI 模型设置：高档 high=%[1]s，常规档 standard=%[2]s。日常角色用这两个档位，不沿用旧模板里的固定别名。"+
+		"启动正式成员传 --tier high 或 --tier standard。原生子 agent 默认显式传 model=%[2]s；确需高档时传 model=%[1]s，不传 high/standard 作为模型名。"+
+		"用户更具体的选择和维护验收预算仍优先。", tiers.High, tiers.Standard)
+	if entryHint != "" {
+		policy += "\n" + entryHint
+	}
+	return []string{"--model", model, "--append-system-prompt", policy}
+}
+
+func memberLaunchOptions(args []string) (name string, trustWorkspace bool, tier string, err error) {
+	tier = tierStandard
+	seenTier := false
 	invalid := func() (string, bool, string, error) {
-		return "", false, "", errors.New("内部成员启动参数无效：__open-member [--trust-workspace] [--model opus|sonnet] <member-name>")
+		return "", false, "", errors.New("内部成员启动参数无效：__open-member [--trust-workspace] [--tier high|standard] <member-name>")
 	}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -413,18 +479,26 @@ func memberLaunchOptions(args []string) (name string, trustWorkspace bool, model
 				return invalid()
 			}
 			trustWorkspace = true
-		case "--model":
-			if seenModel || i+1 == len(args) {
+		case "--tier", "--model":
+			if seenTier || i+1 == len(args) {
 				return invalid()
 			}
+			flag := args[i]
 			i++
-			model = args[i]
-			if model != "opus" && model != "sonnet" {
+			switch {
+			case flag == "--tier" && (args[i] == tierHigh || args[i] == tierStandard):
+				tier = args[i]
+			// 旧 case 的固定 skill 用 opus/sonnet 表达高档/常规档；不让旧参数越过新偏好。
+			case flag == "--model" && args[i] == "opus":
+				tier = tierHigh
+			case flag == "--model" && args[i] == "sonnet":
+				tier = tierStandard
+			default:
 				return invalid()
 			}
-			seenModel = true
+			seenTier = true
 		default:
-			if name != "" || strings.HasPrefix(args[i], "-") {
+			if name != "" || args[i] == "" || strings.HasPrefix(args[i], "-") {
 				return invalid()
 			}
 			name = args[i]
@@ -433,14 +507,55 @@ func memberLaunchOptions(args []string) (name string, trustWorkspace bool, model
 	if name == "" {
 		return invalid()
 	}
-	return name, trustWorkspace, model, nil
+	return name, trustWorkspace, tier, nil
 }
 
-func (a *app) openMember(name string, trustWorkspace bool, model string) error {
-	caseRoot, member, err := a.memberProcess(name, model)
+func (a *app) openMember(name string, trustWorkspace bool, tier string) error {
+	tiers, err := a.configuredModelTiers()
 	if err != nil {
 		return err
 	}
+	caseRoot, member, err := a.memberProcess(name, tier, tiers)
+	if err != nil {
+		return err
+	}
+	if trustWorkspace {
+		if _, err := prepareMemberWorkspaceTrust(member.Dir, caseRoot); err != nil {
+			return fmt.Errorf("自动信任成员工作区失败: %w", err)
+		}
+	}
+	if address := os.Getenv(memberWindowAddressEnv); address != "" && address != memberWindowWeztermMux {
+		id, err := a.platform.CaseIdentity(caseRoot)
+		if err != nil {
+			return err
+		}
+		return requestMemberWindow(address, memberWindowRequest{CaseID: id, Name: name, Tier: tier})
+	}
+	return a.launchValidatedMember(caseRoot, member, name, tier, tiers, os.Getenv("CLAUDE_CONFIG_DIR"))
+}
+
+// 非 mux 成员窗口由自己的 STeamAI 启动器创建：只接受此项目该成员，不接受任意命令或动作授权。
+func (a *app) memberWindowOpener(root, id, configDir string) func(memberWindowRequest) error {
+	return func(r memberWindowRequest) error {
+		if r.CaseID != id || (r.Tier != tierHigh && r.Tier != tierStandard) {
+			return errors.New("成员窗口请求与当前项目或档位不符")
+		}
+		if currentID, err := a.platform.CaseIdentity(root); err != nil || currentID != id {
+			return errors.New("成员窗口所属项目已改变")
+		}
+		tiers, err := a.configuredModelTiers()
+		if err != nil {
+			return err
+		}
+		member, err := a.memberProcessAt(root, r.Name, r.Tier, tiers)
+		if err != nil {
+			return err
+		}
+		return a.launchValidatedMember(root, member, r.Name, r.Tier, tiers, configDir)
+	}
+}
+
+func (a *app) launchValidatedMember(caseRoot string, member processSpec, name, tier string, tiers modelTiers, configDir string) error {
 	exe, err := a.executable()
 	if err != nil {
 		return err
@@ -452,22 +567,17 @@ func (a *app) openMember(name string, trustWorkspace bool, model string) error {
 	if err := validateNativeExecutablePath(exe); err != nil {
 		return err
 	}
-	configDir := "-" // 明确使用默认配置域，不继承 WezTerm server 的其它配置域。
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		configDir, err = filepath.Abs(dir)
+	if configDir == "" {
+		configDir = "-"
+	} else if configDir != "-" {
+		configDir, err = filepath.Abs(configDir)
 		if err != nil {
 			return fmt.Errorf("解析 Claude Code 配置目录: %w", err)
 		}
 	}
-	if trustWorkspace {
-		// 信任准备只在父启动器执行，pane 内 helper 不写配置。
-		if _, err := prepareMemberWorkspaceTrust(member.Dir, caseRoot); err != nil {
-			return fmt.Errorf("自动信任成员工作区失败: %w", err)
-		}
-	}
 	return a.platform.OpenVisible(processSpec{
 		Path: exe,
-		Args: []string{"__member-session", "--config-dir", configDir, "--model", model, name},
+		Args: []string{"__member-session", "--config-dir", configDir, "--tier", tier, "--high", tiers.High, "--standard", tiers.Standard, name},
 		Dir:  caseRoot,
 		Env:  member.Env,
 	})
@@ -476,15 +586,13 @@ func (a *app) openMember(name string, trustWorkspace bool, model string) error {
 // WezTerm tab 从 server 继承环境；在 pane 内重新清洗，避免正式会话被判为嵌套。
 // 此内部入口只启动已校验的成员，不接受任意命令或环境变量载荷。
 func (a *app) memberSession(args []string) error {
-	if len(args) != 5 || args[0] != "--config-dir" || args[2] != "--model" ||
-		(args[1] != "-" && !filepath.IsAbs(args[1])) {
+	if len(args) != 9 || args[0] != "--config-dir" || (args[1] != "-" && !filepath.IsAbs(args[1])) ||
+		args[2] != "--tier" || (args[3] != tierHigh && args[3] != tierStandard) ||
+		args[4] != "--high" || !validModelAlias(args[5]) || args[6] != "--standard" || !validModelAlias(args[7]) {
 		return errors.New("内部成员会话参数无效")
 	}
-	name, trust, model, err := memberLaunchOptions(args[2:])
-	if err != nil || trust {
-		return errors.New("内部成员会话参数无效")
-	}
-	_, spec, err := a.memberProcess(name, model)
+	// 以父进程启动时的偏好为准，不从 WezTerm server 的环境或磁盘再次取值。
+	caseRoot, spec, err := a.memberProcess(args[8], args[3], modelTiers{High: args[5], Standard: args[7]})
 	if err != nil {
 		return err
 	}
@@ -492,24 +600,34 @@ func (a *app) memberSession(args []string) error {
 	if args[1] != "-" {
 		spec.Env = append(spec.Env, "CLAUDE_CONFIG_DIR="+filepath.Clean(args[1]))
 	}
+	id, err := a.platform.CaseIdentity(caseRoot)
+	if err != nil {
+		return err
+	}
+	spec.OpenMemberWindow = a.memberWindowOpener(caseRoot, id, args[1])
 	return a.platform.RunAttached(spec, a.stdin, a.stdout, a.stderr)
 }
 
-func (a *app) memberProcess(name, model string) (string, processSpec, error) {
-	fail := func(err error) (string, processSpec, error) { return "", processSpec{}, err }
+func (a *app) memberProcess(name, tier string, tiers modelTiers) (string, processSpec, error) {
+	root, err := a.cwd()
+	if err != nil {
+		return "", processSpec{}, err
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return "", processSpec{}, err
+	}
+	spec, err := a.memberProcessAt(root, name, tier, tiers)
+	return root, spec, err
+}
+
+func (a *app) memberProcessAt(caseRoot, name, tier string, tiers modelTiers) (processSpec, error) {
+	fail := func(err error) (processSpec, error) { return processSpec{}, err }
 	if !memberNamePattern.MatchString(name) {
 		return fail(errors.New("成员名称无效"))
 	}
 	if _, reserved := windowsReservedNames[strings.ToLower(name)]; reserved {
 		return fail(errors.New("成员名称是 Windows 保留名称"))
-	}
-	caseRoot, err := a.cwd()
-	if err != nil {
-		return fail(err)
-	}
-	caseRoot, err = filepath.Abs(caseRoot)
-	if err != nil {
-		return fail(err)
 	}
 	state, err := inspectCase(caseRoot)
 	if err != nil {
@@ -532,11 +650,11 @@ func (a *app) memberProcess(name, model string) (string, processSpec, error) {
 	if err != nil {
 		return fail(fmt.Errorf("找不到原生 Claude Code: %w", err))
 	}
-	return caseRoot, processSpec{
+	return processSpec{
 		Path: claude,
-		Args: []string{"--model", model, "--name", name, memberInitialPrompt, "--add-dir", caseRoot},
+		Args: append(tiers.claudeArgs(tier, ""), "--name", name, memberInitialPrompt, "--add-dir", caseRoot),
 		Dir:  memberRoot,
-		Env:  withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"),
+		Env:  withoutEnvironment(os.Environ(), "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", memberWindowAddressEnv),
 	}, nil
 }
 

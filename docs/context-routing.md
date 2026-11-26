@@ -15,9 +15,9 @@
 | 三线实际可用范围、效果证据与已知缺口 | `docs/professional-delivery-results.md` | 批次收束不等于所有 gate 通过；关注阻塞期间停止、模板伪匹配与 learning 待验项 |
 | 实用能力与效率的交付补缺、结果与证据边界 | `docs/capability-efficiency-results.md` | 区分仓库功能、合成验证与真实验收；旧 U5 报称 tie 缺充分证据，方法库整体收益未证 |
 | native shell 机械边界 | `cmd/steamai`、`internal/steamai/app.go`，再按 symbol 路由 | 不扩为团队控制面 |
-| canonical `/steamai` 行为 | `.claude/skills/steamai/SKILL.md` | 不调用已删除的 `/rekit` 或旧 runtime |
+| canonical `/steamai` 行为、Commander 换班与分工 | `.claude/skills/steamai/SKILL.md` | 主动换班先说「交接到新会话」保存对话内断点；直接关后无参 `steamai` 只按已保存状态恢复，`-c` 是续聊 |
 | case/member/research 模板 | `vnext/README.md`，再选目标模板 | 不一次加载全部模板 |
-| 原生 session、WezTerm 标签、模型档位与恢复 | `vnext/capabilities.md` | session ID 不代表身份或授权；参数测试不代替真实交互 |
+| 原生 session、WezTerm 标签、模型档位、恢复与会话 Job | `vnext/capabilities.md` | session ID 不代表身份或授权；会话 Job 只收本会话的普通子孙进程；本机两档模型配置（`steamai models`）与参数测试不代替真实交互 |
 | Windows 通用桌面 MCP | `common/tooling/windows-desktop-mcp.md` | 跨 pack 按需接入；配置/协议与真实键鼠分层，不自动操作桌面 |
 | WezTerm、模型档位与桌面 MCP 的实际验收范围 | `docs/windows-desktop-results.md` | 区分同窗标签、自建窗口实操与未验目标；不代表任意游戏可控或已发布 Release |
 | 自动与 live acceptance | `vnext/acceptance.md` | 现阶段仅 Windows；不默认三平台 CI，静态/fake/headless 不能代替受影响的真实路径 |

@@ -2,9 +2,7 @@
 
 package steamai
 
-import (
-	"io"
-)
+import "io"
 
 type nativePlatform struct{}
 
@@ -30,5 +28,6 @@ func (nativePlatform) AcquireCanonicalMutation(string) (commanderLease, error) {
 func (nativePlatform) RunAttached(processSpec, io.Reader, io.Writer, io.Writer) error {
 	return errUnsupportedPlatform
 }
-func (nativePlatform) OpenVisible(processSpec) error { return errUnsupportedPlatform }
-func rejectReparse(string) error                     { return nil }
+func requestMemberWindow(string, memberWindowRequest) error { return errUnsupportedPlatform }
+func (nativePlatform) OpenVisible(processSpec) error        { return errUnsupportedPlatform }
+func rejectReparse(string) error                            { return nil }

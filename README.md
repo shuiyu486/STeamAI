@@ -42,6 +42,26 @@ steamai
 - 完整有效的 `.steamai-vnext/`：继续当前 case，复用仍运行的 active 成员，按需重开未完成成员；
 - partial、来源不明或冲突：fail-closed，不自动 repair、迁移、覆盖或删除。
 
+**接着上次聊**：回到原项目目录，在终端里选一条命令，不用先打开聊天窗口。
+
+| 想做什么 | 输入 |
+|---|---|
+| 从历史列表里选一段对话 | `steamai -r`（`steamai --resume`） |
+| 直接接着最近一次聊 | `steamai -c`（`steamai --continue`） |
+| 忘了命令，看帮助 | `steamai -h` |
+
+如果原 Commander 窗口还开着，直接回到那个窗口。历史列表由 Claude Code 提供，可能也有同目录的普通对话；它不是所有成员的聊天汇总。
+
+**做到一半，想换个新上下文继续**：在旧聊天里说 **「交接到新会话」**。等 Commander 回复「交接已保存」并给出位置，再像平时一样关闭旧标签，在原项目目录运行 `steamai`。不需要 `/exit`、`/clear`，也不用把摘要复制给新会话。
+
+旧 Commander 会把刚讨论但还没写进文件的决定、已排除的方向、工作断点和下一步，补进 `.steamai-vnext/CLAUDE.md` 末尾的「Commander 交接」；没有验证的事情不会写成完成。新 Commander 从这里找到负责人和对应产物，不需要继承整段聊天。
+
+**如果已经直接关了**：也能运行 `steamai`，但这是从已保存的项目状态恢复，不会自动带上旧聊天。交接段缺失或过时，就核对成员任务和实际文件，不能确认的事不猜、不重做。若确实需要只在旧聊天里的决定，且原生历史还在，可用 `steamai -r` 选回那段对话，再说「交接到新会话」。
+
+**关掉哪个会话，就清理哪个会话的工具。** 新版用 Windows 进程组为 Commander 和每名正式成员分开收尾。在 Windows 10 上实际验证过：真实 Claude Code 用 Git Bash 的 `tail` 等候日志时，结束该 Claude，`tail` 也退出；另用两个临时项目、真实 Windows 伪终端和后台 CLI 替身验证：直接关闭第一个 Commander 的终端，无需 `/exit` 就能在原目录立即重开，独立成员和第二个项目仍在运行。
+
+STeamAI 不会关闭你原本开着的外部应用，也不接管由系统服务或其它宿主另行启动的程序。如果你关的是装着多个标签的整扇终端窗口，其中的标签仍会一起关闭。此修复只对新版入口启动的会话生效；旧工具若仍占锁，不要删项目文件或批量结束同名进程。
+
 Fresh 来源是 setup 绑定的 canonical checkout 当前 working-tree bytes；stage-0 index 定义 current tracked path/mode，HEAD 只是历史 anchor。因此已经审查、用户确认并应用但尚未 commit 的本机经验，也能供后续新 case 使用。preview 绑定 case facts、source records、目标 pre-state 和全部 writes；只有 `CONFIRM STEAMAI FRESH <identity>` 才能 Apply。
 
 Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-replace 发布并重验 project-local skill，最后发布包含 marker 的 `.steamai-vnext/`。case 建立后固定读取自己的主 pack、可选辅助 pack + 完整 `common/**` snapshot，不随 mutable canonical checkout 漂移。
@@ -51,13 +71,23 @@ Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-rep
 ### 终端、模型和桌面操作
 
 - **终端**：成员优先开在主会话所在 WezTerm 窗口的新标签页，不另起一堆 console；不在 WezTerm 内但已安装它时开新 WezTerm 窗口，未安装才保留原生 console。启动失败如实报告，不向已有标签发输入、不重复启动。标签仍是独立、可输入和纠偏的正式成员。
-- **模型**：Commander 显式用 `opus` 档，成员按任务选 `opus` / `sonnet`（默认 Sonnet）；分别沿用用户的 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL`。复杂推理、统筹与关键审查优先高档；明确实现和整理用 Sonnet。不写死供应商 ID，不改全局模型。已有会话不强切。
-- **子 agent**：各角色鼓励用显式 Sonnet 子 agent 分担短任务与大文件筛选，每批最多 5 个且不嵌套；主角色保留判断和整合，不把大段搜索结果搬回上下文。
+- **模型**：本机两档配置，只对新启动的 STeamAI 会话生效，已有会话不强切：
+
+  | 操作 | 命令 |
+  |---|---|
+  | 查看当前设置 | `steamai models` |
+  | 高档用 Sonnet、常规档用 Haiku | `steamai models --high sonnet --standard haiku` |
+  | 恢复默认 | `steamai models --high opus --standard sonnet` |
+
+  两项各选 `opus`、`sonnet` 或 `haiku`，也可以选同一个。
+
+  Commander 与关键研究/审查用高档，普通成员和短子 agent 默认常规档；高/常规是选档不是计费硬上限。别名仍由 Claude Code 按用户 `ANTHROPIC_DEFAULT_*_MODEL` 配置解析为实际模型，STeamAI 不重映射这些变量，不改变本机其它普通 Claude 会话或已有 case 的固定 snapshot；旧 case 文本里的 `--model opus` / `--model sonnet` 按高档/常规档的角色意图解析。完整合同见 [`vnext/capabilities.md`](vnext/capabilities.md)。
+- **子 agent**：各角色鼓励用显式常规档子 agent 分担短任务与大文件筛选（在原生 Agent(model=...) 传已解析的别名，不把 `high` / `standard` 当模型名），每批最多 5 个且不嵌套；主角色保留判断和整合，不把大段搜索结果搬回上下文。
 - **桌面 MCP**：跨 pack 的基础入口在 [`common/tooling/windows-desktop-mcp.md`](common/tooling/windows-desktop-mcp.md)。固定 Windows-MCP 0.8.9，关闭遥测，只暴露截图、键鼠等 9 项必要工具；通过 Claude Code 原生 user scope 一次接入，而非为每个软件造脚本。首次下载/注册与前台测试分别需要具体批准；仅复制入口不代表已安装或可控。它不能保证操作所有游戏、提权窗口或 UAC 界面，也不取代大漠、Airtest、Playwright。
 
-WezTerm 新标签继承 server 的环境，启动器会保留 Claude 配置域并清理嵌套会话标记，但不传递全部临时 shell 环境或把 token 放入命令行。模型槽位请使用 Claude Code 用户配置；实际响应模型仍以服务返回为准。这轮包含原生 Go 改动，需要新版 `steamai.exe`，仅更新文档不会改变已安装旧入口；已有 case 的固定 snapshot 不自动更新。已打开的 Claude Code 会话不保证热发现新 MCP；需要时先正常退出，再从原目录 resume 同一会话，不在旧会话仍运行时另开同目录 writer。
+WezTerm 新标签继承 server 的环境，启动器会保留 Claude 配置域并清理嵌套会话标记，但不传递全部临时 shell 环境或把 token 放入命令行。模型别名到实际模型的映射仍由 Claude Code 用户配置（`ANTHROPIC_DEFAULT_*_MODEL`）解析；STeamAI 的两档选择（`steamai models`）只决定各角色用哪个别名，不重映射这些变量。这轮包含原生 Go 改动，需要新版 `steamai.exe`，仅更新文档不会改变已安装旧入口；已有 case 的固定 snapshot 不自动更新。新版入口用无参 `steamai` 进入已有项目时，会附带一句短导航，让 Commander 先读项目内已有的 `.steamai-vnext/CLAUDE.md` 及其指向的入口；`-c` / `-r` 续聊和成员会话不带这句。协作与接班规则仍只维护在 canonical skill 和 case 模板里：已有项目的固定内容不迁移、不改写，也不会因此获得新规则。已打开的 Claude Code 会话不保证热发现新 MCP；需要时先正常退出，再从原目录 resume 同一会话，不在旧会话仍运行时另开同目录 writer。
 
-本机已通过 WezTerm 同窗新标签的真实两轮交互，以及 Windows-MCP 对自建窗口的裁剪截图、一次点击和短文本键入；测试窗口均正常关闭。环境、首次失败原因及未验范围见[终端与桌面验收记录](docs/windows-desktop-results.md)，不代表任意游戏或所有 DPI 配置已通过。
+本机已通过 WezTerm 同窗新标签的真实两轮交互，以及 Windows-MCP 对自建窗口的裁剪截图、一次点击和短文本键入；测试窗口均正常关闭。这些历史验收对应当时的固定 `opus`/`sonnet` 参数路径；本轮两档映射（`steamai models`、`--tier` 启动）的真实网关与前台验收尚未执行。环境、首次失败原因及未验范围见[终端与桌面验收记录](docs/windows-desktop-results.md)，不代表任意游戏或所有 DPI 配置已通过。
 
 ### 游戏自动化怎么选工具
 
@@ -93,7 +123,7 @@ Binary 路径提供一个显式 IDAPython 定点导出工具，读取已打开�
 
 ## 团队模型
 
-- **Commander**：理解目标与授权、按需组队、解决协作冲突、组织审查、集成交付和发起经验回流。
+- **Commander**：理解目标与授权、按需组队、解决冲突、组织审查、集成交付和发起经验回流。分工看要交付什么，不猜工期。已有团队时，报告、实现、修复等能独立交付的工作优先交给已有负责人，上一项任务结束的成员可以重新派工。例如，Commander 可以检查集成结果；发现问题需要查因、修改和回归时，就在动手前明确执行成员。没有团队时，简单问题可以自己解决，不为每个动作组队。
 - **正式成员**：每名成员拥有 `.steamai-vnext/members/<name>/CLAUDE.md`，身份与当前任务属于该目录，不属于 session ID。Commander 通过原生 launcher 打开用户可见、可输入的普通 Claude Code 会话（WezTerm 同窗新标签优先），并以成员名设置原生 session 的可读寻址提示；发送前在同一 Claude Code 配置域中取得 `claude agents --json` 的 exact cwd→name 映射，并与 `ListAgents` 的当前可达 name 唯一相交，不能靠任一单独来源认定成员。
 - **Reviewer**：只读 artifact/evidence/finding/spec/run/candidate/patch，只写 `reviews/` 与任务指定的 exact evaluation attestation，不执行 heavy action或运行 arms。
 - active team 默认最多 3 名执行成员 + 1 名 Reviewer；每个问题一名 owner、最多一名 verifier。
@@ -184,6 +214,6 @@ go vet ./...
 git diff --check
 ```
 
-fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径；原生 helper 的真实 timeout/process-tree 测试只证明受控 Windows 父子进程清理，不等于 Claude 整体行为验收。真实模型调用的 token smoke 也不能替代 Reviewer calibration；维护/live 测试默认显式选当前配置的 Sonnet 档（`--model sonnet`）；仅极简探针或 headless 且 Sonnet 缺命令工具时降级 Haiku，不继承高档主模型；未经本次明确批准不用 Opus/顶级模型，不限定模型供应商；主会话实际消息模型须与冻结选择一致，不能把总用量中的额外模型直接视为主模型漂移。live 运行方式见 `vnext/acceptance.md`，结果按文档路由读取对应验收记录。默认测试不调用模型、不占前台；窗口/真实鼠标验收先取得用户同意的时间窗。
+fake process、synthetic fixture、cross-compile 或 workflow definition 都不能冒充真实 Windows setup/PATH、可见成员窗口、用户纠偏、跨会话消息、evaluator calibration/comparative result、field outcomes、learning apply 或 formal release 验收。Windows native test binary 可证明 suspended→Job→resume 的普通执行路径；原生 helper 的真实 timeout/process-tree 测试与 Commander/成员会话 Job 的无窗口进程链测试都只证明受控 Windows 父子进程清理。真实 Claude Code 会话退出后工具进程被收走、成员会话保留，须按 `vnext/acceptance.md` 的 live gate 另行验收，不等于 Claude 整体行为验收。真实模型调用的 token smoke 也不能替代 Reviewer calibration；维护/live 测试默认显式选当前配置的 Sonnet 档（`--model sonnet`）；仅极简探针或 headless 且 Sonnet 缺命令工具时降级 Haiku，不继承高档主模型；未经本次明确批准不用 Opus/顶级模型，不限定模型供应商；主会话实际消息模型须与冻结选择一致，不能把总用量中的额外模型直接视为主模型漂移。live 运行方式见 `vnext/acceptance.md`，结果按文档路由读取对应验收记录。默认测试不调用模型、不占前台；窗口/真实鼠标验收先取得用户同意的时间窗。
 
 旧 Go control plane、mega CLI、project-local runtime、PowerShell façade、adapter host、legacy `/rekit` 与旧项目 importer 均已删除。STeamAI 不是自动逆向/漏洞挖掘或渗透引擎；危险动作仍受明确 case 授权、具体用户确认与 Claude Code 工具权限约束，`CLAUDE.md` 只提供上下文，不授予权限。

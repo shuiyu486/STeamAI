@@ -69,6 +69,9 @@ var runWeztermCLI = func(cliPath string, args []string, env []string) (string, s
 func openVisibleWezTerm(spec processSpec) (bool, error) {
 	pane, present := weztermDetect()
 	if !present {
+		if os.Getenv(memberWindowAddressEnv) == memberWindowWeztermMux {
+			return true, fmt.Errorf("当前会话已无法定位原 WezTerm 窗口，未创建成员；不会回退到受此会话控制的窗口")
+		}
 		return startVisibleWeztermWindow(spec)
 	}
 	cliPath, err := resolveWeztermCLI(pane)
@@ -108,29 +111,44 @@ func startVisibleWeztermWindow(spec processSpec) (bool, error) {
 	return true, nil
 }
 
-// startWeztermWindow 启动独立 WezTerm 新窗口进程且不等待其退出；测试注入替换。
-// 成功启动后立即 Release 释放父侧进程句柄（不 Wait、不 kill），避免长期
-// Commander 会话累积 handle。
+// 独立 WezTerm 新窗口由自己的 GUI 承载，不依附调用者的控制台或会话 Job。
 var startWeztermWindow = func(weztermPath string, args []string, env []string) error {
-	cmd := exec.Command(weztermPath, args...)
-	cmd.Env = env
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createUnicodeEnv}
-	if err := cmd.Start(); err != nil {
-		return err
+	return startIndependentMember(processSpec{Path: weztermPath, Args: args, Env: env}, createNoWindow)
+}
+
+// 会话与成员窗口沿用同一终端选择规则；显式传入的会话环境不一定等于启动器环境。
+func sessionUsesWeztermMux(env []string) bool {
+	if env == nil {
+		_, present := weztermDetect()
+		return present
 	}
-	_ = cmd.Process.Release()
-	return nil
+	var pane, program string
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		switch {
+		case strings.EqualFold(key, weztermPaneEnv):
+			pane = value
+		case strings.EqualFold(key, weztermTermProgramEnv):
+			program = value
+		}
+	}
+	_, present := weztermContext(pane, program)
+	return present
 }
 
 // weztermDetect 读取（只读，不修改）当前进程环境中的 WezTerm 痕迹：
 // WEZTERM_PANE 存在表示当前就在某个 pane 内；否则 TERM_PROGRAM=WezTerm
 // 表示源自 WezTerm 但没有可定位的当前 pane。
 func weztermDetect() (pane string, present bool) {
-	pane = strings.TrimSpace(os.Getenv(weztermPaneEnv))
-	if pane != "" {
-		return pane, true
-	}
-	return "", os.Getenv(weztermTermProgramEnv) == weztermTermProgramValue
+	return weztermContext(os.Getenv(weztermPaneEnv), os.Getenv(weztermTermProgramEnv))
+}
+
+func weztermContext(pane, program string) (string, bool) {
+	pane = strings.TrimSpace(pane)
+	return pane, pane != "" || program == weztermTermProgramValue
 }
 
 // resolveWeztermCLI 定位 wezterm CLI 可执行文件：优先当前 gui 实例同目录

@@ -28,7 +28,7 @@ claude mcp add windows-desktop --scope user --env ANONYMIZED_TELEMETRY=false WIN
 
 仅某个项目需要时可选择 `--scope project`，写入该项目 `.mcp.json` 并走原生信任确认；不假定 `--add-dir` 会加载该文件，也不假定所有成员 cwd 能继承它。跨项目基础能力推荐明确 opt-in 的 user scope，而不是为每名成员复制配置。卸载配置用原生 `claude mcp remove windows-desktop --scope user`；删除工具环境是另一项有明确目标的动作，不自动删除 uv 或共享 Python。
 
-旧交互会话不保证热发现外部新增的 MCP。先正常退出，再从原 cwd 用 `claude --resume <原会话ID或名称> --add-dir <CASE_ROOT>` 恢复同一会话；需要维持所选档位时另带 `--model opus|sonnet`。不要在旧会话仍写入时另开同目录副本。新进程中用 `/mcp` 查看工具；原生 `claude mcp get windows-desktop` 可单独核对该 server，避免为检查它而启动全部其它 MCP。本机 2.1.273 不支持较新版的 `/mcp reconnect all`，也不能把 Reconnect 当成热发现保证。
+旧交互会话不保证热发现外部新增的 MCP。先正常退出，再从原 cwd 用 `claude --resume <原会话ID或名称> --add-dir <CASE_ROOT>` 恢复同一会话；需要保持原会话模型时，用 `--model` 传该会话实际选择的 Claude 别名（`opus`、`sonnet` 或 `haiku`），不要传 STeamAI 的 `high` / `standard`。不要在旧会话仍写入时另开同目录副本。新进程中用 `/mcp` 查看工具；原生 `claude mcp get windows-desktop` 可单独核对该 server，避免为检查它而启动全部其它 MCP。本机 2.1.273 不支持较新版的 `/mcp reconnect all`，也不能把 Reconnect 当成热发现保证。
 
 ## 固定启动边界
 

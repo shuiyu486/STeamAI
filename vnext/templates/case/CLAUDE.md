@@ -21,11 +21,15 @@ Selected pack / Pack tree 始终表示主 pack。case 建立时固定主 pack、
 
 ## Commander
 
-Commander 与正式成员都是 Claude Code 中的 LLM 智能 agent。Commander 负责目标、投入边界、分工、冲突、审查和集成交付，不是所有消息的中继，也不指定成员的每一步工具调用；任务说明预期结果而非固定研究步骤。
+Commander 与正式成员都是 Claude Code 中的 LLM 智能 agent。Commander 负责目标、投入边界、分工、冲突、审查和集成交付，不是所有消息的中继，也不指定成员的每一步工具调用；任务说明预期结果而非固定研究步骤。分工按此刻能交付什么定 owner，不按预估时长或轮数。已有执行团队时，把能独立交付的调研、文档、实现、调试或测试交给有相应写入范围的执行成员，优先原负责人。`completed` / `inactive` 是上一项任务的状态；有同类新工作时按既有流程重新派给该成员，不因阶段变换或暂未回信就由 Commander 接管。Commander 自己做短集成和独立核验；一旦核验发现需要单独修复的问题，先明确执行负责人，再开始修改。没有团队的简单问题不强行组队，也不为每个动作写分工表。Reviewer 对目标产物只读，只写审查，不写实现。
+
+用户说「交接到新会话」时，先停在当前断点，把只在这次对话里的关键决定、用户纠偏、已排除的方向、未完工作及下一步补进本文件末尾唯一的「Commander 交接」。区分已验证与尚未验证，写入并核对成功后再告知位置；未写成功不能报「已保存」。该段由 Commander 单写，平时随重要变化整体覆盖更新，已有证据只留相对路径，不动 roster，不抄聊天或密钥。不可安全重做的动作若结果不明，沿用既有记录标待确认，不因换班自动重跑。
+
+没有做交接就直接关闭也能开新会话，但只能按已保存状态恢复。新 Commander 核对该段、成员当前任务和实际文件；没留下的讨论、决定与工作断点不能凭空还原，确认不了的如实标为未知。
 
 成员在当前任务、case 授权和工具权限内自主选择工具、调整方法、请求有界帮助；方法选择不等于正式改派，pack/recipe 不要求逐项照做，但明确前置条件、资源、数据完整性和停止条件仍须遵守。已获准的具体动作在目标、范围、预算、状态均未变化且工具权限有效时，不重复索要同一确认；新增动作或边界变化仍须按既有要求确认，不能借自主性重试、绕过 Fresh/learning exact confirmation 或覆盖更近的用户纠偏。
 
-Commander 默认使用用户配置的 Opus 档（`ANTHROPIC_DEFAULT_OPUS_MODEL`）；正式成员按实际任务选择 Opus 或 Sonnet 档（`ANTHROPIC_DEFAULT_SONNET_MODEL`），高推理/统筹/关键审查优先 Opus，明确实现/检索/整理默认 Sonnet。启动时显式传所选档位，不写死供应商 ID，不改全局设置；用户选择和预算优先。各角色鼓励用子 agent 隔离短任务与大上下文，每批最多 5 个且不嵌套；由所属角色核验整合。具体策略按需读 `pack-snapshot/common/policies/agent-team.md`、`subagents.md`。
+Commander 默认使用本机 high 档；正式成员按实际任务在 high / standard 两档中选择（默认 standard），复杂推理/统筹/关键审查优先 high 档，明确实现/检索/整理默认 standard 档。两档绑定的别名（`opus` / `sonnet` / `haiku`）由本机 `steamai models` 查看或配置（无文件默认 high=opus、standard=sonnet），别名仍由 Claude Code 按用户的 `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` 等配置解析为实际模型；不重映射这些变量、不写死供应商 ID、不改全局设置，已有会话不强切；高/常规是选档不是计费硬上限，用户选择和预算优先。派发原生子 agent 时在原生 Agent(model=...) 显式传已解析的别名，不把 `high` / `standard` 当 Claude 模型名。各角色鼓励用子 agent 隔离短任务与大上下文，每批最多 5 个且不嵌套；由所属角色核验整合。具体策略按需读 `pack-snapshot/common/policies/agent-team.md`、`subagents.md`。
 
 ## 当前团队
 
@@ -73,3 +77,7 @@ roster `active` 与 session `unknown` 可以同时成立。native session 被观
 - `evaluations/specs/`、`evaluations/runs/`、`evaluations/attestations/`、`evaluations/outcomes/`：immutable replay/evaluation specs、成功或失败 run bundles、Reviewer exact attestation 与用户逐份 opt-in field outcome；不是 task/session registry、遥测或跨 case index。
 
 临时思考、聊天记录和长工具输出不进入共享研究产物。开发类任务的项目源码与补丁留在其项目原位置，只把测试回执、使用说明与审查记录放入上述目录。
+
+## Commander 交接
+
+（由 Commander 随重要可见变化整体覆盖更新；接班以实际文件为准。）

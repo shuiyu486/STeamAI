@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,15 +35,64 @@ const (
 )
 
 var (
-	kernel32               = syscall.NewLazyDLL("kernel32.dll")
-	advapi32               = syscall.NewLazyDLL("advapi32.dll")
-	procCreateMutexW       = kernel32.NewProc("CreateMutexW")
-	procRegCreateKeyExW    = advapi32.NewProc("RegCreateKeyExW")
-	procRegSetValueExW     = advapi32.NewProc("RegSetValueExW")
-	procRegDeleteValueW    = advapi32.NewProc("RegDeleteValueW")
-	procRegDeleteKeyW      = advapi32.NewProc("RegDeleteKeyW")
-	procSendMessageTimeout = syscall.NewLazyDLL("user32.dll").NewProc("SendMessageTimeoutW")
+	kernel32                              = syscall.NewLazyDLL("kernel32.dll")
+	advapi32                              = syscall.NewLazyDLL("advapi32.dll")
+	procCreateMutexW                      = kernel32.NewProc("CreateMutexW")
+	procCreateJobObjectW                  = kernel32.NewProc("CreateJobObjectW")
+	procSetInformationJobObject           = kernel32.NewProc("SetInformationJobObject")
+	procResumeThread                      = kernel32.NewProc("ResumeThread")
+	procInitializeProcThreadAttributeList = kernel32.NewProc("InitializeProcThreadAttributeList")
+	procUpdateProcThreadAttribute         = kernel32.NewProc("UpdateProcThreadAttribute")
+	procDeleteProcThreadAttributeList     = kernel32.NewProc("DeleteProcThreadAttributeList")
+	procRegCreateKeyExW                   = advapi32.NewProc("RegCreateKeyExW")
+	procRegSetValueExW                    = advapi32.NewProc("RegSetValueExW")
+	procRegDeleteValueW                   = advapi32.NewProc("RegDeleteValueW")
+	procRegDeleteKeyW                     = advapi32.NewProc("RegDeleteKeyW")
+	procSendMessageTimeout                = syscall.NewLazyDLL("user32.dll").NewProc("SendMessageTimeoutW")
 )
+
+const (
+	createSuspended                 = 0x00000004
+	startfUseStdHandles             = 0x00000100
+	extendedStartupInfoPresent      = 0x00080000
+	procThreadAttributeHandleList   = 0x00020002
+	procThreadAttributeJobList      = 0x0002000D
+	jobObjectExtendedLimitInfoClass = 9
+	jobObjectLimitKillOnJobClose    = 0x00002000
+	createNoWindow                  = 0x08000000
+)
+
+// STARTUPINFOEX 与 JOBOBJECT_EXTENDED_LIMIT_INFORMATION 的最小本地定义；不为此引入新依赖。
+type startupInfoEx struct {
+	syscall.StartupInfo
+	AttributeList uintptr
+}
+
+type jobObjectBasicLimitInformation struct {
+	PerProcessUserTimeLimit int64
+	PerJobUserTimeLimit     int64
+	LimitFlags              uint32
+	MinimumWorkingSetSize   uintptr
+	MaximumWorkingSetSize   uintptr
+	ActiveProcessLimit      uint32
+	Affinity                uintptr
+	PriorityClass           uint32
+	SchedulingClass         uint32
+}
+
+type ioCounters struct {
+	ReadOperationCount, WriteOperationCount, OtherOperationCount uint64
+	ReadTransferCount, WriteTransferCount, OtherTransferCount    uint64
+}
+
+type jobObjectExtendedLimitInformation struct {
+	Basic                 jobObjectBasicLimitInformation
+	Io                    ioCounters
+	ProcessMemoryLimit    uintptr
+	JobMemoryLimit        uintptr
+	PeakProcessMemoryUsed uintptr
+	PeakJobMemoryUsed     uintptr
+}
 
 var (
 	installRegistrySubkey = defaultInstallRegistrySubkey
@@ -546,7 +596,7 @@ func (nativePlatform) CaseIdentity(path string) (string, error) {
 }
 
 func (nativePlatform) AcquireCommander(name string) (commanderLease, error) {
-	return acquireNamedMutex(name, errCommanderRunning, true)
+	return acquireNamedMutex(name, errCommanderRunning, false)
 }
 
 func (nativePlatform) AcquireCanonicalMutation(name string) (commanderLease, error) {
@@ -567,7 +617,7 @@ func acquireNamedMutex(name string, duplicateErr error, inheritable bool) (comma
 		return commanderLease{}, callErr
 	}
 	if errors.Is(callErr, syscall.ERROR_ALREADY_EXISTS) {
-		syscall.CloseHandle(syscall.Handle(handle))
+		_ = syscall.CloseHandle(syscall.Handle(handle))
 		return commanderLease{}, duplicateErr
 	}
 	return commanderLease{
@@ -576,20 +626,184 @@ func acquireNamedMutex(name string, duplicateErr error, inheritable bool) (comma
 	}, nil
 }
 
+// 每个 Commander 或正式成员有自己的 Job。只要本次启动器退出（包括被关窗），
+// Windows 就收掉仍在这个 Job 里的会话和工具，不依赖 CLI 执行退出回调。
 func (nativePlatform) RunAttached(spec processSpec, stdin io.Reader, stdout, stderr io.Writer) error {
-	cmd := exec.Command(spec.Path, spec.Args...)
-	cmd.Dir = spec.Dir
-	cmd.Env = spec.Env
-	cmd.Stdin = stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if len(spec.InheritedHandles) > 0 {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-		for _, handle := range spec.InheritedHandles {
-			cmd.SysProcAttr.AdditionalInheritedHandles = append(cmd.SysProcAttr.AdditionalInheritedHandles, syscall.Handle(handle))
+	std, err := standardHandles(stdin, stdout, stderr)
+	defer closeHandles(std[:]) // 包括复制部分标准句柄后失败的路径。
+	if err != nil {
+		return err
+	}
+	if spec.Env == nil {
+		spec.Env = os.Environ()
+	}
+	spec.Env = withoutEnvironment(spec.Env, memberWindowAddressEnv)
+	// 已有 mux 由 WezTerm server 独立建 pane；其它情况只让本启动器代开经过校验的成员窗口。
+	if spec.OpenMemberWindow != nil {
+		route := memberWindowWeztermMux
+		if !sessionUsesWeztermMux(spec.Env) {
+			address, closeServer, err := serveMemberWindows(spec.OpenMemberWindow)
+			if err != nil {
+				return fmt.Errorf("建立本会话成员窗口入口: %w", err)
+			}
+			defer closeServer()
+			route = address
+		}
+		spec.Env = append(spec.Env, memberWindowAddressEnv+"="+route)
+	}
+	job, err := createSessionJob()
+	if err != nil {
+		return fmt.Errorf("建立会话进程组: %w", err)
+	}
+	defer syscall.CloseHandle(job) // 唯一的 Job 句柄不传给会话；最后关闭时清理其余工具。
+	info, err := createSuspendedInJob(spec, std, job)
+	if err != nil {
+		return fmt.Errorf("启动会话: %w", err)
+	}
+	process, thread := info.Process, info.Thread
+	defer syscall.CloseHandle(thread)
+	defer syscall.CloseHandle(process)
+	if spec.CommanderLock != 0 {
+		self, _ := syscall.GetCurrentProcess()
+		var childLock syscall.Handle
+		if err := syscall.DuplicateHandle(self, syscall.Handle(spec.CommanderLock), process, &childLock, 0, false, syscall.DUPLICATE_SAME_ACCESS); err != nil {
+			return fmt.Errorf("移交 Commander 单实例锁: %w", err)
 		}
 	}
-	return cmd.Run()
+	if previous, _, callErr := procResumeThread.Call(uintptr(thread)); previous == 0xffffffff {
+		return fmt.Errorf("恢复会话运行: %w", callErr)
+	}
+	if _, err := syscall.WaitForSingleObject(process, syscall.INFINITE); err != nil {
+		return err
+	}
+	var code uint32
+	if err := syscall.GetExitCodeProcess(process, &code); err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("exit status %d", code)
+	}
+	return nil
+}
+
+// standardHandles 把 stdio 复制成可继承句柄交给 handle list；nil 连接空设备。
+func standardHandles(stdin io.Reader, stdout, stderr io.Writer) ([3]syscall.Handle, error) {
+	self, _ := syscall.GetCurrentProcess()
+	var (
+		handles [3]syscall.Handle
+		null    *os.File
+	)
+	defer func() {
+		if null != nil {
+			_ = null.Close()
+		}
+	}()
+	for i, target := range []any{stdin, stdout, stderr} {
+		var source syscall.Handle
+		switch value := target.(type) {
+		case nil:
+			if null == nil {
+				opened, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+				if err != nil {
+					return handles, err
+				}
+				null = opened
+			}
+			source = syscall.Handle(null.Fd())
+		case *os.File:
+			source = syscall.Handle(value.Fd())
+		default:
+			return handles, errors.New("会话的标准输入输出必须是文件")
+		}
+		if err := syscall.DuplicateHandle(self, source, self, &handles[i], 0, true, syscall.DUPLICATE_SAME_ACCESS); err != nil {
+			return handles, err
+		}
+	}
+	return handles, nil
+}
+
+func closeHandles(handles []syscall.Handle) {
+	for _, handle := range handles {
+		if handle != 0 {
+			_ = syscall.CloseHandle(handle)
+		}
+	}
+}
+
+func createSessionJob() (syscall.Handle, error) {
+	job, _, callErr := procCreateJobObjectW.Call(0, 0)
+	if job == 0 {
+		return 0, callErr
+	}
+	limit := jobObjectExtendedLimitInformation{}
+	// 不允许 breakaway：否则 Git Bash 等工具可以把自己的子进程留在组外。
+	limit.Basic.LimitFlags = jobObjectLimitKillOnJobClose
+	ok, _, callErr := procSetInformationJobObject.Call(job, jobObjectExtendedLimitInfoClass, uintptr(unsafe.Pointer(&limit)), unsafe.Sizeof(limit))
+	if ok == 0 {
+		_ = syscall.CloseHandle(syscall.Handle(job))
+		return 0, callErr
+	}
+	return syscall.Handle(job), nil
+}
+
+// createSuspendedInJob 用 STARTUPINFOEX 原子地把新进程挂起创建并放入 job，只继承给定句柄。
+func createSuspendedInJob(spec processSpec, std [3]syscall.Handle, job syscall.Handle) (syscall.ProcessInformation, error) {
+	var info syscall.ProcessInformation
+	attributes, err := newProcAttributeList(2)
+	if err != nil {
+		return info, err
+	}
+	// Windows 的属性列表保存了 value 指针，直到 DeleteProcThreadAttributeList 才不再借用。
+	var pinned runtime.Pinner
+	pinned.Pin(&std[0])
+	pinned.Pin(&job)
+	defer pinned.Unpin()
+	defer attributes.close()
+	if err := attributes.set(procThreadAttributeHandleList, unsafe.Pointer(&std[0]), unsafe.Sizeof(std)); err != nil {
+		return info, err
+	}
+	if err := attributes.set(procThreadAttributeJobList, unsafe.Pointer(&job), unsafe.Sizeof(job)); err != nil {
+		return info, err
+	}
+	startup := startupInfoEx{}
+	startup.Cb = uint32(unsafe.Sizeof(startup))
+	startup.Flags = startfUseStdHandles
+	startup.StdInput, startup.StdOutput, startup.StdErr = std[0], std[1], std[2]
+	startup.AttributeList = attributes.pointer()
+	return createSessionProcess(spec, &startup.StartupInfo, true, createSuspended|extendedStartupInfoPresent)
+}
+
+// procAttributeList 是 STARTUPINFOEX 的 PROC_THREAD_ATTRIBUTE_LIST。
+type procAttributeList struct {
+	data []uintptr
+}
+
+func newProcAttributeList(maximum uint32) (*procAttributeList, error) {
+	var size uintptr
+	procInitializeProcThreadAttributeList.Call(0, uintptr(maximum), 0, uintptr(unsafe.Pointer(&size)))
+	if size == 0 {
+		return nil, errors.New("InitializeProcThreadAttributeList 未返回缓冲区大小")
+	}
+	list := &procAttributeList{data: make([]uintptr, (size+unsafe.Sizeof(uintptr(0))-1)/unsafe.Sizeof(uintptr(0)))}
+	ok, _, callErr := procInitializeProcThreadAttributeList.Call(uintptr(unsafe.Pointer(&list.data[0])), uintptr(maximum), 0, uintptr(unsafe.Pointer(&size)))
+	if ok == 0 {
+		return nil, callErr
+	}
+	return list, nil
+}
+
+func (l *procAttributeList) set(attribute uintptr, value unsafe.Pointer, size uintptr) error {
+	ok, _, callErr := procUpdateProcThreadAttribute.Call(uintptr(unsafe.Pointer(&l.data[0])), 0, attribute, uintptr(value), size, 0, 0)
+	if ok == 0 {
+		return callErr
+	}
+	return nil
+}
+
+func (l *procAttributeList) pointer() uintptr { return uintptr(unsafe.Pointer(&l.data[0])) }
+
+func (l *procAttributeList) close() {
+	procDeleteProcThreadAttributeList.Call(uintptr(unsafe.Pointer(&l.data[0])))
 }
 
 func (nativePlatform) OpenVisible(spec processSpec) error {
@@ -598,36 +812,50 @@ func (nativePlatform) OpenVisible(spec processSpec) error {
 	if handled, err := openVisibleWezTerm(spec); handled || err != nil {
 		return err
 	}
-	app, err := syscall.UTF16PtrFromString(spec.Path)
-	if err != nil {
-		return err
-	}
-	arguments := make([]string, 0, len(spec.Args)+1)
-	arguments = append(arguments, syscall.EscapeArg(spec.Path))
-	for _, arg := range spec.Args {
-		arguments = append(arguments, syscall.EscapeArg(arg))
-	}
-	commandLine := strings.Join(arguments, " ")
-	command, err := syscall.UTF16PtrFromString(commandLine)
-	if err != nil {
-		return err
-	}
-	dir, err := syscall.UTF16PtrFromString(spec.Dir)
-	if err != nil {
-		return err
-	}
-	env, err := windowsEnvironmentBlock(spec.Env)
-	if err != nil {
-		return err
-	}
+	return startIndependentMember(spec, createNewConsole)
+}
+
+// 由会话 Job 外的 STeamAI 启动器创建成员窗口，不要求普通工具有脱离 Job 的权限。
+func startIndependentMember(spec processSpec, windowFlags uint32) error {
 	startup := syscall.StartupInfo{Cb: uint32(unsafe.Sizeof(syscall.StartupInfo{}))}
-	var process syscall.ProcessInformation
-	if err := syscall.CreateProcess(app, command, nil, nil, false, createNewConsole|createUnicodeEnv, &env[0], dir, &startup, &process); err != nil {
-		return fmt.Errorf("打开成员窗口: %w", err)
+	process, err := createSessionProcess(spec, &startup, false, windowFlags)
+	if err != nil {
+		return fmt.Errorf("打开独立成员窗口: %w", err)
 	}
 	_ = syscall.CloseHandle(process.Thread)
 	_ = syscall.CloseHandle(process.Process)
 	return nil
+}
+
+func createSessionProcess(spec processSpec, startup *syscall.StartupInfo, inherit bool, flags uint32) (syscall.ProcessInformation, error) {
+	var info syscall.ProcessInformation
+	app, err := syscall.UTF16PtrFromString(spec.Path)
+	if err != nil {
+		return info, err
+	}
+	parts := []string{syscall.EscapeArg(spec.Path)}
+	for _, arg := range spec.Args {
+		parts = append(parts, syscall.EscapeArg(arg))
+	}
+	command, err := syscall.UTF16PtrFromString(strings.Join(parts, " "))
+	if err != nil {
+		return info, err
+	}
+	var dir *uint16
+	if spec.Dir != "" {
+		if dir, err = syscall.UTF16PtrFromString(spec.Dir); err != nil {
+			return info, err
+		}
+	}
+	if spec.Env == nil {
+		spec.Env = os.Environ()
+	}
+	env, err := windowsEnvironmentBlock(spec.Env)
+	if err != nil {
+		return info, err
+	}
+	err = syscall.CreateProcess(app, command, nil, nil, inherit, flags|createUnicodeEnv, &env[0], dir, startup, &info)
+	return info, err
 }
 
 func rejectReparse(path string) error {

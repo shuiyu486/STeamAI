@@ -373,6 +373,7 @@ func prepareTrustedMemberCase(t *testing.T, member string) (string, string) {
 }
 
 func TestOpenMemberTrustWorkspaceWritesRecordAndLaunches(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	t.Setenv("ANTHROPIC_MODEL", "configured-model")
@@ -410,6 +411,7 @@ func TestOpenMemberTrustWorkspaceWritesRecordAndLaunches(t *testing.T) {
 }
 
 func TestOpenMemberTrustWorkspaceStopsLaunchOnConfigFailure(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	t.Setenv("ANTHROPIC_MODEL", "configured-model")
@@ -431,6 +433,7 @@ func TestOpenMemberTrustWorkspaceStopsLaunchOnConfigFailure(t *testing.T) {
 }
 
 func TestOpenMemberWithoutTrustOptionKeepsOriginalBehavior(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	t.Setenv("ANTHROPIC_MODEL", "configured-model")

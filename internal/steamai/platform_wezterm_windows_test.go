@@ -62,7 +62,7 @@ func TestWeztermHelperProcess(t *testing.T) {
 func clearWeztermEnvironment(t *testing.T) string {
 	t.Helper()
 	cliDir := t.TempDir()
-	for _, name := range []string{weztermPaneEnv, weztermTermProgramEnv, weztermExecutableEnv, weztermExecutableDirEnv} {
+	for _, name := range []string{weztermPaneEnv, weztermTermProgramEnv, weztermExecutableEnv, weztermExecutableDirEnv, memberWindowAddressEnv} {
 		t.Setenv(name, "")
 	}
 	t.Setenv("PATH", cliDir)
@@ -85,7 +85,7 @@ func installRunningWeztermCLI(t *testing.T) string {
 func weztermMemberSpec() processSpec {
 	return processSpec{
 		Path: `C:\Users\demo\AppData\Local\STeamAI\bin\steamai.exe`,
-		Args: []string{"__member-session", "--config-dir", `C:\Users\demo\.claude-custom`, "--model", "sonnet", "alice"},
+		Args: []string{"__member-session", "--config-dir", `C:\Users\demo\.claude-custom`, "--tier", "standard", "--high", "sonnet", "--standard", "haiku", "alice"},
 		Dir:  `C:\AI\cases\demo`,
 		Env:  []string{"PATH=C:\\Windows", "WEZTERM_PANE=7", "WEZTERM_UNIX_SOCKET=" + `C:\Users\demo\.local\share\wezterm\gui-sock-23052`},
 	}
@@ -103,6 +103,14 @@ func TestOpenVisibleWezTermSkipsWithoutWeztermTrace(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Fatalf("意外调用 CLI: %v", *calls)
+	}
+}
+
+func TestWeztermMuxSessionWithLostPaneDoesNotStartAnOwnedWindow(t *testing.T) {
+	clearWeztermEnvironment(t)
+	t.Setenv(memberWindowAddressEnv, memberWindowWeztermMux)
+	if handled, err := openVisibleWezTerm(weztermMemberSpec()); !handled || err == nil {
+		t.Fatal("已指定由 mux 开成员窗口时，不能回退到会话 Job 内开窗")
 	}
 }
 
@@ -341,7 +349,7 @@ func putWeztermOnPathOnly(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, weztermCLIName), nil, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{weztermPaneEnv, weztermTermProgramEnv, weztermExecutableEnv, weztermExecutableDirEnv} {
+	for _, name := range []string{weztermPaneEnv, weztermTermProgramEnv, weztermExecutableEnv, weztermExecutableDirEnv, memberWindowAddressEnv} {
 		t.Setenv(name, "")
 	}
 	t.Setenv("PATH", dir)

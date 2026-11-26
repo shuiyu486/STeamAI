@@ -52,8 +52,43 @@ func TestDay2ContractsKeepRosterTaskAndObservationSeparate(t *testing.T) {
 		"`durable (<case-relative source>)`",
 		"未观察到不能写 offline/completed",
 		"状态回答不写入 `status.md`",
+		"## Commander 交接", "/steamai 交接", "不自动退出或开第二个 Commander",
 	} {
 		assertContains(t, skill, required, "canonical day-2 behavior")
+	}
+}
+
+// TestTakeoverAndOwnershipKeepCoreInvariants 只钉住两项用户纠偏的核心不变量：
+// case 说明末尾的交接段唯一且不预填进度；canonical skill 给出可核实的接班入口，
+// 主动交接先保存对话内断点，直接关窗只能恢复已保存的状态；分工按此刻能交付的工作
+// 定 owner，不按预估时长。这里只查 canonical 模板与 skill 的少量关键短语，不绑定
+// README/acceptance 的同义措辞，也不证明真实会话会照做：进程与 CLI 行为由 Windows
+// 测试覆盖，模型行为由 vnext/acceptance.md 的 live gate 观察。
+func TestTakeoverAndOwnershipKeepCoreInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	skill := readPrototypeFile(t, repo, ".claude/skills/steamai/SKILL.md")
+	caseTemplate := readPrototypeFile(t, repo, "vnext/templates/case/CLAUDE.md")
+
+	const heading = "## Commander 交接"
+	at := strings.Index(caseTemplate, heading)
+	if at < 0 || strings.Count(caseTemplate, heading) != 1 || strings.LastIndex(caseTemplate, "\n## ")+1 != at {
+		t.Fatal("case 模板末尾的「Commander 交接」段必须唯一，且是最后一个二级标题")
+	}
+	roster := strings.Index(caseTemplate, "| Member | Kind | Durable state | Member source |")
+	if roster < 0 || roster >= at {
+		t.Fatal("roster 必须位于交接段之前，覆盖该段才碰不到它")
+	}
+	// 模板只留一行说明，不预填任何目标、owner、进度或决定。
+	body := strings.TrimSpace(strings.TrimPrefix(caseTemplate[at:], heading))
+	if strings.Contains(body, "\n") || !strings.HasPrefix(body, "（") || !strings.HasSuffix(body, "）") || strings.ContainsAny(body, "-`|") {
+		t.Fatalf("case 模板预填了交接内容: %q", body)
+	}
+
+	for _, required := range []string{"按此刻能交付什么定 owner", "不按预估时长", "整体覆盖更新"} {
+		assertContains(t, caseTemplate, required, "case template")
+	}
+	for _, required := range []string{"交接到新会话", "交接已保存", "只能从已保存的事实恢复", "`.steamai-vnext/CLAUDE.md`", heading, "重要可见变化整体覆盖更新"} {
+		assertContains(t, skill, required, "SKILL.md")
 	}
 }
 

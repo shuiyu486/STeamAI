@@ -80,6 +80,7 @@ func (f *fakePlatform) OpenVisible(spec processSpec) error {
 }
 
 func TestCommanderLaunchUsesFreshAndCurrentSkillSources(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	t.Setenv("ANTHROPIC_MODEL", "configured-model")
@@ -89,12 +90,20 @@ func TestCommanderLaunchUsesFreshAndCurrentSkillSources(t *testing.T) {
 
 	for _, test := range []struct {
 		name     string
+		cliArgs  []string
 		prepare  func(string)
+		custom   bool
 		wantArgs []string
 	}{
-		{name: "fresh", wantArgs: []string{"--model", "opus", "/steamai", "--add-dir", source}},
-		{name: "current", prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"--model", "opus", "/steamai"}},
-		{name: "current auxiliary", prepare: func(root string) { materializeCurrentCaseFixtureWithAuxPack(t, root, "aux-pack") }, wantArgs: []string{"--model", "opus", "/steamai"}},
+		{name: "fresh", wantArgs: []string{"/steamai", "--add-dir", source}},
+		{name: "current", prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"/steamai"}},
+		{name: "current auxiliary", prepare: func(root string) { materializeCurrentCaseFixtureWithAuxPack(t, root, "aux-pack") }, wantArgs: []string{"/steamai"}},
+		{name: "configured fresh", custom: true, wantArgs: []string{"/steamai", "--add-dir", source}},
+		{name: "configured current", custom: true, prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"/steamai"}},
+		{name: "pick fresh", cliArgs: []string{"-r"}, wantArgs: []string{"--resume", "--add-dir", source}},
+		{name: "continue fresh", cliArgs: []string{"--continue"}, wantArgs: []string{"--continue", "--add-dir", source}},
+		{name: "pick current", cliArgs: []string{"--resume"}, custom: true, prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"--resume"}},
+		{name: "continue current", cliArgs: []string{"-c"}, custom: true, prepare: func(root string) { materializeCurrentCaseFixture(t, root) }, wantArgs: []string{"--continue"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			caseRoot := filepath.Join(root, test.name)
@@ -106,21 +115,31 @@ func TestCommanderLaunchUsesFreshAndCurrentSkillSources(t *testing.T) {
 			}
 			p := &fakePlatform{supported: true, source: source}
 			a := testApp(t, p, caseRoot, claude)
-			if err := a.run(nil); err != nil {
+			high, standard := "opus", "sonnet"
+			if test.custom {
+				t.Setenv("LOCALAPPDATA", t.TempDir())
+				high, standard = "sonnet", "haiku"
+				if err := a.run([]string{"models", "--high", high, "--standard", standard}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := a.run(test.cliArgs); err != nil {
 				t.Fatal(err)
 			}
 			if len(p.attached) != 1 {
 				t.Fatalf("attached launches = %d", len(p.attached))
 			}
 			got := p.attached[0]
-			if !reflect.DeepEqual(got.Args, test.wantArgs) {
-				t.Fatalf("args = %#v want %#v", got.Args, test.wantArgs)
+			assertRoleLaunch(t, got.Args, high, high, standard, test.wantArgs)
+			wantCaseEntry := test.prepare != nil && len(test.cliArgs) == 0
+			if strings.Contains(got.Args[3], ".steamai-vnext/CLAUDE.md") != wantCaseEntry {
+				t.Fatalf("只有已有项目新开的 Commander 才应收到接班入口: %v", got.Args)
 			}
 			if got.Dir != caseRoot {
 				t.Fatalf("cwd = %s want %s", got.Dir, caseRoot)
 			}
-			if !reflect.DeepEqual(got.InheritedHandles, []uintptr{42}) {
-				t.Fatalf("Commander did not inherit its mutex handle: %#v", got.InheritedHandles)
+			if got.CommanderLock != 42 {
+				t.Fatalf("Commander was not handed its mutex handle: %v", got.CommanderLock)
 			}
 			assertIndependentSessionEnvironment(t, got.Env)
 		})
@@ -182,14 +201,17 @@ func TestOrphanSkillIsFreshAndCollisionIsDeferredToExactPreview(t *testing.T) {
 }
 
 func TestPartialCaseAndDuplicateCommanderFailClosed(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	caseRoot := t.TempDir()
 	if err := os.Mkdir(filepath.Join(caseRoot, ".steamai-vnext"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	p := &fakePlatform{supported: true, source: makeCanonicalSource(t)}
 	a := testApp(t, p, caseRoot, makeFakeExecutable(t, "claude.exe"))
-	if err := a.run(nil); !errors.Is(err, errPartialCase) {
-		t.Fatalf("partial error = %v", err)
+	for _, args := range [][]string{nil, {"-r"}, {"-c"}} {
+		if err := a.run(args); !errors.Is(err, errPartialCase) {
+			t.Fatalf("partial case %v: %v", args, err)
+		}
 	}
 	if len(p.attached) != 0 {
 		t.Fatal("partial case launched Claude")
@@ -198,8 +220,10 @@ func TestPartialCaseAndDuplicateCommanderFailClosed(t *testing.T) {
 	fresh := t.TempDir()
 	p = &fakePlatform{supported: true, source: makeCanonicalSource(t), acquireErr: errCommanderRunning}
 	a = testApp(t, p, fresh, makeFakeExecutable(t, "claude.exe"))
-	if err := a.run(nil); !errors.Is(err, errCommanderRunning) {
-		t.Fatalf("duplicate error = %v", err)
+	for _, args := range [][]string{nil, {"--resume"}, {"--continue"}} {
+		if err := a.run(args); !errors.Is(err, errCommanderRunning) {
+			t.Fatalf("duplicate Commander %v: %v", args, err)
+		}
 	}
 	if len(p.attached) != 0 {
 		t.Fatal("duplicate Commander launched Claude")
@@ -207,6 +231,7 @@ func TestPartialCaseAndDuplicateCommanderFailClosed(t *testing.T) {
 }
 
 func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
@@ -242,7 +267,7 @@ func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
 	if got.Dir != caseRoot || filepath.Base(got.Path) != "steamai.exe" {
 		t.Fatalf("member helper path=%q cwd=%q", got.Path, got.Dir)
 	}
-	if !reflect.DeepEqual(got.Args, []string{"__member-session", "--config-dir", "-", "--model", "sonnet", "static-analysis"}) {
+	if !reflect.DeepEqual(got.Args, []string{"__member-session", "--config-dir", "-", "--tier", "standard", "--high", "opus", "--standard", "sonnet", "static-analysis"}) {
 		t.Fatalf("member args = %#v", got.Args)
 	}
 	assertIndependentSessionEnvironment(t, got.Env)
@@ -251,10 +276,11 @@ func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
 	if err := a.run(got.Args); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.attached) != 1 || p.attached[0].Dir != member || p.attached[0].Path != claude ||
-		!reflect.DeepEqual(p.attached[0].Args, []string{"--model", "sonnet", "--name", "static-analysis", memberInitialPrompt, "--add-dir", caseRoot}) {
-		t.Fatal("pane 内 Claude 路径、参数或成员 cwd 不符")
+	if len(p.attached) != 1 || p.attached[0].Dir != member || p.attached[0].Path != claude {
+		t.Fatal("pane 内 Claude 路径或成员 cwd 不符")
 	}
+	memberArgs := []string{"--name", "static-analysis", memberInitialPrompt, "--add-dir", caseRoot}
+	assertRoleLaunch(t, p.attached[0].Args, "sonnet", "opus", "sonnet", memberArgs)
 	assertIndependentSessionEnvironment(t, p.attached[0].Env)
 	for _, entry := range p.attached[0].Env {
 		if strings.HasPrefix(strings.ToUpper(entry), "CLAUDE_CONFIG_DIR=") {
@@ -263,34 +289,47 @@ func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
 	}
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	if err := a.run([]string{"models", "--high", "sonnet", "--standard", "haiku"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.run([]string{"__open-member", "--model", "opus", "static-analysis"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.visible) != 2 || !reflect.DeepEqual(p.visible[1].Args, []string{"__member-session", "--config-dir", configDir, "--model", "opus", "static-analysis"}) {
-		t.Fatal("成员 helper 未保留所选模型与配置域")
+	if len(p.visible) != 2 || !reflect.DeepEqual(p.visible[1].Args, []string{"__member-session", "--config-dir", configDir, "--tier", "high", "--high", "sonnet", "--standard", "haiku", "static-analysis"}) {
+		t.Fatal("旧 skill 的高档请求未使用所选模型与配置域")
 	}
 	assertIndependentSessionEnvironment(t, p.visible[1].Env)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := a.run(p.visible[1].Args); err != nil {
+	if err := a.run([]string{"__open-member", "--tier", "standard", "static-analysis"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.attached) != 2 || p.attached[1].Args[1] != "opus" ||
-		!strings.Contains(strings.Join(p.attached[1].Env, "\n"), "CLAUDE_CONFIG_DIR="+configDir) {
-		t.Fatal("pane 内 Claude 未保留所选模型与配置域")
+	// 模拟 pane 从 server 取得不同配置目录：两档应当由父启动器冻结。
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	for i, want := range []string{"sonnet", "haiku"} {
+		if err := a.run(p.visible[i+1].Args); err != nil {
+			t.Fatal(err)
+		}
+		spec := p.attached[i+1]
+		assertRoleLaunch(t, spec.Args, want, "sonnet", "haiku", memberArgs)
+		if !strings.Contains(strings.Join(spec.Env, "\n"), "CLAUDE_CONFIG_DIR="+configDir) {
+			t.Fatal("pane 内 Claude 未保留所选配置域")
+		}
+		assertIndependentSessionEnvironment(t, spec.Env)
 	}
-	assertIndependentSessionEnvironment(t, p.attached[1].Env)
 	for _, args := range [][]string{
 		{"__member-session"},
-		{"__member-session", "--config-dir", "relative", "--model", "sonnet", "static-analysis"},
-		{"__member-session", "--config-dir", "-", "--model", "other", "static-analysis"},
-		{"__member-session", "--config-dir", "-", "--model", "sonnet", "../escape"},
-		{"__member-session", "--config-dir", "-", "--model", "sonnet", "static-analysis", "--trust-workspace"},
+		{"__member-session", "--config-dir", "relative", "--tier", "high", "--high", "sonnet", "--standard", "haiku", "static-analysis"},
+		{"__member-session", "--config-dir", "-", "--tier", "sonnet", "--high", "sonnet", "--standard", "haiku", "static-analysis"},
+		{"__member-session", "--config-dir", "-", "--tier", "high", "--high", "invalid", "--standard", "haiku", "static-analysis"},
+		{"__member-session", "--config-dir", "-", "--tier", "standard", "--high", "sonnet", "--standard", "--debug", "static-analysis"},
+		{"__member-session", "--config-dir", "-", "--tier", "high", "--high", "sonnet", "--standard", "haiku", "../escape"},
+		{"__member-session", "--config-dir", "-", "--tier", "high", "--high", "sonnet", "--standard", "haiku", "static-analysis", "--trust-workspace"},
 	} {
 		if err := a.run(args); err == nil {
 			t.Fatalf("invalid pane helper accepted: %v", args)
 		}
 	}
-	if len(p.attached) != 2 {
+	if len(p.attached) != 3 {
 		t.Fatal("invalid helper options launched a member")
 	}
 
@@ -299,27 +338,98 @@ func TestOpenMemberIsVisibleAndBoundToMemberDirectory(t *testing.T) {
 			t.Fatalf("invalid member %q accepted", invalid)
 		}
 	}
+
+	// 父启动器只开当前项目已验证的成员；请求不能自带目录、命令或工作区信任。
+	id, _ := p.CaseIdentity(caseRoot)
+	open := p.attached[0].OpenMemberWindow // 该成员来自默认配置域，不得借用当前 server 的配置域。
+	req := memberWindowRequest{CaseID: id, Name: "static-analysis", Tier: tierStandard}
+	n := len(p.visible)
+	for _, change := range []func(*memberWindowRequest){
+		func(r *memberWindowRequest) { r.CaseID = "other" },
+		func(r *memberWindowRequest) { r.Name = "../escape" },
+		func(r *memberWindowRequest) { r.Name = "missing" },
+		func(r *memberWindowRequest) { r.Tier = "--help" },
+	} {
+		bad := req
+		change(&bad)
+		if err := open(bad); err == nil || len(p.visible) != n {
+			t.Fatal("无效的窗口请求打开了成员")
+		}
+	}
+	stale := a.memberWindowOpener(caseRoot, "old-id", "-")
+	old := req
+	old.CaseID = "old-id"
+	if err := stale(old); err == nil || len(p.visible) != n {
+		t.Fatal("绑定的项目物理身份已变，不能打开成员")
+	}
+	t.Setenv(memberWindowAddressEnv, "stale-parent-route")
+	for i, config := range []string{"-", configDir} {
+		if err := p.attached[i].OpenMemberWindow(req); err != nil || len(p.visible) != n+i+1 {
+			t.Fatalf("父启动器未创建成员窗口: %v", err)
+		}
+		got := p.visible[n+i]
+		if got.Dir != caseRoot || !reflect.DeepEqual(got.Args, []string{"__member-session", "--config-dir", config, "--tier", "standard", "--high", "opus", "--standard", "sonnet", "static-analysis"}) {
+			t.Fatalf("成员窗口未使用父端绑定的项目、配置域和本机档位: %v", got.Args)
+		}
+		assertIndependentSessionEnvironment(t, got.Env)
+	}
+	if err := a.run([]string{"__open-member", "static-analysis"}); err == nil || len(p.visible) != n+2 {
+		t.Fatal("失效的父会话入口不能回退到本地重复创建窗口")
+	}
+}
+
+func TestInvalidModelSettingsStopBeforeMemberTrustOrLaunch(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("LOCALAPPDATA", root)
+	if err := os.Mkdir(filepath.Join(root, "STeamAI"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "STeamAI", "models.json"), []byte(`{"high":"sonnet","standard":"typo"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	profile := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", profile)
+	configPath := filepath.Join(profile, ".claude.json")
+	const initial = `{"projects":{}}`
+	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	caseRoot, _ := prepareTrustedMemberCase(t, "worker")
+	p := &fakePlatform{supported: true}
+	a := testApp(t, p, caseRoot, makeFakeExecutable(t, "claude.exe"))
+	for _, args := range [][]string{nil, {"__open-member", "--trust-workspace", "worker"}} {
+		if err := a.run(args); err == nil {
+			t.Fatal("非法配置不应自动退回默认档")
+		}
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil || string(data) != initial || len(p.visible) != 0 || len(p.attached) != 0 {
+		t.Fatal("非法档位配置修改了信任或启动了会话")
+	}
 }
 
 func TestMemberLaunchOptions(t *testing.T) {
 	for _, test := range []struct {
 		args  []string
 		trust bool
-		model string
+		tier  string
 	}{
-		{[]string{"worker"}, false, "sonnet"},
-		{[]string{"--trust-workspace", "worker"}, true, "sonnet"},
-		{[]string{"--model", "opus", "worker"}, false, "opus"},
-		{[]string{"--trust-workspace", "--model", "sonnet", "worker"}, true, "sonnet"},
-		{[]string{"--model", "opus", "--trust-workspace", "worker"}, true, "opus"},
+		{[]string{"worker"}, false, "standard"},
+		{[]string{"--trust-workspace", "worker"}, true, "standard"},
+		{[]string{"--tier", "high", "worker"}, false, "high"},
+		{[]string{"--tier", "standard", "--trust-workspace", "worker"}, true, "standard"},
+		{[]string{"--model", "opus", "worker"}, false, "high"},
+		{[]string{"--trust-workspace", "--model", "sonnet", "worker"}, true, "standard"},
 	} {
-		name, trust, model, err := memberLaunchOptions(test.args)
-		if err != nil || name != "worker" || trust != test.trust || model != test.model {
-			t.Fatalf("%v: name=%q trust=%v model=%q err=%v", test.args, name, trust, model, err)
+		name, trust, tier, err := memberLaunchOptions(test.args)
+		if err != nil || name != "worker" || trust != test.trust || tier != test.tier {
+			t.Fatalf("%v: name=%q trust=%v tier=%q err=%v", test.args, name, trust, tier, err)
 		}
 	}
 	for _, args := range [][]string{
-		nil, {"--model"}, {"--model", "opus"}, {"--model", "unknown", "worker"},
+		nil, {"--tier"}, {"--tier", "haiku", "worker"}, {"--tier", "high", "--model", "opus", "worker"},
+		{"--model", "sonnet", "--tier", "standard", "worker"}, {"", "worker"},
+		{"--model"}, {"--model", "opus"}, {"--model", "unknown", "worker"},
 		{"--model", "opus", "--model", "sonnet", "worker"},
 		{"--trust-workspace", "--trust-workspace", "worker"},
 		{"--unknown", "worker"}, {"worker", "second"}, {"--model", "--trust-workspace", "worker"},
@@ -330,13 +440,25 @@ func TestMemberLaunchOptions(t *testing.T) {
 	}
 }
 
+func assertRoleLaunch(t *testing.T, args []string, model, high, standard string, wantTail []string) {
+	t.Helper()
+	if len(args) < 4 || args[0] != "--model" || args[1] != model || args[2] != "--append-system-prompt" || !reflect.DeepEqual(args[4:], wantTail) {
+		t.Fatalf("Claude 启动参数不符: %q", args)
+	}
+	for _, phrase := range []string{"high=" + high, "standard=" + standard, "默认显式传 model=" + standard, "确需高档时传 model=" + high} {
+		if !strings.Contains(args[3], phrase) {
+			t.Fatalf("角色及子 agent 提示缺少 %q", phrase)
+		}
+	}
+}
+
 func assertIndependentSessionEnvironment(t *testing.T, env []string) {
 	t.Helper()
 	modelPreserved := false
 	for _, item := range env {
 		key, value, _ := strings.Cut(item, "=")
 		switch strings.ToUpper(key) {
-		case "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION":
+		case "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", memberWindowAddressEnv:
 			t.Fatalf("独立会话继承了父级会话标记：%s", key)
 		case "ANTHROPIC_MODEL":
 			modelPreserved = value == "configured-model"
@@ -344,6 +466,36 @@ func assertIndependentSessionEnvironment(t *testing.T, env []string) {
 	}
 	if !modelPreserved {
 		t.Fatal("独立会话不得改变用户模型配置")
+	}
+}
+
+func TestCommanderHistoryRefusesMemberDirectory(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), ".steamai-vnext", "members", "reader")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &fakePlatform{supported: true}
+	a := testApp(t, p, cwd, makeFakeExecutable(t, "claude.exe"))
+	for _, flag := range []string{"-r", "-c"} {
+		if err := a.run([]string{flag}); err == nil || !strings.Contains(err.Error(), "原项目根目录") {
+			t.Fatalf("从成员目录运行 %s：%v", flag, err)
+		}
+	}
+	if len(p.attached) != 0 {
+		t.Fatal("不应把成员作为 Commander 恢复")
+	}
+}
+
+func TestHistoryFlagsRejectExtraArgumentsBeforeLaunch(t *testing.T) {
+	p := &fakePlatform{supported: true}
+	a := testApp(t, p, t.TempDir(), makeFakeExecutable(t, "claude.exe"))
+	for _, args := range [][]string{{"-r", "-c"}, {"--continue", "text"}, {"--resume", "other-project"}, {"-c", "--add-dir", "."}} {
+		if err := a.run(args); err == nil || !strings.Contains(err.Error(), "不接受其他参数") {
+			t.Fatalf("unexpected result for %v: %v", args, err)
+		}
+	}
+	if len(p.attached) != 0 || len(p.visible) != 0 {
+		t.Fatal("多余的参数不应启动会话")
 	}
 }
 
@@ -363,6 +515,11 @@ func TestCommandSurfaceRejectsControlPlaneCommands(t *testing.T) {
 	if strings.Contains(output.String(), "status") {
 		t.Fatal("help exposed control-plane command")
 	}
+	for _, flag := range []string{"steamai -r", "--resume", "steamai -c", "--continue"} {
+		if !strings.Contains(output.String(), flag) {
+			t.Errorf("帮助中缺少历史入口 %s", flag)
+		}
+	}
 }
 
 func TestWithoutEnvironmentIsCaseInsensitive(t *testing.T) {
@@ -374,6 +531,7 @@ func TestWithoutEnvironmentIsCaseInsensitive(t *testing.T) {
 
 func testApp(t *testing.T, p platform, cwd, claude string) *app {
 	t.Helper()
+	t.Setenv(memberWindowAddressEnv, "") // 测试不能联系运行 go test 的真实会话。
 	a := newApp(p, strings.NewReader(""), io.Discard, io.Discard, "test")
 	a.cwd = func() (string, error) { return cwd, nil }
 	a.lookPath = func(name string) (string, error) {

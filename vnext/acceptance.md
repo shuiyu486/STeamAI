@@ -9,7 +9,7 @@
 以下层级互不替代：
 
 1. **Default automated tests**：生产 `casebootstrap`、`learningbatch`、native shell 的 deterministic filesystem/Git/command contract。
-2. **Windows native live**：真实 `steamai.exe`、HKCU Registry/PATH、NTFS publication、named mutex 与 `CREATE_NEW_CONSOLE`。
+2. **Windows native live**：真实 `steamai.exe`、HKCU Registry/PATH、NTFS publication、named mutex、会话 Job 进程树归属与 `CREATE_NEW_CONSOLE`。
 3. **Claude Code live**：真实 context/file access、visible independent sessions、用户直接纠偏与原生跨会话消息。
 4. **Release live**：tag workflow实际生成、上传、下载和校验 release assets。
 
@@ -17,7 +17,7 @@ fake platform、synthetic fixture、remote CI definition、cross-compile 或 `go
 
 ## Live 测试模型与预算
 
-以下是维护验收策略，与日常 Commander 默认 Opus、成员按任务选择 Opus/Sonnet 的产品策略分开。日常角色选档不自动授权付费维护批次；模型切换的机械参数测试不等于实际服务返回身份验证。
+以下规则只用于维护验收。日常使用时，Commander 用 high 档，成员按任务在 high / standard 两档中选择；这两档对应的 Claude Code 别名由 `steamai models` 配置。日常选档不改变维护测试预算，也不自动授权付费测试；仅检查启动参数不能验证实际服务返回的模型身份。
 
 - 测试默认使用当前配置的 `ANTHROPIC_DEFAULT_SONNET_MODEL`；仅极简探针或 headless 且 Sonnet 档无命令工具的场景降级 `ANTHROPIC_DEFAULT_HAIKU_MODEL`。Claude Code 显式传 `--model sonnet` / `--model haiku`，或该档位核验后冻结的实际模型值，不能不传参数而继承 `ANTHROPIC_MODEL`（用户 2026-10-25 指示：测试档位默认 Sonnet）。
 - 未经用户针对本次测试明确批准，不用 `ANTHROPIC_DEFAULT_OPUS_MODEL` 或其它顶级模型；通用“继续测试”不算高档模型授权。低成本映射缺失/不可用时报告，不自动升级。
@@ -74,18 +74,20 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 2. **Fresh**：从外部普通临时项目运行 `steamai`；同一 Commander窗口看到 exact preview；确认前零写；用户对该 preview 明确批准后由 Commander 携带 exact synthetic confirmation 执行 Apply，project-local skill、contracts、pack/common snapshot与marker current。
 3. **Fresh drift**：改变 source或target后，旧确认失效且`.steamai-vnext/`不发布。
 4. **Visible member**：Commander调用 `steamai __open-member <name>`；屏幕上立即出现普通交互 Claude Code窗口，cwd是成员目录，case通过`--add-dir`可读。覆盖从 Claude shell 工具继承 `CLAUDE_CODE_CHILD_SESSION=1` 的真实启动：正式入口应移除该标记，成员正常保存原生 transcript，退出后能以同一 session 恢复；不得在验收脚本中预先删除标记或强设 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` 掩盖产品缺陷。若用户另行明确关闭历史保存，应如实记录该设置边界，不强制覆盖。带 `--trust-workspace` 的启动用从未信任过的成员目录验收：不出现用户需点击的信任框，配置域其余 JSON 内容逐字节不变；信任锚定边界按三种布局分别验收——case 根即 git 仓库根（原生信任锚等于 case 根，允许自动信任）、case 位于仓库子目录（锚超出 case 授权，拒绝并给出可执行指引）、成员目录与 case 根之间存在嵌套仓库（锚超出 exact 成员，拒绝）。
-5. **Duplicate Commander**：第一个仍运行时再次在物理同一case（包括path alias）运行`steamai`，第二个明确拒绝。
+5. **Commander 历史与互斥**：在隔离配置和临时项目中，用含不同标记的原生历史检查 `steamai -r` 能选、`steamai -c` 能接最近一次，恢复本身不新增 `/steamai` 消息。第一个 Commander 仍运行时，从物理同一 case（包括 path alias）再次运行 `steamai`、`steamai -r` 或 `steamai -c`，第二个应明确拒绝。用无窗口原生子进程分别验证：启动器先退出、直属 Commander 仍在时不得重复启动；直属 Commander 退出后锁立即可重取，不因残留进程被占。current case 的无参启动参数携带两档说明与只指向项目内 case 说明的短导航，不含分工/交接规则正文；`-c` / `-r` 与成员启动不带该导航（机械参数检查不证明模型会照做）。本机已装入口的参数和真实 Claude Code `--continue` 续写同一合成会话已分别验证；隐藏终端的选择器验证停在临时工作区信任提示，未验证列表选中。
 6. **Learning batch**：至少3 candidates→3 eligibility reviews→2 targets→1 accepted batch review；preview完整显示source chain/Reviewer/pre-postimage/patch；exact confirmation后只修改targets，HEAD/index/case snapshot不变。
 7. **Update**：从 canonical checkout 外运行，使用 clean checkout 从已发布测试 tag 更新；manifest/hash/tag/revision 均匹配；source 需要变化时与 exe 一起切换，HEAD 已等于 release 时走 exe-only 路径。从 canonical checkout 根或子目录运行时必须在联网前明确拒绝。再分别制造 dirty/untracked/ignored、本地其他 branch 或 stash commit、错误 hash、错误 revision、已存在 staging/backup、文件锁、准备期间 source 漂移、exe 发布后的 Registry 写失败及网络失败，确认旧可用版本保留且无自动 Git 修复；若 Windows 锁使 executable rollback 不完整，错误必须列出保留的新旧 exe/source recovery paths，且不得把 source 回滚成与仍 active 新 exe 不匹配的版本。source 替换成功后旧 checkout 作为 sibling backup 保留，命令输出路径且不自动递归删除。
 8. **Uninstall**：只移除installed exe、setup拥有的PATH和定位信息；checkout、local commits和case保留；运行中exe先重命名，同字节临时原生 helper 在卸载命令退出后删除已安装入口；普通用户不需要管理员权限或重启；helper 自身残留的精确路径必须输出，进程退出后验证可手工删除。
+9. **会话进程归属**：Commander 会话内启动普通工具子进程后，直接关闭其终端/标签或结束 Commander，属于该会话的工具进程应被一并收走，单实例锁立即可重取、不被残留进程占用。由 `__open-member` 启动的正式成员会话（WezTerm 标签与原生 console 各一）不被连带结束：只关闭 Commander 的终端或标签（WezTerm 下关标签，不关整扇窗口）后，成员保持运行、可继续输入并保存历史；成员会话退出时同样只收走它自己的工具子进程。会话开始前已运行的外部应用（如用户已打开的编辑器、终端或浏览器）不由 STeamAI 结束。另记一次对照：用户主动关闭含多个成员标签的整扇终端窗口时，这些标签随窗口关闭，不计为会话 Job 行为。脱离会话进程树的启动方式（系统服务、计划任务、其它宿主接管）不承诺被收走，逐项如实记录覆盖与未覆盖形态。无窗口替身只证明受控进程树。另用真实 Claude Code 的 Bash 工具让 Git Bash `tail` 等候本次临时项目的合成日志：用该轮目录、映像、参数、创建时间锁定工具句柄，先确认工具在运行，再结束该测试会话，核实同一句柄已退出；只看到锁可重取或父进程树中没了名字不算通过。终端关闭、真实 shell 和可见成员交互分别记录，不相互代替。
 
 这些步骤涉及HKCU/PATH和真实窗口，不能由普通unit test假装完成。执行结果记录在case外的短验收摘要中，只写pass/fail与必要能力边界。
 
 ### WezTerm、模型档位与桌面 MCP
 
-- 默认机械测试：覆盖同窗新标签、无 pane 的一次新窗口、未安装的 console、WezTerm 失败不重试；helper 的成员 cwd/argv、嵌套标记再次清理、显式默认/自定义配置域；Commander `opus` 和成员 `sonnet`/`opus` 的精确参数，不调用模型。
-- WezTerm live：仅在用户同意的前台时间窗内，用临时 current case 从真实主 pane 启动一名 Sonnet 成员，核对新 pane 与主 pane 的 window ID 一致、cwd/身份/配置域正确、可输入且保存历史；退出后清理自开标签，不关闭用户原标签。无 marker 的新 WezTerm 窗口另验。单元假进程不证明这些行为。
-- 模型 live：最短有界 Sonnet 请求验证 alias 与响应身份；Commander Opus 参数机械验证不代替 Opus 实际请求验收，也不自动授予该付费测试许可。不为换模型另开已有成员的可写副本。
+- 默认机械测试：覆盖同窗新标签、无 pane 的一次新窗口、未安装的 console、WezTerm 失败不重试；helper 的成员 cwd/argv、嵌套标记再次清理、显式默认/自定义配置域；`steamai models` 只读查看与 `--high` / `--standard` 配置命令（`%LOCALAPPDATA%\STeamAI\models.json` 解析、只接受 `opus`/`sonnet`/`haiku`、非法值拒绝、允许同档、无文件默认与显式恢复、只对新会话生效）；Commander high 档与成员 tier 解析别名的精确参数、`__member-session` 冻结档位参数（pane 内不从环境或磁盘重新取值）、`--append-system-prompt` 携带两档与旧 `--model opus`/`--model sonnet` 的角色意图解析，不调用模型。
+- WezTerm live：仅在用户同意的前台时间窗内，用临时 current case 从真实主 pane 启动一名 standard 档成员（使用当期两档配置解析出的别名），核对新 pane 与主 pane 的 window ID 一致、cwd/身份/配置域正确、可输入且保存历史；退出后清理自开标签，不关闭用户原标签。无 marker 的新 WezTerm 窗口另验。单元假进程不证明这些行为。
+- 模型 live：最短有界 standard 档请求验证别名与响应身份；Commander high 档参数机械验证不代替实际请求验收，也不自动授予该付费测试许可。不为换模型另开已有成员的可写副本。
+- 两档后台实测：Windows 原生入口在临时 case 中为 Fresh/current Commander、普通/高档成员及旧参数传入了预期别名；安装后从 PATH 运行 `steamai models` 读回设置。真实 Claude Code 在隔离配置下分别把 `sonnet` 和 `haiku` 解析为对应的测试模型，本地回环服务也收到了两档角色说明。未调用真实模型网关，未用新映射做前台交互；已有 WezTerm/桌面验收只对应旧参数路径。
 - Desktop MCP：按 `common/tooling/windows-desktop-mcp.md` 分别验证安装、原生 scope、9 项工具协议、真实截图/点击/键入。安装注册和前台时间窗分别明确批准；协议读通不能替代实际鼠标操作，工具可见也不能保证所有游戏可控。只对自建无害窗口测试，不抓取用户其它窗口。
 
 ## 4. Visible multi-session 与用户纠偏
@@ -99,6 +101,9 @@ STEAMAI_VNEXT_PERSISTENT_MULTISESSION_ACCEPTANCE=1 go test -count=1 -run TestLiv
 5. `__open-member` 的基础启动兼容下限为支持 `--name` 的 Claude Code 2.1.76；Windows 原生消息验收使用 Claude Code 2.1.248 或更高版本。`__open-member` 启动的 session 带 `--name <member-name>`；Commander/成员先在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 把精确 member cwd 唯一映射到实际 name，再要求该 name 在 `ListAgents` 中恰好可达，只有两边唯一相交才用 `SendMessage` 完成定向协作，并同时核对发送 `success:true` 与接收方 incoming record。inventory 单独不能证明可达，`ListAgents` 单独不能证明成员目录身份，仅出现 tool call 或 `success:false` 均不算送达；跨会话 `SendMessage` 不能冒充 user/direct-session correction，也不能扩大授权。
 6. Reviewer round 1 若为 `needs-evidence` 则返回原 owner；补证后只追加完整 round 2，绑定 current finding/evidence SHA，实际 decision 由证据决定，不预填 `accepted`；若最终为 accepted，再改变承重输入后该 accepted stale。
 7. 超过 3 名 active 执行成员或 1 名 active Reviewer 的创建请求必须拒绝；关闭并恢复active成员窗口，确认目录身份与当前任务延续；completed/inactive成员不自动启动。
+8. Commander 换班分两条路径验收，均用合成项目，不 `/exit`、不 `/clear`：
+   - **主动交接**：在旧会话中给出一个磁盘上没有的决定及理由，另留一个已发起但结果未明的动作。用户只说「交接到新会话」。核对旧 Commander 确认保存前已将决定、断点、负责人和未知结果写入唯一的交接段；若写入失败须报告失败。关闭后在原目录无参新开，新 Commander 不读旧聊天也能说出该决定的理由和下一步，且不重跑未确认动作。
+   - **未交接直接关闭**：同样留下只在聊天里的决定，但不让旧会话进行交接。新 Commander 应能从项目说明、成员任务和原始产物接回已保存的工作；交接段缺失或过时，不能声称知道只在聊天里的信息。两种情况下均不改项目身份、不另开同目录写者。模板与机械测试不代表真实模型通过了这两条路径。
 
 `claude logs`、`attach`、`respawn`与`claude --resume <session-id>`只作观察/恢复备用；Agent view/background session不是默认成员体验。自动resume不替代用户实际看见和输入。不解析 transcript JSONL，不把session记录重建为产品状态。
 
@@ -196,11 +201,12 @@ Remove-Item Env:STEAMAI_VERIFIED_LEARNING_LIVE_CALIBRATION
 
 ## 自主协作 — 只验证受影响的路径
 
-本节对应 `steamai-autonomous-collaboration-v1`。默认测试检查 skill/case/角色的结果导向、自主方法、必要确认与审查边界；production Fresh 测试必须用真实仓库 tracked working-tree 模板，不用手写角色字符串或第二套 renderer 代替。检查真实文本进入 case 与各成员，后续 source 变化进入另一 Fresh，原 current 的身份与 bytes 不变。这只证明合同和分发，不证明模型行为。
+本节对应 `steamai-autonomous-collaboration-v1`。默认测试检查 skill/case/角色的结果导向、自主方法、必要确认与审查边界，以及接班交接段与按此刻可交付工作定 owner 的核心不变量（字符串合同，不证明模型行为）；production Fresh 测试必须用真实仓库 tracked working-tree 模板，不用手写角色字符串或第二套 renderer 代替。检查真实文本进入 case 与各成员，后续 source 变化进入另一 Fresh，原 current 的身份与 bytes 不变。这只证明合同和分发，不证明模型行为。
 
 实际行为需另行明确 case、具体动作与预算，使用原生可见会话，先只选一个受影响的任务，不重跑安装、恢复或完整联合历史旅程：
 
 - 只给目标、材料、允许范围和退出条件，不额外指定工具顺序或提醒“自主选方法”；观察成员是否自行推进。简单任务不强配 verifier，确需帮助才直接请求有界协作，持续改派仍交 Commander。
+- 已有执行团队时，观察属于执行线的可交付工作是否按此刻能交付什么派给有相应写入范围的执行成员，是否复用已有 owner 与 `completed` 成员，Commander 自己动手的是否只有短集成和独立核验，Reviewer 是否没有写实现。可交付工作包括调研、文档、交付、验证等，不限代码或某一业务方向；跨项目、跨工作类型用中性合成项目验收，不接真实案例。可观察触发点：一次核验里显出需要单独负责的交付/修复线时，是否在当时决策点按既有组队规则定 owner（复用已有成员；没有成员按问题需要，不强行组队）。按预估时长、轮数或“先观察一段时间”决定由谁做、另起成员代替复用、先改后派、让 Reviewer 写实现，均记为违约回合并保留。没有团队时不强行组队，简单问题由 Commander 直接解决不算违约。
 - 已满足且边界未变的同一确认不重复索要；缺少动作许可、超预算、停止条件命中或用户纠偏时必须停在相应边界。不得为展示主动性扩大工具权限、自动 retry 或跳过 exact confirmation。
 - 需要审查时由独立 Reviewer 判断 claim；最终综合审查对照原问题。证据不足时如实 unknown，局部 accepted 不充当整体完成；Reviewer 不审批每个普通探索步骤或接管取证。
 - 记录任务质量、用户干预、无效步骤和全体参与者成本，保留失败和未知。没有比较就不宣称更准、更快或更省；如要比较，先冻结模型、材料、权限、总预算、隔离与停止规则，使用未用于调优的任务，不选成功回合。结果文件、模型自报和实际落盘状态必须分别核对；三者不一致时保留不一致，不以结构化自报覆盖实际文件。

@@ -458,6 +458,19 @@ func TestCurrentRosterAllowsHistoricalMembersAndRejectsMarkerDrift(t *testing.T)
 		t.Fatalf("roster size = %d", len(identity.Roster))
 	}
 
+	// 同一项目可以没有交接、补上第一条、再覆盖成新进展；这些都不是项目身份。
+	for _, note := range []string{"未完：analyst 正在核对。", "已核对：见 evidence/check.md。下一步：独立复核。", ""} {
+		updated := text
+		if note != "" {
+			updated += "\n\n## Commander 交接\n\n" + note + "\n"
+		}
+		writeFile(t, markerPath, []byte(updated))
+		after, err := InspectCurrent(caseRoot)
+		if err != nil || !reflect.DeepEqual(identity, after) {
+			t.Fatalf("交接段变化不应影响 roster 或快照身份: %v", err)
+		}
+	}
+
 	writeFile(t, markerPath, []byte(strings.Replace(text, "- Source revision：`"+identity.Revision+"`", "- Source revision：`"+strings.Repeat("f", 40)+"`", 1)))
 	if err := ValidateCurrent(caseRoot); err == nil {
 		t.Fatal("篡改 case marker identity 未被拒绝")

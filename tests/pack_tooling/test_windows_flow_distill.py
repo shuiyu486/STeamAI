@@ -7,6 +7,7 @@
 """
 import importlib.util
 import json
+import sys
 import tempfile
 import threading
 import time
@@ -23,10 +24,14 @@ _LOADED = {}
 
 def _load(name):
     if name not in _LOADED:
-        spec = importlib.util.spec_from_file_location(
-            "steamai_wf_" + name, str(EXAMPLE / (name + ".py")))
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # 加载产品示例时禁写字节码，避免在 pack 目录留下 __pycache__
+        # （Fresh source closure 拒绝该产物）；guard 须包住整个 exec 块，
+        # 连同 synth_device 执行期间对 workflow/localize 的嵌套 import 一并覆盖。
+        with mock.patch.object(sys, "dont_write_bytecode", True):
+            spec = importlib.util.spec_from_file_location(
+                "steamai_wf_" + name, str(EXAMPLE / (name + ".py")))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
         _LOADED[name] = module
     return _LOADED[name]
 
