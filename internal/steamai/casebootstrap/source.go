@@ -77,9 +77,32 @@ func freezeSource(git, root, pack, auxPack string) (frozenSource, error) {
 		headByPath[entry.Path] = entry
 	}
 
+	// Windows 上为每个路径启动一个 git.exe 会让无更新的正常启动也慢数秒。
+	// --stdin-paths 仍按各文件自身路径使用 Git 过滤规则；原始字节和 SHA-256 另存。
+	var paths strings.Builder
+	for _, entry := range indexEntries {
+		if strings.ContainsAny(entry.Path, "\r\n\"") {
+			return frozenSource{}, errors.New("框架文件名不适用于 Windows")
+		}
+		if err := requirePlainPath(root, filepath.Join(root, filepath.FromSlash(entry.Path)), false); err != nil {
+			return frozenSource{}, fmt.Errorf("Fresh source path %s 无效: %w", entry.Path, err)
+		}
+		paths.WriteString(entry.Path)
+		paths.WriteByte('\n')
+	}
+	cmd := exec.Command(git, "hash-object", "--stdin-paths")
+	cmd.Dir, cmd.Env, cmd.Stdin = root, withoutEnvironment(os.Environ(), "CLAUDECODE"), strings.NewReader(paths.String())
+	blobs, err := cmd.Output()
+	if err != nil {
+		return frozenSource{}, fmt.Errorf("计算框架文件 Git blob: %w", err)
+	}
+	ids := strings.Fields(string(blobs))
+	if len(ids) != len(indexEntries) {
+		return frozenSource{}, errors.New("Git 返回的框架文件标识数量不符")
+	}
 	records := make([]SourceRecord, 0, len(indexEntries))
 	byPath := make(map[string]SourceRecord, len(indexEntries))
-	for _, entry := range indexEntries {
+	for i, entry := range indexEntries {
 		path := filepath.Join(root, filepath.FromSlash(entry.Path))
 		if err := requirePlainPath(root, path, false); err != nil {
 			return frozenSource{}, fmt.Errorf("Fresh source path %s 无效: %w", entry.Path, err)
@@ -88,15 +111,14 @@ func freezeSource(git, root, pack, auxPack string) (frozenSource, error) {
 		if err != nil {
 			return frozenSource{}, err
 		}
-		contentBlob, err := gitOutput(git, root, "hash-object", "--path="+entry.Path, "--", entry.Path)
-		if err != nil {
-			return frozenSource{}, fmt.Errorf("计算 %s 当前 Git blob: %w", entry.Path, err)
+		currentBlob := ids[i]
+		if !hexIdentityPattern.MatchString(currentBlob) {
+			return frozenSource{}, errors.New("Git 返回了无效的框架文件标识")
 		}
 		headBlob := ""
 		if head, ok := headByPath[entry.Path]; ok {
 			headBlob = head.Blob
 		}
-		currentBlob := strings.TrimSpace(contentBlob)
 		record := SourceRecord{
 			Path: entry.Path, GitMode: entry.Mode, HeadBlob: headBlob,
 			ContentBlob: currentBlob, SHA256: hashBytes(data),

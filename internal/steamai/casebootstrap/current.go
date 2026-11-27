@@ -38,6 +38,13 @@ type CurrentIdentity struct {
 	Roster        []RosterMember
 }
 
+// 升级使用刚经深验的同一份清单和项目说明，不重新读取一份可能不同的文件。
+type currentSnapshot struct {
+	metadata snapshotMetadata
+	manifest []byte
+	marker   []byte
+}
+
 type RosterMember struct {
 	Name  string
 	Kind  string
@@ -50,7 +57,27 @@ func ValidateCurrent(caseRoot string) error {
 	return err
 }
 
+type currentIssue struct {
+	section string
+	err     error
+}
+
+func (e *currentIssue) Error() string { return e.err.Error() }
+func (e *currentIssue) Unwrap() error { return e.err }
+
+// CurrentIssue 只返回固定的检查位置，不把损坏文件正文或业务内容显示给用户。
+func CurrentIssue(err error) string {
+	if issue, ok := errors.AsType[*currentIssue](err); ok {
+		return issue.section
+	}
+	return "项目根目录或框架文件"
+}
+
 func InspectCurrent(caseRoot string) (CurrentIdentity, error) {
+	return inspectCurrent(caseRoot, false, nil)
+}
+
+func inspectCurrent(caseRoot string, publishing bool, checked *currentSnapshot) (CurrentIdentity, error) {
 	caseRoot, err := filepath.Abs(caseRoot)
 	if err != nil {
 		return CurrentIdentity{}, err
@@ -59,41 +86,60 @@ func InspectCurrent(caseRoot string) (CurrentIdentity, error) {
 		return CurrentIdentity{}, err
 	}
 	stateRoot := filepath.Join(caseRoot, ".steamai-vnext")
+	if err := requirePlainPath(caseRoot, stateRoot, true); err != nil {
+		return CurrentIdentity{}, &currentIssue{".steamai-vnext", err}
+	}
+	if !publishing {
+		if pending, err := exists(filepath.Join(stateRoot, upgradePendingDir)); err != nil || pending {
+			return CurrentIdentity{}, &currentIssue{".steamai-vnext/.upgrade-pending（上次更新未收尾，请保留原件）", errors.New("项目更新尚未收尾")}
+		}
+	}
 	for _, rel := range []string{
-		"", "contracts", "pack-snapshot", "members", "artifacts", "evidence", "findings", "reviews",
+		"contracts", "pack-snapshot", "members", "artifacts", "evidence", "findings", "reviews",
 		"learnings/candidates", "learnings/patches",
 	} {
 		if err := requirePlainPath(caseRoot, filepath.Join(stateRoot, filepath.FromSlash(rel)), true); err != nil {
-			return CurrentIdentity{}, fmt.Errorf("current case 缺少或包含无效目录 %s: %w", rel, err)
+			return CurrentIdentity{}, &currentIssue{".steamai-vnext/" + rel, fmt.Errorf("current case 缺少或包含无效目录 %s: %w", rel, err)}
 		}
 	}
 	for _, rel := range []string{".steamai-vnext/CLAUDE.md", ".steamai-vnext/contracts/learning-feedback.md", ".steamai-vnext/pack-snapshot/snapshot.yml", ".steamai-vnext/artifacts/index.md", ".claude/skills/steamai/SKILL.md"} {
 		if err := requirePlainPath(caseRoot, filepath.Join(caseRoot, filepath.FromSlash(rel)), false); err != nil {
-			return CurrentIdentity{}, fmt.Errorf("current case 缺少或包含无效文件 %s: %w", rel, err)
+			return CurrentIdentity{}, &currentIssue{rel, fmt.Errorf("current case 缺少或包含无效文件 %s: %w", rel, err)}
 		}
 	}
-	metadata, err := parseSnapshot(filepath.Join(stateRoot, "pack-snapshot", "snapshot.yml"))
+	manifest, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(snapshotRel)))
 	if err != nil {
-		return CurrentIdentity{}, err
+		return CurrentIdentity{}, &currentIssue{snapshotRel, err}
+	}
+	metadata, err := parseSnapshotBytes(manifest)
+	if err != nil {
+		return CurrentIdentity{}, &currentIssue{snapshotRel, err}
 	}
 	if metadata.Schema != "steamai-case-snapshot-v2" || !packNamePattern.MatchString(metadata.Pack) ||
 		!hexIdentityPattern.MatchString(metadata.Revision) || !hexIdentityPattern.MatchString(metadata.PackTree) ||
 		!hexIdentityPattern.MatchString(metadata.CommonTree) || !prefixedSHA256(metadata.SourceDigest) ||
 		!prefixedSHA256(metadata.PayloadDigest) {
-		return CurrentIdentity{}, errors.New("current snapshot identity 无效")
+		return CurrentIdentity{}, &currentIssue{snapshotRel, errors.New("current snapshot identity 无效")}
 	}
 	if err := validateSnapshotPayload(caseRoot, metadata); err != nil {
-		return CurrentIdentity{}, err
+		return CurrentIdentity{}, &currentIssue{".steamai-vnext/pack-snapshot（固定包内容）", err}
 	}
 	if err := validateImmutableFiles(caseRoot, metadata.ImmutableFiles); err != nil {
-		return CurrentIdentity{}, err
+		return CurrentIdentity{}, &currentIssue{"项目 skill 或 .steamai-vnext/contracts", err}
 	}
-	roster, err := validateCaseMarker(caseRoot, metadata)
+	marker, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(caseMarkerRel)))
 	if err != nil {
-		return CurrentIdentity{}, err
+		return CurrentIdentity{}, &currentIssue{caseMarkerRel, err}
+	}
+	roster, err := validateCaseMarkerText(string(marker), metadata)
+	if err != nil {
+		return CurrentIdentity{}, &currentIssue{caseMarkerRel, err}
 	}
 	if err := validateMembers(caseRoot, roster); err != nil {
-		return CurrentIdentity{}, err
+		return CurrentIdentity{}, &currentIssue{".steamai-vnext/members 与项目成员清单", err}
+	}
+	if checked != nil {
+		*checked = currentSnapshot{metadata, manifest, marker}
 	}
 	return CurrentIdentity{
 		Pack: metadata.Pack, AuxPack: metadata.AuxPack, Revision: metadata.Revision,
@@ -106,15 +152,6 @@ func InspectCurrent(caseRoot string) (CurrentIdentity, error) {
 func prefixedSHA256(value string) bool {
 	digest, ok := strings.CutPrefix(value, "sha256:")
 	return ok && shaPattern.MatchString(digest)
-}
-
-func validateCaseMarker(caseRoot string, metadata snapshotMetadata) ([]RosterMember, error) {
-	path := filepath.Join(caseRoot, ".steamai-vnext", "CLAUDE.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return validateCaseMarkerText(string(data), metadata)
 }
 
 func validateCaseMarkerText(text string, metadata snapshotMetadata) ([]RosterMember, error) {
@@ -315,11 +352,7 @@ func validateSnapshotPayload(caseRoot string, metadata snapshotMetadata) error {
 			return fmt.Errorf("snapshot payload 含未声明文件 %s", rel)
 		}
 	}
-	digest, err := ActualSnapshotDigest(caseRoot)
-	if err != nil {
-		return err
-	}
-	if digest != metadata.PayloadDigest {
+	if payloadDigest(localRecords) != metadata.PayloadDigest {
 		return errors.New("snapshot payload digest 漂移")
 	}
 	return nil
@@ -330,19 +363,23 @@ func SupportsVerifiedLearning(caseRoot string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := InspectCurrent(caseRoot); err != nil {
+	var checked currentSnapshot
+	if _, err := inspectCurrent(caseRoot, false, &checked); err != nil {
 		return false, err
 	}
-	metadata, err := parseSnapshot(filepath.Join(caseRoot, ".steamai-vnext", "pack-snapshot", "snapshot.yml"))
-	if err != nil {
-		return false, err
+	if !slices.ContainsFunc(checked.metadata.ImmutableFiles, func(f PlannedWrite) bool { return f.TargetPath == ".steamai-vnext/contracts/verified-learning.md" }) {
+		return false, nil
 	}
-	for _, record := range metadata.ImmutableFiles {
-		if record.TargetPath == ".steamai-vnext/contracts/verified-learning.md" {
-			return true, nil
+	// 旧布局显式更新可以收到新合同文本，但不因此自动拥有评测工作区或升级历史记录。
+	for _, dir := range []string{"specs", "runs", "attestations", "outcomes", "work"} {
+		if err := requirePlainPath(caseRoot, filepath.Join(caseRoot, ".steamai-vnext", "evaluations", dir), true); err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, errors.New("评测工作目录无效")
 		}
 	}
-	return false, nil
+	return true, nil
 }
 
 func validateImmutableFiles(caseRoot string, records []PlannedWrite) error {
@@ -446,6 +483,11 @@ func parseSnapshot(path string) (snapshotMetadata, error) {
 	if err != nil {
 		return snapshotMetadata{}, err
 	}
+	return parseSnapshotBytes(data)
+}
+
+func parseSnapshotBytes(data []byte) (snapshotMetadata, error) {
+	var err error
 	lines := strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	var metadata snapshotMetadata
 	packFields := map[string]bool{}

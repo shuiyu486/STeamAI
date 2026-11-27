@@ -50,7 +50,8 @@ func BuildPreview(git, source, caseRoot string, facts Facts) (Preview, error) {
 	return preview, nil
 }
 
-func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWrite, map[string]string, string, error) {
+// Fresh 和已建项目显式更新使用同一份框架文件映射；不含任何项目工作记录。
+func frameworkWrites(source frozenSource, pack, auxPack string) ([]PlannedWrite, error) {
 	var writes []PlannedWrite
 	appendSource := func(sourcePath, targetPath string) error {
 		record, ok := source.ByPath[sourcePath]
@@ -61,13 +62,13 @@ func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWr
 		return nil
 	}
 	if err := appendSource(".claude/skills/steamai/SKILL.md", ".claude/skills/steamai/SKILL.md"); err != nil {
-		return nil, nil, "", err
+		return nil, err
 	}
 	if err := appendSource("vnext/learning-feedback.md", ".steamai-vnext/contracts/learning-feedback.md"); err != nil {
-		return nil, nil, "", err
+		return nil, err
 	}
 	if err := appendSource("vnext/verified-learning.md", ".steamai-vnext/contracts/verified-learning.md"); err != nil {
-		return nil, nil, "", err
+		return nil, err
 	}
 	for _, record := range source.Records {
 		switch {
@@ -75,12 +76,19 @@ func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWr
 			templatePath, _ := strings.CutPrefix(record.Path, "vnext/")
 			target := ".steamai-vnext/contracts/" + templatePath
 			writes = append(writes, sourceWrite(record, target))
-		case snapshotPayloadPath(record.Path, facts.Pack, facts.AuxPack):
+		case snapshotPayloadPath(record.Path, pack, auxPack):
 			writes = append(writes, sourceWrite(record, ".steamai-vnext/pack-snapshot/"+record.Path))
 		}
 	}
+	return writes, nil
+}
 
-	snapshotDigest := snapshotPayloadDigest(writes)
+func buildWrites(source frozenSource, caseRoot string, facts Facts) ([]PlannedWrite, map[string]string, string, error) {
+	writes, err := frameworkWrites(source, facts.Pack, facts.AuxPack)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	snapshotDigest := payloadDigest(snapshotPayloadWritesFromSource(source.Records, facts.Pack, facts.AuxPack))
 	caseTemplateRecord, ok := source.ByPath["vnext/templates/case/CLAUDE.md"]
 	if !ok {
 		return nil, nil, "", errors.New("Fresh source 缺少 case template")
@@ -286,14 +294,12 @@ func snapshotPayloadWritesFromSource(records []SourceRecord, pack, auxPack strin
 	return payload
 }
 
-func snapshotPayloadDigest(writes []PlannedWrite) string {
+func payloadDigest(files []SourceRecord) string {
 	var records []string
-	for _, write := range writes {
-		if strings.HasPrefix(write.TargetPath, ".steamai-vnext/pack-snapshot/packs/") || strings.HasPrefix(write.TargetPath, ".steamai-vnext/pack-snapshot/common/") {
-			records = append(records, strings.Join([]string{
-				write.SourcePath, write.GitMode, write.ContentBlob, strconv.Itoa(write.Bytes), write.SHA256,
-			}, "\x00"))
-		}
+	for _, file := range files {
+		records = append(records, strings.Join([]string{
+			file.Path, file.GitMode, file.ContentBlob, strconv.Itoa(file.Bytes), file.SHA256,
+		}, "\x00"))
 	}
 	sort.Strings(records)
 	return "sha256:" + hashBytes([]byte(strings.Join(records, "\n")+"\n"))

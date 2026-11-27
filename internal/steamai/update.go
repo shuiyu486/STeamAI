@@ -152,7 +152,7 @@ func (a *app) update(args []string) error {
 	if result.CleanupPath != "" {
 		fmt.Fprintf(a.stdout, "旧 canonical checkout 已保留，请复核后手工删除：%s\n", result.CleanupPath)
 	}
-	fmt.Fprintf(a.stdout, "STeamAI 已更新到 %s。\n", manifest.Version)
+	fmt.Fprintf(a.stdout, "STeamAI 已更新到 %s，既有项目未改动。下次照常打开项目即可：有框架更新时会提示，可选择更新并继续。\n", manifest.Version)
 	return nil
 }
 

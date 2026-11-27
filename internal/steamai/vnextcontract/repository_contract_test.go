@@ -74,6 +74,16 @@ func TestRepositoryHasOnlyTheNativeWindowsProductShell(t *testing.T) {
 		"internal/steamai/learningbatch/sourcechain.go":      true,
 		"internal/steamai/learningbatch/types.go":            true,
 		"internal/steamai/model_tiers.go":                    true,
+
+		// 仅此项目的显式更新：预览、身份字段、同卷发布与 Windows 占用检查。
+		"internal/steamai/project_upgrade.go":                       true,
+		"internal/steamai/casebootstrap/upgrade.go":                 true,
+		"internal/steamai/casebootstrap/upgrade_marker.go":          true,
+		"internal/steamai/casebootstrap/upgrade_members_other.go":   true,
+		"internal/steamai/casebootstrap/upgrade_members_windows.go": true,
+		"internal/steamai/casebootstrap/upgrade_publish.go":         true,
+		"internal/steamai/casebootstrap/upgrade_publish_windows.go": true,
+		"internal/steamai/casebootstrap/upgrade_publish_other.go":   true,
 	}
 	for path := range allowedProductionGo {
 		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path))); err != nil {

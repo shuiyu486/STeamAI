@@ -66,7 +66,7 @@ func TestMultiCandidateMultiTargetPreviewAndApply(t *testing.T) {
 		t.Fatal("apply 修改了 case snapshot")
 	}
 
-	// 已确认的方法只随后续 Fresh 进入新项目，不搬来源项目的证据或结论。
+	// 后续 Fresh 可采用已确认的方法，不搬来源项目的证据或结论。
 	next := t.TempDir()
 	facts := casebootstrap.Facts{Name: "second fixture", Goal: "use the reviewed method on a different input", Pack: preview.Pack,
 		Authorization: "local fixture only", Prohibited: "no external actions", Stop: "scope drift"}

@@ -33,6 +33,14 @@ func TestFreshRejectsCanonicalSourceAsCaseOrAncestor(t *testing.T) {
 			if err := a.run([]string{"__fresh-preview"}); err == nil || !strings.Contains(err.Error(), "canonical source") {
 				t.Fatalf("source/case overlap 返回 %v", err)
 			}
+			for _, args := range [][]string{nil, {"-r"}, {"-c"}} {
+				if err := a.run(args); err == nil || !strings.Contains(err.Error(), "canonical source") {
+					t.Errorf("源码目录误作 Commander 工作目录 %v：%v", args, err)
+				}
+			}
+			if len(p.attached) != 0 {
+				t.Fatal("不应先开会话再靠 Fresh 拒绝写入")
+			}
 		})
 	}
 }

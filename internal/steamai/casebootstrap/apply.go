@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -240,12 +239,5 @@ func ActualSnapshotDigest(caseRoot string) (string, error) {
 		record.SHA256 = hashBytes(data)
 		records = append(records, record)
 	}
-	var lines []string
-	for _, record := range records {
-		lines = append(lines, strings.Join([]string{
-			record.Path, record.GitMode, record.ContentBlob, fmt.Sprint(record.Bytes), record.SHA256,
-		}, "\x00"))
-	}
-	sort.Strings(lines)
-	return "sha256:" + hashBytes([]byte(strings.Join(lines, "\n")+"\n")), nil
+	return payloadDigest(records), nil
 }

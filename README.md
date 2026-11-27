@@ -4,7 +4,7 @@ STeamAI 是面向已授权安全研究与自动化开发的、人在环的 Claud
 
 Commander 与正式成员都是运行在 Claude Code 中的 LLM 智能 agent。STeamAI 按结果组织协作：讲清目标、权限和责任，让成员在边界内自主选择研究方法，而不是逐步遥控；简单问题不强行多人参与，方法按需参考，关键结论按现有合同复核。自主性不取消具体动作确认、文件保护和证据要求。后续设计与迭代以根 [CLAUDE.md](CLAUDE.md#智能成员与自主协作基准) 中的长期基准为准。
 
-当前源码按此基准调整任务与角色合同：当前任务内可自主换方法，已满足且边界未变的同一确认不重复索要，有界协作不逐次请示；最终综合审查仍须回答原问题。新合同只由后续 Fresh 固定，已有 case 不升级。逆向、Web 安全与游戏自动化开发三线已有受控任务交付；专业工具（IDA/idalib、Playwright、Airtest 等）从 pack 入口按具体用途接纳。[专业交付验收记录](docs/professional-delivery-results.md) 保存最终证据与未解决问题：小样本效果对照质量平局（tie）为主，不宣称研究增益；游戏线同步定位期间停止缺口尚未修复，不作为无人值守或实时控制保证。执行计划已移除，日常使用不需要读旧路线。
+当前源码按此基准调整任务与角色合同：当前任务内可自主换方法，已满足且边界未变的同一确认不重复索要，有界协作不逐次请示；最终综合审查仍须回答原问题。新项目在创建时固定当时的规则；已有项目默认沿用原版，也可以预览并确认只更新本项目的框架。逆向、Web 安全与游戏自动化开发三线已有受控任务交付；专业工具（IDA/idalib、Playwright、Airtest 等）从 pack 入口按具体用途接纳。[专业交付验收记录](docs/professional-delivery-results.md) 保存最终证据与未解决问题：小样本效果对照质量平局（tie）为主，不宣称研究增益。游戏工作台现在会在发输入前再查停止信号；这能拦住定位期间已经收到停止信号的下一次输入，但不能撤回已发输入，也不保证第三方阻塞调用能立即取消。执行计划已移除，日常使用不需要读旧路线。
 
 Canonical repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。当前正式 Release 为 [`v1.0.4`](https://github.com/shuiyu486/STeamAI/releases/tag/v1.0.4)；v1 正式产品路径支持 Windows 10/11 x64。**版本区别：本文的三线交付、新合同及后续主辅包能力描述当前源码，不表示下载 `v1.0.4` 已包含这些改动；这轮源码尚未发布新 Release。**
 
@@ -42,6 +42,12 @@ steamai
 - 完整有效的 `.steamai-vnext/`：继续当前 case，复用仍运行的 active 成员，按需重开未完成成员；
 - partial、来源不明或冲突：fail-closed，不自动 repair、迁移、覆盖或删除。
 
+**本机更新后，手头项目怎么办？** 照常在原项目目录运行 `steamai`（`-r` 选历史、`-c` 续聊也一样）。装有此功能的入口会在打开 Commander 前离线比较本项目用到的框架内容。内容没变就直接打开，不会只为一个新提交号打扰你；有更新时，只给本项目一条提示：**输入 `Y` 回车，更新并继续；直接回车，这次沿用原版。** 想看具体文件可先输入 `D`。不用重建项目、另跑 `upgrade` 或复制确认码。
+
+`steamai update` 只更新本机安装，不扫描项目，也不打断正在做的工作。原 Commander 还在就继续用原窗口；成员目录仍被占用时，本次按旧框架打开，不强关窗口。没有交互终端时不提问、不消费管道输入，也不更新项目。
+
+更新沿用原来选定的包，只改框架文件和能对上旧模板的规则。业务代码、授权、交接、成员任务及历史证据保留；旧证据不算新版验收。需要单独排查时，`steamai check` 只查当前项目框架是否完整；`steamai upgrade` 只预览文件清单，其末尾的 `--apply` 命令供需要手动应用时使用。若上次更新意外中断，请保留 `.steamai-vnext/.upgrade-pending` 中的原件，不要删除后重试。
+
 **手里有个能用的旧版，怎么开口？** 可以直接说：「旧版从示例输入会得出这张清单，格式要保留，实现可以换。请把新版做成同事只拿交付包就能用，并用同一份输入试给我看。」旧版、演示或正确输出用一种就行；哪些程序能运行、哪些材料只能看，按你的授权来。普通离线工具和资料核对走普通项目入口，不需要挂游戏包。只要一份核对清单就直接说，交付的是带出处和适用范围的清单，不必另写程序。
 
 **已经知道成品坏了呢？** 直接给失败记录和允许改的文件：「用这份记录定位，修好后拿新包在空目录再跑一次。」要的是单个脚本，就只带那一个文件验，不能用整个开发目录能跑来交差。窗口任务可以说「从同一状态再走一次，看实际到了哪一页」。负责人交修后的东西，你不必逐步指挥排错。如果明确说「只准写这些文件」，验收结果直接在回复里给，不另写项目记录。
@@ -64,7 +70,7 @@ steamai
 
 **如果已经直接关了**：也能运行 `steamai`，但这是从已保存的项目状态恢复，不会自动带上旧聊天。交接段缺失或过时，就核对成员任务和实际文件，不能确认的事不猜、不重做。若确实需要只在旧聊天里的决定，且原生历史还在，可用 `steamai -r` 选回那段对话，再说「交接到新会话」。
 
-**成员没回消息**：直接对 Commander 说「检查 builder 的进度」（换成实际成员名）。新建项目里，等关键结果时，Claude Code 支持就订阅一次空闲通知，不反复催。通知不会把成员屏幕上的错误原因一并带过来。如果你看到 429 而且已经停止重试，可以说「builder 那边报了 429，已经停了，检查一下」。确认是临时中断且工作未完，Commander 才提醒原成员从断点继续一次。用户暂停、待批准或原因不明时，它会说明最后的进展，不会擅自重启或重派。已有项目仍按其固定规则工作。
+**成员没回消息**：等关键结果时，Commander 会用现有通知、成员回报和成品判断，不需要你一直催。成品已验过就接着集成；确认是临时中断、原成员可达并且任务未完，才提醒原成员从安全断点继续一次。空闲不是报错，429 还在重试也不打断。如果只有你看到了最后的错误，可以说「builder 那边已经停止重试，检查一下」。真要登录、授权或消除写入冲突时，Commander 会说清卡在哪里；用户要求暂停时不擅自继续。没有可靠信号就说明未知，不承诺后台自动发现所有故障。
 
 **关掉哪个会话，就清理哪个会话的工具。** 新版用 Windows 进程组为 Commander 和每名正式成员分开收尾。在 Windows 10 上实际验证过：真实 Claude Code 用 Git Bash 的 `tail` 等候日志时，结束该 Claude，`tail` 也退出；另用两个临时项目、真实 Windows 伪终端和后台 CLI 替身验证：直接关闭第一个 Commander 的终端，无需 `/exit` 就能在原目录立即重开，独立成员和第二个项目仍在运行。
 
@@ -93,7 +99,7 @@ Apply 在同卷 sibling staging 中生成并验证完整 state tree，先 no-rep
 - **子 agent**：各角色鼓励用显式常规档子 agent 分担短任务与大文件筛选（在原生 Agent(model=...) 传已解析的别名，不把 `high` / `standard` 当模型名），每批最多 5 个且不嵌套；主角色保留判断和整合，不把大段搜索结果搬回上下文。
 - **桌面 MCP**：跨 pack 的基础入口在 [`common/tooling/windows-desktop-mcp.md`](common/tooling/windows-desktop-mcp.md)。固定 Windows-MCP 0.8.9，关闭遥测，只暴露截图、键鼠等 9 项必要工具；通过 Claude Code 原生 user scope 一次接入，而非为每个软件造脚本。首次下载/注册与前台测试分别需要具体批准；仅复制入口不代表已安装或可控。它不能保证操作所有游戏、提权窗口或 UAC 界面，也不取代大漠、Airtest、Playwright。
 
-WezTerm 新标签继承 server 的环境，启动器会保留 Claude 配置域并清理嵌套会话标记，但不传递全部临时 shell 环境或把 token 放入命令行。模型别名到实际模型的映射仍由 Claude Code 用户配置（`ANTHROPIC_DEFAULT_*_MODEL`）解析；STeamAI 的两档选择（`steamai models`）只决定各角色用哪个别名，不重映射这些变量。这轮包含原生 Go 改动，需要新版 `steamai.exe`，仅更新文档不会改变已安装旧入口；已有 case 的固定 snapshot 不自动更新。新版入口用无参 `steamai` 进入已有项目时，会附带一句短导航，让 Commander 先读项目内已有的 `.steamai-vnext/CLAUDE.md` 及其指向的入口；`-c` / `-r` 续聊和成员会话不带这句。协作与接班规则仍只维护在 canonical skill 和 case 模板里：已有项目的固定内容不迁移、不改写，也不会因此获得新规则。已打开的 Claude Code 会话不保证热发现新 MCP；需要时先正常退出，再从原目录 resume 同一会话，不在旧会话仍运行时另开同目录 writer。
+WezTerm 新标签继承 server 的环境，启动器会保留 Claude 配置域并清理嵌套会话标记，但不传递全部临时 shell 环境或把 token 放入命令行。模型别名到实际模型的映射仍由 Claude Code 用户配置（`ANTHROPIC_DEFAULT_*_MODEL`）解析；STeamAI 的两档选择（`steamai models`）只决定各角色用哪个别名，不重映射这些变量。这轮包含原生 Go 改动，需要新版 `steamai.exe`，仅更新文档不会改变已安装旧入口；已有 case 的固定 snapshot 不自动更新。新版入口用无参 `steamai` 进入已有项目时，会附带一句短导航，让 Commander 先读项目内已有的 `.steamai-vnext/CLAUDE.md` 及其指向的入口；`-c` / `-r` 续聊和成员会话不带这句。协作与接班规则仍只维护在 canonical skill 和 case 模板里：这句导航不改变旧项目的规则；要采用新内容，可在下次打开项目时选择更新。已打开的 Claude Code 会话不保证热发现新 MCP；需要时先正常退出，再从原目录 resume 同一会话，不在旧会话仍运行时另开同目录 writer。
 
 本机已通过 WezTerm 同窗新标签的真实两轮交互，以及 Windows-MCP 对自建窗口的裁剪截图、一次点击和短文本键入；测试窗口均正常关闭。这些历史验收对应当时的固定 `opus`/`sonnet` 参数路径；本轮两档映射（`steamai models`、`--tier` 启动）的真实网关与前台验收尚未执行。环境、首次失败原因及未验范围见[终端与桌面验收记录](docs/windows-desktop-results.md)，不代表任意游戏或所有 DPI 配置已通过。
 
@@ -123,7 +129,7 @@ WezTerm 新标签继承 server 的环境，启动器会保留 Claude 配置域�
 
 Fresh 默认选一个主 pack，确需另一套独立维护的方法时，可在同次 preview 加入最多一个不同的辅助 pack。两个包分别固定、完整 common 只复制一次；成员按任务读取指定入口，不默认把两包全部加载。辅助不扩大授权或团队，不覆盖主 case 规则，经验仍只写回主 pack。主辅不是两个 case 合并，也不自动发现其他项目。
 
-已有 current case 保持自己的单包内容、skill 和合同，不补装辅助或迁移；这些源码改动不会自动进入既有 case。新版原生入口沿同一 snapshot parser 接受无辅助字段的单包 case；旧 executable 不承诺读取新双包 snapshot。这轮方法与主辅能力的交付证据见 `docs/research-capability-roadmap.md`，不能用已发布 `v1.0.4` 的历史验收证明这些新行为。
+已有单包项目不自动补装辅助包；即使用 `steamai upgrade` 主动采用新版，也只更新原来选定的包、skill 和合同。新版原生入口沿同一 snapshot parser 接受无辅助字段的单包 case；旧 executable 不承诺读取新双包 snapshot。这轮方法与主辅能力的交付证据见 `docs/research-capability-roadmap.md`，不能用已发布 `v1.0.4` 的历史验收证明这些新行为。
 
 ## 专业实操与联合研究
 
@@ -184,7 +190,7 @@ artifact index 记录 case-relative path、SHA-256、bytes、来源和授权范�
 5. 原生 helper 生成零写入 exact preview；只有 `CONFIRM STEAMAI LEARNING BATCH <identity>` 才会 Apply。
 6. Apply 只改变 canonical working-tree targets；HEAD、index、当前 case snapshot 不变；失败只恢复本 batch targets；不自动 `git add`、commit 或 push。
 
-未确认 candidate 留在来源 case，不扫描或汇总其它 case。verified-learning 引入前创建的 case 仍可作为 current case 继续研究，但不支持新版 learning preview/apply；helper 会在解析旧 artifact 前明确拒绝，不迁移或猜测旧字段。后续 field outcome 只由对应 case 用户逐份 opt-in，negative/inconclusive 也永久保留；单个 case 不足以 V4，也不建立 Hub、inbox 或经验数据库。已确认并应用的 working-tree bytes 可立即供本机后续 Fresh 使用；Git history 最终自然汇聚用户另行授权 commit/push 的通用经验。
+未确认 candidate 留在来源 case，不扫描或汇总其它 case。verified-learning 引入前创建的项目仍可继续原任务。显式更新框架文件不会迁移旧记录，也不补造评测工作目录；缺少完整合同或所需目录时仍拒绝新版 learning preview/apply，不猜测旧字段。后续 field outcome 只由对应 case 用户逐份 opt-in，negative/inconclusive 也永久保留；单个 case 不足以 V4，也不建立 Hub、inbox 或经验数据库。已确认并应用的 working-tree bytes 可立即供本机后续 Fresh 使用；Git history 最终自然汇聚用户另行授权 commit/push 的通用经验。
 
 ## 更新与卸载
 

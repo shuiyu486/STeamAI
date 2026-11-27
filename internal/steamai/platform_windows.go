@@ -103,6 +103,15 @@ var (
 
 type nativePlatform struct{}
 
+// stdin 和显示提示的输出都必须是真实控制台（包括 ConPTY），不能把管道输入当成用户确认。
+func isUpgradeConsole(input io.Reader, output io.Writer) bool {
+	in, inOK := input.(*os.File)
+	out, outOK := output.(*os.File)
+	var mode uint32
+	return inOK && outOK && syscall.GetConsoleMode(syscall.Handle(in.Fd()), &mode) == nil &&
+		syscall.GetConsoleMode(syscall.Handle(out.Fd()), &mode) == nil
+}
+
 func (nativePlatform) Supported() bool { return true }
 
 func (nativePlatform) CanonicalSource() (string, error) {

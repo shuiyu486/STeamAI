@@ -6,6 +6,8 @@ import "io"
 
 type nativePlatform struct{}
 
+func isUpgradeConsole(io.Reader, io.Writer) bool { return false }
+
 func (nativePlatform) Supported() bool                      { return false }
 func (nativePlatform) CanonicalSource() (string, error)     { return "", errUnsupportedPlatform }
 func (nativePlatform) ActiveExecutable() (string, error)    { return "", errUnsupportedPlatform }

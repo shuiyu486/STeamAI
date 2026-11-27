@@ -24,7 +24,7 @@ var (
 	ErrCanonicalDrift              = errors.New("canonical working tree 在预览后发生变化")
 	ErrCaseDrift                   = errors.New("case evidence chain 在预览后发生变化")
 	ErrPatchDrift                  = errors.New("learning batch patch 在预览后发生变化")
-	ErrVerifiedLearningUnavailable = errors.New("该 current case 创建于 verified-learning 之前；可继续研究，但不能使用新版 learning preview/apply")
+	ErrVerifiedLearningUnavailable = errors.New("该项目没有完整启用 verified-learning；可继续原任务，但不能使用新版 learning preview/apply")
 	hexSHA                         = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	hexGit                         = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
 	packNamePattern                = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)

@@ -264,6 +264,31 @@ func TestWorkingTreeBytesAreFreshAuthority(t *testing.T) {
 	}
 }
 
+func TestBatchedSourceHashesRespectPerPathFiltersAndRawBytes(t *testing.T) {
+	git, source := canonicalFixture(t)
+	writeFile(t, filepath.Join(source, ".gitattributes"), []byte("*.txt text eol=lf\n*.bin -text\n"))
+	raw := []byte("first\r\nsecond\r\n")
+	paths := []string{"common/带 空格.txt", "common/带 空格.bin"}
+	for _, path := range paths {
+		writeFile(t, filepath.Join(source, filepath.FromSlash(path)), raw)
+	}
+	runGit(t, git, source, "add", "--", ".gitattributes", "common")
+	p, err := BuildPreview(git, source, newCaseRoot(t), fixtureFacts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		want, err := gitOutput(git, source, "hash-object", "--path="+path, "--", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := sourceRecord(t, p, path)
+		if r.ContentBlob != strings.TrimSpace(want) || r.SHA256 != hashBytes(raw) {
+			t.Fatalf("路径 %s 未保持原 Git 过滤规则和实际字节", path)
+		}
+	}
+}
+
 func TestStageZeroIndexIsFreshTrackedAuthority(t *testing.T) {
 	t.Run("staged add", func(t *testing.T) {
 		git, source := canonicalFixture(t)

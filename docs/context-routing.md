@@ -11,7 +11,7 @@
 | 需要判断什么 | 首选入口 | 读取边界 |
 |---|---|---|
 | 产品目标、自主协作与管理边界 | 根 `CLAUDE.md` 的“智能成员与自主协作基准” | 不把方法参考改成逐步强制流程，不以加规则代替能力 |
-| 安装、quickstart、更新、卸载 | `README.md` | 区分当前源码与已发布版本；已有 case 不自动更新 |
+| 安装、quickstart、检查及更新手头的项目、卸载 | `README.md` | `update` 更新本机安装；下次交互打开项目即可选择更新，已有 case 不自动更新；`check` / `upgrade` 用于独立检查与手动预览 |
 | 三线实际可用范围、效果证据与已知缺口 | `docs/professional-delivery-results.md` | 批次收束不等于所有 gate 通过；关注阻塞期间停止、模板伪匹配与 learning 待验项 |
 | 实用能力与效率的交付补缺、结果与证据边界 | `docs/capability-efficiency-results.md` | 区分仓库功能、合成验证与真实验收；旧 U5 报称 tie 缺充分证据，方法库整体收益未证 |
 | 用旧版、示范或样例验收开发交付 | `common/policies/verification.md` | 从同一起点找最早能证实的差异；用接收者拿到的版本复验，不重放结果未明的动作 |
@@ -48,7 +48,7 @@
 ## 执行与验证纪律
 
 - 源码、skill、README 与 acceptance 冲突时先修合同；已完成工作的执行步骤删除，最终结论与失败/未知保留在对应验收记录。没有 active 路线时不另造短投影。
-- native shell 只做已有安装/Fresh/update/uninstall/卸载后自清理/evaluation/exact apply/可见启动/瞬时互斥，不增加团队判断状态。
+- 原生入口只管机械边界，含当前项目的完整性检查与显式框架更新；详见根 `CLAUDE.md` 的「薄核心边界」，不增加团队判断状态。
 - 源仓库不是 case，不在此创建 `.steamai-vnext/`；不保存真实样本、流量、凭据、客户信息或绝对 case 路径。大文件按 symbol、标题或行号读取。
 - 默认验证不调用模型、不占前台。先跑与修改相关的 focused tests；全量机械回归命令如下，受影响的真实行为另按 acceptance 独立验收，不能继承旧版本结果：
 

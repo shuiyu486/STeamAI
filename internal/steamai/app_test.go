@@ -469,20 +469,20 @@ func assertIndependentSessionEnvironment(t *testing.T, env []string) {
 	}
 }
 
-func TestCommanderHistoryRefusesMemberDirectory(t *testing.T) {
+func TestProjectEntrypointsRefuseMemberDirectory(t *testing.T) {
 	cwd := filepath.Join(t.TempDir(), ".steamai-vnext", "members", "reader")
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p := &fakePlatform{supported: true}
+	p := &fakePlatform{supported: true, source: makeCanonicalSource(t)}
 	a := testApp(t, p, cwd, makeFakeExecutable(t, "claude.exe"))
-	for _, flag := range []string{"-r", "-c"} {
-		if err := a.run([]string{flag}); err == nil || !strings.Contains(err.Error(), "原项目根目录") {
-			t.Fatalf("从成员目录运行 %s：%v", flag, err)
+	for _, args := range [][]string{nil, {"-r"}, {"-c"}, {"check"}, {"upgrade"}, {"__fresh-preview"}, {"__fresh-apply", "--confirmation", "test"}} {
+		if err := a.run(args); err == nil || !strings.Contains(err.Error(), "原项目根目录") {
+			t.Errorf("成员目录误作独立项目 %v：%v", args, err)
 		}
 	}
-	if len(p.attached) != 0 {
-		t.Fatal("不应把成员作为 Commander 恢复")
+	if entries, err := os.ReadDir(cwd); err != nil || len(entries) != 0 || len(p.attached) != 0 {
+		t.Fatal("不应生成嵌套项目或启动第二个 Commander")
 	}
 }
 

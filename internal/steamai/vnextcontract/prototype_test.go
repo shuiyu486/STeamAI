@@ -80,7 +80,7 @@ func TestPrototypeSkillDefinesNativeTeamBoundary(t *testing.T) {
 		"用户确认前 canonical source pack 零写",
 		"可 `git apply --check` 的 exact patch",
 		"应用前按合同重验 snapshot",
-		"只有后续 Fresh 明确绑定新的 current source records 与 snapshot digest 才消费",
+		"learning 的确认不授权项目升级",
 		"HEAD revision 可以保持不变",
 		"## Case-pinned pack 按需路由",
 		"entrypoints.router",

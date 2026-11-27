@@ -51,7 +51,6 @@ if _HERE not in sys.path:
 import localize  # noqa: E402
 import refdiff  # noqa: E402
 import synth_device  # noqa: E402
-import synth_target  # noqa: E402
 import workflow  # noqa: E402
 
 SCHEMA_TRACE = "windows-flow-trace/1"
@@ -628,11 +627,13 @@ def _short(value):
 # -- 执行 ----------------------------------------------------------------------------
 
 def make_synth_target(spec):
+    from synth_target import SynthTarget
+
     kwargs = {}
     for key in ("loading_seconds", "result_seconds", "popup_trigger_state", "popup_close_after_ms"):
         if key in spec:
             kwargs[key] = spec[key]
-    return synth_target.SynthTarget(**kwargs)
+    return SynthTarget(**kwargs)
 
 
 def _write_json_atomic(path, data, *, replace=False):

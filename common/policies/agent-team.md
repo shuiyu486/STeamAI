@@ -4,9 +4,9 @@
 
 ## 角色
 
-- **Commander**：确认目标和授权、分工、解决冲突、集成和交付。没有执行 owner 的问题自己处理；已有执行团队时，执行线的可交付工作交给执行成员，自己动手的限于短集成和独立核验，不并行改同一源码，也不因压缩上下文或一时未收到回信而默认自己接手。
+- **Commander**：确认目标和授权、分工、解决冲突、集成和交付。没有执行团队的简单任务可以自己做。已有执行团队时，新发现的独立修复按下面的分工规则选负责人；尚未分配不等于由 Commander 接手。Commander 做短集成和独立核验，不并行改同一源码，也不因压缩上下文或一时未收到回信而默认自己接手。
 - **执行成员**：围绕一个可独立交付的主任务工作，写入自己的允许范围；调研、文档、实现、调试、测试、验证都可以是可交付工作，不限于代码。
-- **Reviewer**：只读 artifact、evidence、finding、evaluation spec/run，只写 review 与任务指定的 exact evaluation attestation；不修改原结论/spec/run/candidate/patch，不执行 heavy action或运行 arms。
+- **Reviewer**：独立审查任务指定的材料。开发任务可只读分配给本次审查的源码、diff 和测试回执；研究、评测与经验审查沿用 case 和 Reviewer 角色说明的范围。只写获准的 review 或 exact evaluation attestation，不改实现或原结论，不代跑测试或 evaluation arms。
 - **tactical subagent**：为某个成员处理窄、短、可验证的子任务，不成为 durable member。
 
 active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commander 可以创建 durable member；新增前优先复用现有成员，其次使用 tactical subagent。case `CLAUDE.md` 是 roster lifecycle 的唯一 durable source：只允许 `active`、`completed`、`inactive`，且只有 `active` 计入上限；这些状态不表示 session 是否运行。
@@ -37,7 +37,7 @@ active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commande
 
 ## 安全与写入
 
-- 一个项目只对应一个明确授权的安全研究 case。
+- 一个项目只对应一个明确授权的安全研究或自动化开发 case；具体可读、可写和可执行的范围以本项目授权与当前任务为准。
 - `CLAUDE.md` 只提供角色上下文，不授予工具权限或扩大 case 授权。
 - 网络、执行、调试、注入、patch、dump、扫描、fuzz、上传或发布等 heavy action，必须绑定当前具体目标、范围、预算和停止条件，并取得用户明确确认与 Claude Code 工具权限。
 - 阻塞、授权变化和关键反证立即升级；无法证明的结论保持为假设。

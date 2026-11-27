@@ -23,7 +23,7 @@ var (
 	errUnsupportedPlatform      = errors.New("STeamAI 原生入口当前只支持 Windows 10/11 x64")
 	errPartialCase              = errors.New("当前目录包含不完整或冲突的 STeamAI 状态")
 	errCommanderRunning         = errors.New("当前项目的 Commander 锁仍被占用。原窗口还在请切回；若已退出，请核实旧版遗留的后台进程。未启动第二个 Commander")
-	errCanonicalMutationRunning = errors.New("canonical checkout 正在被另一个 learning apply 或 update 修改；请稍后重试")
+	errCanonicalMutationRunning = errors.New("canonical checkout 正用于另一项更新或 learning apply；请稍后重试")
 	memberNamePattern           = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	gitIdentityPattern          = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
 	sha256Pattern               = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -121,6 +121,7 @@ type app struct {
 	executable     func() (string, error)
 	lookPath       func(string) (string, error)
 	validateSource func(string) error
+	upgradeConsole func(io.Reader, io.Writer) bool
 }
 
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, version string) int {
@@ -134,14 +135,15 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, version stri
 
 func newApp(p platform, stdin io.Reader, stdout, stderr io.Writer, version string) *app {
 	a := &app{
-		platform:   p,
-		stdin:      stdin,
-		stdout:     stdout,
-		stderr:     stderr,
-		version:    version,
-		cwd:        os.Getwd,
-		executable: os.Executable,
-		lookPath:   exec.LookPath,
+		platform:       p,
+		stdin:          stdin,
+		stdout:         stdout,
+		stderr:         stderr,
+		version:        version,
+		cwd:            os.Getwd,
+		executable:     os.Executable,
+		lookPath:       exec.LookPath,
+		upgradeConsole: isUpgradeConsole,
 	}
 	a.validateSource = func(source string) error {
 		if err := validateCanonicalSource(source); err != nil {
@@ -178,6 +180,10 @@ func (a *app) run(args []string) error {
 	case "version", "--version", "-v":
 		fmt.Fprintln(a.stdout, a.version)
 		return nil
+	case "check":
+		return a.checkProject(args[1:])
+	case "upgrade":
+		return a.upgradeProject(args[1:])
 	case "setup":
 		return a.setup(args[1:])
 	case "update":
@@ -236,12 +242,15 @@ func (a *app) run(args []string) error {
 const usageText = `STeamAI Windows 原生入口
 
 用法：
-  steamai                         在当前项目打开新的 Commander 对话
+  steamai                         在当前项目打开新的 Commander 对话；有框架更新时可选择采用
   steamai -r                      选择历史对话（--resume）
   steamai -c                      继续当前目录最近一次对话（--continue）
   steamai -h                      查看命令用法（--help）
   steamai models                  查看本机 STeamAI 高档和常规档（默认 opus / sonnet）
   steamai models --high <别名> --standard <别名>   两项各选 opus、sonnet 或 haiku
+  steamai check                   只检查当前目录的项目框架是否完整
+  steamai upgrade                 预览此项目采用本机框架的差异，不改项目
+  steamai upgrade --apply ID      只应用刚刚预览并确认的更新
   steamai setup [--source PATH]   安装并绑定 canonical STeamAI checkout
   steamai update                  更新到最新正式版 exe 与 canonical checkout
   steamai uninstall               卸载入口并保留 checkout 与 case
@@ -343,11 +352,7 @@ func (a *app) learningBatchInputs() (git, source, caseRoot string, request learn
 }
 
 func (a *app) freshInputs() (git, source, caseRoot string, facts casebootstrap.Facts, err error) {
-	caseRoot, err = a.cwd()
-	if err != nil {
-		return "", "", "", facts, err
-	}
-	caseRoot, err = filepath.Abs(caseRoot)
+	caseRoot, err = a.projectRoot()
 	if err != nil {
 		return "", "", "", facts, err
 	}
@@ -377,28 +382,25 @@ func (a *app) freshInputs() (git, source, caseRoot string, facts casebootstrap.F
 }
 
 func (a *app) openCommander(entry string) error {
-	caseRoot, err := a.cwd()
-	if err != nil {
-		return fmt.Errorf("读取当前目录: %w", err)
-	}
-	caseRoot, err = filepath.Abs(caseRoot)
-	if err != nil {
-		return fmt.Errorf("规范化当前目录: %w", err)
-	}
-	// 成员目录没有自己的 case marker，不能当作 Fresh Commander 恢复成员历史。
-	if entry != "/steamai" {
-		for part := range strings.SplitSeq(caseRoot, string(filepath.Separator)) {
-			if strings.EqualFold(part, ".steamai-vnext") {
-				return errors.New("恢复 Commander 请在原项目根目录运行，不要在 .steamai-vnext 内运行；成员请使用自己的会话")
-			}
-		}
-	}
-	state, err := inspectCase(caseRoot)
+	caseRoot, err := a.projectRoot()
 	if err != nil {
 		return err
 	}
-	if state == casePartial {
-		return errPartialCase
+	identity, err := a.platform.CaseIdentity(caseRoot)
+	if err != nil {
+		return fmt.Errorf("读取 case 物理身份: %w", err)
+	}
+	lease, err := a.platform.AcquireCommander(commanderMutexName(identity))
+	if err != nil {
+		if errors.Is(err, errCommanderRunning) {
+			return err
+		}
+		return fmt.Errorf("建立 Commander 单实例保护: %w", err)
+	}
+	defer lease.release()
+	state, current, err := inspectProject(caseRoot)
+	if err != nil {
+		return err
 	}
 	claude, err := a.resolveNativeExecutable("claude.exe")
 	if err != nil {
@@ -419,23 +421,18 @@ func (a *app) openCommander(entry string) error {
 		if err != nil {
 			return fmt.Errorf("尚未完成 STeamAI setup: %w", err)
 		}
+		if err := rejectCaseInsideSource(caseRoot, source); err != nil {
+			return err
+		}
 		if err := a.validateSource(source); err != nil {
 			return err
 		}
 		args = append(args, "--add-dir", source)
-	}
-	identity, err := a.platform.CaseIdentity(caseRoot)
-	if err != nil {
-		return fmt.Errorf("读取 case 物理身份: %w", err)
-	}
-	lease, err := a.platform.AcquireCommander(commanderMutexName(identity))
-	if err != nil {
-		if errors.Is(err, errCommanderRunning) {
+	} else if a.upgradeConsole(a.stdin, a.stdout) {
+		if err := a.offerProjectUpgrade(caseRoot, identity, current.Roster); err != nil {
 			return err
 		}
-		return fmt.Errorf("建立 Commander 单实例保护: %w", err)
 	}
-	defer lease.release()
 	return a.platform.RunAttached(processSpec{
 		Path:             claude,
 		Args:             args,
@@ -676,7 +673,7 @@ func rejectCaseInsideSource(caseRoot, source string) error {
 		return err
 	}
 	if os.SameFile(caseInfo, sourceInfo) {
-		return errors.New("canonical source 本身不能作为安全研究 case")
+		return errors.New("框架源码目录（canonical source）不能作为项目；请在独立的项目目录运行 steamai")
 	}
 	current := caseRoot
 	for {
@@ -685,7 +682,7 @@ func rejectCaseInsideSource(caseRoot, source string) error {
 			return statErr
 		}
 		if os.SameFile(info, sourceInfo) {
-			return errors.New("安全研究 case 不能位于 canonical source 内部")
+			return errors.New("项目不能建在框架源码目录（canonical source）内；请在源码之外的项目目录运行 steamai")
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -697,24 +694,31 @@ func rejectCaseInsideSource(caseRoot, source string) error {
 }
 
 func inspectCase(root string) (caseState, error) {
-	if err := requirePlainDirectory(root); err != nil {
-		return casePartial, fmt.Errorf("case 根目录无效: %w", err)
+	state, _, err := inspectProject(root)
+	if errors.Is(err, errPartialCase) {
+		return casePartial, nil // 保持启动器既有的 partial 语义；check 单独说明原因。
 	}
-	stateRoot := filepath.Join(root, ".steamai-vnext")
-	stateExists, stateErr := pathExists(stateRoot)
-	if stateErr != nil {
-		return casePartial, stateErr
+	return state, err
+}
+
+func inspectProject(root string) (caseState, casebootstrap.CurrentIdentity, error) {
+	var id casebootstrap.CurrentIdentity
+	if err := requirePlainDirectory(root); err != nil {
+		return casePartial, id, fmt.Errorf("case 根目录无效: %w", err)
+	}
+	stateExists, err := pathExists(filepath.Join(root, ".steamai-vnext"))
+	if err != nil {
+		return casePartial, id, err
 	}
 	if !stateExists {
-		// An exact project-local skill may remain if state publication failed
-		// after its no-replace publish. Fresh bootstrap will compare it against
-		// the current canonical bytes and treat only an exact match as unchanged.
-		return caseFresh, nil
+		// 孤立 skill 的冲突仍由 Fresh exact preview 裁决。
+		return caseFresh, id, nil
 	}
-	if err := casebootstrap.ValidateCurrent(root); err != nil {
-		return casePartial, nil
+	id, err = casebootstrap.InspectCurrent(root)
+	if err != nil {
+		return casePartial, id, fmt.Errorf("%w：%s", errPartialCase, casebootstrap.CurrentIssue(err))
 	}
-	return caseCurrent, nil
+	return caseCurrent, id, nil
 }
 
 func pathExists(path string) (bool, error) {

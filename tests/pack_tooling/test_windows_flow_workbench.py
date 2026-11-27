@@ -617,6 +617,18 @@ class CliSafetyTests(unittest.TestCase):
             self.assertIn("基础设施错误", text)
             self.assertFalse(os.path.exists(out))
 
+    def test_compare_saved_traces_without_imaging_packages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good, bad = Path(tmp) / "good.json", Path(tmp) / "bad.json"
+            for path, data, expected in ((good, good_trace(), 0), (bad, bad_trace(), 1)):
+                path.write_text(json.dumps(data), encoding="utf-8")
+                report = path.with_suffix(".report.json")
+                result = subprocess.run([sys.executable, "-I", "-S", "-B", WORKBENCH, "compare", str(path), str(path),
+                                         "--out", str(report)], cwd=tmp, env=ENV, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["verdict"],
+                                 "same" if expected == 0 else "not-achieved")
+
     def test_compare_out_refused_by_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
             a, b = os.path.join(tmp, "a.json"), os.path.join(tmp, "b.json")

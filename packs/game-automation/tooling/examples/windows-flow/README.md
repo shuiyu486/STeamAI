@@ -36,7 +36,7 @@ python -m unittest tests.pack_tooling.test_windows_flow_workbench  # 首差比�
 ```text
 python workbench.py run     --scenario scenario.synth.example.json --out T.json [--variant V]     # 合成目标
 python workbench.py observe --scenario scenario.example.json --exe <dm_demo_target.exe> --exe-sha256 <HEX> --out T.json [--variant V] [--placement offscreen|hidden]
-python workbench.py compare A.json B.json [--out R.json]
+python workbench.py compare A.json B.json [--out R.json]   # 只读已有记录，不需要 NumPy/OpenCV
 python workbench.py matrix  --plan plan.example.json --out DIR [--exe ... --exe-sha256 ...]
 ```
 
