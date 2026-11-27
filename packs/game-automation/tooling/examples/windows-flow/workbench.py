@@ -1082,4 +1082,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    if not sys.stdout.isatty():
+        sys.stdout.reconfigure(encoding="utf-8")
     sys.exit(main())

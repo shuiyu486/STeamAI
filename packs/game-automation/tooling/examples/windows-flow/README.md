@@ -40,7 +40,7 @@ python workbench.py compare A.json B.json [--out R.json]   # 只读已有记录�
 python workbench.py matrix  --plan plan.example.json --out DIR [--exe ... --exe-sha256 ...]
 ```
 
-退出码分开两件事：`run`/`observe` 0 = 工作流达成（每步有外部证据）；`compare` 0 = 外部行为相同**且两份都确有目标达成、声明的保留项有证据且无冲突**（同一份坏轨迹自比是 `not-achieved`，缺终态/关键证据是 `unknown`，都不是 0）；`matrix` 0 = 每项实际结果都符合 plan 的声明，**不表示工作流成功**（坏候选按声明失败也记 0）；1 = 未达成/有差异/证据缺失/保留项冲突/不符合声明；2 = 用法或基础设施错误。
+重定向到文件或管道的文字报告使用 UTF-8，不依赖 Windows 的系统代码页。退出码分开两件事：`run`/`observe` 0 = 工作流达成（每步有外部证据）；`compare` 0 = 外部行为相同**且两份都确有目标达成、声明的保留项有证据且无冲突**（同一份坏轨迹自比是 `not-achieved`，缺终态/关键证据是 `unknown`，都不是 0）；`matrix` 0 = 每项实际结果都符合 plan 的声明，**不表示工作流成功**（坏候选按声明失败也记 0）；1 = 未达成/有差异/证据缺失/保留项冲突/不符合声明；2 = 用法或基础设施错误。
 
 证据规则（`refdiff.py`）：
 - 每次尝试的外部证据顺序：pre.state → input.sent → input.discarded → input.delivered → post.state → post.picture → effect → result；任一项缺失即 `unknown`，既不算相同也不算不同。

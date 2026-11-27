@@ -623,9 +623,11 @@ class CliSafetyTests(unittest.TestCase):
             for path, data, expected in ((good, good_trace(), 0), (bad, bad_trace(), 1)):
                 path.write_text(json.dumps(data), encoding="utf-8")
                 report = path.with_suffix(".report.json")
-                result = subprocess.run([sys.executable, "-I", "-S", "-B", WORKBENCH, "compare", str(path), str(path),
-                                         "--out", str(report)], cwd=tmp, env=ENV, capture_output=True, timeout=30)
+                result = subprocess.run([sys.executable, "-S", "-B", WORKBENCH, "compare", str(path), str(path),
+                                         "--out", str(report)], cwd=tmp, env=dict(ENV, PYTHONPATH="", PYTHONIOENCODING="cp1252"),
+                                        capture_output=True, timeout=30)
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertIn("结论:", result.stdout.decode("utf-8"))
                 self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["verdict"],
                                  "same" if expected == 0 else "not-achieved")
 
