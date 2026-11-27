@@ -1,0 +1,16 @@
+{
+  "schema": "windows-flow-scenario/1",
+  "name": "synth-open-collect",
+  "target": {"kind": "synth", "loading_seconds": 0.15},
+  "regions": {
+    "start_button": [40, 140, 44, 36],
+    "reward_button": [280, 60, 44, 36],
+    "center": [140, 120, 200, 80]
+  },
+  "steps": [
+    {"label": "open", "target": "start_button", "when": {"state": "idle"}, "expect": {"state": "loading"}, "hit": "start"},
+    {"label": "collect", "target": "reward_button", "when": {"state": "ready"}, "expect": {"state": "result"}, "hit": "reward"}
+  ],
+  "candidate": {"locate_dwell_ms": 0, "click_offset": [0, 0], "effect_budget_ms": 1000, "bad_bbox": {}},
+  "config": {"wait_timeout_seconds": 5, "retry_limit": 3}
+}

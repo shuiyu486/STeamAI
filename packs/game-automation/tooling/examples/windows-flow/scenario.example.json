@@ -1,0 +1,22 @@
+{
+  "schema": "windows-flow-scenario/1",
+  "name": "demo-target-pages3-switch",
+  "target": {"kind": "demo_target", "pages": 3},
+  "controls": {
+    "tab2": [68, 2, 62, 24],
+    "tab3": [134, 2, 62, 24]
+  },
+  "regions": {
+    "tab1": [4, 4, 58, 20],
+    "tab2": [70, 4, 58, 20],
+    "tab3": [136, 4, 58, 20],
+    "content_left": [0, 28, 100, 150],
+    "content_right": [100, 28, 100, 150]
+  },
+  "steps": [
+    {"label": "to-page-2", "target": "tab2", "when": {"page": 1}, "expect": {"page": 2}},
+    {"label": "to-page-3", "target": "tab3", "when": {"page": 2}, "expect": {"page": 3}}
+  ],
+  "candidate": {"locate_dwell_ms": 0, "click_offset": [0, 0], "effect_budget_ms": 1000, "bad_bbox": {}},
+  "config": {"wait_timeout_seconds": 5, "retry_limit": 3}
+}

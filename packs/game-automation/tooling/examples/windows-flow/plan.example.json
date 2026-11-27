@@ -1,0 +1,60 @@
+{
+  "schema": "windows-flow-plan/1",
+  "scenario": "scenario.example.json",
+  "runs": [
+    {
+      "id": "baseline",
+      "expect_result": "confirmed",
+      "behaviors": {
+        "keep": [
+          {"behavior": "切页后目标自报 page 跟着变", "evidence": "steps[*].post.state"},
+          {"behavior": "画面证据必须取到（页签/内容区域均值）", "evidence": "steps[*].post.picture"}
+        ]
+      }
+    },
+    {
+      "id": "wrong-point",
+      "candidate": {"click_offset": [0, 60]},
+      "expect_result": "unconfirmed",
+      "expect_fault": "delivered-no-effect",
+      "behaviors": {
+        "keep": [
+          {"behavior": "切页后目标自报 page 跟着变", "evidence": "steps[*].post.state"}
+        ]
+      }
+    },
+    {
+      "id": "fixed",
+      "expect_result": "confirmed",
+      "expect_fault": "same"
+    },
+    {
+      "id": "slow-locate",
+      "candidate": {"locate_dwell_ms": 150},
+      "expect_result": "confirmed",
+      "expect_fault": "slow-only"
+    },
+    {
+      "id": "stale-move",
+      "candidate": {"locate_dwell_ms": 60},
+      "disturbance": {"step": "to-page-3", "kind": "move", "dy": 120},
+      "expect_result": "refused",
+      "expect_fault": "stale-refusal"
+    },
+    {
+      "id": "pause-resume",
+      "candidate": {"locate_dwell_ms": 60},
+      "disturbance": {"step": "to-page-3", "kind": "pause", "resume_after_ms": 200},
+      "expect_result": "confirmed",
+      "expect_fault": "discarded-by-pause"
+    }
+  ],
+  "compares": [
+    ["baseline", "wrong-point"],
+    ["baseline", "fixed"],
+    ["baseline", "slow-locate"],
+    ["baseline", "stale-move"],
+    ["baseline", "pause-resume"],
+    {"ref": "wrong-point", "cand": "fixed", "expect_fault": "post-state-differs"}
+  ]
+}

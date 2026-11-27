@@ -2,7 +2,8 @@
 目标 EXE，不开启可见窗口、不用真实鼠标键盘、不 PrintWindow、不加载任何 SDK。
 
 覆盖：ready 身份（exact HWND/PID 同一性且永不可见）、stats 计数（仅 VK_A）、
-close / stdin EOF 正常退出、无效命令与 --hidden 无管道的 fail-closed 拒绝。
+close / stdin EOF 正常退出、无效命令与 --hidden 无管道的 fail-closed 拒绝、
+--pages 页签模式（只有页签内的按下切页、其它区域只计数、非法参数创建窗口前退出 2）。
 合成输入一律 PostMessage 到协议返回的本子进程自有 HWND。
 """
 import argparse
@@ -28,10 +29,20 @@ USER32.IsWindowVisible.argtypes = [wintypes.HWND]
 USER32.IsWindowVisible.restype = wintypes.BOOL
 USER32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
 USER32.GetWindowThreadProcessId.restype = wintypes.DWORD
+USER32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
 USER32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 USER32.PostMessageW.restype = wintypes.BOOL
+# Python 进程默认 DPI-unaware：读目标几何会被虚拟化缩放（144 DPI 下 200 -> 133），而且从
+# unaware 线程 PostMessage 的鼠标坐标也会被系统按 DPI 放大（实测 99 -> 148）。几何断言与
+# 合成点击都切到目标窗口自己的 DPI 感知上下文再做。
+USER32.GetWindowDpiAwarenessContext.argtypes = [wintypes.HWND]
+USER32.GetWindowDpiAwarenessContext.restype = wintypes.HANDLE
+USER32.SetThreadDpiAwarenessContext.argtypes = [wintypes.HANDLE]
+USER32.SetThreadDpiAwarenessContext.restype = wintypes.HANDLE
 
 WM_KEYDOWN, WM_KEYUP, WM_MOUSEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP = 0x100, 0x101, 0x200, 0x201, 0x202
+# --pages 3 的布局：客户区 200x（150 色块 + 28 页签 + 40 状态条），页签宽 200/3，页签高 28。
+TAB_2, TAB_3, CONTENT = (99, 14), (165, 14), (10, 100)
 
 
 def parse_ready(line):
@@ -54,10 +65,20 @@ def parse_stats(line):
         return None
 
 
+def parse_page(line):
+    parts = line.split(" ")
+    if len(parts) != 3 or parts[:2] != ["TARGET", "page"]:
+        return None
+    try:
+        return int(parts[2])  # 当前页（1 起）
+    except ValueError:
+        return None
+
+
 class DemoTarget:
-    def __init__(self):
+    def __init__(self, *arguments):
         self.process = subprocess.Popen(
-            [TARGET, "--hidden"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            [TARGET, "--hidden", *arguments], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, encoding="utf-8",
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
@@ -106,8 +127,8 @@ class DemoTarget:
 
 
 class DemoTargetTests(unittest.TestCase):
-    def target(self):
-        child = DemoTarget()
+    def target(self, *arguments):
+        child = DemoTarget(*arguments)
         self.addCleanup(child.close)
         return child
 
@@ -119,6 +140,41 @@ class DemoTargetTests(unittest.TestCase):
         USER32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
         self.assertEqual(owner.value, pid)
         return hwnd
+
+    @staticmethod
+    def in_target_dpi(hwnd, action):
+        previous = USER32.SetThreadDpiAwarenessContext(USER32.GetWindowDpiAwarenessContext(hwnd))
+        try:
+            return action()
+        finally:
+            USER32.SetThreadDpiAwarenessContext(previous)
+
+    @classmethod
+    def click(cls, hwnd, x, y):
+        def post():
+            lparam = (y << 16) | (x & 0xFFFF)
+            assert USER32.PostMessageW(hwnd, WM_LBUTTONDOWN, 1, lparam)
+            assert USER32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+        cls.in_target_dpi(hwnd, post)
+        time.sleep(.1)  # 目标先排空窗口消息再应答管道：下一条 page/stats 应答已包含这次点击。
+
+    @staticmethod
+    def page(child):
+        child.send("page")
+        return parse_page(child.until("TARGET page"))
+
+    @staticmethod
+    def stats(child):
+        child.send("stats")
+        return parse_stats(child.until("TARGET stats"))
+
+    @classmethod
+    def client(cls, hwnd):
+        def read():
+            rect = wintypes.RECT()
+            USER32.GetClientRect(hwnd, ctypes.byref(rect))
+            return (rect.right, rect.bottom)
+        return cls.in_target_dpi(hwnd, read)
 
     def test_ready_identity_and_hidden(self):
         child = self.target()
@@ -182,6 +238,49 @@ class DemoTargetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("ready", result.stdout)
         self.assertTrue(result.stderr.startswith("ERROR"))
+
+    def test_classic_mode_page_is_always_one(self):
+        child = self.target()
+        hwnd = self.ready(child)
+        self.assertEqual(self.client(hwnd), (200, 190))
+        self.assertEqual(self.page(child), 1)
+        self.click(hwnd, *TAB_2)  # 经典布局这里只是红色内容区：只计数，不切页。
+        self.assertEqual(self.page(child), 1)
+        self.assertEqual(self.stats(child), [0, 1, 1, 0, 0])
+
+    def test_pages_switch_only_by_tab_press(self):
+        child = self.target("--pages", "3")
+        hwnd = self.ready(child)
+        self.assertEqual(self.client(hwnd), (200, 218))
+        self.assertEqual(self.page(child), 1)
+        self.click(hwnd, *TAB_2)
+        self.assertEqual(self.page(child), 2)
+        self.click(hwnd, *TAB_3)
+        self.assertEqual(self.page(child), 3)
+        self.click(hwnd, *TAB_3)  # 同一页重复按下不变。
+        self.assertEqual(self.page(child), 3)
+        self.click(hwnd, *CONTENT)  # 页签区之外只计数。
+        self.assertEqual(self.page(child), 3)
+        self.click(hwnd, *TAB_2)
+        self.assertEqual(self.page(child), 2)
+        self.assertEqual(self.stats(child), [0, 5, 5, 0, 0])
+
+    def test_pages_argument_rejected_before_window(self):
+        for arguments in (["--pages"], ["--pages", "1"], ["--pages", "9"], ["--pages", "x"],
+                          ["--pages", "100"], ["--pages", "-3"], ["--pages", "3", "--pages", "3"]):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [TARGET, "--hidden", *arguments], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True, encoding="utf-8", timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn("ready", result.stdout)
+                self.assertTrue(result.stderr.startswith("ERROR"), result.stderr)
+        # 管道模式下 8 页上限可用；页签更窄但布局仍是 200 宽。
+        child = self.target("--pages", "8")
+        self.assertEqual(self.client(self.ready(child)), (200, 218))
+        self.assertEqual(self.page(child), 1)
 
 
 if __name__ == "__main__":

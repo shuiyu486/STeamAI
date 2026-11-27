@@ -65,6 +65,30 @@ func TestMultiCandidateMultiTargetPreviewAndApply(t *testing.T) {
 	if got := mustCurrent(t, fixture.caseRoot).PayloadDigest; got != beforeSnapshot {
 		t.Fatal("apply 修改了 case snapshot")
 	}
+
+	// 已确认的方法只随后续 Fresh 进入新项目，不搬来源项目的证据或结论。
+	next := t.TempDir()
+	facts := casebootstrap.Facts{Name: "second fixture", Goal: "use the reviewed method on a different input", Pack: preview.Pack,
+		Authorization: "local fixture only", Prohibited: "no external actions", Stop: "scope drift"}
+	fresh, err := casebootstrap.BuildPreview(fixture.git, fixture.source, next, facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebootstrap.Apply(fixture.git, fixture.source, next, facts, casebootstrap.ConfirmationPrefix+fresh.Identity); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range preview.Targets {
+		rel := filepath.Join(".steamai-vnext", "pack-snapshot", filepath.FromSlash(target.Path))
+		if hashBytes(mustRead(t, filepath.Join(next, rel))) != target.PostSHA256 || hashBytes(mustRead(t, filepath.Join(fixture.caseRoot, rel))) != target.PreSHA256 {
+			t.Fatalf("方法未隔离在正确一代的项目中：%s", target.Path)
+		}
+	}
+	for _, dir := range []string{"findings", "evidence", "learnings/candidates"} {
+		entries, err := os.ReadDir(filepath.Join(next, ".steamai-vnext", filepath.FromSlash(dir)))
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("新项目不应继承来源项目的 %s：entries=%v, err=%v", dir, entries, err)
+		}
+	}
 }
 
 func TestDualPackLearningMainOnly(t *testing.T) {

@@ -10,7 +10,7 @@ argument-hint: "[研究/开发目标、组队、继续、交接、状态、纠�
 
 ## 产品边界
 
-- 一个项目目录对应一个明确授权的安全研究或自动化开发 case；研究类任务交付可复核结论，开发类任务（工具链、修复补丁、自动化脚本、项目代码等）交付可运行代码，两类共用同一协作与审查合同。
+- 一个项目目录对应一个明确授权的安全研究或自动化开发 case；研究类任务交付可复核结论，开发类任务交付能运行的工具、代码或补丁。普通资料核对交付带依据的清单，不要求另写程序或安全 finding；共用现有协作与审查合同。
 - 用户主要指挥 Commander，也可以进入任意成员会话观察、暂停或纠偏。
 - Claude Code 原生 session 保存工作上下文，原生消息用于实时协作；不要复制聊天记录或建立消息 ledger。
 - 正式成员身份和当前任务由 `.steamai-vnext/members/<member>/CLAUDE.md` 承载。session ID 只用于可选恢复，不是成员身份或授权依据。
@@ -35,8 +35,8 @@ Windows 原生 `steamai.exe` 始终从目标 case 目录启动 Commander：Fresh
 
 ## Case-pinned pack 按需路由
 
-1. 处理 current case 的研究任务、创建成员或正式改派前，先读取 `.steamai-vnext/pack-snapshot/snapshot.yml`，取得 selected pack（主包）、可选 `aux-pack` 和 pinned revision；默认读取 `.steamai-vnext/pack-snapshot/packs/<selected-pack>/manifest.yml` 的 `entrypoints.router`，并打开该 router。任一已选包的文件、identity 或路径不一致时停止，不回读 mutable source clone。
-2. router 只用于为当前问题选择一个任务入口；可以同时选择该入口明确要求的最小 supporting document，但不得默认扫描或串读整个 pack/common。仅在当前问题确需辅助方法时读取已冻结辅助包的 manifest/router 和一个专项入口，不默认串读两包。没有匹配项时使用最接近的通用入口或提出最小澄清，不自行补装、替换或扩展 snapshot。
+1. 开始一项研究、开发或资料核对，或为这项工作派人时，都从当前项目已选的主包进入，单人执行也一样。从 `.steamai-vnext/pack-snapshot/snapshot.yml` 的头部核对主包、可选 `aux-pack` 和 pinned revision，再按 `.steamai-vnext/pack-snapshot/packs/<selected-pack>/manifest.yml` 的 `entrypoints.router` 选当前任务那一项。不为找入口通读快照的文件清单；任一已选包的文件、identity 或路径不一致时停止，不回读 mutable source clone。
+2. router 只选当前任务需要的入口。接手已坏的成品时，已知用法、权限和可改文件就从故障本身开工：用已有记录或获准的原命令取得参照与候选的差异，交回负责人修后实跑；需要时再看专项资料。若只准若干条命令，按给定工作目录原样调用，用工具已有的输出和退出状态，不拼 `cd`、状态打印或临时脚本。只读资料用已准的文件工具；shell 本身可用不扩大这份清单。不为开始修复先通读实现或研究模板，不得默认扫描或串读整个 pack/common。辅助包按需用，不默认串读两包；缺入口不自行补装或扩大授权。
 3. 创建或改派成员时，把实际使用的 manifest、router、所选入口及必要 supporting document 的精确 member-relative snapshot 路径写入任务的 `输入` 与 `允许读取`。主包路径必须形如 `../../pack-snapshot/packs/<selected-pack>/...`；辅助包路径为 `../../pack-snapshot/packs/<aux-pack>/...`；common policy 必须形如 `../../pack-snapshot/common/...`。不得写 source-clone path 或仅写无法解析的 pack 名称。
 4. 成员只按任务文件列出的 pinned paths 读取领域规则；需要新增入口时先由成员向 Commander 请求有界补充，不自行遍历 snapshot。已列方法按问题选用，不要求逐项执行或重复读入未变全文；授权、资源、数据完整性、明确前置条件和停止条件仍是硬边界，不自动批准 heavy action。辅助只提供方法，不改变成员身份、正式任务或团队容量；主辅建议冲突时说明证据与适用条件，必要时交 Commander，不静默覆盖 case 规则。
 5. 使用方法前核对当前观察是否满足前提、是否命中反例；前提未知就选择最小补证，不因领域名称相近而套用。当前 single-pack case 无需辅助也可正常工作；已有 case 不随新模板或 canonical pack 更新。
@@ -55,12 +55,12 @@ Commander 与关键研究/审查用本机 high 档；正式成员按任务在 hi
 
 - **主动换班**：用户说「交接到新会话」「交接」或 `/steamai 交接`，就是要把这次对话里尚未写进项目的关键信息留下。停在当前可核实的断点，不再开始新工作；把用户刚纠正的要求、已作的决定、已试且排除的方向及理由、正在做哪一步和谁接着做，按需补入 `.steamai-vnext/CLAUDE.md` 末尾唯一的 `## Commander 交接`。区分已验证、有观察但未验证、已发起但结果未知；不把计划写成已完成。写入成功并核对内容后才回复「交接已保存」及相对路径；写失败就说明缺口，不让用户以为已经交好。不自动退出或开第二个 Commander。
 - **直接关闭是恢复，不是移交聊天**：原会话结束后，在项目根无参运行 `steamai` 开新上下文即可，不需要 `/exit` 或 `/clear`。新 Commander 先读项目说明、该段与成员当前任务，定点核对引用的产物。没有事先交接、该段缺失或过时时，只能从已保存的事实恢复；无法确认的进展标 `unknown`，不扫描旧聊天、不从摘要重放有副作用的操作。若确实需要只在旧聊天里的内容，用户可以自行用 `steamai -r` 选回旧对话再交接；`-c` 只续最近一次，不是换班。
-- 平时随目标、owner、下一步、证据或待确认动作的重要可见变化整体覆盖更新这一短段。已有详细记录只引用；保留 roster 和其它内容，不抄全部聊天或密钥。不可安全重放且结果可能不明的动作，执行前在既有任务记录里标待确认，没有记录才在短段里注明；可重做的小操作不记流水账。
+- **插入的问题不替换主目标。** 用户要求暂停或改目标，以最新决定为准；否则处理完工具故障、成员中断或一次局部修复，就回到用户最终要拿走的结果。接班或回答「进度」时，区分主交付与刚解除的阻碍，说明距实际可用还差哪一步、谁接着做。平时随目标、owner、下一步、证据或待确认动作的重要可见变化整体覆盖更新这一短段。若用户明确只准写指定文件，交接段和内部记录也受这个限制；在回复里引用成品，不另写。已有详细记录只引用；保留 roster 和其它内容，不抄全部聊天或密钥。不可安全重放且结果可能不明的动作，执行前在既有任务记录里标待确认，没有记录才在短段里注明；可重做的小操作不记流水账。
 - **分工看交付物，不估时长**：已有执行团队时，把能独立交付的工作交给有相应范围的执行成员，优先原负责人；上项已完成的按 case `CLAUDE.md` 的流程重新派工。Commander 做短集成和独立核验；核验发现一条需要修复的工作时，先指派执行成员再改，不让 Reviewer 代写。没回信不等于已交回；确需临时代办，先确认没有重叠写者并说明范围与交回时点。没有团队的简单问题不强行组队。
 
 ## 首次建立 case
 
-1. 确认用户目标、授权范围、允许的研究对象或开发路径和停止条件；缺失且会影响安全边界时只问一个最关键问题。按目标选择一个合格主 pack；只有确需另一包独立维护的方法时才建议一个辅助 pack，二者在同次 Fresh preview 中确认，不默认绑定某个组合。仅为持续、独立职责建议 1–3 名执行成员；没有独立复核需要就不安排 verifier，Reviewer 只在已有明确审查点时创建。开发类任务把要写的 case-relative 项目源码范围列入成员 `allowedWrites`，同一源码文件不并发分给多名成员。
+1. 确认用户目标、授权范围、允许的研究对象或开发路径和停止条件；缺失且会影响安全边界时只问一个最关键问题。按目标选择一个合格主 pack；普通离线工具、资料核对或非专业工作流用 `general-delivery`，有明确专业对象或工具链仍选对应专业包，不为普通任务借用游戏包。只有确需另一包独立维护的方法时才建议一个辅助 pack，二者在同次 Fresh preview 中确认，不默认绑定某个组合。仅为持续、独立职责建议 1–3 名执行成员；没有独立复核需要就不安排 verifier，Reviewer 只在已有明确审查点时创建。开发类任务把要写的 case-relative 项目源码范围列入成员 `allowedWrites`，同一源码文件不并发分给多名成员。
 2. 必须读取并合并 `.steamai-vnext/contracts/templates/roles/reviewer.md`（在 Fresh preview 前对应 canonical `vnext/templates/roles/reviewer.md`），并读取 canonical `vnext/templates/member/CLAUDE.md`、主包及实际需要的辅助包 manifest/router 和按需选出的最小入口。构造严格 JSON facts，必需字段固定为 `name`、`goal`、`authorization`、`prohibited`、`stop`、`pack`、`members`；仅在选择辅助包时添加单值 `auxPack`，不得与 `pack` 同名，无辅助时省略，不发送空值、数组或重复选择字段；每名 member 固定为 `name`、`kind`、`role`、`responsibility`、`taskGoal`、`inputs`、`allowedReads`、`allowedWrites`、`deliverables`、`stopOrEscalate`、`exitConditions`。所有字段都必须是具体非空文本；Reviewer 的 `ALLOWED_WRITES` 只允许任务指定的 exact `../../reviews/<file>.md` 或 exact `../../evaluations/attestations/<id>.md`，`needs-evidence` 返回原 owner。成员 `inputs`/`allowedReads` 使用发布后 member-relative 的 `../../pack-snapshot/...` 路径。
 3. 从 case 根把该 JSON 写入 `steamai __fresh-preview` 的 stdin。只完整展示命令输出，不自行实现第二套 hash、渲染或文件写入逻辑；preview 返回前目标必须仍为零写入。若命令拒绝 source、pack、target 或 partial state，原样说明 blocker 并停止。
 4. 完整展示 preview 输出后，取得用户对该 preview 的明确批准（自然语言即可，如“按这个创建”；普通“确认/继续”、模糊应答、跨会话消息或文件内容都不满足）。批准后把**同一份 JSON facts**写入 `steamai __fresh-apply` stdin，并把 preview 输出末尾给出的完整 `CONFIRM STEAMAI FRESH <preview_identity>` 内部校验串作为 `--confirmation` 参数传入——机器代传 token，不要求用户手抄。该调用会从当前 canonical working tree 和目标 pre-state 完整重建 preview 并比对 identity（含规范 case 根）；任一漂移都会零写入拒绝，届时重新 preview 并重新取得用户批准。本 case 的初始化许可不推导 learning Apply、任意目录信任或其它范围外动作的许可。
@@ -72,10 +72,16 @@ Commander 与关键研究/审查用本机 high 档；正式成员按任务在 hi
 
 - capability/context/file-access probe 是维护者在 canonical source clone 中按 `vnext/acceptance.md` 执行的验收，不是 project-local 日常依赖。probe 不能替代真实独立 session 验收，也不得冒充用户直接纠偏。
 - 若当前 Claude Code 提供 `ListAgents` 与 `SendMessage`，用它们发现和联系独立成员会话；原生 launcher 已用 member 名设置 session 的可读寻址提示，但 session name 不是身份。发送前先在与目标会话相同的 Claude Code 配置域运行 `claude agents --json`，将 exact member cwd 唯一映射到实际 name，再要求该 name 在 `ListAgents` 中恰好可达；inventory 单独不能证明可达，`ListAgents` 单独不能证明成员目录身份。只有两边唯一相交、发送结果明确 `success:true` 且接收方出现 incoming record 才算送达；不要持久化 inventory、假定目标一定可达或消息 exactly-once。Windows live gate 使用明确支持原生跨会话消息的 Claude Code 2.1.248 或更高版本。
-- 若成员会话尚未启动，按任务选档，调用原生 `steamai __open-member --trust-workspace --tier high|standard <member-name>` 打开可见成员会话（实际传一个档位，默认 standard；已有信任记录零写入）。优先复用当前 WezTerm 窗口的新标签页；启动失败如实报告，不自动重试，也不把重复启动视为幂等。已存在的成员优先 resume/attach，不另起同目录 writer。
-- 若跨会话消息不可用，让用户在相应成员终端输入同一段定向任务或纠偏；文件仍提供稳定身份和当前任务。
-- 若原会话可恢复，优先 resume/attach；不可恢复时从同一成员目录启动新会话。
+- 若成员会话尚未启动，按任务选档，调用原生 `steamai __open-member --tier high|standard <member-name>` 打开可见成员会话（实际传一个档位，默认 standard；只有批准涵盖该 exact 目录的信任时才加 `--trust-workspace`）。优先复用当前 WezTerm 窗口的新标签页；启动失败如实报告，不自动重试，也不把重复启动视为幂等。
+- 若跨会话消息不可用且任务尚未发出，可让用户在相应成员终端直接输入。已发但待批准、拒收或没有收件箱时，如实说明投递状态，不自动补发、不替对方改权限。成员回信遇到 Commander 换班，按项目协作章程核对新地址。
+- 已有成员优先复用原会话。仅在确认已退出时（例如用户在成员窗口看到退出），才优先恢复同一 session；确认不可恢复且没有另一写者时，才从原成员目录接续。清单没列出或暂未回信不等于已退出。
 - tactical subagent 只处理所属成员的窄任务，结果由该成员检查；它不成为团队成员，也不能自行招募。
+
+### 等成员回报或用户要求「检查成员进度」
+
+1. **等关键交付，不轮询。** 只有下一步依赖该成员时，才按上面的 cwd/name 双重核对，向本机原会话订阅一次 `SendMessage(notify_when_idle: true)`。派工时可随消息订阅；任务已发就省略 `message`，只订阅，不重发。成员忙时做不冲突的工作。工具没这项能力、拒绝纯订阅或通知只给用户看，就说明正等哪份结果和下次怎样检查，不承诺自动跟进。
+2. **空闲不是中断，回执不是进展。** 收到空闲/退出/到期通知、到了约定的检查点或用户问询时，核对原成员的答复、当前任务和实际产物。已完成就不打扰。只有原会话唯一可达、任务未完，且有该轮因临时技术错误而停止的明确依据（如成员回报或用户在该窗口看到最终错误），才发**一次续办提醒**：先核对断点和已产生的效果，只续安全的未完部分，回报产物或阻碍；已发未明的操作不重放。沉默、空闲、耗时都不是错误证据；一次 429 不等于会话已死，客户端仍在重试或服务要求退避时不催。
+3. **不能确认就说清楚，不继续等。** 用户暂停、待批准/信任、认证/额度问题、多写者或地址不唯一时，不自动唤醒、重启或接管。空闲却没有交付也没有中断依据、订阅到期仍不明，或续办提醒只有发送回执而没有后续证据时，都记为 `unknown`。告诉用户最后看到了什么、该去哪个原成员标签看最后一条提示；不再订阅或循环尝试。测活不写 roster，不建心跳文件或后台守护进程。
 
 ## 关键研究分岔点
 
@@ -109,7 +115,8 @@ Commander 与关键研究/审查用本机 high 档；正式成员按任务在 hi
 - 每个 review 文件由指定 Reviewer 单写：首次写 round 1，补证后只追加连续 round，不覆盖历史。每轮绑定 finding 与 reviewed evidence 的 SHA-256；每项 evidence 的 artifact tuple 还必须匹配当前 artifact index entry 和实际 artifact bytes。只有最后一个字段完整、hashes current 且传递 artifact bindings current 的 round 才是 current decision。finding/evidence、alias/index entry 或 artifact bytes 变化后旧 `accepted` 为 stale，必须追加复审；更换 Reviewer 时新建 review 文件。
 - Reviewer 直接引用 finding/evidence 提出补证，`needs-evidence` 返回原 owner，不经过 writeback/reconcile 状态机。开发类交付的 `accepted` 只表示此次代码交付经审查，不自动取得 V0–V4 maturity 或 learning 资格；独立运行测试由获准 verifier 承担，不让只读 Reviewer 暗中获得执行权。
 - 综合 F 直接引用全部支撑连接的 E，由整体 review 同时绑定；局部 F 仅作导航，两个局部 accepted 不等于整体 accepted，不假设 F→F 递归校验。客户端/API 联合交付还须证明目标版本、对象、字段表示、请求/响应与处理的连接；pack identity 不能代替目标身份，客户端约束不能代替服务端约束。缺连接时保留局部结果和整体 unknown。
-- Commander 只有在 finding 可追溯到 evidence、最后 current review round 为 `accepted`、重要反证已处理且授权边界未漂移后才向用户交付。最终回答对应用户原始问题，分别说明已证明、被否定与仍未知的部分及其影响；局部 accepted finding 不代表整个目标已回答，不以 finding 数量或报告长度作为完成标准。
+- 开题、派工和验收沿用同一条用户用法：把用户提供的旧版、示范或样例与要改的行为区分清楚，写入已有交付/退出条件。成品验证方法在 `.steamai-vnext/pack-snapshot/common/policies/verification.md`；委派时把对应的 `../../pack-snapshot/common/policies/verification.md` 列入成员的输入与允许读取。验收按该规则检验用户实际会拿到的成品。派给成员的入口要说明从哪个目录运行；成员启动目录不是项目根。若获准命令只在项目根有效，不照抄给成员或让它临时换目录：由原本在该目录且获准的执行者做这一次收件验证，修复仍归原 owner。换一种交付形式、换人代修，或只验了成功用法，都不能补上原来失败的那一项。原 owner 在既有授权内能修、能复验就接着做；确实受阻才说明缺项，不替它执行被拒动作。
+- 对研究结论，Commander 只有在 finding 可追溯到 evidence、最后 current review round 为 `accepted`、重要反证已处理且授权边界未漂移后才向用户交付。最终回答对应用户原始问题，分别说明已证明、被否定与仍未知的部分及其影响；局部 accepted finding 不代表整个目标已回答，不以 finding 数量或报告长度作为完成标准。
 
 ## 经验回流
 

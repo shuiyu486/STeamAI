@@ -33,6 +33,8 @@ packs/<pack>/
     recipes/*.md
 ```
 
+上面是有专业工具或独立流程模板时的常用布局。纯方法包（如 `general-delivery`）只保留实际使用的 router、references 和 manifest，允许 `templates: []`、`tooling: []`；不为凑目录复制 common 的成品验证规则。
+
 `README.md` 是按需路由入口，不是长必读清单。`agent-team.md` 只描述领域职责、owner/verifier/Reviewer 分工和产出；`workflow-template.md` 描述研究阶段与停止条件；`toolchain-router.md` 描述工具选择、风险与证据要求；tooling recipe 不执行动作，只给出可审查步骤。
 
 ## 定点工具脚本

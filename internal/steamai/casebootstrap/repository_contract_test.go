@@ -23,14 +23,20 @@ func TestRepositoryRoleContractsMaterializeThroughFresh(t *testing.T) {
 
 	oldRoot := newCaseRoot(t)
 	preview, identity := applyFresh(t, oldRoot)
-	for target, text := range map[string]string{
-		".claude/skills/steamai/SKILL.md":           "当前任务内的方法调整不是正式改派",
-		".steamai-vnext/CLAUDE.md":                  "任务说明预期结果而非固定研究步骤",
-		".steamai-vnext/members/analyst/CLAUDE.md":  "不只交付操作建议",
-		".steamai-vnext/members/reviewer/CLAUDE.md": "自主选择只读复核路径",
+	for target, texts := range map[string][]string{
+		".claude/skills/steamai/SKILL.md":                                  {"当前任务内的方法调整不是正式改派", "notify_when_idle", "交接段和内部记录也受这个限制"},
+		".steamai-vnext/CLAUDE.md":                                         {"任务说明预期结果而非固定研究步骤", "项目根的 exact cwd", "解除阻塞不是项目完成", "交接段、索引和验收记录都不例外"},
+		".steamai-vnext/pack-snapshot/common/policies/verification.md":     {"最早能证实的差异", "接收者实际拿到的版本"},
+		".steamai-vnext/pack-snapshot/common/policies/write-boundaries.md": {"只准写列出的文件", "不另写记录"},
+		".steamai-vnext/contracts/learning-feedback.md":                    {"独立的脱敏变体", "不算真实后续 case 的 V4"},
+		".steamai-vnext/members/analyst/CLAUDE.md":                         {"不只交付操作建议", "不另写内部记录", "项目根的命令不自动成为成员目录可用的命令"},
+		".steamai-vnext/members/reviewer/CLAUDE.md":                        {"自主选择只读复核路径"},
 	} {
-		if !bytes.Contains(writeForTarget(t, preview, target).Data, []byte(text)) {
-			t.Fatalf("real repository contract is missing from %s: %s", target, text)
+		data := writeForTarget(t, preview, target).Data
+		for _, text := range texts {
+			if !bytes.Contains(data, []byte(text)) {
+				t.Fatalf("real repository contract is missing from %s: %s", target, text)
+			}
 		}
 	}
 	roles := []string{"analysis-member.md", "reviewer.md"}

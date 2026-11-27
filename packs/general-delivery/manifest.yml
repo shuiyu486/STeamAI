@@ -1,0 +1,66 @@
+schemaVersion: 2
+name: general-delivery
+version: 0.1.0
+description: 面向普通项目的声明式交付 pack（离线可运行工具、资料核对、既有工作流修复）；只把成品检验路由到 common 规则，不复制专业领域能力。
+maturity: declarative-vnext
+
+entrypoints:
+  router: references/general-delivery/README.md
+
+references:
+  - references/general-delivery/README.md
+  - references/general-delivery/examples.md
+
+templates: []
+
+policies:
+  - ../../common/policies/context-budget.md
+  - ../../common/policies/tool-adapters.md
+  - ../../common/policies/review-first.md
+  - ../../common/policies/write-boundaries.md
+  - ../../common/policies/verification.md
+  - ../../common/policies/evidence.md
+
+tooling: []
+
+teamHints:
+  suggestedMembers: 1-2
+  reviewer: on-delivery
+  ownerPerQuestion: 1
+  verifierPerQuestion: 1
+  durableTeamLimit: 3-executors-plus-1-reviewer
+
+heavyActions:
+  - id: run-provided-program
+    title: 运行用户提供的旧版程序、录屏或键鼠记录
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, unexpected-side-effect, budget-exhausted]
+  - id: install-dependency-or-runtime
+    title: 安装、升级或注册依赖、运行时与打包工具
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, permission-denied, budget-exhausted, unexpected-side-effect]
+  - id: external-delivery
+    title: 上传、发布、推送或把成品与资料发给接收者
+    risk: high
+    requiredAuthorization: exact-case-scope-and-specific-user-confirmation
+    requiredToolPermission: true
+    stopConditions: [scope-drift, recipient-or-content-mismatch, unexpected-side-effect]
+
+learningTargets:
+  - references/general-delivery/*.md
+
+denyPatterns:
+  - real-case-identifiers
+  - raw-artifacts
+  - credentials-or-tokens
+  - absolute-case-paths
+  - customer-or-recipient-details
+  - real-documents-and-datasets
+
+budgets:
+  CLAUDE.local.md: 8192
+  defaultMarkdown: 16384

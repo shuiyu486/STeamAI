@@ -24,6 +24,8 @@
 | 有状态 Windows 自动化实现方法 | `../../tooling/recipes/windows-stateful-automation.md` | 状态枚举、识别通道、等待与非幂等保护。 |
 | 六场景验收与回归 | `../../tooling/recipes/automation-regression.md` | 正常/延迟/错误/暂停恢复/停止/重复启动矩阵。 |
 | 参考实现骨架 | `../../tooling/examples/windows-flow/` | 决策核心与执行解耦、fake adapter、控制文件与 ledger。 |
+| 手上已经有旧版和候选的两份观察 | `../../tooling/examples/windows-flow/README.md` 的「参照-候选工作台」 | 直接用只读 `workbench.py compare <参照> <候选>`（或项目已准的等价入口）找第一次外部状态分歧。输出已列出首差处两份的目标、期待、定位点、落点、送达、前态→后态，并点明是"定位本身不同 / 定位后输入位置变了 / 位置一致（效果未知或未证）"；从"下一步"里**选一项检查**、改一处、同一输入复验，不要先读 JSON 或工作台源码。步骤表不同（同标签但目标/期待不同）会报不可比，不要当 same。只有工具报错或缺关键证据，才查对应实现。 |
+| 还需生成观察、检查暂停或位移 | 同上，按需用 `run` / `observe` / `matrix` | 缺证据即未知，坏轨迹自比不绿；自建 `dm_demo_target --pages` 屏外窗口需调用者给出可信构建 SHA-256 才启动。 |
 | 成员间任务交接 | `task-handoff.template.md` | 状态/ledger/产物/边界交接字段。 |
 
 ## 脚本行为硬边界（自首版生效）

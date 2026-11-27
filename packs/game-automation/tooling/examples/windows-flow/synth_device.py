@@ -90,10 +90,24 @@ class SynthDevice(object):
         self.locations = []  # (key, source, point)：定位来源时间线（断言用）
         self.acts = []       # (action, point, hit)
         self.released = False
+        self.last_frame = None  # 最近一次 prepare/act 用的帧：供观察侧读画面证据，不额外推进目标时间
+
+    @staticmethod
+    def target_name(action):
+        """动作对应的目标名：原 Action 走表；带 target 属性的步骤动作（workbench）直接用。"""
+        return getattr(action, "target", None) or ACTION_TARGETS[action]
+
+    @staticmethod
+    def expected_hit(action):
+        return getattr(action, "expected_hit", None) or ACTION_HITS[ACTION_TARGETS[action]]
 
     def key_for(self, action):
-        return (self.instance_token, action.value,
-                ACTION_TARGETS[action], self.target.state)
+        return (self.instance_token, action.value, self.target_name(action), self.target.state)
+
+    def binding(self):
+        """合成目标的"绑定"证据：实例与画幅尺寸（位移不改变绑定，改变 revision）。"""
+        screen = self.locator.matcher.size(self.last_frame) if self.last_frame is not None else (self.target.width, self.target.height)
+        return {"instance": self.instance_token, "screen": [int(screen[0]), int(screen[1])]}
 
     def observe(self, checkpoint):
         checkpoint()
@@ -108,9 +122,10 @@ class SynthDevice(object):
         # 属于旧 frame，绝不把定位之后的新 revision 贴到旧位置上；
         # 变化由 act 的复核拒绝。
         screen = self.target.capture()
+        self.last_frame = screen
         state = self.target.state
         revision = self.target.revision
-        key = (self.instance_token, action.value, ACTION_TARGETS[action], state)
+        key = (self.instance_token, action.value, self.target_name(action), state)
         located = self.locator.locate(key, screen, checkpoint)
         # 坐标校验不因蒸馏命中豁免：定位点必须落在本次截图范围内
         sw, sh = self.locator.matcher.size(screen)
@@ -127,7 +142,8 @@ class SynthDevice(object):
         # 不能拿未 tick 的内存值比较、把时序变化留到 click 内部才发现。
         # 定位所依据的状态与 revision 未变才发输入；过期即未确认
         # （不点击、保留 pending），不靠点击落点事后判定零误点
-        self.target.capture()
+        frame = self.target.capture()
+        self.last_frame = frame
         if prepared.state != self.target.state \
                 or prepared.revision != self.target.revision:
             raise workflow.InputUnconfirmed(
@@ -137,11 +153,12 @@ class SynthDevice(object):
         x, y = prepared.point
         hit = self.target.click(x, y)
         self.acts.append((action, (x, y), hit))
-        if hit != ACTION_HITS[ACTION_TARGETS[action]]:
+        expected = self.expected_hit(action)
+        if hit != expected:
             # 输入已发出但未命中预期控件：结果未确认，抛 InputUnconfirmed
             # 保留 pending、不重试，交上层暂停等待确认
             raise workflow.InputUnconfirmed(
-                "click hit %r, expected %r" % (hit, ACTION_HITS[ACTION_TARGETS[action]]))
+                "click hit %r, expected %r" % (hit, expected))
         return True
 
     def release(self):

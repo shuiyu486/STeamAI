@@ -1,0 +1,49 @@
+{
+  "schema": "windows-flow-plan/1",
+  "scenario": "scenario.synth.example.json",
+  "runs": [
+    {
+      "id": "baseline",
+      "expect_result": "confirmed"
+    },
+    {
+      "id": "wrong-point",
+      "candidate": {"click_offset": [0, 60]},
+      "expect_result": "unconfirmed",
+      "expect_fault": "delivered-no-effect"
+    },
+    {
+      "id": "fixed",
+      "expect_result": "confirmed",
+      "expect_fault": "same"
+    },
+    {
+      "id": "stale-move",
+      "candidate": {"locate_dwell_ms": 60},
+      "disturbance": {"step": "collect", "kind": "move", "target": "reward_button", "to": [320, 120]},
+      "expect_result": "refused",
+      "expect_fault": "stale-refusal"
+    },
+    {
+      "id": "pause-resume",
+      "candidate": {"locate_dwell_ms": 60},
+      "disturbance": {"step": "collect", "kind": "pause", "resume_after_ms": 200},
+      "expect_result": "confirmed",
+      "expect_fault": "discarded-by-pause"
+    },
+    {
+      "id": "effect-late",
+      "candidate": {"effect_budget_ms": 1},
+      "expect_result": "unconfirmed",
+      "expect_fault": "effect-late"
+    }
+  ],
+  "compares": [
+    ["baseline", "wrong-point"],
+    ["baseline", "fixed"],
+    ["baseline", "stale-move"],
+    ["baseline", "pause-resume"],
+    ["baseline", "effect-late"],
+    {"ref": "wrong-point", "cand": "fixed", "expect_fault": "post-state-differs"}
+  ]
+}

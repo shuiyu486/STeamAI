@@ -6,7 +6,7 @@
 
 - `dm_console`：MFC 对话框界面，开始、暂停/继续、停止、日志、SDK 文件/版本设置、自建窗口测试入口与注册码密码框；默认演示模式，不加载 SDK。界面源码为 `src/mfc_main.cpp` 等 MFC 文件。
 - `dm_worker`：标准 C++17 执行程序。控制管道与工作线程分离，暂停/停止不会被工作线程的循环堵住；对象在同一个工作线程初始化 COM、创建、调用和释放。真实绑定/输入链路在 worker 端完成（见文末）。
-- `dm_demo_target`：独立 Win32 目标 EXE，只自建自有窗口（上方左半纯红、右半纯蓝色块，底部输入计数），经 stdin/stdout 私有管道向父进程报告 exact HWND/PID 与计数（`TARGET ready` / `stats`，`close` 或管道 EOF 正常退出）；默认可见供手动观察，维护测试 `--hidden` 永不显示。不读用户窗口、不做网络。
+- `dm_demo_target`：独立 Win32 目标 EXE，只自建自有窗口（上方左半纯红、右半纯蓝色块，底部输入计数），经 stdin/stdout 私有管道向父进程报告 exact HWND/PID 与计数（`TARGET ready` / `stats` / `page`，`close` 或管道 EOF 正常退出）；默认可见供手动观察，维护测试 `--hidden` 永不显示。`--pages N`（2..8）是"打开/切页"的无消耗等价目标：客户区顶部加一条页签，只有页签内的按下切页并换内容配色，其它区域只计数，`TARGET page <k>` 报告当前页；非法值在创建窗口前退出 2。经典模式的尺寸、绘制、计数与协议行不变。不读用户窗口、不做网络。
 - 真实接入代码：只接受指定 DLL、SHA-256、CLSID 和预期版本，核对 PE 位数后，通过标准 COM `DllGetClassObject` / `IClassFactory` / `IDispatch::Invoke` 查询 `Ver`；绑定前按文档先完成 `Reg`（用户自己的注册码，只经父进程 private stdin 传入，见文末许可约束）。不依赖按键精灵、`RegDll.dll` 或机器全局注册；不猜 `RegDll` 私有导出签名。
 - 测试：Win32 Release 下，worker/合成 COM 回归 29 项、目标协议 7 项、MFC 回归 4 项全部通过（MFC 内含 11 个生命周期检查点及窗口 demo）。**合成测试不代替真实大漠验收；真实结果另列于文末。**
 
@@ -56,7 +56,9 @@ EXE 不等于单文件分发；SDK 由用户单独提供，不打包进此仓库
 
 本次在 Windows 10 x64、VS2019/MSVC 19.29、Windows SDK 10.0.20348.0 上完成 Win32 Release 构建：`dm_console.exe`、`dm_worker.exe`、`dm_demo_target.exe`、SDK 冒烟工具与合成 DLL 均已生成。MFC 与 CRT 静态链接；`dumpbin /dependents` 确认应用 EXE 只列系统 DLL，没有 Qt/MFC/VC 动态运行库依赖。该依赖检查不代表所有其它机器均已验收。
 
-CTest 三组全过，共 40 个 Python 用例：worker/合成 COM 29 项（版本、Reg 前置与许可输入拒绝、绑定/取色/输入失败清理、暂停/恢复/停止/父管道关闭），目标协议 7 项（身份、计数、close/EOF、非法命令），MFC 4 项（11 个生命周期检查点、窗口 demo、9 个参数拒绝子场景、3 个许可输入拒绝子场景）。测试走实际控件消息和进程管道，不使用真实鼠标键盘。合成 DLL 的跨进程取色模拟固定红蓝测试图，只验证调用与流程；真实取色证据来自下述真实 SDK 测试。此结果**不等于可见界面外观/DPI、多窗口游戏或长时间无人值守验收**。
+CTest 三组全过，共 43 个 Python 用例：worker/合成 COM 29 项（版本、Reg 前置与许可输入拒绝、绑定/取色/输入失败清理、暂停/恢复/停止/父管道关闭），目标协议 10 项（身份、计数、close/EOF、非法命令、`--pages` 切页/非法参数、经典模式恒为 1），MFC 4 项（11 个生命周期检查点、窗口 demo、9 个参数拒绝子场景、3 个许可输入拒绝子场景）。测试走实际控件消息和进程管道，不使用真实鼠标键盘。合成 DLL 的跨进程取色模拟固定红蓝测试图，只验证调用与流程；真实取色证据来自下述真实 SDK 测试。此结果**不等于可见界面外观/DPI、多窗口游戏或长时间无人值守验收**。
+
+`--pages` 模式另由 `../windows-flow/workbench.py observe/matrix` 在屏外窗口上实测（显示到所有显示器之外、不占前台；画面经 `PrintWindow(PW_CLIENTONLY)` 自绘与窗口 DC 两路一致才算有证据；点击坐标必须在目标 DPI 上下文里发送，否则被系统按 DPI 放大而切错页签），结果与边界记在 [windows-flow README](../windows-flow/README.md)。隐藏窗口读不到像素，只报 unknown。
 
 真实大漠 **`Ver` 探针已验证通过**：经用户批准、指定 7.2520 DLL 并核对文件 hash 与 CLSID 来源后，worker 完成版本比较并正常 stop/释放/exit 0，无强杀，DLL 文件 hash 未变（本机路径、CLSID 与 hash 不写入仓库）。
 

@@ -65,6 +65,20 @@ tools:
     reusableNotes:
       - 自动化决策逻辑（正常、失焦、超时、未知状态、停止、恢复）默认用 fake adapter 覆盖单测；真实框架不在默认单测启动。
 
+  - id: reference-diff-workbench
+    status: candidate
+    purpose: 自动化脚本改后回归：同一场景的参照/候选两份观察按外部证据（应用状态/绑定/画面/识别/输入/后置状态）比首差，给出可区分故障的下一步与修后复验；缺证据即未知，不把函数成功当达到目标。
+    inputs: [scenario-steps, reference-observation, candidate-variant, plan-declarations, caller-provided-exe-sha256]
+    outputs: [observation-traces, first-difference-report, matrix-summary]
+    sideEffects: [own-demo-target-process, input-posted-to-own-child-window-offscreen, bounded-filesystem-write]
+    requiresUserConfirmation: false
+    requiredContext: [exact-scenario, output-path, step-expectations, caller-provided-exe-sha256]
+    stopConditions: [exe-hash-mismatch, unsafe-plan-id, output-exists, target-foreground, target-on-screen, capture-unreadable, stop-requested]
+    reusableNotes:
+      - 入口 tooling/examples/windows-flow/workbench.py（run/observe/compare/matrix）与 refdiff.py；只启动按调用者独立给出的 SHA-256 核对过的自建 dm_demo_target，只操作其子进程窗口（显示到所有显示器之外）；不截屏、不 SendInput、不装钩子、不调用模型、不操作其它窗口。
+      - matrix 退出码 0 只表示每项实际结果符合 plan 声明，不是工作流成功；compare 的 0 要求两份都确有目标达成且声明的保留项无冲突，同一份坏轨迹自比不绿。
+      - 真实游戏/第三方窗口未验收；隐藏窗口读不到像素记 unknown；不是通用执行器，场景与 plan 由调用者给出。
+
 entries:
   - id: windows-stateful-automation
     recipe: tooling/recipes/windows-stateful-automation.md

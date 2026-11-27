@@ -40,6 +40,7 @@ Windows 10 实测：旧的允许脱离版本曾留下真实 Git Bash `tail`；�
 ## 可选能力
 
 - `ListAgents` / `SendMessage`：发现和联系可达的独立 Claude Code 会话；不是 durable、exactly-once 消息队列。Windows 原生消息 live gate 使用明确发布该能力的 Claude Code 2.1.248 或更高版本；更早或未暴露 peer address/ListAgents 的版本按“无跨会话消息”降级。当前 `ListAgents` 输出不承诺包含 cwd，因此发送方先在与目标会话相同的 Claude Code 配置域用 `claude agents --json` 取得 exact cwd→name 唯一映射，再要求该 name 在 `ListAgents` 中恰好可达；inventory 单独不能冒充可达 peer，`ListAgents` 单独也不能证明成员目录身份。发送结果还必须明确 `success:true`，并在接收方 transcript 中出现对应 incoming record，任一缺失都不能声称送达。后台自动验收若需要无人值守接收跨会话消息，必须在临时 session settings 中显式设置 `crossSessionInbound: "accept"`；产品默认不全局修改用户设置。
+- 本机 peer 的一次性空闲通知是**可选项**：以当前 `SendMessage` 是否暴露 `notify_when_idle` 为准，不由消息最低版本推断。主会话可发送时一并订阅，或省略 `message` 只订阅。对已经空闲的成员，通知也可能指向此前结束的同一轮，不代表刚有新进展；空闲、退出、订阅到期都不是任务回执。它不提供定时心跳、可靠离线投递或进程重启。通知可能需用户批准才可见；不为收通知放宽权限。如何避免死等、何时只提醒原成员一次，见项目固定 skill 的「等成员回报」。
 - Agent view / `claude agents --json --all`：查看当前可观察的交互式或后台 session；`--cwd` 只限定后台列表，不能据此假定过滤全部 foreground session，发送方仍须核对每条 row 的 exact `cwd`。普通 foreground session 不保证一定出现在 Agent view；未观察到只能标记 `unknown`，不能推断 offline/completed。它只为上述即时发送提供临时身份交叉核对，不持久化为 session registry。
 - `claude logs <id>`：查看后台成员最近终端输出；`claude attach <id>`：进入后台 session 并直接纠偏；`claude respawn <id>`、`claude --resume <session-id>`：恢复已有独立 session。resume 时必须重新传入当前 case 的 `--add-dir <CASE_ROOT>`，不能假定 launch-only access flag 自动恢复。只有用户直接输入或同一 session 的明确 resume/attach input 才验证 direct correction；跨会话 `SendMessage` 不能冒充用户纠偏或授予任务变更权限。同一 member cwd 若观察到两个可写 session，agent 任务改写必须 hold，等待用户直接选择。
 - `claude --bg`：用户不需持续观察时的可选后台模式，不是默认。

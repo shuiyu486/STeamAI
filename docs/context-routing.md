@@ -14,12 +14,15 @@
 | 安装、quickstart、更新、卸载 | `README.md` | 区分当前源码与已发布版本；已有 case 不自动更新 |
 | 三线实际可用范围、效果证据与已知缺口 | `docs/professional-delivery-results.md` | 批次收束不等于所有 gate 通过；关注阻塞期间停止、模板伪匹配与 learning 待验项 |
 | 实用能力与效率的交付补缺、结果与证据边界 | `docs/capability-efficiency-results.md` | 区分仓库功能、合成验证与真实验收；旧 U5 报称 tie 缺充分证据，方法库整体收益未证 |
+| 用旧版、示范或样例验收开发交付 | `common/policies/verification.md` | 从同一起点找最早能证实的差异；用接收者拿到的版本复验，不重放结果未明的动作 |
+| 普通离线工具、资料核对或既有流程修复 | `packs/general-delivery/references/general-delivery/README.md` | 没有更合适的专业包时使用；不借用游戏或安全研究的工具权限 |
+| 核查跨项目成品交付试验 | `docs/cross-project-delivery-upgrade.md` | 区分工程分发、单题可用、同条件效果与未验范围；不继承旧题的成绩 |
 | native shell 机械边界 | `cmd/steamai`、`internal/steamai/app.go`，再按 symbol 路由 | 不扩为团队控制面 |
 | canonical `/steamai` 行为、Commander 换班与分工 | `.claude/skills/steamai/SKILL.md` | 主动换班先说「交接到新会话」保存对话内断点；直接关后无参 `steamai` 只按已保存状态恢复，`-c` 是续聊 |
 | case/member/research 模板 | `vnext/README.md`，再选目标模板 | 不一次加载全部模板 |
 | 原生 session、WezTerm 标签、模型档位、恢复与会话 Job | `vnext/capabilities.md` | session ID 不代表身份或授权；会话 Job 只收本会话的普通子孙进程；本机两档模型配置（`steamai models`）与参数测试不代替真实交互 |
 | Windows 通用桌面 MCP | `common/tooling/windows-desktop-mcp.md` | 跨 pack 按需接入；配置/协议与真实键鼠分层，不自动操作桌面 |
-| WezTerm、模型档位与桌面 MCP 的实际验收范围 | `docs/windows-desktop-results.md` | 区分同窗标签、自建窗口实操与未验目标；不代表任意游戏可控或已发布 Release |
+| WezTerm、正式成员中断续办、模型档位与桌面 MCP 的实际验收范围 | `docs/windows-desktop-results.md` | 区分同窗标签、受控 HTTP 中断、自建窗口实操与未验目标；不代表自然故障均可恢复或已发布 Release |
 | 自动与 live acceptance | `vnext/acceptance.md` | 现阶段仅 Windows；不默认三平台 CI，静态/fake/headless 不能代替受影响的真实路径 |
 | learning 批次回流 | `vnext/learning-feedback.md` | exact confirmation 不可省，不自动写 pack |
 | replay、V0–V4、calibration、promotion、field outcome | `vnext/verified-learning.md` | 缺证不晋级；盲审读取 manifest 绑定的 immutable packet |

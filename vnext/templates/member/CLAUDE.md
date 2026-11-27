@@ -15,10 +15,12 @@
 - 允许读取：`{{ALLOWED_READS}}`
 - 允许写入：`{{ALLOWED_WRITES}}`
 
-以上文件路径都以本成员启动目录 `.steamai-vnext/members/{{MEMBER_NAME}}/` 为解析基准；共享研究产物必须使用 `../../artifacts/`、`../../evidence/`、`../../findings/`、`../../reviews/` 或 `../../learnings/`，不得在成员目录下创建同名影子目录。开发类任务可在 `允许写入` 列出 Commander 明确分配的 case-relative 项目源码路径，源码留在项目原位置；同一源码文件不得由多名成员并发写入，整合他人改动前先核对当前基线与用户手工修改。领域输入必须列出 Commander 按需选择的 `../../pack-snapshot/packs/<selected-pack>/manifest.yml`、router 和当前任务入口；若需辅助方法，另列已冻结辅助包的 `../../pack-snapshot/packs/<aux-pack>/...` exact paths；common policy 使用 `../../pack-snapshot/common/...`。只读取任务列出的 case-pinned paths，不回读 source clone，也不默认遍历整个 snapshot。辅助方法不改变本成员身份、当前任务或授权；无法消解的方法冲突先说明差异并通知 Commander。
+未另标基准的文件路径都从本成员启动目录 `.steamai-vnext/members/{{MEMBER_NAME}}/` 解析；标明「项目根」的源码路径从 case 根解析，不是成员目录下的同名文件。共享研究产物必须使用 `../../artifacts/`、`../../evidence/`、`../../findings/`、`../../reviews/` 或 `../../learnings/`，不得在成员目录下创建同名影子目录。开发类任务可在 `允许写入` 列出 Commander 明确分配的 case-relative 项目源码路径，源码留在项目原位置；同一源码文件不得由多名成员并发写入，整合他人改动前先核对当前基线与用户手工修改。领域输入必须列出 Commander 按需选择的 `../../pack-snapshot/packs/<selected-pack>/manifest.yml`、router 和当前任务入口；若需辅助方法，另列已冻结辅助包的 `../../pack-snapshot/packs/<aux-pack>/...` exact paths；common policy 使用 `../../pack-snapshot/common/...`。只读取任务列出的 case-pinned paths，不回读 source clone，也不默认遍历整个 snapshot。辅助方法不改变本成员身份、当前任务或授权；无法消解的方法冲突先说明差异并通知 Commander。
 - 交付：`{{DELIVERABLES}}`
 - 停止或升级条件：`{{STOP_OR_ESCALATE}}`
 - 完成/退出条件：`{{EXIT_CONDITIONS}}`
+
+项目根的命令不自动成为成员目录可用的命令。按本任务给定的工作目录和获准入口执行；两者不匹配就先回报缺哪次验证，不拼 `cd`、不复制入口到成员目录，也不因文件能读就自行改写命令。
 
 本节是当前正式任务。Commander 只在首次创建、尚未启动本成员 session 时生成初始文件；首次启动后，本成员是本文件的产品单写者。Commander 的正式任务变更消息必须列出 expected current task 的全部七项与 new current task 的全部七项；只有本节仍逐项匹配 expected 时才由本成员更新并执行。若已被用户纠偏或其它更新改变，返回 `HOLD_STALE_TASK`，零覆盖并通知 Commander。
 

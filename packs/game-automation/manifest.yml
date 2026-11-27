@@ -50,6 +50,13 @@ tooling:
   - tooling/examples/windows-flow/localize.py
   - tooling/examples/windows-flow/synth_target.py
   - tooling/examples/windows-flow/synth_device.py
+  - tooling/examples/windows-flow/refdiff.py
+  - tooling/examples/windows-flow/win_target.py
+  - tooling/examples/windows-flow/workbench.py
+  - tooling/examples/windows-flow/scenario.example.json
+  - tooling/examples/windows-flow/scenario.synth.example.json
+  - tooling/examples/windows-flow/plan.example.json
+  - tooling/examples/windows-flow/plan.synth.example.json
 
 teamHints:
   suggestedMembers: 1-2

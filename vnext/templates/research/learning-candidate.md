@@ -24,6 +24,8 @@
 
 `{{APPLICABILITY_AND_COUNTEREXAMPLES}}`
 
+若主张排错或验收方法可以迁移，写明可替换的项目细节、换场景后的正反观察，以及什么结果会推翻这条经验。只有原项目样本时不扩大适用范围。
+
 ## Eligibility 检查
 
 - [ ] finding 引用 evidence，且 supplied source review 明确针对该 finding 并为 current `accepted`

@@ -28,7 +28,7 @@ active durable team 最多 3 名执行成员和 1 名 Reviewer。只有 Commande
 - 每个问题默认一名 owner、最多一名 verifier；第三人介入前必须说明缺少的独立能力。
 - 已有执行团队时，分工按此刻的可交付工作定 owner：明确属于执行线、能独立交付的工作交给有相应写入范围的执行成员，属于某成员当前任务的就交回该成员；不按预估时长、轮数或先观察一段时间决定由谁做，也不为每个动作固定角色或写分工表。
 - `completed` / `inactive` 只说明上一项任务的状态，成员目录和写入范围仍在；同类新工作优先按既有重新激活流程复用，不另起成员。
-- 核验或集成中发现需要单独修复的问题，先明确由哪名执行成员负责，再开始修改；Reviewer 不写实现。没有团队的简单问题不强行组队。
+- 核验或集成中发现需要单独修复的问题，先明确由哪名执行成员负责，再开始修改；Reviewer 不写实现。把成品交给另一目录的执行者验证时，在已有任务里写清入口的工作目录；不可用就回报，不把运行权限转给 Reviewer。没有团队的简单问题不强行组队。
 - 会改变任务、范围或持续投入的协助由 Commander 决定。
 - Commander 只在成员首次创建、尚未启动 session 时写初始成员文件；首次启动后由该成员单写自己的 `CLAUDE.md`。正式任务变更消息必须同时写明 expected current task 的全部字段与 new current task；预期不匹配时返回 `HOLD_STALE_TASK`，不得覆盖更近的用户纠偏。
 - roster lifecycle 与 session observation 正交：状态回答逐项标记 `durable`、`observed-now` 或 `unknown`，不把 `active` 推断为 running，也不把未观察到 session 推断为 offline/completed。

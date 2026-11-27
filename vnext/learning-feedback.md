@@ -17,6 +17,8 @@
 - Proposed destination 位于主 pack，且同时匹配 case snapshot 与 canonical current 的主 manifest `learningTargets`；辅助 manifest 不授予写回权限；
 - generalized lesson、适用条件与反例不命中 `denyPatterns`，且不包含真实目标、客户、artifact、hash/address、绝对路径、凭据、session/task identity 或 case 流水账。
 
+从旧版迁移、排错或成品验收提炼方法时，把经验写成别人能试错的检查，而不是「本次动作成功」。在现有的适用条件与反例中写明**换掉哪个项目细节仍应成立，以及出现什么观察就该放弃这条方法**。要主张方法可迁移，用独立的脱敏变体测试：改变输入或场景，保留要检验的因果关系，记录正例和能识别假成功的反例。没有第二场景的证据就只保留为来源 case 的观察，不宣称跨项目有效。此检查不算真实后续 case 的 V4，不替代各 `Claim kind` 的既有门槛，不为收集样本读取其它项目。
+
 candidate 创建后 byte-for-byte immutable；其 exact file SHA 由 review、batch 与 Apply 外部绑定，candidate 文件不得包含自身 exact SHA 字段。Reviewer 按 `learning-review.md` 逐条检查证据、通用性、反例、去重/冲突、脱敏和 destination，只写 eligibility。只有 `Decision: eligible` 才可进入 batch；candidate review 不绑定或授权 patch。
 
 辅助方法参与研究，不等于获得主包经验资格。只有 current accepted evidence chain 支持，且 Reviewer 在现有 evidence/generalization、applicability/counterexamples 检查中确认主包适用性，才可提炼为主包 candidate。经验必须自包含：未来只选主包的 case 也能理解并使用，不得隐藏依赖辅助包路径、另一套授权或未随主包交付的步骤；不能把辅助原文抄入主包就视为已验证。这是 Reviewer 的语义判断，不是 Go 自动判定。
