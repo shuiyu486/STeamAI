@@ -112,7 +112,7 @@ def trace(step_attempts, labels=("to-page-2", "to-page-3")):
             res = "unconfirmed"
         steps.append({"label": label, "index": i, "expect": {"page": i + 2}, "attempts": atts,
                       "result": res, "duration_ms": 10.0})
-    return {"schema": "windows-flow-trace/1", "scenario": {"name": "s"}, "variant": {"id": "v"},
+    return {"schema": "windows-flow-trace/1", "scenario": {"name": "s", "steps": list(labels)}, "variant": {"id": "v"},
             "start": {"state": {"page": 1, "stats": [0, 0, 0, 0, 0]}, "picture": P1},
             "steps": steps,
             "post_final": {"state": {"page": 3, "stats": [0, 2, 2, 0, 0]}, "picture": P3},
@@ -255,6 +255,97 @@ class RefdiffTests(unittest.TestCase):
                 self.assertEqual(report["verdict"], verdict)
                 self.assertEqual(report["boundary"]["cand"]["last_confirmed_step"], "to-page-2")
 
+    def test_invalid_visual_confirmation_cannot_authorize_the_next_action(self):
+        step = {"label": "finish", "target": "finish", "when": {"page": 2}, "expect": {"page": 3}}
+        core, recorder = WB.ScenarioCore([step], {}), WB.Recorder([step], 100)
+        inner = mock.Mock()
+        inner.snapshot.return_value = {"page": 3}
+        inner.picture.return_value = P2  # 设备声称切页成功，但画面没变
+        def reported_success(action, prepared, probe):
+            probe.update(sent=True, delivered=True, reason_code="confirmed")
+            return True
+        inner.act.side_effect = reported_success
+        action = core.current()
+        attempt_ = recorder.begin_attempt(action)
+        attempt_["pre"] = {"state": {"page": 2}, "picture": P2}
+        inner.snapshot.side_effect = [{"page": 2}, {"page": 3}]
+        device = WB.TracingDevice(inner, core, recorder)
+        self.assertIsNot(device.act(action, None), True)  # Runner 只有收到 True 才提交和继续
+        inner.act.assert_called_once()
+        self.assertIs(attempt_["input"]["sent"], True)
+        self.assertIs(attempt_["post"]["confirmed"], True)  # 保留设备原始自报
+
+    def test_precondition_change_stops_input_even_after_initial_decision(self):
+        for recorded, now in (({"page": 1}, {"page": 2}), ({"page": 2}, {"page": 1}),
+                              ({"page": 2}, {"other": 2})):
+            with self.subTest(recorded=recorded, now=now):
+                step = {"label": "finish", "target": "finish", "when": {"page": 2}, "expect": {"page": 3}}
+                core = WB.ScenarioCore([step], {})
+                obs = WB.workflow.Observation(WB.workflow.State.READY)
+                obs.snapshot = {"page": 2}
+                decision, action = core.decide(obs, {}, {"retries": 0, "waited": 0})
+                self.assertIs(decision, WB.workflow.Decision.ACT)
+                inner = mock.Mock()
+                inner.snapshot.side_effect = [recorded, now, {"page": 3}]
+                recorder = WB.Recorder([step], 100)
+                device = WB.TracingDevice(inner, core, recorder)
+                with self.assertRaises(WB.workflow.InputUnconfirmed):
+                    prepared = device.prepare(action, lambda: None)
+                    device.act(action, prepared)
+                inner.act.assert_not_called()
+                self.assertIs(recorder.current["input"]["sent"], False)
+                self.assertIsNone(recorder.current["input"]["point"])
+
+    def test_sent_step_must_start_in_its_own_declared_state(self):
+        for before, verdict in (({"page": 1}, "not-achieved"), ({"page": True}, "not-achieved"),
+                                ({"other": 2}, "unknown"), ({"page": None}, "unknown"), ({"page": 2}, "same")):
+            with self.subTest(before=before):
+                t = good_trace()
+                step = t["steps"][1]
+                step["when"] = {"page": 2}
+                step["attempts"][0]["pre"]["state"] = before
+                report = RD.compare_traces(t, copy.deepcopy(t))
+                self.assertEqual(report["verdict"], verdict)
+                ev = report["evidence"]["cand"][-1]
+                if verdict == "same":
+                    self.assertEqual(ev["external"], RD.EVIDENCED)
+                else:
+                    self.assertEqual(ev["external"], None if verdict == "unknown" else RD.NOT_EVIDENCED)
+                    self.assertEqual(report["boundary"]["cand"]["last_confirmed_step"], "to-page-2")
+                    self.assertEqual(report["boundary"]["cand"]["unconfirmed_input"]["step"], step["label"])
+                    self.assertIn("前置条件", RD.render_report(report))
+
+    def test_later_success_does_not_erase_a_sent_input_from_wrong_state(self):
+        t = good_trace()
+        step = t["steps"][1]
+        step["when"] = {"page": 2}
+        step["attempts"].insert(0, attempt(1, 3, P1, P3))
+        self.assertEqual(RD.compare_traces(t, t)["verdict"], "not-achieved")
+        step["attempts"][0]["pre"]["state"]["page"] = 2  # 即使两次都从对的页发，非幂等步骤仍被重复执行
+        self.assertEqual(RD.compare_traces(t, t)["verdict"], "not-achieved")
+        del step["attempts"][0]["input"]["sent"]
+        self.assertEqual(RD.compare_traces(t, t)["verdict"], "unknown")
+        step["attempts"][0]["input"].update(sent=False, delivered=None, discarded="pause")
+        self.assertEqual(RD.compare_traces(t, t)["verdict"], "same")
+
+    def test_trace_must_cover_its_declared_steps_in_order(self):
+        for labels in (None, [], ["to-page-2"], ["to-page-3", "to-page-2"], ["to-page-2", "to-page-2"]):
+            with self.subTest(labels=labels):
+                t = good_trace()
+                t["scenario"]["steps"] = labels
+                report = RD.compare_traces(t, copy.deepcopy(t))
+                self.assertEqual(report["verdict"], "unknown")
+                self.assertFalse(report["achieved"]["cand"])
+                self.assertIn("scenario.steps", RD.render_report(report))
+
+    def test_invalid_picture_sample_is_not_a_visual_change(self):
+        for before in ({"tab": [2, 12]}, {"tab": [False, 12, 22]}, {"tab": [256, 12, 22]}, {"tab": "no frame"}):
+            with self.subTest(before=before):
+                t = good_trace()
+                a = t["steps"][-1]["attempts"][-1]
+                a["pre"]["picture"], a["post"]["picture"] = before, {"tab": [100, 12, 22]}
+                self.assertEqual(RD.compare_traces(t, t)["verdict"], "unknown")
+
     def test_last_attempt_and_final_state_cannot_borrow_earlier_proof(self):
         t = good_trace()
         t["steps"][-1]["attempts"].append({"pre": t["steps"][-1]["attempts"][0]["pre"]})
@@ -331,9 +422,9 @@ class RefdiffTests(unittest.TestCase):
     def test_same_label_but_different_step_definition_is_not_comparable(self):
         """false green 反例：标签相同但 target/when/expect 不同 = 不是同一份步骤表，行为一致也不能判 same。"""
         ref = self.with_target(good_trace())
-        for step in ref["steps"]:
-            step["when"] = {"state": "idle"}
-        for key, other in (("target", "other"), ("when", {"state": "x"}), ("when", {"state": "idle", "mode": 2}),
+        for i, step in enumerate(ref["steps"]):
+            step["when"] = {"page": i + 1}  # 成功对照要有真实匹配的前态，不只把两个定义写成一样
+        for key, other in (("target", "other"), ("when", {"page": 1}), ("when", {"page": 2, "mode": 2}),
                            ("target", None), ("expect", {"page": 2})):
             cand = copy.deepcopy(ref)
             cand["steps"][1][key] = other
@@ -638,6 +729,20 @@ class SynthEndToEndTests(unittest.TestCase):
             self.assertIn("未达标", text)
             with open(os.path.join(tmp, "self.json"), encoding="utf-8") as handle:
                 self.assertEqual(json.load(handle)["verdict"], "not-achieved")
+
+    def test_correct_final_state_cannot_override_wrong_start_via_cli(self):
+        trace_ = copy.deepcopy(self.traces["baseline"])
+        last = trace_["steps"][-1]
+        self.assertEqual((last["when"]["state"], trace_["post_final"]["state"]["state"]), ("ready", "result"))
+        last["attempts"][-1]["pre"]["state"]["state"] = "idle"
+        with tempfile.TemporaryDirectory() as tmp:
+            path, report = Path(tmp) / "wrong-start.json", Path(tmp) / "report.json"
+            path.write_text(json.dumps(trace_), encoding="utf-8")
+            rc, text = cli("compare", path, path, "--out", report)
+            self.assertEqual(rc, 1, text)
+            self.assertIn("前置条件未满足", text)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual((result["verdict"], result["achieved"]), ("not-achieved", {"ref": False, "cand": False}))
 
     def test_missing_picture_evidence_is_unknown_via_cli(self):
         baseline = self.traces["baseline"]

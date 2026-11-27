@@ -12,8 +12,8 @@ post.state → post.picture → effect → result，再到下一步。
   两份都确有目标达成、声明的保留项有证据且无冲突）/ differs（外部行为不同）/ unknown（没有
   差异但关键证据缺失）/ not-achieved（两份一致但参照或候选没有确有目标达成——同一份坏轨迹
   自己比自己不是"参照已达标"）/ keep-violated（声明必须保留的项在其声明的证据上不一致）。
-  两份空数组、两个设备自报 confirmed 都不算证据：步骤是否达成按 effect 重算——目标自报
-  状态满足 expect 且画面确实变化；缺任一项即 unknown，不能被自报漂绿。
+  两份空数组、两个设备自报 confirmed 都不算证据：核对本次前态、送达、后态和画面，
+  不拿最后一次成功遮住重复输入；证据不足不能判为达成。
 - 尝试次数/步骤个数不同是后验现象：先比公共前缀，次数差异排在公共前缀的真实差异之后。
 - 慢步骤：逐步总时长与 wait/locate/effect 三相归因；暂停/位移时给出最后一次确认的边界。
 - 可比前提：两份步骤表的 label/target/when/expect 逐项一致，否则 incomparable（标签相同但目标或期待
@@ -109,27 +109,50 @@ def state_matches(state, expect):
     return None if status == "unknown" else status == "same"
 
 
-def effect_evidence(attempt, expect):
-    """只有本次有效输入确实送达、目标状态满足 expect 且画面变化，才有该步达成的证据。"""
+def precondition_matches(state, when):
+    # 场景允许不指定 when；缺少实际状态不会让一个已声明的条件成立。
+    return True if when is None or when == {} else state_matches(state, when)
+
+
+def compare_picture(a, b):
+    """只比同名区域的有效三通道像素均值。坏样本不是画面变化的证据。"""
+    def sample(v):
+        return isinstance(v, list) and len(v) == 3 and all(type(c) is int and 0 <= c <= 255 for c in v)
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return "unknown"
+    return _worst([compare_value(a[k], b[k], TOL_PICTURE) if sample(a.get(k)) and sample(b.get(k))
+                   else "unknown" for k in a.keys() | b.keys()])
+
+
+def effect_evidence(attempt, step):
+    """一次输入的前置条件、送达、后态与画面须分别有证据；自报成功不能补证。"""
     attempt = attempt if isinstance(attempt, dict) else {}
     inp = attempt.get("input")
     if not isinstance(inp, dict):
         return None
     if inp.get("discarded") or inp.get("sent") is False or inp.get("delivered") is False:
         return NOT_EVIDENCED
-    if inp.get("sent") is not True or inp.get("delivered") is not True:
-        return None
     pre = attempt.get("pre") or {}
     post = attempt.get("post") or {}
-    state_ok = state_matches(post.get("state"), expect)
-    change = compare_value(pre.get("picture"), post.get("picture"), TOL_PICTURE)
-    if state_ok is None or change == "unknown":
+    before_ok = precondition_matches(pre.get("state"), step.get("when"))
+    after_ok = state_matches(post.get("state"), step.get("expect"))
+    change = compare_picture(pre.get("picture"), post.get("picture"))
+    if before_ok is False or after_ok is False or change == "same":
+        return NOT_EVIDENCED
+    if inp.get("sent") is not True or inp.get("delivered") is not True or before_ok is None or after_ok is None or change == "unknown":
         return None
-    return EVIDENCED if (state_ok and change == "diff") else NOT_EVIDENCED
+    return EVIDENCED
 
 
 def _steps(trace):
     return trace.get("steps") or []
+
+
+def _covers_plan(trace):
+    declared = (trace.get("scenario") or {}).get("steps")
+    observed = [s.get("label") for s in _steps(trace)]
+    return (bool(observed) and declared == observed and all(isinstance(s, str) and s for s in observed)
+            and len(set(observed)) == len(observed))
 
 
 def _last_attempt(step):
@@ -137,15 +160,30 @@ def _last_attempt(step):
     return attempts[-1] if attempts and isinstance(attempts[-1], dict) else None
 
 
+def _step_proof(step):
+    """每步都是非幂等动作，只有此前明确未发的尝试可以略过，不能用最后一次成功掩盖重发。"""
+    attempts = step.get("attempts") or []
+    last = _last_attempt(step) or {}
+    proof = effect_evidence(last, step)
+    for earlier in attempts[:-1]:
+        inp = earlier.get("input") if isinstance(earlier, dict) else None
+        sent = inp.get("sent") if isinstance(inp, dict) else None
+        if sent is True and isinstance(last.get("input"), dict) and last["input"].get("sent") is True:
+            return NOT_EVIDENCED
+        if sent is not False and proof != NOT_EVIDENCED:
+            proof = None
+    return proof
+
+
 def trace_outcome(trace):
     """整次观察的实际结果（不是期望，也不是设备自报）：confirmed 要求每一步都有外部达成
     证据；任一步证据缺失 → unknown；否则取最后一个未确认步骤的结果码。"""
     terminal = (trace.get("terminal") or {}).get("kind")
     steps = _steps(trace)
-    if not steps:
+    if not _covers_plan(trace):
         return "unknown"
     if terminal == "flow-complete" and all(s.get("result") == "confirmed" for s in steps):
-        evidence = [effect_evidence(_last_attempt(s), s.get("expect")) for s in steps]
+        evidence = [_step_proof(s) for s in steps]
         final_ok = state_matches((trace.get("post_final") or {}).get("state"), steps[-1].get("expect"))
         if NOT_EVIDENCED in evidence or final_ok is False:
             return "unconfirmed"
@@ -170,6 +208,8 @@ def trace_unknowns(trace):
     out = []
     if not _steps(trace):
         out.append("steps")
+    if not _covers_plan(trace):
+        out.append("scenario.steps")
     if not trace.get("terminal") or not (trace.get("terminal") or {}).get("kind"):
         out.append("terminal")
     if not isinstance((trace.get("post_final") or {}).get("state"), dict):
@@ -197,7 +237,7 @@ def trace_unknowns(trace):
                 out.append(apath + ".input")
             elif not discarded and inp.get("sent") is True and inp.get("delivered") is None:
                 out.append(apath + ".input.delivered")
-        if effect_evidence(_last_attempt(step), step.get("expect")) is None and step.get("result") == "confirmed":
+        if _step_proof(step) is None and step.get("result") == "confirmed":
             out.append(path + ".effect")
     return out
 
@@ -317,7 +357,7 @@ def classify(first, ref, cand):
         if inp.get("delivered") is False:
             return _rule("not-delivered", first, evidence)
     if phase == "effect" or phase in ("input", "result", "post"):
-        ev = effect_evidence(c, cstep.get("expect"))
+        ev = effect_evidence(c, cstep)
         if ev is None:
             return _rule("effect-unknown", first, dict(evidence, post_state=post.get("state") if isinstance(post, dict) else None, expect=cstep.get("expect")))
         if ev == NOT_EVIDENCED:
@@ -401,7 +441,7 @@ def _side(step, attempt):
             "input": {k: inp.get(k) for k in ("sent", "delivered", "discarded", "point", "reason_code")},
             "pre_state": pre.get("state"), "post_state": post.get("state"),
             "expect_met": state_matches(post.get("state"), expect),
-            "picture_changed": compare_value(pre.get("picture"), post.get("picture"), TOL_PICTURE)}
+            "picture_changed": compare_picture(pre.get("picture"), post.get("picture"))}
 
 
 def position_relation(focus):
@@ -509,7 +549,7 @@ def boundary_of(trace):
     steps = _steps(trace)
     last = None
     for step in steps:
-        if step.get("result") == "confirmed" and effect_evidence(_last_attempt(step), step.get("expect")) == EVIDENCED:
+        if step.get("result") == "confirmed" and _step_proof(step) == EVIDENCED:
             last = step
     last_post = (_last_attempt(last) or {}).get("post") if last else None
     unconfirmed = None
@@ -522,7 +562,7 @@ def boundary_of(trace):
                 continue
             if inp.get("discarded"):
                 discarded += 1
-            elif inp.get("sent") is True and effect_evidence(attempt, step.get("expect")) != EVIDENCED:
+            elif inp.get("sent") is True and effect_evidence(attempt, step) != EVIDENCED:
                 unconfirmed = {"step": step.get("label"), "delivered": inp.get("delivered"), "point": inp.get("point")}
             elif inp.get("sent") is False:
                 refused = {"step": step.get("label"), "reason_code": inp.get("reason_code")}
@@ -550,7 +590,7 @@ def _diff(step_index, step, attempt, phase, key, ref, cand, kind):
 
 
 def _cmp(collect_diff, collect_unknown, step_index, step, attempt, phase, key, va, vb, tol=0.0, kind="external"):
-    status = compare_value(va, vb, tol)
+    status = compare_picture(va, vb) if key == "picture" else compare_value(va, vb, tol)
     if status == "diff":
         collect_diff.append(_diff(step_index, step, attempt, phase, key, va, vb, kind))
     elif status == "unknown":
@@ -558,8 +598,9 @@ def _cmp(collect_diff, collect_unknown, step_index, step, attempt, phase, key, v
     return status
 
 
-def compare_attempt(index, step, j, a, b, expect):
-    """比较一次尝试。返回 (external_diffs, external_unknowns, other_diffs)；other 为实现/环境差异。"""
+def compare_attempt(index, definition, j, a, b):
+    """比较一次尝试，区分外部结果、实现/环境差异和缺失证据。"""
+    step = definition.get("label")
     ext_d, ext_u, other_d, other_u = [], [], [], []
     if a is None or b is None:
         return ([_diff(index, step, j, "attempts", "missing", a is not None, b is not None, "external")],
@@ -607,7 +648,7 @@ def compare_attempt(index, step, j, a, b, expect):
         # 被丢弃的尝试没有发输入，也就没有后置状态可比：input.sent/discarded 的差异已记录在案
         _cmp(ext_d, ext_u, index, step, j, "post", "state", post_a.get("state"), post_b.get("state"))
         _cmp(ext_d, ext_u, index, step, j, "post", "picture", post_a.get("picture"), post_b.get("picture"), TOL_PICTURE)
-        _cmp(ext_d, ext_u, index, step, j, "effect", "evidence", effect_evidence(a, expect), effect_evidence(b, expect))
+        _cmp(ext_d, ext_u, index, step, j, "effect", "evidence", effect_evidence(a, definition), effect_evidence(b, definition))
     return ext_d, ext_u, other_d, other_u
 
 
@@ -622,7 +663,7 @@ def compare_step(index, sa, sb):
         ext_u.append({"step_index": index, "step": label, "attempt": None, "phase": "attempts", "key": "none", "kind": "external"})
     common = min(len(aa), len(bb))
     for j in range(common):
-        d, u, od, ou = compare_attempt(index, label, j, aa[j], bb[j], sa.get("expect"))
+        d, u, od, ou = compare_attempt(index, sa, j, aa[j], bb[j])
         ext_d.extend(d); ext_u.extend(u); other_d.extend(od); other_u.extend(ou)
     if len(aa) != len(bb):
         ext_d.append(_diff(index, label, None, "attempts", "count", len(aa), len(bb), "external"))
@@ -656,6 +697,9 @@ def compare_traces(ref, cand):
                           evidence={"ref": step_evidence(ref), "cand": step_evidence(cand)})
             return report
     ext_d, ext_u, other_d, other_u = [], [], [], []
+    for side, trace in (("ref", ref), ("cand", cand)):
+        if not _covers_plan(trace):
+            ext_u.append({"step_index": None, "step": side, "attempt": None, "phase": "scenario", "key": "steps", "kind": "external"})
     if not steps_ref and not steps_cand:
         # 两份都没有步骤：没有任何可比较的行为证据，不能判相同
         ext_u.append({"step_index": None, "step": "steps", "attempt": None, "phase": "steps", "key": "empty", "kind": "external"})
@@ -729,8 +773,11 @@ def step_evidence(trace):
     out = []
     for step in _steps(trace):
         attempt = _last_attempt(step)
+        before = ((attempt or {}).get("pre") or {}).get("state")
+        when = step.get("when")
         out.append({"step": step.get("label"), "self_report": step.get("result"),
-                    "external": effect_evidence(attempt, step.get("expect")),
+                    "when": when, "pre_state": before, "when_met": precondition_matches(before, when),
+                    "external": _step_proof(step),
                     "delivered": (attempt or {}).get("input", {}).get("delivered") if isinstance((attempt or {}).get("input"), dict) else None})
     return out
 
@@ -830,6 +877,11 @@ def render_report(report):
         lines.append("  %s  A=%s/%s/%s  B=%s/%s/%s" % (
             _fmt(a.get("step") or b.get("step")), a.get("self_report"), a.get("external"), _fmt(a.get("delivered")),
             b.get("self_report"), b.get("external"), _fmt(b.get("delivered"))))
+        for name, side in (("A", a), ("B", b)):
+            if side.get("when") and side.get("when_met") is not True:
+                lines.append("    %s 前置条件%s：要求 %s，记录 %s" % (
+                    name, "未满足" if side["when_met"] is False else "无法核对",
+                    _fmt(side["when"]), _fmt(side["pre_state"])))
     if len(report.get("differences") or []) > 1:
         lines.append("其它外部差异(%d):" % (len(report["differences"]) - 1))
         for diff in report["differences"][1:12]:

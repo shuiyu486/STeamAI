@@ -249,8 +249,8 @@ class ScenarioCore(object):
             if step_ctx["retries"] >= self.retry_limit:
                 return (decision.PAUSE, "no state evidence for step %s" % action.value)
             return (decision.WAIT, "state evidence missing, bounded retry")
-        when = action.step.get("when") or {}
-        matches = refdiff.state_matches(snapshot, when) if when else True
+        when = action.step.get("when")
+        matches = refdiff.precondition_matches(snapshot, when)
         if matches is None:
             return (decision.PAUSE, "state evidence missing for %r in step %s" % (when, action.value))
         if not matches:
@@ -386,6 +386,12 @@ class TracingDevice(object):
         probe = {}
         started = _perf()
         try:
+            when = action.step.get("when")
+            if when:
+                for state in (attempt["pre"]["state"], _safe(self.inner.snapshot)):
+                    if refdiff.precondition_matches(state, when) is not True:
+                        probe.update(sent=False, reason_code="stale-state", reason="输入前无法确认前置条件 %r：%r" % (when, state))
+                        raise workflow.InputUnconfirmed(probe["reason"])
             ok = self.inner.act(action, prepared, probe)
         except workflow.InputUnconfirmed as exc:
             attempt["input"] = _input_record(probe, exc)
@@ -398,7 +404,7 @@ class TracingDevice(object):
         attempt["post"] = {"t": _wall(), "state": _safe(self.inner.snapshot), "picture": _safe(self.inner.picture),
                            "confirmed": bool(ok), "reason_code": probe.get("reason_code"), "reason": probe.get("reason")}
         attempt["effect_ms"] = _ms(_perf() - started)
-        return ok
+        return ok is True and refdiff.effect_evidence(attempt, action.step) == refdiff.EVIDENCED
 
     def release(self):
         self.released = True
